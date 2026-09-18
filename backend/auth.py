@@ -25,6 +25,8 @@ def issue_token(user):
         "username": user.username,
         "is_super_user": bool(user.is_super_user),
         "scope": "staff",
+        "department": user.department or "Admin",
+        "dealer_ids": user.get_assigned_dealer_ids(),
     })
 
 
