@@ -45,6 +45,7 @@ MENU = {
         {"key": "old-rickshaw",           "label": "G. Old Rickshaw",                    "kind": "custom"},
         {"key": "battery-delivery-challan","label": "H. Battery Delivery Challan",       "kind": "custom"},
         {"key": "journal-stock",          "label": "I. Journal Stock",                   "kind": "custom"},
+        {"key": "expense-payment-voucher","label": "J. Expense Payment Voucher",           "kind": "custom"},
     ],
     "Stock": [
         {"key": "closing-stock-premises",   "label": "J. Closing Stock - E-Rickshaw at Premises", "kind": "custom"},
