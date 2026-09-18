@@ -80,7 +80,7 @@ def my_attendance():
     """Return the logged-in staff member's profile and attendance for a month."""
     from models import User
     from flask import g
-    user = User.query.get(getattr(g, "current_user_id", None))
+    user = User.query.get((getattr(g, "current_user_payload", None) or {}).get("uid"))
     if not user:
         return jsonify({"error":"Logged-in user not found"}),404
     employee = Employee.query.filter(Employee.mobile == user.mobile).first() if user.mobile else None
