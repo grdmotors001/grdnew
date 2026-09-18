@@ -6,13 +6,14 @@ import { Field, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
 export function UserPage({ setActive, setOptionUserId }) {
   const [rows, setRows] = useState([]);
+  const [dealers, setDealers] = useState([]);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => get('/users').then(setRows).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); get('/dealers').then(setDealers).catch(() => {}); }, []);
 
   const filteredRows = rows.filter((u) => {
     const q = search.trim().toLowerCase();
@@ -40,11 +41,11 @@ export function UserPage({ setActive, setOptionUserId }) {
       {rows.length === 0 ? <EmptyState /> : filteredRows.length === 0 ? <EmptyState text="No users match your search." /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Username</th><th>Super User</th><th>Allowed Modules</th><th></th></tr></thead>
+            <thead><tr><th>Username</th><th>Department</th><th>Dealers</th><th>Super User</th><th>Allowed Modules</th><th></th></tr></thead>
             <tbody>
               {filteredRows.map((u) => (
                 <tr key={u.id}>
-                  <td>{u.username}</td><td>{u.is_super_user ? 'Yes' : 'No'}</td>
+                  <td>{u.username}</td><td>{u.department || 'Admin'}</td><td>{u.is_super_user ? 'All' : (u.assigned_dealer_ids?.length || 0)}</td><td>{u.is_super_user ? 'Yes' : 'No'}</td>
                   <td>{u.is_super_user ? 'All' : (u.allowed_modules.length ? u.allowed_modules.length + ' modules' : 'None set')}</td>
                   <td style={{ display: 'flex', gap: 8 }}>
                     <button className="btn" onClick={() => { setOptionUserId(u.id); setActive('option-setting'); }}>Permissions</button>
@@ -64,8 +65,18 @@ export function UserPage({ setActive, setOptionUserId }) {
             <div className="formgrid">
               <Field label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} required />
               <Field label="Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
+              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v })} options={['Admin','Factory','Dealer','Billing','Cashier','Salesman'].map(v => [v,v])} />
               <Field label="Super User (unrestricted access)" type="checkbox" value={form.is_super_user}
                      onChange={(v) => setForm({ ...form, is_super_user: v })} />
+              <div className="field">
+                <label>Assigned Dealers (Salesman / Dealer staff)</label>
+                <select multiple value={(form.assigned_dealer_ids || []).map(String)}
+                  onChange={(e) => setForm({ ...form, assigned_dealer_ids: Array.from(e.target.selectedOptions).map(o => Number(o.value)) })}
+                  style={{ minHeight: 120 }}>
+                  {dealers.map(d => <option key={d.id} value={d.id}>{d.code ? d.code + ' - ' : ''}{d.name}</option>)}
+                </select>
+                <small className="muted">Ctrl/Cmd + click to select multiple dealers.</small>
+              </div>
             </div>
             <div className="actions" style={{ marginTop: 18 }}>
               <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
