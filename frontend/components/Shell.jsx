@@ -244,6 +244,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
                 />
               ))}
             </div>
+          );
           })}
         </nav>
 
