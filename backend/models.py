@@ -634,3 +634,20 @@ class User(db.Model):
 
     def check_password(self, raw):
         return check_password_hash(self.password_hash, raw)
+
+
+class ExpensePaymentVoucher(db.Model):
+    """Head Office expense payment voucher."""
+    id = db.Column(db.Integer, primary_key=True)
+    voucher_no = db.Column(db.String(30), unique=True, index=True)
+    date = db.Column(db.Date, nullable=False)
+    pay_to_type = db.Column(db.String(20), nullable=False)  # dealer / staff / other
+    pay_to_name = db.Column(db.String(200), nullable=False)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=True, index=True)
+    staff_name = db.Column(db.String(120))
+    expense_type = db.Column(db.String(80), nullable=False)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), nullable=True, index=True)
+    chassis_no = db.Column(db.String(60))
+    amount = db.Column(db.Float, nullable=False, default=0)
+    remarks = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
