@@ -44,7 +44,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem,
                      DeliveryChallan, TaxInvoice, PurchaseBill, PurchaseBillItem,
-                     OldRickshaw, BatteryDeliveryChallan, JournalStock, DayBook)
+                     OldRickshaw, BatteryDeliveryChallan, JournalStock, DayBook, ExpensePaymentVoucher)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user
 
@@ -238,6 +238,89 @@ def dealer_submit_loan():
         db.session.rollback()
         return _err(str(exc), 502)
 
+
+
+
+# ---------------------------------------------------------------------------
+# Head Office Expense Payment Voucher
+# ---------------------------------------------------------------------------
+EXPENSE_TYPES = [
+    {"id":"office_exp","name":"Office Expense"},{"id":"misc_exp","name":"Misc Expense"},
+    {"id":"stationery","name":"Stationery"},{"id":"printer","name":"Printer"},
+    {"id":"computer_repair","name":"Computer Repair"},{"id":"cleaning","name":"Cleaning"},
+    {"id":"passing_exp","name":"Passing Expense"},{"id":"incentive","name":"Incentive"},
+    {"id":"other","name":"Other"},
+]
+
+def _expense_voucher_dict(v):
+    return {"id":v.id,"voucher_no":v.voucher_no,"date":_iso(v.date),
+            "pay_to_type":v.pay_to_type,"pay_to_name":v.pay_to_name,"dealer_id":v.dealer_id,
+            "staff_name":v.staff_name,"expense_type":v.expense_type,
+            "expense_type_name":next((x["name"] for x in EXPENSE_TYPES if x["id"]==v.expense_type),v.expense_type),
+            "vehicle_id":v.vehicle_id,"chassis_no":v.chassis_no,"amount":v.amount,"remarks":v.remarks}
+
+@app.get("/api/expense-payment-voucher/masters")
+@require_auth
+def expense_payment_voucher_masters():
+    dealers=Dealer.query.filter(Dealer.blocked.is_(False)).order_by(Dealer.name.asc()).all()
+    staff=sorted({(d.salesman or "").strip() for d in dealers if (d.salesman or "").strip()},key=str.lower)
+    return jsonify({"expense_types":EXPENSE_TYPES,
+        "pay_to_types":[{"id":"dealer","name":"Dealer"},{"id":"staff","name":"Staff / Salesman"},{"id":"other","name":"Other"}],
+        "dealers":[{"id":d.id,"code":d.code,"name":d.name,"salesman":d.salesman} for d in dealers],
+        "staff":[{"name":n} for n in staff]})
+
+@app.get("/api/expense-payment-voucher/rickshaws")
+@require_auth
+def expense_payment_voucher_rickshaws():
+    dealer_id=request.args.get("dealer_id",type=int)
+    staff_name=(request.args.get("staff_name") or "").strip()
+    q=DeliveryChallan.query.filter(DeliveryChallan.cancelled.is_(False)).order_by(
+        DeliveryChallan.date.desc(),DeliveryChallan.id.desc())
+    if dealer_id: q=q.filter(DeliveryChallan.dealer_id==dealer_id)
+    elif staff_name:
+        ids=[d.id for d in Dealer.query.filter(Dealer.salesman.ilike(staff_name),Dealer.blocked.is_(False)).all()]
+        if not ids: return jsonify({"rickshaws":[]})
+        q=q.filter(DeliveryChallan.dealer_id.in_(ids))
+    else: return jsonify({"rickshaws":[]})
+    rows=q.limit(500).all()
+    return jsonify({"rickshaws":[{"vehicle_id":r.vehicle_id,"chassis_no":r.chassis_no,
+        "model_name":r.product_name,"dealer_id":r.dealer_id,
+        "dealer_name":r.dealer.name if r.dealer else None,"date":_iso(r.date)}
+        for r in rows if r.vehicle_id]})
+
+@app.route("/api/expense-payment-voucher",methods=["GET","POST"])
+@require_auth
+def expense_payment_voucher():
+    if request.method=="GET":
+        fd,td=_date_bounds()
+        q=ExpensePaymentVoucher.query.order_by(ExpensePaymentVoucher.date.desc(),ExpensePaymentVoucher.id.desc())
+        if fd:q=q.filter(ExpensePaymentVoucher.date>=fd)
+        if td:q=q.filter(ExpensePaymentVoucher.date<=td)
+        rows=q.limit(500).all()
+        return jsonify({"vouchers":[_expense_voucher_dict(x) for x in rows],"total":sum(float(x.amount or 0) for x in rows)})
+    d=request.get_json(silent=True) or {}
+    pt=(d.get("pay_to_type") or "").strip().lower(); pn=(d.get("pay_to_name") or "").strip()
+    et=(d.get("expense_type") or "").strip().lower(); amount=_f(d.get("amount"),0)
+    if pt not in {"dealer","staff","other"}: return _err("Valid Pay To is required")
+    if not pn:return _err("Pay To Name is required")
+    if et not in {x["id"] for x in EXPENSE_TYPES}:return _err("Valid Expense Type is required")
+    if amount<=0:return _err("Amount must be greater than zero")
+    vid=d.get("vehicle_id"); did=d.get("dealer_id"); staff=(d.get("staff_name") or "").strip() or None; chassis=None
+    if vid:
+        try:vid=int(vid)
+        except (TypeError,ValueError):return _err("Invalid rickshaw")
+        dc=DeliveryChallan.query.filter_by(vehicle_id=vid,cancelled=False).order_by(DeliveryChallan.id.desc()).first()
+        if not dc:return _err("Selected rickshaw was not found")
+        if did and int(did)!=int(dc.dealer_id or 0):return _err("Rickshaw does not belong to selected dealer")
+        did=dc.dealer_id; chassis=dc.chassis_no
+    if et in {"passing_exp","incentive"} and not vid:return _err("Select a rickshaw for Passing Expense / Incentive")
+    voucher=ExpensePaymentVoucher(date=_parse_date(d.get("date")) or dt.utcnow().date(),
+        pay_to_type=pt,pay_to_name=pn,dealer_id=int(did) if did else None,staff_name=staff,
+        expense_type=et,vehicle_id=vid,chassis_no=chassis,amount=round(amount,2),
+        remarks=(d.get("remarks") or "").strip() or None)
+    db.session.add(voucher); db.session.flush(); voucher.voucher_no=f"EXP-{voucher.id:06d}"
+    db.session.commit()
+    return jsonify({"success":True,"voucher":_expense_voucher_dict(voucher)}),201
 
 # ---------------------------------------------------------------------------
 # Helpers
