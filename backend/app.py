@@ -631,6 +631,7 @@ def ser_journal(r):
 
 def ser_daybook(r):
     return {"id": r.id, "vr_no": r.vr_no, "date": _iso(r.date), "dealer_name": r.dealer_name,
+            "bank_id": r.bank_id, "bank_name": (SimpleMaster.query.get(r.bank_id).name if r.bank_id else None),
             "credit_received": r.credit_received, "debit_paid": r.debit_paid,
             "narration": r.narration}
 
