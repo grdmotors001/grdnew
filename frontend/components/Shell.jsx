@@ -95,6 +95,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   const [dark, toggleDark] = useDarkMode();
   const [accent, setAccent] = useState('#2563eb');
   const [showPalette, setShowPalette] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
 
   const palette = [
     '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
@@ -110,6 +111,8 @@ export function Shell({ active, setActive, user, onLogout, children }) {
       document.documentElement.style.setProperty('--accent', '#2563eb');
     }
   }, []);
+
+  const selectMenu = (key) => { setActive(key); setMobileMenu(false); setCollapsed(false); };
 
   const changeAccent = (color) => {
     setAccent(color);
@@ -134,7 +137,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
 
   return (
     <div className="app">
-      <aside className={'sidebar' + (collapsed ? ' collapsed' : '')}>
+      <div className="mobileAdminTop"><button onClick={() => setMobileMenu(true)} aria-label="Open menu">☰</button><div><strong>G.R.D. MOTORS</strong><small>eBill Management System</small></div></div>
+      {mobileMenu && <button className="mobileMenuBackdrop" aria-label="Close menu" onClick={() => setMobileMenu(false)} />}
+      <aside className={'sidebar' + (collapsed || mobileMenu ? ' collapsed' : '')}>
         <div className="brand">
           <div className="brandMark">G</div>
           {!collapsed && (
@@ -218,7 +223,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             label="Dashboard"
             active={active === 'dashboard'}
             collapsed={collapsed}
-            onClick={() => setActive('dashboard')}
+            onClick={() => selectMenu('dashboard')}
           />
           {Object.entries(MENU).map(([group, items]) => {
             const allowed = user?.is_super_user ? items : items.filter(([key]) => (user?.allowed_modules || []).includes(key));
@@ -233,7 +238,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
                   label={label}
                   active={active === key}
                   collapsed={collapsed}
-                  onClick={() => setActive(key)}
+                  onClick={() => selectMenu(key)}
                 />
               ))}
             </div>
