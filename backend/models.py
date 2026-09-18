@@ -109,6 +109,9 @@ class LoanWorkflow(db.Model):
     approved_at = db.Column(db.DateTime)
     do_expiry_at = db.Column(db.DateTime, index=True)
     chfpl_reference = db.Column(db.String(100))
+    do_no = db.Column(db.String(50), unique=True, index=True)
+    customer_photo = db.Column(db.Text)
+    customer_documents = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -349,6 +352,8 @@ class TaxInvoice(db.Model):
     # the same bill_no. delivery_challan_id below is the real one-invoice-
     # per-challan link and is what's kept unique.
     bill_no = db.Column(db.String(30))
+    do_no = db.Column(db.String(50), index=True)
+    billing_remarks = db.Column(db.String(500))
     date = db.Column(db.Date)
     cancelled = db.Column(db.Boolean, default=False)
 
@@ -677,6 +682,7 @@ class User(db.Model):
     allowed_modules = db.Column(db.Text)
     department = db.Column(db.String(30), default="Admin", index=True)
     assigned_dealer_ids = db.Column(db.Text)  # comma-separated Dealer IDs; empty = no dealer scope
+    mobile = db.Column(db.String(30), index=True)
 
     def has_module_access(self, key):
         if self.is_super_user:
