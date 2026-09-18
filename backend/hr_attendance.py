@@ -16,10 +16,10 @@ def _dt(v):
     except ValueError: return None
 
 def emp_json(e):
-    return {"id":e.id,"employee_code":e.employee_code,"name":e.name,"department":e.department,"designation":e.designation,"mobile":e.mobile,"joining_date":e.joining_date.isoformat() if e.joining_date else None,"machine_user_id":e.machine_user_id,"basic_salary":e.basic_salary,"hra":e.hra,"other_allowance":e.other_allowance,"overtime_rate":e.overtime_rate,"active":e.active}
+    return {"id":e.id,"employee_code":e.employee_code,"name":e.name,"department":e.department,"designation":e.designation,"mobile":e.mobile,"photo_url":e.photo_url,"joining_date":e.joining_date.isoformat() if e.joining_date else None,"machine_user_id":e.machine_user_id,"basic_salary":e.basic_salary,"hra":e.hra,"other_allowance":e.other_allowance,"overtime_rate":e.overtime_rate,"active":e.active}
 
 def day_json(x):
-    return {"id":x.id,"work_date":x.work_date.isoformat(),"employee_id":x.employee_id,"employee_name":x.employee.name if x.employee else "","first_in":x.first_in.isoformat(sep=" ") if x.first_in else None,"last_out":x.last_out.isoformat(sep=" ") if x.last_out else None,"status":x.status,"work_hours":round(x.work_hours or 0,2),"overtime_hours":round(x.overtime_hours or 0,2),"remarks":x.remarks}
+    return {"id":x.id,"work_date":x.work_date.isoformat(),"employee_id":x.employee_id,"employee_name":x.employee.name if x.employee else "","first_in":x.first_in.isoformat(sep=" ") if x.first_in else None,"last_out":x.last_out.isoformat(sep=" ") if x.last_out else None,"status":x.status,"work_hours":round(x.work_hours or 0,2),"overtime_hours":round(x.overtime_hours or 0,2),"late_minutes":int(x.late_minutes or 0),"remarks":x.remarks}
 
 def salary_json(x):
     return {"id":x.id,"employee_id":x.employee_id,"employee_name":x.employee.name if x.employee else "","salary_month":x.salary_month,"working_days":x.working_days,"present_days":x.present_days,"paid_leave_days":x.paid_leave_days,"overtime_hours":x.overtime_hours,"basic_earned":x.basic_earned,"allowances":x.allowances,"overtime_amount":x.overtime_amount,"deductions":x.deductions,"advance":x.advance,"net_salary":x.net_salary,"status":x.status}
@@ -36,7 +36,7 @@ def add_employee():
     code=(d.get("employee_code") or "").strip(); name=(d.get("name") or "").strip()
     if not code or not name: return jsonify({"error":"Employee Code and Name are required"}),400
     if Employee.query.filter_by(employee_code=code).first(): return jsonify({"error":"Employee Code already exists"}),409
-    e=Employee(employee_code=code,name=name,department=(d.get("department") or "HR").strip(),designation=d.get("designation"),mobile=d.get("mobile"),joining_date=_date(d.get("joining_date")),machine_user_id=(d.get("machine_user_id") or None),basic_salary=float(d.get("basic_salary") or 0),hra=float(d.get("hra") or 0),other_allowance=float(d.get("other_allowance") or 0),overtime_rate=float(d.get("overtime_rate") or 0))
+    e=Employee(employee_code=code,name=name,department=(d.get("department") or "HR").strip(),designation=d.get("designation"),mobile=d.get("mobile"),photo_url=(d.get("photo_url") or "").strip() or None,joining_date=_date(d.get("joining_date")),machine_user_id=(d.get("machine_user_id") or None),basic_salary=float(d.get("basic_salary") or 0),hra=float(d.get("hra") or 0),other_allowance=float(d.get("other_allowance") or 0),overtime_rate=float(d.get("overtime_rate") or 0))
     db.session.add(e)
     try: db.session.commit()
     except Exception as ex: db.session.rollback(); return jsonify({"error":str(ex)}),400
@@ -57,7 +57,9 @@ def add_punch():
     status="Present" if len(punches)>0 else "Absent"
     ot=max(0,hours-8)
     row=AttendanceDay.query.filter_by(employee_id=e.id,work_date=day).first() or AttendanceDay(employee_id=e.id,work_date=day)
-    row.first_in=first; row.last_out=last if len(punches)>1 else None; row.work_hours=round(hours,2); row.overtime_hours=round(ot,2); row.status=status
+    row.first_in=first; row.last_out=last if len(punches)>1 else None; row.work_hours=round(hours,2); row.overtime_hours=round(ot,2)
+    row.late_minutes=max(0, int((first.replace(tzinfo=None)-datetime.combine(day, datetime.min.time()).replace(hour=10)).total_seconds()/60)) if first and first.time().hour >= 10 else 0
+    row.status=status
     db.session.add(row); db.session.commit()
     return jsonify({"success":True,"punch":{"id":p.id,"employee_id":e.id,"punch_time":t.isoformat()},"attendance":day_json(row)}),201
 
@@ -70,6 +72,38 @@ def attendance():
     start=date(y,mo,1); end=date(y,mo,monthrange(y,mo)[1])
     rows=AttendanceDay.query.filter(AttendanceDay.work_date>=start,AttendanceDay.work_date<=end).order_by(AttendanceDay.work_date.desc(),AttendanceDay.employee_id.asc()).all()
     return jsonify({"attendance":[day_json(x) for x in rows]})
+
+
+@hr_bp.get("/me")
+@require_auth
+def my_attendance():
+    """Return the logged-in staff member's profile and attendance for a month."""
+    from models import User
+    from flask import g
+    user = User.query.get(getattr(g, "current_user_id", None))
+    if not user:
+        return jsonify({"error":"Logged-in user not found"}),404
+    employee = Employee.query.filter(Employee.mobile == user.mobile).first() if user.mobile else None
+    if not employee:
+        employee = Employee.query.filter(Employee.employee_code == user.username).first()
+    if not employee:
+        return jsonify({"employee":None,"attendance":[],"message":"Your staff profile is not linked to an HR employee record yet."})
+    m=request.args.get("month") or date.today().strftime("%Y-%m")
+    try: y,mo=map(int,m.split("-"))
+    except ValueError: return jsonify({"error":"Month must be YYYY-MM"}),400
+    start=date(y,mo,1); end=date(y,mo,monthrange(y,mo)[1])
+    rows=AttendanceDay.query.filter_by(employee_id=employee.id).filter(AttendanceDay.work_date>=start,AttendanceDay.work_date<=end).order_by(AttendanceDay.work_date.desc()).all()
+    by_date={x.work_date:x for x in rows}
+    days=[]; d=start
+    while d<=end:
+        if employee.joining_date and d < employee.joining_date:
+            d += timedelta(days=1); continue
+        x=by_date.get(d)
+        if x: days.append(day_json(x))
+        elif d.weekday()<6:
+            days.append({"id":None,"work_date":d.isoformat(),"employee_id":employee.id,"employee_name":employee.name,"first_in":None,"last_out":None,"status":"Absent","work_hours":0,"overtime_hours":0,"late_minutes":0,"remarks":None})
+        d += timedelta(days=1)
+    return jsonify({"employee":emp_json(employee),"attendance":days})
 
 @hr_bp.get("/salary")
 @require_auth
