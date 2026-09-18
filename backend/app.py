@@ -445,6 +445,7 @@ def ser_dealer(d):
     return {"id": d.id, "code": d.code, "name": d.name, "address1": d.address1,
             "address2": d.address2, "mobile": d.mobile, "gst_no": d.gst_no,
             "state": d.state, "state_code": d.state_code, "pan": d.pan,
+            "registration_type": d.registration_type or "registered",
             "salesman": d.salesman, "blocked": d.blocked, "login_id": d.login_id}
 
 
@@ -973,6 +974,8 @@ def dealers():
         d.address2 = data.get("address2")
         d.mobile = data.get("mobile")
         d.gst_no = data.get("gst_no")
+        d.registration_type = (data.get("registration_type") or "registered").strip().lower()
+        if d.registration_type not in {"registered", "unregistered"}: d.registration_type = "registered"
         d.state = data.get("state")
         d.state_code = data.get("state_code")
         d.pan = data.get("pan")
@@ -1000,6 +1003,109 @@ def dealer_delete(dealer_id):
     db.session.commit()
     return jsonify({"deleted": True})
 
+
+# ---------------------------------------------------------------------------
+# Dealer portal: registered-dealer purchase/invoice + Cashfree payments
+# ---------------------------------------------------------------------------
+
+def _dealer_current():
+    did = getattr(g, "current_dealer_id", None)
+    return Dealer.query.get(did) if did else None
+
+def _dealer_payment_json(p):
+    return {"id":p.id,"order_id":p.order_id,"amount":p.amount,"allocation_type":p.allocation_type,
+            "allocation":_json.loads(p.allocation_json or "[]"),"status":p.status,"cf_payment_id":p.cf_payment_id,
+            "payment_method":p.payment_method,"created_at":p.created_at.isoformat() if p.created_at else None,
+            "paid_at":p.paid_at.isoformat() if p.paid_at else None}
+
+@app.get("/api/dealer/purchases")
+@require_dealer_auth
+def dealer_purchases():
+    d=_dealer_current()
+    if not d: return _err("Dealer not found",404)
+    if (d.registration_type or "registered") != "registered": return jsonify({"registered":False,"purchases":[]})
+    rows=(DeliveryChallan.query.filter_by(dealer_id=d.id,cancelled=False)
+          .order_by(DeliveryChallan.date.desc(),DeliveryChallan.id.desc()).limit(500).all())
+    return jsonify({"registered":True,"purchases":[ser_dc(x) for x in rows]})
+
+@app.post("/api/dealer/customer-invoice")
+@require_dealer_auth
+def dealer_customer_invoice():
+    d=_dealer_current()
+    if not d: return _err("Dealer not found",404)
+    if (d.registration_type or "registered") != "registered": return _err("Customer invoice is available only for registered dealers.",403)
+    data=request.get_json(silent=True) or {}; challan_id=data.get("challan_id")
+    challan=DeliveryChallan.query.filter_by(id=challan_id,dealer_id=d.id,cancelled=False).first()
+    if not challan: return _err("Challan not found for this dealer.",404)
+    if TaxInvoice.query.filter_by(delivery_challan_id=challan.id).first(): return _err("This purchase already has an invoice.")
+    product=Product.query.filter_by(name=challan.product_name).first(); default_gst=product.gst_rate if product else 5
+    buyer_name=(data.get("buyer_name") or "").strip()
+    if not buyer_name: return _err("Customer name is required.")
+    ti=TaxInvoice(bill_no=data.get("bill_no"),date=_parse_date(data.get("date")) or date.today(),delivery_challan_id=challan.id,
+      vehicle_id=challan.vehicle_id,buyer_name=buyer_name,buyer_relation=data.get("buyer_relation") or "S/o",buyer_father_name=data.get("buyer_father_name"),
+      buyer_address=data.get("buyer_address"),buyer_gst_no=data.get("buyer_gst_no"),buyer_pan=data.get("buyer_pan"),buyer_aadhar=data.get("buyer_aadhar"),
+      buyer_mobile=data.get("buyer_mobile"),buyer_state=data.get("buyer_state"),buyer_state_code=data.get("buyer_state_code"),state_type=data.get("state_type") or "I",
+      dealer_name=d.name,product_name=challan.product_name,chassis_no=challan.chassis_no,motor_no=challan.motor_no,controller_no=challan.controller_no,
+      other_desc=challan.other,colour=challan.colour,sale_amount=_f(data.get("sale_amount"),challan.sale_value or 0),
+      gst_sale_amount=_f(data.get("gst_sale_amount"),_f(data.get("sale_amount"),challan.sale_value or 0)),discount=_f(data.get("discount")),gst_rate=_f(data.get("gst_rate"),default_gst or 5),
+      insurance_amount=_f(data.get("insurance_amount")),registration_amount=_f(data.get("registration_amount")),amount_received=_f(data.get("amount_received")),
+      remarks=data.get("remarks"),mode_term=data.get("mode_term") or "BANK/CASH")
+    db.session.add(ti)
+    if challan.vehicle: challan.vehicle.stage="Tax Invoice"
+    db.session.commit(); return jsonify(ser_ti(ti)),201
+
+@app.get("/api/dealer/payments")
+@require_dealer_auth
+def dealer_payments():
+    d=_dealer_current();
+    if not d: return _err("Dealer not found",404)
+    rows=DealerPayment.query.filter_by(dealer_id=d.id).order_by(DealerPayment.id.desc()).limit(100).all()
+    return jsonify({"payments":[_dealer_payment_json(x) for x in rows]})
+
+@app.post("/api/dealer/payment/create")
+@require_dealer_auth
+def dealer_payment_create():
+    d=_dealer_current()
+    if not d: return _err("Dealer not found",404)
+    data=request.get_json(silent=True) or {}; amount=round(_f(data.get("amount")),2)
+    if amount<=0: return _err("Amount must be greater than zero.")
+    at=(data.get("allocation_type") or "on_account").strip().lower()
+    if at not in {"on_account","single","multiple"}: return _err("Invalid payment allocation.")
+    allocation=data.get("allocation") if isinstance(data.get("allocation"),list) else []
+    if at!="on_account" and not allocation: return _err("Select at least one rickshaw/invoice.")
+    client_id=os.environ.get("CASHFREE_CLIENT_ID") or os.environ.get("CASHFREE_APP_ID")
+    secret=os.environ.get("CASHFREE_CLIENT_SECRET") or os.environ.get("CASHFREE_SECRET_KEY")
+    if not client_id or not secret: return _err("Cashfree is not configured. Add CASHFREE_CLIENT_ID and CASHFREE_CLIENT_SECRET in backend environment.",503)
+    order_id=f"GRD-DP-{d.id}-{uuid.uuid4().hex[:16].upper()}"
+    base=(os.environ.get("CASHFREE_BASE_URL") or "https://sandbox.cashfree.com").rstrip("/")
+    return_url=os.environ.get("CASHFREE_RETURN_URL") or request.host_url.rstrip("/")+"/api/dealer/payment/return"
+    webhook_url=os.environ.get("CASHFREE_WEBHOOK_URL") or request.host_url.rstrip("/")+"/api/dealer/payment/webhook"
+    payload={"order_id":order_id,"order_amount":amount,"order_currency":"INR","customer_details":{"customer_id":f"dealer-{d.id}","customer_name":d.name,"customer_phone":d.mobile or "9999999999","customer_email":f"{d.login_id or d.code or d.id}@grdmotors.local"},"order_meta":{"return_url":return_url+"?order_id="+order_id,"notify_url":webhook_url},"order_note":f"GRD Dealer Payment - {d.name}"}
+    try:
+        body=_json.dumps(payload).encode(); req=urllib.request.Request(base+"/pg/orders",data=body,headers={"Content-Type":"application/json","x-client-id":client_id,"x-client-secret":secret,"x-api-version":"2025-01-01"},method="POST")
+        with urllib.request.urlopen(req,timeout=20) as resp: result=_json.loads(resp.read().decode())
+    except Exception as exc: return _err(f"Cashfree order creation failed: {exc}",502)
+    p=DealerPayment(dealer_id=d.id,order_id=order_id,amount=amount,allocation_type=at,allocation_json=_json.dumps(allocation),status="created"); db.session.add(p); db.session.commit()
+    return jsonify({"payment":_dealer_payment_json(p),"payment_session_id":result.get("payment_session_id"),"order_id":order_id})
+
+@app.post("/api/dealer/payment/webhook")
+def dealer_payment_webhook():
+    # Cashfree webhook signature verification must be configured before marking money paid.
+    # Raw-body signature verification follows Cashfree's documented x-webhook-signature/timestamp flow.
+    signature=request.headers.get("x-webhook-signature") or ""; timestamp=request.headers.get("x-webhook-timestamp") or ""
+    secret=os.environ.get("CASHFREE_CLIENT_SECRET") or os.environ.get("CASHFREE_SECRET_KEY") or ""
+    raw=request.get_data(cache=True)
+    import base64, hashlib
+    expected=base64.b64encode(hmac.new(secret.encode(),(timestamp+raw.decode("utf-8")).encode(),hashlib.sha256).digest()).decode() if secret and timestamp else ""
+    if not signature or not expected or not hmac.compare_digest(signature,expected): return _err("Invalid Cashfree webhook signature",401)
+    data=request.get_json(silent=True) or {}; order_id=((data.get("data") or {}).get("order") or {}).get("order_id") or data.get("order_id")
+    p=DealerPayment.query.filter_by(order_id=order_id).first()
+    if not p: return _err("Payment order not found",404)
+    typ=((data.get("type") or "")).upper(); payment=((data.get("data") or {}).get("payment") or {})
+    if "SUCCESS" in typ or str(payment.get("payment_status") or "").upper()=="SUCCESS":
+        p.status="paid"; p.cf_payment_id=str(payment.get("cf_payment_id") or ""); p.payment_method=payment.get("payment_group"); p.paid_at=dt.utcnow(); db.session.commit()
+    elif "FAILED" in typ: p.status="failed"; db.session.commit()
+    return jsonify({"success":True})
 
 # ---------------------------------------------------------------------------
 # Setup > Product Master
