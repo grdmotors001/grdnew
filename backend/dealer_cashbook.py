@@ -1,0 +1,147 @@
+from datetime import date, datetime
+from flask import Blueprint, request, jsonify, g
+from models import db, Dealer
+from auth import require_dealer_auth
+
+dealer_cashbook_bp = Blueprint("dealer_cashbook", __name__)
+
+EXPENSE_CATEGORIES = {
+    "tea_customer": "Tea for Customer", "tea_staff": "Tea for Staff",
+    "water": "Water Expense", "rent": "Rent Expense",
+    "repairing": "Repairing Expense", "makhi_commission": "Makhi / Commission Expense",
+    "other": "Other Expense",
+}
+PAYMENT_MODES = {"cash": "Cash", "upi": "UPI", "bank": "Bank", "cheque": "Cheque", "other": "Other"}
+
+class DealerCashReceipt(db.Model):
+    __tablename__ = "dealer_cash_receipt"
+    id = db.Column(db.Integer, primary_key=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    dealer_user_id = db.Column(db.Integer, nullable=True, index=True)
+    receipt_no = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    receipt_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    customer_name = db.Column(db.String(200), nullable=False)
+    customer_phone = db.Column(db.String(30))
+    application_no = db.Column(db.String(40))
+    booking_for = db.Column(db.String(200))
+    amount = db.Column(db.Float, nullable=False)
+    payment_mode = db.Column(db.String(20), nullable=False, default="cash")
+    reference_no = db.Column(db.String(80))
+    remarks = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class DealerCashExpense(db.Model):
+    __tablename__ = "dealer_cash_expense"
+    id = db.Column(db.Integer, primary_key=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    dealer_user_id = db.Column(db.Integer, nullable=True, index=True)
+    expense_no = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    expense_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    category = db.Column(db.String(40), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    paid_to = db.Column(db.String(200))
+    remarks = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class DealerCashHandover(db.Model):
+    __tablename__ = "dealer_cash_handover"
+    id = db.Column(db.Integer, primary_key=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    dealer_user_id = db.Column(db.Integer, nullable=True, index=True)
+    handover_no = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    handover_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    amount = db.Column(db.Float, nullable=False)
+    sent_to = db.Column(db.String(200))
+    remarks = db.Column(db.String(500))
+    status = db.Column(db.String(20), nullable=False, default="sent")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+def _date(v):
+    if not v: return date.today()
+    try: return datetime.strptime(str(v), "%Y-%m-%d").date()
+    except ValueError: return None
+
+def _amt(v):
+    try: return round(float(v), 2)
+    except (TypeError, ValueError): return 0.0
+
+def _no(model, prefix):
+    last = model.query.order_by(model.id.desc()).first()
+    return f"{prefix}-{date.today():%Y%m%d}-{(last.id + 1 if last else 1):05d}"
+
+def _receipt(r):
+    return {"id":r.id,"receipt_no":r.receipt_no,"date":r.receipt_date.isoformat(),
+            "customer_name":r.customer_name,"customer_phone":r.customer_phone,
+            "application_no":r.application_no,"booking_for":r.booking_for,"amount":r.amount,
+            "payment_mode":r.payment_mode,"payment_mode_label":PAYMENT_MODES.get(r.payment_mode,r.payment_mode),
+            "reference_no":r.reference_no,"remarks":r.remarks}
+
+def _expense(e):
+    return {"id":e.id,"expense_no":e.expense_no,"date":e.expense_date.isoformat(),
+            "category":e.category,"category_label":EXPENSE_CATEGORIES.get(e.category,e.category),
+            "amount":e.amount,"paid_to":e.paid_to,"remarks":e.remarks}
+
+def _handover(h):
+    return {"id":h.id,"handover_no":h.handover_no,"date":h.handover_date.isoformat(),
+            "amount":h.amount,"sent_to":h.sent_to,"remarks":h.remarks,"status":h.status}
+
+@dealer_cashbook_bp.route("/cash-book", methods=["GET"])
+@require_dealer_auth
+def cash_book():
+    start, end = _date(request.args.get("from")), _date(request.args.get("to"))
+    if not start or not end: return jsonify({"error":"Invalid date. Use YYYY-MM-DD."}), 400
+    if start > end: return jsonify({"error":"From date cannot be after To date."}), 400
+    did = g.current_dealer_id
+    rs = DealerCashReceipt.query.filter_by(dealer_id=did).filter(DealerCashReceipt.receipt_date.between(start,end)).order_by(DealerCashReceipt.receipt_date.desc(),DealerCashReceipt.id.desc()).all()
+    es = DealerCashExpense.query.filter_by(dealer_id=did).filter(DealerCashExpense.expense_date.between(start,end)).order_by(DealerCashExpense.expense_date.desc(),DealerCashExpense.id.desc()).all()
+    hs = DealerCashHandover.query.filter_by(dealer_id=did).filter(DealerCashHandover.handover_date.between(start,end),DealerCashHandover.status != "rejected").order_by(DealerCashHandover.handover_date.desc(),DealerCashHandover.id.desc()).all()
+    cash = sum(r.amount for r in rs if r.payment_mode == "cash")
+    expenses = sum(e.amount for e in es)
+    handover = sum(h.amount for h in hs)
+    return jsonify({"success":True,"from":start.isoformat(),"to":end.isoformat(),
+        "receipts":[_receipt(r) for r in rs],"expenses":[_expense(e) for e in es],"handovers":[_handover(h) for h in hs],
+        "summary":{"total_receipts":round(sum(r.amount for r in rs),2),"cash_received":round(cash,2),
+                    "expenses":round(expenses,2),"ho_handover":round(handover,2),
+                    "net_movement":round(cash-expenses-handover,2)},
+        "expense_categories":EXPENSE_CATEGORIES,"payment_modes":PAYMENT_MODES})
+
+@dealer_cashbook_bp.route("/cash-book/receipt", methods=["POST"])
+@require_dealer_auth
+def create_receipt():
+    d=request.get_json(silent=True) or {}; name=str(d.get("customer_name") or "").strip()
+    amount=_amt(d.get("amount")); mode=str(d.get("payment_mode") or "cash").lower().strip(); rd=_date(d.get("date"))
+    if not name: return jsonify({"error":"Customer name is required."}),400
+    if amount<=0: return jsonify({"error":"Amount must be greater than zero."}),400
+    if mode not in PAYMENT_MODES: return jsonify({"error":"Invalid payment mode."}),400
+    if not rd: return jsonify({"error":"Invalid receipt date."}),400
+    if not Dealer.query.get(g.current_dealer_id): return jsonify({"error":"Dealer not found."}),404
+    r=DealerCashReceipt(dealer_id=g.current_dealer_id, receipt_no=_no(DealerCashReceipt,"DRC"), receipt_date=rd,
+       customer_name=name, customer_phone=str(d.get("customer_phone") or "").strip() or None,
+       application_no=str(d.get("application_no") or "").strip() or None,
+       booking_for=str(d.get("booking_for") or "").strip() or None, amount=amount, payment_mode=mode,
+       reference_no=str(d.get("reference_no") or "").strip() or None, remarks=str(d.get("remarks") or "").strip() or None)
+    db.session.add(r); db.session.commit()
+    return jsonify({"success":True,"receipt":_receipt(r)}),201
+
+@dealer_cashbook_bp.route("/cash-book/expense", methods=["POST"])
+@require_dealer_auth
+def create_expense():
+    d=request.get_json(silent=True) or {}; cat=str(d.get("category") or "").strip(); amount=_amt(d.get("amount")); ed=_date(d.get("date"))
+    if cat not in EXPENSE_CATEGORIES: return jsonify({"error":"Invalid expense category."}),400
+    if amount<=0: return jsonify({"error":"Amount must be greater than zero."}),400
+    if not ed: return jsonify({"error":"Invalid expense date."}),400
+    e=DealerCashExpense(dealer_id=g.current_dealer_id, expense_no=_no(DealerCashExpense,"DEX"), expense_date=ed,
+       category=cat, amount=amount, paid_to=str(d.get("paid_to") or "").strip() or None, remarks=str(d.get("remarks") or "").strip() or None)
+    db.session.add(e); db.session.commit()
+    return jsonify({"success":True,"expense":_expense(e)}),201
+
+@dealer_cashbook_bp.route("/cash-book/handover", methods=["POST"])
+@require_dealer_auth
+def create_handover():
+    d=request.get_json(silent=True) or {}; amount=_amt(d.get("amount")); hd=_date(d.get("date"))
+    if amount<=0: return jsonify({"error":"Amount must be greater than zero."}),400
+    if not hd: return jsonify({"error":"Invalid handover date."}),400
+    h=DealerCashHandover(dealer_id=g.current_dealer_id, handover_no=_no(DealerCashHandover,"DHO"), handover_date=hd,
+       amount=amount, sent_to=str(d.get("sent_to") or "").strip() or None, remarks=str(d.get("remarks") or "").strip() or None)
+    db.session.add(h); db.session.commit()
+    return jsonify({"success":True,"handover":_handover(h)}),201
