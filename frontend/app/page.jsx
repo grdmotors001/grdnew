@@ -27,7 +27,6 @@ import {
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
-import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { SIMPLE_MASTERS } from '../lib/menu';
 
 const CUSTOM_PAGES = {
@@ -65,7 +64,6 @@ const CUSTOM_PAGES = {
   'ledger-v': () => <LedgerVPage />,
   'backup-restore': () => <PlaceholderPage label="Backup / Restore" />,
   'hr-attendance': () => <HRAttendancePage />,
-  'loan-workflow': () => <LoanWorkflowPage />,
 };
 
 function PageRouter({ active, setActive, optionUserId, setOptionUserId }) {
