@@ -11,7 +11,7 @@ const DEPARTMENT_DEFAULT_MODULES = {
   Billing: ['delivery-challan', 'tax-invoice', 'sale-register', 'gst-register', 'hypothecation-register', 'payment-receivable-report', 'ledger', 'ledger-v'],
   Cashier: ['expense-payment-voucher', 'day-book', 'ledger', 'ledger-v', 'payment-receivable-report'],
   Salesman: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
-  HR: [],
+  HR: ['hr-attendance'],
 };
 
 export function UserPage({ setActive, setOptionUserId }) {
