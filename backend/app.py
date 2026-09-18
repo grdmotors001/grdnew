@@ -47,6 +47,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      OldRickshaw, BatteryDeliveryChallan, JournalStock, DayBook, ExpensePaymentVoucher)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user
+from hr_attendance import hr_bp
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -66,6 +67,7 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle"
 db.init_app(app)
 from dealer_cashbook import dealer_cashbook_bp
 app.register_blueprint(dealer_cashbook_bp, url_prefix="/api/dealer")
+app.register_blueprint(hr_bp, url_prefix="/api/hr")
 CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*")}})
 
 
