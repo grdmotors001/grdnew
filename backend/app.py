@@ -2487,17 +2487,39 @@ def _company_dict(c):
 @app.route("/api/delivery-challans/<int:challan_id>/print")
 @require_auth
 def delivery_challan_print(challan_id):
+    # Keep this print endpoint deliberately self-contained. The list endpoint
+    # is already working in production; print should not depend on lazy-loading
+    # relationships while serialising a single record.
     dc = DeliveryChallan.query.get_or_404(challan_id)
     company = Company.query.first()
-    # The branded print layout needs a few dealer/product fields that the
-    # regular list serializer (ser_dc) doesn't include, since the list view
-    # never needed them -- add them just for this one-record print payload.
-    product = Product.query.filter_by(name=dc.product_name).first()
-    payload = ser_dc(dc)
-    payload["dealer_code"] = dc.dealer.code if dc.dealer else None
-    payload["dealer_mobile"] = dc.dealer.mobile if dc.dealer else None
-    payload["dealer_gst_no"] = dc.dealer.gst_no if dc.dealer else None
-    payload["umrn_code"] = product.umrn_code if product else None
+
+    dealer = Dealer.query.get(dc.dealer_id) if dc.dealer_id else None
+    product = Product.query.filter_by(name=dc.product_name).first() if dc.product_name else None
+
+    # Build the payload directly from the challan columns instead of calling
+    # ser_dc(), which dereferences c.dealer and can trigger a separate lazy
+    # relationship query inside a Vercel serverless request.
+    payload = {
+        "id": dc.id, "challan_no": dc.challan_no, "date": _iso(dc.date),
+        "cancelled": dc.cancelled, "dealer_id": dc.dealer_id,
+        "dealer_name": dealer.name if dealer else None,
+        "dealer_code": dealer.code if dealer else None,
+        "dealer_mobile": dealer.mobile if dealer else None,
+        "dealer_gst_no": dealer.gst_no if dealer else None,
+        "vehicle_id": dc.vehicle_id, "destination": dc.destination,
+        "product_name": dc.product_name, "chassis_no": dc.chassis_no,
+        "motor_no": dc.motor_no, "controller_no": dc.controller_no,
+        "differential_no": dc.differential_no, "colour": dc.colour,
+        "other": dc.other, "battery_maker": dc.battery_maker,
+        "battery_no1": dc.battery_no1, "battery_no2": dc.battery_no2,
+        "battery_no3": dc.battery_no3, "battery_no4": dc.battery_no4,
+        "toolkit": dc.toolkit, "jack": dc.jack, "charger": dc.charger,
+        "mat": dc.mat, "stapney": dc.stapney, "front_glass": dc.front_glass,
+        "center_lock": dc.center_lock, "h_lock": dc.h_lock,
+        "salesman": dc.salesman, "sale_bill_no": dc.sale_bill_no,
+        "sale_value": dc.sale_value, "remarks1": dc.remarks1,
+        "remarks2": dc.remarks2, "umrn_code": product.umrn_code if product else None,
+    }
     return jsonify({"challan": payload, "company": _company_dict(company)})
 
 
