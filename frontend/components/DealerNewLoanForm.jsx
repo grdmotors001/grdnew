@@ -45,7 +45,7 @@ export function DealerNewLoanForm({ onBack }) {
   const [loanType,setLoanType]=useState('NEW');
   const [loanMasters,setLoanMasters]=useState({models:[],financers:[],loan_types:[]});
   const [sale,setSale]=useState({sale_amount:'',file_charge:'',booking_amount:'',register_page_no:''});
-  const [saving,setSaving]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(null);
+  const [saving,setSaving]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(null);\n  const [customerPhoto,setCustomerPhoto]=useState(null);\n  const [documents,setDocuments]=useState([]);\n  const [documentPreviews,setDocumentPreviews]=useState([]);
 
   useEffect(()=>{
     let cancelled=false;
@@ -78,7 +78,7 @@ export function DealerNewLoanForm({ onBack }) {
 
   async function submit(){
     setError('');
-    if(!borrower.full_name||!/^[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}
+    if(!borrower.full_name||!/^[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}\n    if(!/^[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}\n    if(!customerPhoto){setError('Customer photo mandatory hai.');setStep('borrower');return;}\n    if(!documents.length){setError('At least one customer document mandatory hai.');setStep('borrower');return;}
     if(!vehicleLoan.vehicle_price||!vehicleLoan.loan_amount_requested||!vehicleLoan.tenure_months){setError('Vehicle price, loan amount aur tenure required hai.');setStep('loan');return;}
     setSaving(true);
     try{
@@ -121,7 +121,7 @@ export function DealerNewLoanForm({ onBack }) {
           <div className={'dealerCustomerStatus '+(customerId?'selected':'')}>{customerId?'✓ Existing GRD customer selected':'＋ No customer selected — Submit will create the customer in GRD'}</div>
         </div>
 
-        {step==='borrower'&&<PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/>}
+        {step==='borrower'&&<><PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/><div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">KYC DOCUMENTS</span><h2>Photo & Documents</h2></div></div><div className="dealerPersonGrid"><label>Customer Photo *<input className="input" type="file" accept="image/*" capture="environment" onChange={e=>setCustomerPhoto(e.target.files?.[0]||null)} required/><small className="muted">Customer photo required</small></label><label className="dealerSpan2">Documents *<input className="input" type="file" multiple accept="image/*,.pdf" onChange={e=>{const files=Array.from(e.target.files||[]);setDocuments(files);setDocumentPreviews(files.map(f=>f.name));}} required/><small className="muted">KYC/other required documents upload karein</small>{documentPreviews.length>0&&<div className="muted" style={{marginTop:6}}>{documentPreviews.join(' • ')}</div>}</label></div></div></>}
         {step==='guarantor'&&<PersonFields value={guarantor} setValue={setGuarantor} title="Guaranter" relationLabel="Relation with Borrower"/>}
         {step==='coBorrower'&&<PersonFields value={coBorrower} setValue={setCoBorrower} title="Co-Borrower" relationLabel="Relation with Borrower" compact/>}
         {step==='loan'&&<LoanAndSale vehicleLoan={vehicleLoan} setVehicle={setVehicle} sale={sale} setSale={setSale} totalDeal={totalDeal} balance={balance} loanType={loanType} setLoanType={setLoanType} loanMasters={loanMasters}/>}
