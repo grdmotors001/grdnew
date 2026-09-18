@@ -6,12 +6,19 @@ import { Field, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
 export function UserPage({ setActive, setOptionUserId }) {
   const [rows, setRows] = useState([]);
+  const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => get('/users').then(setRows).catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
+
+  const filteredRows = rows.filter((u) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return [u.username, u.is_super_user ? 'super user' : ''].join(' ').toLowerCase().includes(q);
+  });
 
   const save = (e) => {
     e.preventDefault();
@@ -27,14 +34,15 @@ export function UserPage({ setActive, setOptionUserId }) {
     <>
       <div className="actions" style={{ marginBottom: 14 }}>
         <button className="btn primary" onClick={() => { setForm({}); setOpen(true); }}>+ Add User</button>
+        {rows.length > 0 && <><input className="input" placeholder="Search username…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 280 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}</>}
       </div>
       <ErrorBanner message={!open ? error : ''} />
-      {rows.length === 0 ? <EmptyState /> : (
+      {rows.length === 0 ? <EmptyState /> : filteredRows.length === 0 ? <EmptyState text="No users match your search." /> : (
         <div className="tablewrap">
           <table className="table">
             <thead><tr><th>Username</th><th>Super User</th><th>Allowed Modules</th><th></th></tr></thead>
             <tbody>
-              {rows.map((u) => (
+              {filteredRows.map((u) => (
                 <tr key={u.id}>
                   <td>{u.username}</td><td>{u.is_super_user ? 'Yes' : 'No'}</td>
                   <td>{u.is_super_user ? 'All' : (u.allowed_modules.length ? u.allowed_modules.length + ' modules' : 'None set')}</td>
