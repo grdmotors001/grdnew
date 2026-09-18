@@ -140,7 +140,7 @@ export function PurchaseBillPage() {
 
       {open && (
         <div className="modal">
-          <form className="modalbox" onSubmit={save} style={{ maxWidth: 1180, padding: 0, overflow: 'hidden' }}>
+          <form className="modalbox purchaseBillModal" onSubmit={save} style={{ maxWidth: 1180, padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '18px 22px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
                 <div><div style={{fontSize:12,color:'#64748b',fontWeight:700,textTransform:'uppercase'}}>Purchase Voucher</div><h2 style={{margin:'3px 0 0'}}>{form.id ? 'Edit Purchase Bill' : 'New Purchase Bill'}</h2></div>
@@ -149,7 +149,7 @@ export function PurchaseBillPage() {
             </div>
             <div style={{padding:22}}>
               <ErrorBanner message={error} />
-              <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:14,background:'#f8fafc',padding:16,borderRadius:10}}>
+              <div className="purchaseBillHeadGrid" style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:14,background:'#f8fafc',padding:16,borderRadius:10}}>
                 <Field label="Supplier / Party Name" value={form.party_name} onChange={(v) => setForm({...form,party_name:v})} required />
                 <Field label="Supplier GSTIN" value={form.party_gst_no} onChange={(v) => setForm({...form,party_gst_no:v.toUpperCase()})} />
                 <Field label="Supplier Invoice No." value={form.bill_no} onChange={(v) => setForm({...form,bill_no:v})} />
@@ -163,20 +163,20 @@ export function PurchaseBillPage() {
                 <button type="button" className="btn primary" onClick={addItem}>+ Add Item</button>
               </div>
 
-              <div className="tablewrap" style={{border:'1px solid #e2e8f0',borderRadius:10}}>
-                <table className="table">
+              <div className="tablewrap purchaseItemWrap" style={{border:'1px solid #e2e8f0',borderRadius:10}}>
+                <table className="table purchaseItemTable">
                   <thead><tr><th>#</th><th style={{minWidth:220}}>Item / Description</th><th>HSN/SAC</th><th>Qty</th><th>Rate</th><th>GST %</th><th>Taxable</th><th>GST</th><th>Total</th><th></th></tr></thead>
                   <tbody>
                     {form.items.map((it, idx) => { const x=itemCalc({...it,_stateCode:form.party_state_code}); return (
                       <tr key={idx}>
-                        <td>{idx+1}</td>
-                        <td><input value={it.item_name} placeholder="Enter item name" onChange={(e)=>updateItem(idx,'item_name',e.target.value)} required /></td>
-                        <td><input value={it.hsn_code} placeholder="HSN" onChange={(e)=>updateItem(idx,'hsn_code',e.target.value)} /></td>
-                        <td><input type="number" min="0" step="0.01" value={it.qty} onChange={(e)=>updateItem(idx,'qty',e.target.value)} /></td>
-                        <td><input type="number" min="0" step="0.01" value={it.rate} onChange={(e)=>updateItem(idx,'rate',e.target.value)} /></td>
-                        <td><input type="number" min="0" step="0.01" value={it.gst_rate} onChange={(e)=>updateItem(idx,'gst_rate',e.target.value)} /></td>
-                        <td><Money value={x.taxable}/></td><td><Money value={x.cgst+x.sgst+x.igst}/></td><td><b><Money value={x.total}/></b></td>
-                        <td>{form.items.length>1 && <button type="button" className="btn danger" onClick={()=>removeItem(idx)}>✕</button>}</td>
+                        <td data-label="#">{idx+1}</td>
+                        <td data-label="Item / Description"><input value={it.item_name} placeholder="Enter item name" onChange={(e)=>updateItem(idx,'item_name',e.target.value)} required /></td>
+                        <td data-label="HSN/SAC"><input value={it.hsn_code} placeholder="HSN" onChange={(e)=>updateItem(idx,'hsn_code',e.target.value)} /></td>
+                        <td data-label="Qty"><input type="number" min="0" step="0.01" value={it.qty} onChange={(e)=>updateItem(idx,'qty',e.target.value)} /></td>
+                        <td data-label="Rate"><input type="number" min="0" step="0.01" value={it.rate} onChange={(e)=>updateItem(idx,'rate',e.target.value)} /></td>
+                        <td data-label="GST %"><input type="number" min="0" step="0.01" value={it.gst_rate} onChange={(e)=>updateItem(idx,'gst_rate',e.target.value)} /></td>
+                        <td data-label="Taxable"><Money value={x.taxable}/></td><td data-label="GST"><Money value={x.cgst+x.sgst+x.igst}/></td><td data-label="Total"><b><Money value={x.total}/></b></td>
+                        <td data-label="Action">{form.items.length>1 && <button type="button" className="btn danger" onClick={()=>removeItem(idx)}>✕</button>}</td>
                       </tr>
                     );})}
                   </tbody>
