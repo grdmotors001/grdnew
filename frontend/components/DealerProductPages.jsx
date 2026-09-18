@@ -116,7 +116,7 @@ export function DealerPage() {
  return [d.code, d.name, d.mobile, d.gst_no, d.login_id].join(' ').toLowerCase().includes(q);
  });
 
- const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07' }); setOpen(true); };
+ const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07', registration_type: 'registered' }); setOpen(true); };
   const openEdit = (d) => { setEditingId(d.id); setForm({ ...d }); setOpen(true); };
 
   const save = (e) => {
@@ -138,7 +138,7 @@ export function DealerPage() {
       {dealers.length === 0 ? <EmptyState /> : filteredDealers.length === 0 ? <EmptyState text="No dealers match your search." /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Code</th><th>Name</th><th>Mobile</th><th>GSTIN</th><th>State</th><th>Login ID</th><th>Blocked</th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Mobile</th><th>GSTIN</th><th>Type</th><th>State</th><th>Login ID</th><th>Blocked</th></tr></thead>
             <tbody>
               {filteredDealers.map((d) => (
                 <tr key={d.id}>
@@ -148,7 +148,7 @@ export function DealerPage() {
                       {d.name}
                     </a>
                   </td>
-                  <td>{d.mobile}</td><td>{d.gst_no}</td>
+                  <td>{d.mobile}</td><td>{d.gst_no}</td><td>{d.registration_type === "unregistered" ? "Unregistered" : "Registered"}</td>
                   <td>{d.state} {d.state_code ? `(${d.state_code})` : ''}</td>
                   <td>{d.login_id}</td><td>{d.blocked ? 'Yes' : 'No'}</td>
                 </tr>
@@ -169,6 +169,7 @@ export function DealerPage() {
               <Field label="Address Line 2" value={form.address2} onChange={(v) => setForm({ ...form, address2: v })} />
               <Field label="Mobile" value={form.mobile} onChange={(v) => setForm({ ...form, mobile: v })} />
               <Field label="GSTIN" value={form.gst_no} onChange={(v) => setForm({ ...form, gst_no: v })} />
+              <Field label="Dealer Type" type="select" value={form.registration_type || "registered"} onChange={(v) => setForm({ ...form, registration_type: v })} options={[["registered","Registered"],["unregistered","Unregistered"]]} />
               <Field label="State" value={form.state} onChange={(v) => setForm({ ...form, state: v })} />
               <Field label="State Code" value={form.state_code} onChange={(v) => setForm({ ...form, state_code: v })} />
               <Field label="PAN" value={form.pan} onChange={(v) => setForm({ ...form, pan: v })} />
