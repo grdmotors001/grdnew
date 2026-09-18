@@ -78,7 +78,7 @@ export default function App() {
 
   useEffect(() => {
     if (!getToken()) { setCheckedAuth(true); return; }
-    get('/auth/me')
+    get('/auth/me', { preserveAuthOn401: true })
       .then(setUser)
       .catch(() => get('/dealer/me')
         .then((dealer) => setUser({ ...dealer, is_dealer: true }))
