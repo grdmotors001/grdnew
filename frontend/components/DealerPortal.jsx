@@ -7,6 +7,7 @@ import { DealerCashBook } from './DealerCashBook';
 import { DealerNewLoanForm } from './DealerNewLoanForm';
 import { DealerPaymentPage } from './DealerPaymentPage';
 import { DealerCustomerInvoicePage } from './DealerCustomerInvoicePage';
+import { DealerLedgerPage } from './DealerLedgerPage';
 
 const nav = [
   ['dashboard', '⌂', 'Dashboard'],
@@ -16,6 +17,7 @@ const nav = [
   ['cashbook', '₹', 'Cash Book'],
   ['purchases', '▣', 'Purchases'],
   ['payments', '↔', 'Online Payment'],
+  ['ledger', '▤', 'Ledger'],
 ];
 
 export function DealerPortal({ dealer, onLogout }) {
@@ -80,6 +82,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='cashbook' && <DealerCashBook/>}
         {tab==='purchases' && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
+        {tab==='ledger' && <DealerLedgerPage/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
