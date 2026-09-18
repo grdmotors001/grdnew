@@ -502,7 +502,7 @@ def ser_chassis_rule(row):
 
 
 def ser_user(u):
-    return {"id": u.id, "username": u.username, "is_super_user": u.is_super_user,
+    return {"id": u.id, "username": u.username, "mobile": u.mobile, "is_super_user": u.is_super_user,
             "permissions": u.permissions,
             "department": u.department or "Admin",
             "assigned_dealer_ids": u.get_assigned_dealer_ids(),
