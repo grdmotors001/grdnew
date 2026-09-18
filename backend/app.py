@@ -24,6 +24,7 @@ import uuid
 import urllib.request
 import urllib.error
 import json as _json
+import hmac
 from datetime import date, datetime as dt
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
@@ -66,6 +67,40 @@ db.init_app(app)
 from dealer_cashbook import dealer_cashbook_bp
 app.register_blueprint(dealer_cashbook_bp, url_prefix="/api/dealer")
 CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*")}})
+
+
+# ---------------------------------------------------------------------------
+# CHFPL master-data bridge
+# ---------------------------------------------------------------------------
+@app.get("/api/integration/masters")
+def integration_masters():
+    """Return GRD dealer/product masters to the trusted CHFPL integration."""
+    supplied = request.headers.get("X-GRD-BRIDGE-SECRET") or ""
+    expected = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
+    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        return _err("Invalid integration secret", 401)
+
+    dealers = (Dealer.query
+               .filter(Dealer.blocked.is_(False))
+               .order_by(Dealer.name.asc())
+               .all())
+    products = (Product.query
+                .filter(Product.fro == "F")
+                .order_by(Product.name.asc())
+                .all())
+    return jsonify({
+        "success": True,
+        "dealers": [
+            {"id": d.id, "code": d.code, "name": d.name, "mobile": d.mobile,
+             "state": d.state, "state_code": d.state_code}
+            for d in dealers
+        ],
+        "models": [
+            {"id": p.id, "code": p.code, "name": p.name,
+             "fuel_type": p.fuel_type, "gst_rate": p.gst_rate}
+            for p in products
+        ],
+    })
 
 
 # ---------------------------------------------------------------------------
