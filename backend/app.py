@@ -46,7 +46,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      DeliveryChallan, TaxInvoice, PurchaseBill, PurchaseBillItem,
                      OldRickshaw, BatteryDeliveryChallan, JournalStock, DayBook, ExpensePaymentVoucher)
 from menu_config import MENU, find_item, all_items
-from auth import issue_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user
+from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user
 from hr_attendance import hr_bp
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -664,10 +664,29 @@ def login():
     userid = (data.get("userid") or "").strip()
     password = data.get("password") or ""
     user = User.query.filter_by(username=userid).first()
+    if not user:
+        user = User.query.filter_by(mobile=userid).first()
     if not user or not user.check_password(password):
-        return _err("Invalid User ID or Password.", 401)
-    token = issue_token(user)
-    return jsonify({"token": token, "user": ser_user(user)})
+        return _err("Invalid Username/Mobile or Password.", 401)
+    return jsonify({"otp_required": True, "otp_token": issue_pending_token(user), "user": ser_user(user)})
+
+
+@app.route("/api/auth/verify-otp", methods=["POST"])
+def verify_otp():
+    from itsdangerous import BadSignature, SignatureExpired
+    data = request.get_json(silent=True) or {}
+    pending = data.get("otp_token") or ""
+    otp = str(data.get("otp") or "").strip()
+    try:
+        payload = _serializer.loads(pending, max_age=10*60)
+    except Exception:
+        return _err("OTP session expired. Please login again.", 401)
+    if payload.get("scope") != "otp_pending" or otp != "1234":
+        return _err("Invalid OTP.", 401)
+    user = User.query.get(payload.get("uid"))
+    if not user:
+        return _err("User not found.", 404)
+    return jsonify({"token": issue_token(user), "user": ser_user(user)})
 
 
 @app.route("/api/auth/dealer-login", methods=["POST"])
