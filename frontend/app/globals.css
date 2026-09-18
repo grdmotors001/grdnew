@@ -222,3 +222,25 @@
 .dealerThemeToggle{width:38px;height:38px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;display:grid;place-items:center;font-size:17px;box-shadow:0 2px 7px #00000008}
 .dealerThemeToggle:hover{border-color:var(--accent);color:var(--accent)}
 @media(max-width:700px){.dealerThemeToggle{width:38px;height:38px}}
+
+/* Mobile admin refresh */
+@media(max-width:700px){
+  .app{display:block;background:var(--bg)}
+  .sidebar,.sidebar.collapsed{position:fixed;top:0;left:0;bottom:0;margin:0;width:min(300px,88vw);height:100dvh;max-height:none;border-radius:0 22px 22px 0;padding:16px 12px;transform:translateX(0);z-index:100;box-shadow:18px 0 45px #0005}
+  .sidebar.collapsed{transform:translateX(-105%);width:min(300px,88vw)}
+  .sidebar.collapsed .brand{display:flex;justify-content:flex-start;border-bottom:1px solid #ffffff26;margin-bottom:14px;padding-bottom:16px}
+  .sidebar.collapsed .brandText,.sidebar.collapsed .brandActions{display:flex}
+  .sidebar.collapsed .brandText{overflow:hidden;flex:1}
+  .sidebar.collapsed .brandActions{margin-left:auto}
+  .sidebar.collapsed .sidebarNav{display:block}
+  .sidebar.collapsed .sidebarFooter{display:flex}
+  .sidebar.collapsed .themeToggle,.sidebar.collapsed .themePaletteWrap,.sidebar.collapsed .sidebarExpand{display:none}
+  .main,.mainCollapsed{margin-left:0;padding:12px 12px 28px;width:100%}
+  .mobileAdminTop{display:flex}
+  .top{position:sticky;top:0;z-index:20;margin:0 -12px 14px;padding:10px 12px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .title{font-size:21px}.subtitle{font-size:11px}
+  .toolbar{gap:8px}.toolbar .field{min-width:calc(50% - 4px);flex:1}
+  .tablewrap{border-radius:12px}
+}
+.mobileAdminTop{display:none}
+@media(max-width:700px){.mobileAdminTop{display:flex;align-items:center;gap:10px}.mobileAdminTop button{width:38px;height:38px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;font-size:20px}.mobileAdminTop>div{min-width:0}.mobileAdminTop strong{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mobileAdminTop small{display:block;color:var(--muted);font-size:10px}}
