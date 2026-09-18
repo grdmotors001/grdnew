@@ -248,7 +248,8 @@ def dealer_submit_loan():
             application_no = f"GRD-LOAN-{dt.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:4].upper()}"
         workflow = LoanWorkflow.query.filter_by(application_no=application_no).first()
         if not workflow:
-            workflow = LoanWorkflow(application_no=application_no, dealer_id=dealer.id, customer_id=customer.id, status="DO_PENDING")
+            workflow = LoanWorkflow(application_no=application_no, dealer_id=dealer.id, customer_id=customer.id, status="DO_PENDING",
+                customer_photo=_json.dumps(photo), customer_documents=_json.dumps(documents))
             db.session.add(workflow)
             db.session.flush()
             db.session.add(LoanWorkflowLog(application_id=workflow.id, action="SUBMITTED",
