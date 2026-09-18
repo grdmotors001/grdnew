@@ -24,6 +24,7 @@ import {
   LedgerPage, DayBookPage, LedgerVPage,
 } from '../components/ReportPages';
 import { PlaceholderPage } from '../components/PlaceholderPage';
+import { DealerPortal } from '../components/DealerPortal';
 import { SIMPLE_MASTERS } from '../lib/menu';
 
 const CUSTOM_PAGES = {
@@ -82,6 +83,7 @@ export default function App() {
 
   if (!checkedAuth) return null;
   if (!user) return <Login onLogin={setUser} />;
+  if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setToken(null); setUser(null); }} />;
 
   return (
     <Shell active={active} setActive={setActive} user={user} onLogout={() => { setToken(null); setUser(null); }}>
