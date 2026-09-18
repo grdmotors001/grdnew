@@ -220,10 +220,13 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             collapsed={collapsed}
             onClick={() => setActive('dashboard')}
           />
-          {Object.entries(MENU).map(([group, items]) => (
+          {Object.entries(MENU).map(([group, items]) => {
+            const allowed = user?.is_super_user ? items : items.filter(([key]) => (user?.allowed_modules || []).includes(key));
+            if (!allowed.length) return null;
+            return (
             <div className="group" key={group}>
               {collapsed ? <div className="groupGap" /> : <h4>{group}</h4>}
-              {items.map(([key, label]) => (
+              {allowed.map(([key, label]) => (
                 <NavItem
                   key={key}
                   icon={ICONS[key] || FileText}
@@ -234,7 +237,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
                 />
               ))}
             </div>
-          ))}
+          })}
         </nav>
 
         <div className="sidebarFooter">
@@ -256,7 +259,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
         <div className="top">
           <div>
             <div className="title">{active === 'dashboard' ? 'Dashboard' : labelFor(active)}</div>
-            <div className="subtitle">{user?.username} · {user?.is_super_user ? 'Super User' : 'Staff'}</div>
+            <div className="subtitle">{user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
           </div>
         </div>
         {children}
