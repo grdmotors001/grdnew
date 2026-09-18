@@ -961,6 +961,43 @@ def simple_masters_detail(kind, row_id):
 
 
 # ---------------------------------------------------------------------------
+# GRD Motors Bank Master
+# ---------------------------------------------------------------------------
+@app.route("/api/banks", methods=["GET", "POST"])
+@require_auth
+def banks():
+    if request.method == "POST":
+        data=request.get_json(silent=True) or {}
+        row_id=data.get("id")
+        row=BankAccount.query.get(row_id) if row_id else BankAccount()
+        row.bank_name=(data.get("bank_name") or "").strip()
+        if not row.bank_name: return _err("Bank Name is required.")
+        row.account_no=data.get("account_no")
+        row.ifsc=data.get("ifsc")
+        row.branch=data.get("branch")
+        row.is_default=bool(data.get("is_default"))
+        row.active=bool(data.get("active", True))
+        if row.is_default:
+            BankAccount.query.filter(BankAccount.id != (row.id or -1)).update({"is_default": False})
+        db.session.add(row); db.session.commit()
+        return jsonify({"id":row.id,"bank_name":row.bank_name,"account_no":row.account_no,"ifsc":row.ifsc,"branch":row.branch,"is_default":row.is_default,"active":row.active}),201
+    rows=BankAccount.query.order_by(BankAccount.is_default.desc(),BankAccount.bank_name).all()
+    return jsonify([{"id":r.id,"bank_name":r.bank_name,"account_no":r.account_no,"ifsc":r.ifsc,"branch":r.branch,"is_default":r.is_default,"active":r.active} for r in rows])
+
+@app.route("/api/banks/<int:bank_id>", methods=["PUT","DELETE"])
+@require_auth
+def bank_detail(bank_id):
+    row=BankAccount.query.get_or_404(bank_id)
+    if request.method=="DELETE":
+        db.session.delete(row); db.session.commit(); return jsonify({"deleted":True})
+    data=request.get_json(silent=True) or {}
+    row.bank_name=(data.get("bank_name") or row.bank_name).strip()
+    row.account_no=data.get("account_no",row.account_no); row.ifsc=data.get("ifsc",row.ifsc); row.branch=data.get("branch",row.branch)
+    row.is_default=bool(data.get("is_default",row.is_default)); row.active=bool(data.get("active",row.active))
+    if row.is_default: BankAccount.query.filter(BankAccount.id != row.id).update({"is_default":False})
+    db.session.commit(); return jsonify({"id":row.id,"bank_name":row.bank_name,"account_no":row.account_no,"ifsc":row.ifsc,"branch":row.branch,"is_default":row.is_default,"active":row.active})
+
+# ---------------------------------------------------------------------------
 # Setup > Dealer Master
 # ---------------------------------------------------------------------------
 @app.route("/api/dealers", methods=["GET", "POST"])
