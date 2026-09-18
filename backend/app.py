@@ -20,6 +20,10 @@ cookie with this API by default.
 import os
 import re
 import difflib
+import uuid
+import urllib.request
+import urllib.error
+import json as _json
 from datetime import date, datetime as dt
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
@@ -34,7 +38,7 @@ try:
 except ImportError:
     pass
 
-from models import (db, Company, SimpleMaster, Dealer, Product, Vehicle, User,
+from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicle, User,
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem,
                      DeliveryChallan, TaxInvoice, PurchaseBill, PurchaseBillItem,
@@ -61,6 +65,103 @@ db.init_app(app)
 from dealer_cashbook import dealer_cashbook_bp
 app.register_blueprint(dealer_cashbook_bp, url_prefix="/api/dealer")
 CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*")}})
+
+
+# ---------------------------------------------------------------------------
+# Dealer customer + CHFPL loan bridge
+# ---------------------------------------------------------------------------
+def _ensure_customer_table():
+    """Create the new customer table on first use without requiring a manual migration."""
+    from sqlalchemy import inspect
+    if not inspect(db.engine).has_table("customer"):
+        Customer.__table__.create(db.engine, checkfirst=True)
+
+
+def ser_customer(c):
+    return {
+        "id": c.id, "full_name": c.full_name, "phone": c.phone, "email": c.email,
+        "dob": _iso(c.dob), "gender": c.gender, "pan": c.pan,
+        "aadhaar_masked": c.aadhaar_masked, "occupation": c.occupation,
+        "monthly_income": c.monthly_income, "pincode": c.pincode,
+        "city": c.city, "state": c.state, "address": c.address,
+    }
+
+
+@app.get("/api/dealer/customers")
+@require_dealer_auth
+def dealer_customers():
+    _ensure_customer_table()
+    q = (request.args.get("search") or "").strip()
+    query = Customer.query.filter_by(dealer_id=g.current_dealer_id)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(db.or_(Customer.full_name.ilike(like), Customer.phone.ilike(like), Customer.pan.ilike(like)))
+    rows = query.order_by(Customer.full_name.asc()).limit(30).all()
+    return jsonify({"customers": [ser_customer(c) for c in rows]})
+
+
+@app.post("/api/dealer/submit-loan")
+@require_dealer_auth
+def dealer_submit_loan():
+    """Create/update the GRD customer and forward the complete loan package to CHFPL."""
+    _ensure_customer_table()
+    data = request.get_json(silent=True) or {}
+    borrower = data.get("borrower") or {}
+    guarantor = data.get("guarantor") or {}
+    co_borrower = data.get("co_borrower") or {}
+    vehicle_loan = data.get("vehicle_loan") or {}
+    customer_id = data.get("customer_id")
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer:
+        return _err("Dealer not found", 404)
+    if not borrower.get("full_name") or not borrower.get("phone"):
+        return _err("Borrower name and phone are required")
+
+    created_customer = False
+    try:
+        customer = Customer.query.filter_by(id=customer_id, dealer_id=dealer.id).first() if customer_id else None
+        if not customer:
+            customer = Customer(dealer_id=dealer.id)
+            created_customer = True
+        for field in ("full_name","phone","email","gender","pan","occupation","pincode","city","state","address"):
+            if field in borrower: setattr(customer, field, borrower.get(field) or None)
+        customer.dob = _parse_date(borrower.get("dob"))
+        customer.monthly_income = _f(borrower.get("monthly_income"), 0) or None
+        aadhaar = str(borrower.get("aadhaar") or "")
+        customer.aadhaar_masked = f"XXXX-XXXX-{aadhaar[-4:]}" if len(aadhaar) >= 4 else None
+        db.session.add(customer)
+        db.session.flush()
+
+        chfpl_url = (os.environ.get("CHFPL_API_URL") or "").rstrip("/")
+        secret = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
+        if not chfpl_url or not secret:
+            raise RuntimeError("CHFPL_API_URL / CHFPL_GRD_BRIDGE_SECRET is not configured")
+        payload = {
+            "grd_customer_id": customer.id,
+            "grd_submission_ref": f"GRD-{dealer.id}-{uuid.uuid4().hex}",
+            "dealer": {"code": dealer.code, "name": dealer.name, "mobile": dealer.mobile, "login_id": dealer.login_id},
+            "borrower": borrower,
+            "guarantor": guarantor,
+            "co_borrower": co_borrower,
+            "vehicle_loan": vehicle_loan,
+            "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
+        }
+        body = _json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{chfpl_url}/api/dealer/grd-submit-loan", data=body,
+            headers={"Content-Type":"application/json", "X-GRD-BRIDGE-SECRET":secret}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = _json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"CHFPL rejected the loan: {detail[:500]}")
+
+        db.session.commit()
+        return jsonify({"success": True, "customer": ser_customer(customer), **result})
+    except Exception as exc:
+        db.session.rollback()
+        return _err(str(exc), 502)
 
 
 # ---------------------------------------------------------------------------
