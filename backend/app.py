@@ -1095,6 +1095,7 @@ def loan_workflow_decision(row_id):
         row.status = "DO_APPROVED"
         row.approved_at = now
         row.do_expiry_at = now + timedelta(days=30)
+        row.do_no = row.do_no or f"DO-{now.strftime('%Y%m%d')}-{row.id:06d}"
     elif decision == "HOLD":
         row.status = "DO_HOLD"
     else:
