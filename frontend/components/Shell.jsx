@@ -141,7 +141,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     <div className="app">
       <div className="mobileAdminTop"><button onClick={() => setMobileMenu(true)} aria-label="Open menu">☰</button><div><strong>G.R.D. MOTORS</strong><small>eBill Management System</small></div></div>
       {mobileMenu && <button className="mobileMenuBackdrop" aria-label="Close menu" onClick={() => setMobileMenu(false)} />}
-      {profileOpen && <div className="modal"><form className="modalbox profileBox" onSubmit={e=>{e.preventDefault();localStorage.setItem('grd_profile',JSON.stringify(profile));setProfileOpen(false)}}><h2>My Profile</h2><p className="muted">Complete the details used for staff records and communication.</p><div className="formgrid"><Field label="Full Name" value={profile.full_name||''} onChange={v=>setProfile({...profile,full_name:v})} required /><Field label="Mobile No." value={profile.mobile||''} onChange={v=>setProfile({...profile,mobile:v})} required /><Field label="Email" type="email" value={profile.email||''} onChange={v=>setProfile({...profile,email:v})} /><Field label="Department" value={user?.department||'Admin'} onChange={()=>{}} disabled /><Field label="Username" value={user?.username||''} onChange={()=>{}} disabled /><Field label="Address" value={profile.address||''} onChange={v=>setProfile({...profile,address:v})} /></div><div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Cancel</button><button className="btn primary">Save Profile</button></div></form></div>}\n      <aside className={'sidebar' + (collapsed || mobileMenu ? ' collapsed' : '')}>
+      {profileOpen && <div className="modal"><form className="modalbox profileBox" onSubmit={e=>{e.preventDefault();localStorage.setItem('grd_profile',JSON.stringify(profile));setProfileOpen(false)}}><h2>My Profile</h2><p className="muted">Complete the details used for staff records and communication.</p><div className="formgrid"><Field label="Full Name" value={profile.full_name||''} onChange={v=>setProfile({...profile,full_name:v})} required /><Field label="Mobile No." value={profile.mobile||''} onChange={v=>setProfile({...profile,mobile:v})} required /><Field label="Email" type="email" value={profile.email||''} onChange={v=>setProfile({...profile,email:v})} /><Field label="Department" value={user?.department||'Admin'} onChange={()=>{}} disabled /><Field label="Username" value={user?.username||''} onChange={()=>{}} disabled /><Field label="Address" value={profile.address||''} onChange={v=>setProfile({...profile,address:v})} /></div><div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Cancel</button><button className="btn primary">Save Profile</button></div></form></div>}\n      <aside className={'sidebar' + (collapsed ? ' collapsed' : '') + (mobileMenu ? ' mobile-open' : '')}>
         <div className="brand">
           <div className="brandMark">G</div>
           {!collapsed && (
@@ -271,6 +271,22 @@ export function Shell({ active, setActive, user, onLogout, children }) {
         </div>
         {children}
       </main>
+      <nav className="adminBottomNav adminBottomNavForce" aria-label="Staff bottom navigation">
+        <button type="button" className={active === 'dashboard' ? 'active' : ''} onClick={() => selectMenu('dashboard')}>
+          <LayoutDashboard size={18} /><small>Home</small>
+        </button>
+        <button type="button" onClick={() => setMobileMenu(v => !v)}>
+          <span style={{fontSize:18,lineHeight:1}}>☰</span><small>Menu</small>
+        </button>
+        <button type="button" className={profileOpen ? 'active' : ''} onClick={() => {
+          const saved = window.localStorage.getItem('grd_profile');
+          setProfile(saved ? JSON.parse(saved) : {});
+          setProfileOpen(true);
+          setMobileMenu(false);
+        }}>
+          <Users size={18} /><small>Profile</small>
+        </button>
+      </nav>
     </div>
   );
 }
