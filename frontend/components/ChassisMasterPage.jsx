@@ -6,13 +6,19 @@ import { Field, Card, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 function CodeTable({ title, rows, columns, onAdd, onEdit, onDelete, addLabel }) {
+  const [search, setSearch] = useState('');
+  const filteredRows = rows.filter((r) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return columns.some((c) => String(r[c.key] ?? '').toLowerCase().includes(q));
+  });
   return (
-    <Card title={title} actions={<button className="btn primary" onClick={onAdd}>+ {addLabel}</button>}>
-      {!rows.length ? <EmptyState /> : (
+    <Card title={title} actions={<div className="actions"><input className="input" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 220 }} /><button className="btn primary" onClick={onAdd}>+ {addLabel}</button></div>}>
+      {!rows.length ? <EmptyState /> : !filteredRows.length ? <EmptyState text="No records match your search." /> : (
         <div className="tablewrap">
           <table className="table">
             <thead><tr>{columns.map(c => <th key={c.key}>{c.label}</th>)}<th style={{width:110}}>Action</th></tr></thead>
-            <tbody>{rows.map(r => (
+            <tbody>{filteredRows.map(r => (
               <tr key={r.id}>
                 {columns.map(c => <td key={c.key}>{r[c.key]}</td>)}
                 <td><button className="btn" onClick={() => onEdit(r)}>Edit</button>{' '}<button className="btn danger" onClick={() => onDelete(r.id)}>Delete</button></td>
