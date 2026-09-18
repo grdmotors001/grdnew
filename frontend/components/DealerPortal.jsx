@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { get } from '../lib/api';
+import { useDarkMode } from '../lib/theme';
 import { formatDate } from '../lib/date';
 import { DealerCashBook } from './DealerCashBook';
 import { DealerNewLoanForm } from './DealerNewLoanForm';
@@ -21,6 +22,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
+  const [dark, toggleDark] = useDarkMode();
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -57,7 +59,7 @@ export function DealerPortal({ dealer, onLogout }) {
       <header className="dealerTopbar">
         <button className="dealerMobileMenu" onClick={()=>setMobileNav(v=>!v)}>☰</button>
         <div><div className="dealerEyebrow">DEALER PANEL</div><h1>{tab==='dashboard'?'Dashboard':nav.find(x=>x[0]===tab)?.[2]||'Dealer Panel'}</h1></div>
-        <div className="dealerTopActions"><div className="dealerWelcome">Welcome, <b>{dealerName}</b></div><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
+        <div className="dealerTopActions"><div className="dealerWelcome">Welcome, <b>{dealerName}</b></div><button className="dealerThemeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
       </header>
 
       {mobileNav && <div className="dealerMobileNav">{nav.map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
