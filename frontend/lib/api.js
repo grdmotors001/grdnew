@@ -1,11 +1,19 @@
 // Talks to the Flask JSON API via the /api/backend/* rewrite in
 // next.config.mjs (see BACKEND_URL there). Auth is a bearer token
-// (see backend/auth.py) instead of a session cookie, since the API
-// is a separate origin in production — the token is kept in
+// (see backend/auth.py) instead of session cookies. The token is kept in
 // localStorage and attached to every request.
+
 const base = '/api/backend';
 const TOKEN_KEY = 'ebill_token';
 const DEFAULT_TIMEOUT_MS = 20000;
+
+// Small client-side GET cache + in-flight request deduplication.
+// This avoids repeatedly waiting for the same master/report data when
+// navigating between screens, while mutations immediately invalidate it.
+// Keep the window short so operational data remains fresh.
+const GET_CACHE_TTL_MS = 5000;
+const getCache = new Map();
+const getInFlight = new Map();
 
 export function getToken() {
   if (typeof window === 'undefined') return null;
@@ -15,7 +23,18 @@ export function getToken() {
 export function setToken(token) {
   if (typeof window === 'undefined') return;
   if (token) window.localStorage.setItem(TOKEN_KEY, token);
-  else window.localStorage.removeItem(TOKEN_KEY);
+  else {
+    window.localStorage.removeItem(TOKEN_KEY);
+    clearGetCache();
+  }
+}
+
+export function clearGetCache() {
+  getCache.clear();
+}
+
+function getCacheKey(path, options) {
+  return path + '|' + (options?.headers ? JSON.stringify(options.headers) : '');
 }
 
 export async function api(path, options = {}) {
@@ -26,40 +45,76 @@ export async function api(path, options = {}) {
     ...(options.headers || {}),
   };
   const { timeoutMs = DEFAULT_TIMEOUT_MS, preserveAuthOn401 = false, ...fetchOptions } = options;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const r = await fetch(base + path, { ...fetchOptions, headers, cache: 'no-store', signal: controller.signal });
-    if (r.status === 401) {
-      if (!preserveAuthOn401) setToken(null);
-      const err = new Error('Session expired — please sign in again.');
-      err.authError = true;
-      throw err;
-    }
-    const contentType = r.headers.get('content-type') || '';
-    const d = contentType.includes('application/json') ? await r.json().catch(() => ({})) : null;
-    if (!r.ok) throw new Error((d && d.error) || `Request failed (${r.status})`);
-    return d;
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('Request timed out. Please try again.');
-    if (error instanceof TypeError) throw new Error('Network error. Please check the connection and try again.');
-    throw error;
-  } finally {
-    clearTimeout(timer);
+  const method = String(fetchOptions.method || 'GET').toUpperCase();
+  const cacheable = method === 'GET' && !fetchOptions.signal && !fetchOptions.noClientCache;
+  const cacheKey = cacheable ? getCacheKey(path, options) : null;
+
+  if (cacheable) {
+    const cached = getCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+    const existing = getInFlight.get(cacheKey);
+    if (existing) return existing;
   }
+
+  const run = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(base + path, {
+        ...fetchOptions,
+        headers,
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (r.status === 401) {
+        if (!preserveAuthOn401) setToken(null);
+        const err = new Error('Session expired — please sign in again.');
+        err.authError = true;
+        throw err;
+      }
+      const contentType = r.headers.get('content-type') || '';
+      const d = contentType.includes('application/json') ? await r.json().catch(() => ({})) : null;
+      if (!r.ok) throw new Error((d && d.error) || `Request failed (${r.status})`);
+      if (cacheable) getCache.set(cacheKey, { data: d, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+      return d;
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('Request timed out. Please try again.');
+      if (error instanceof TypeError) throw new Error('Network error. Please check the connection and try again.');
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      if (cacheKey) getInFlight.delete(cacheKey);
+    }
+  })();
+
+  if (cacheable) getInFlight.set(cacheKey, run);
+  return run;
 }
 
 export const get = (p, options = {}) => api(p, options);
-export const post = (p, b, options = {}) => api(p, { ...options, method: 'POST', body: JSON.stringify(b) });
-export const put = (p, b, options = {}) => api(p, { ...options, method: 'PUT', body: JSON.stringify(b) });
-export const del = (p, options = {}) => api(p, { ...options, method: 'DELETE' });
+
+export const post = async (p, b, options = {}) => {
+  const result = await api(p, { ...options, method: 'POST', body: JSON.stringify(b), noClientCache: true });
+  clearGetCache();
+  return result;
+};
+
+export const put = async (p, b, options = {}) => {
+  const result = await api(p, { ...options, method: 'PUT', body: JSON.stringify(b), noClientCache: true });
+  clearGetCache();
+  return result;
+};
+
+export const del = async (p, options = {}) => {
+  const result = await api(p, { ...options, method: 'DELETE', noClientCache: true });
+  clearGetCache();
+  return result;
+};
 
 // Excel export: the backend only knows how to hand back CSV (export=csv),
-// so we fetch that same CSV, parse it (PapaParse handles quoted/commaed
-// fields correctly) and re-write it as a real .xlsx workbook (SheetJS) —
-// giving an actual Excel file instead of a CSV renamed to .xlsx. Both
-// libraries are loaded on demand (only when someone actually clicks
-// Export) instead of being in every page's bundle.
+// so we fetch that same CSV, parse it and re-write it as a real .xlsx
+// workbook. Both libraries are loaded on demand only when Export is clicked.
 export async function downloadExcel(path, filename) {
   const token = getToken();
   const sep = path.includes('?') ? '&' : '?';
