@@ -150,16 +150,6 @@ export function DealerPage() {
           </table>
         </div>
       )}
-      {meta && meta.total_pages > 1 && (
-        <div className="actions" style={{ marginTop: 12, justifyContent: 'space-between' }}>
-          <span className="muted">Showing {((meta.page - 1) * meta.per_page) + 1}-{Math.min(meta.page * meta.per_page, meta.total)} of {meta.total}</span>
-          <div className="actions">
-            <button className="btn" disabled={page <= 1} onClick={() => { const p = page - 1; setPage(p); load(p); }}>Previous</button>
-            <span className="muted">Page {page} / {meta.total_pages}</span>
-            <button className="btn" disabled={page >= meta.total_pages} onClick={() => { const p = page + 1; setPage(p); load(p); }}>Next</button>
-          </div>
-        </div>
-      )}
       {open && (
         <div className="modal">
           <form className="modalbox" onSubmit={save}>
@@ -177,8 +167,8 @@ export function DealerPage() {
               <Field label="PAN" value={form.pan} onChange={(v) => setForm({ ...form, pan: v })} />
               <Field label="Salesman" value={form.salesman} onChange={(v) => setForm({ ...form, salesman: v })} />
               <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />
-              <Field label="Portal Login ID (reserved — no portal yet)" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
-              <Field label="Portal Password (reserved)" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
+              <Field label="Dealer Login ID" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
+              <Field label="Dealer Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
             </div>
             <div className="actions" style={{ marginTop: 18, justifyContent: 'space-between' }}>
               {editingId ? (
