@@ -6,7 +6,12 @@ import { formatDate } from '../lib/date';
 
 export function ClosingStockPremisesPage() {
   const [data, setData] = useState(null);
-  useEffect(() => { get('/stock/closing-premises').then(setData); }, []);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setError('');
+    get('/stock/closing-premises').then(setData).catch((e) => setError(e.message));
+  }, []);
+  if (error) return <ErrorBanner message={error} />;
   if (!data) return <div className="card">Loading…</div>;
   return (
     <>
@@ -33,7 +38,12 @@ export function ClosingStockPremisesPage() {
 
 export function ClosingStockDealersPage() {
   const [data, setData] = useState(null);
-  useEffect(() => { get('/stock/closing-dealers').then(setData); }, []);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setError('');
+    get('/stock/closing-dealers').then(setData).catch((e) => setError(e.message));
+  }, []);
+  if (error) return <ErrorBanner message={error} />;
   if (!data) return <div className="card">Loading…</div>;
   return (
     <>
@@ -192,7 +202,9 @@ export function StockLedgerDealersPage() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
 
-  useEffect(() => { get('/dealers').then((d) => setDealers(d.dealers)); }, []);
+  useEffect(() => {
+    get('/dealers').then((d) => setDealers(d.dealers || [])).catch((e) => setError(e.message));
+  }, []);
   useEffect(() => {
     const q = new URLSearchParams({ ...(dealerId ? { dealer_id: dealerId } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}) });
     get(`/stock/ledger-dealers?${q}`).then((d) => setRows(d)).catch((e) => setError(e.message));
@@ -206,7 +218,7 @@ export function StockLedgerDealersPage() {
         <Field label="To" type="date" value={to} onChange={setTo} />
       </div>
       <ErrorBanner message={error} />
-      {!rows ? <div className="card">Loading…</div> : rows.length === 0 ? <EmptyState /> : (
+      {!rows ? <div className="card">Loading…</div> : (rows.events || rows || []).length === 0 ? <EmptyState /> : (
         <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Chassis No.</th><th>Dealer</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
