@@ -18,3 +18,9 @@ CREATE TABLE IF NOT EXISTS dealer_payment (
 );
 CREATE INDEX IF NOT EXISTS idx_dealer_payment_dealer ON dealer_payment(dealer_id);
 CREATE INDEX IF NOT EXISTS idx_dealer_payment_status ON dealer_payment(status);
+
+
+-- Registered dealer bank details for dealer-created invoices
+ALTER TABLE dealer ADD COLUMN IF NOT EXISTS bank_name VARCHAR(120);
+ALTER TABLE dealer ADD COLUMN IF NOT EXISTS bank_account_no VARCHAR(50);
+ALTER TABLE dealer ADD COLUMN IF NOT EXISTS bank_ifsc VARCHAR(50);
