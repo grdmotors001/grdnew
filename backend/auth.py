@@ -35,6 +35,31 @@ def _decode(token):
         return None
 
 
+def issue_dealer_token(dealer):
+    return _serializer.dumps({
+        "uid": dealer.id,
+        "username": dealer.login_id,
+        "dealer_id": dealer.id,
+        "is_super_user": False,
+        "scope": "dealer",
+    })
+
+
+def require_dealer_auth(fn):
+    """Decorator for dealer-portal API routes. Accepts only dealer-scoped tokens."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+        payload = _decode(token) if token else None
+        if not payload or payload.get("scope") != "dealer" or not payload.get("dealer_id"):
+            return jsonify({"error": "Dealer authentication required"}), 401
+        g.current_dealer_id = payload["dealer_id"]
+        g.current_user_payload = payload
+        return fn(*args, **kwargs)
+    return wrapper
+
+
 def require_auth(fn):
     """Decorator for API routes that need a logged-in user. Populates
     g.current_user_payload (dict from the token) on success."""
