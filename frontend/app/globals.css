@@ -244,3 +244,6 @@
 }
 .mobileAdminTop{display:none}
 @media(max-width:700px){.mobileAdminTop{display:flex;align-items:center;gap:10px}.mobileAdminTop button{width:38px;height:38px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;font-size:20px}.mobileAdminTop>div{min-width:0}.mobileAdminTop strong{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mobileAdminTop small{display:block;color:var(--muted);font-size:10px}}
+
+@media(max-width:700px){.mobileMenuBackdrop{display:block;position:fixed;inset:0;border:0;background:#0006;z-index:90}.sidebar{z-index:100}.sidebar.collapsed{z-index:100}}
+@media(min-width:701px){.mobileMenuBackdrop{display:none}}
