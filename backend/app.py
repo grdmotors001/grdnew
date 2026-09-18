@@ -46,7 +46,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      DeliveryChallan, TaxInvoice, PurchaseBill, PurchaseBillItem,
                      OldRickshaw, BatteryDeliveryChallan, JournalStock, DayBook, ExpensePaymentVoucher)
 from menu_config import MENU, find_item, all_items
-from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user
+from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user, _serializer
 from hr_attendance import hr_bp
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
