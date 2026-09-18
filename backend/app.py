@@ -445,6 +445,7 @@ def ser_dealer(d):
     return {"id": d.id, "code": d.code, "name": d.name, "address1": d.address1,
             "address2": d.address2, "mobile": d.mobile, "gst_no": d.gst_no,
             "state": d.state, "state_code": d.state_code, "pan": d.pan,
+            "bank_name": d.bank_name, "bank_account_no": d.bank_account_no, "bank_ifsc": d.bank_ifsc,
             "registration_type": d.registration_type or "registered",
             "salesman": d.salesman, "blocked": d.blocked, "login_id": d.login_id}
 
@@ -979,6 +980,9 @@ def dealers():
         d.state = data.get("state")
         d.state_code = data.get("state_code")
         d.pan = data.get("pan")
+        d.bank_name = data.get("bank_name")
+        d.bank_account_no = data.get("bank_account_no")
+        d.bank_ifsc = data.get("bank_ifsc")
         d.salesman = data.get("salesman")
         d.code = data.get("code") or None
         d.blocked = bool(data.get("blocked"))
@@ -1049,7 +1053,8 @@ def dealer_customer_invoice():
       other_desc=challan.other,colour=challan.colour,sale_amount=_f(data.get("sale_amount"),challan.sale_value or 0),
       gst_sale_amount=_f(data.get("gst_sale_amount"),_f(data.get("sale_amount"),challan.sale_value or 0)),discount=_f(data.get("discount")),gst_rate=_f(data.get("gst_rate"),default_gst or 5),
       insurance_amount=_f(data.get("insurance_amount")),registration_amount=_f(data.get("registration_amount")),amount_received=_f(data.get("amount_received")),
-      remarks=data.get("remarks"),mode_term=data.get("mode_term") or "BANK/CASH")
+      remarks=data.get("remarks"),mode_term=data.get("mode_term") or "BANK/CASH",
+      bank_name=(data.get("bank_name") or d.bank_name),bank_account_no=(data.get("bank_account_no") or d.bank_account_no),bank_ifsc=(data.get("bank_ifsc") or d.bank_ifsc))
     db.session.add(ti)
     if challan.vehicle: challan.vehicle.stage="Tax Invoice"
     db.session.commit(); return jsonify(ser_ti(ti)),201
