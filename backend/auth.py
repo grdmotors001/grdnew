@@ -68,8 +68,8 @@ def require_auth(fn):
         auth_header = request.headers.get("Authorization", "")
         token = auth_header[7:] if auth_header.startswith("Bearer ") else None
         payload = _decode(token) if token else None
-        if not payload:
-            return jsonify({"error": "Not authenticated"}), 401
+        if not payload or payload.get("scope") != "staff":
+            return jsonify({"error": "Staff authentication required"}), 401
         g.current_user_payload = payload
         return fn(*args, **kwargs)
     return wrapper
