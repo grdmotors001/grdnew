@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 
-const backend = process.env.BACKEND_URL || 'http://127.0.0.1:5000';
+const backend = process.env.BACKEND_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:5000' : '');
 
 async function proxy(request, context) {
+  if (!backend) {
+    return NextResponse.json({ error: 'Backend is not configured. Set BACKEND_URL in the Vercel Production environment.' }, { status: 500 });
+  }
   const { path = [] } = await context.params;
   const backendPath = path.map((part) => encodeURIComponent(part)).join('/');
   const incomingUrl = new URL(request.url);
