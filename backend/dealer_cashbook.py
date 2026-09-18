@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from flask import Blueprint, request, jsonify, g
+from sqlalchemy import inspect, text
 from models import db, Dealer
 from auth import require_dealer_auth
 
@@ -23,6 +24,7 @@ class DealerCashReceipt(db.Model):
     customer_name = db.Column(db.String(200), nullable=False)
     customer_phone = db.Column(db.String(30))
     application_no = db.Column(db.String(40))
+    dealer_register_page_no = db.Column(db.String(40))
     booking_for = db.Column(db.String(200))
     amount = db.Column(db.Float, nullable=False)
     payment_mode = db.Column(db.String(20), nullable=False, default="cash")
@@ -56,6 +58,19 @@ class DealerCashHandover(db.Model):
     status = db.Column(db.String(20), nullable=False, default="sent")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+@dealer_cashbook_bp.before_request
+def _ensure_cashbook_schema():
+    """Keep the dealer receipt table compatible with the live database."""
+    try:
+        db.create_all()
+        cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
+        if "dealer_register_page_no" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE dealer_cash_receipt ADD COLUMN dealer_register_page_no VARCHAR(40)"))
+    except Exception as exc:
+        # Do not hide the real request error if schema repair is unavailable.
+        print(f"[cash-book] schema check failed: {exc}")
+
 def _date(v):
     if not v: return date.today()
     try: return datetime.strptime(str(v), "%Y-%m-%d").date()
@@ -72,7 +87,7 @@ def _no(model, prefix):
 def _receipt(r):
     return {"id":r.id,"receipt_no":r.receipt_no,"date":r.receipt_date.isoformat(),
             "customer_name":r.customer_name,"customer_phone":r.customer_phone,
-            "application_no":r.application_no,"booking_for":r.booking_for,"amount":r.amount,
+            "application_no":r.application_no,"dealer_register_page_no":r.dealer_register_page_no,"booking_for":r.booking_for,"amount":r.amount,
             "payment_mode":r.payment_mode,"payment_mode_label":PAYMENT_MODES.get(r.payment_mode,r.payment_mode),
             "reference_no":r.reference_no,"remarks":r.remarks}
 
@@ -118,6 +133,7 @@ def create_receipt():
     r=DealerCashReceipt(dealer_id=g.current_dealer_id, receipt_no=_no(DealerCashReceipt,"DRC"), receipt_date=rd,
        customer_name=name, customer_phone=str(d.get("customer_phone") or "").strip() or None,
        application_no=str(d.get("application_no") or "").strip() or None,
+       dealer_register_page_no=str(d.get("dealer_register_page_no") or "").strip() or None,
        booking_for=str(d.get("booking_for") or "").strip() or None, amount=amount, payment_mode=mode,
        reference_no=str(d.get("reference_no") or "").strip() or None, remarks=str(d.get("remarks") or "").strip() or None)
     db.session.add(r); db.session.commit()
