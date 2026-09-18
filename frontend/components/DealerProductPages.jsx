@@ -173,6 +173,9 @@ export function DealerPage() {
               <Field label="State" value={form.state} onChange={(v) => setForm({ ...form, state: v })} />
               <Field label="State Code" value={form.state_code} onChange={(v) => setForm({ ...form, state_code: v })} />
               <Field label="PAN" value={form.pan} onChange={(v) => setForm({ ...form, pan: v })} />
+              <Field label="Bank Name" value={form.bank_name} onChange={(v) => setForm({ ...form, bank_name: v })} />
+              <Field label="Bank Account No." value={form.bank_account_no} onChange={(v) => setForm({ ...form, bank_account_no: v })} />
+              <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
               <Field label="Salesman" value={form.salesman} onChange={(v) => setForm({ ...form, salesman: v })} />
               <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />
               <Field label="Dealer Login ID" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
