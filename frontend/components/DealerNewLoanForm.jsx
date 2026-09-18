@@ -45,7 +45,10 @@ export function DealerNewLoanForm({ onBack }) {
   const [loanType,setLoanType]=useState('NEW');
   const [loanMasters,setLoanMasters]=useState({models:[],financers:[],loan_types:[]});
   const [sale,setSale]=useState({sale_amount:'',file_charge:'',booking_amount:'',register_page_no:''});
-  const [saving,setSaving]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(null);\n  const [customerPhoto,setCustomerPhoto]=useState(null);\n  const [documents,setDocuments]=useState([]);\n  const [documentPreviews,setDocumentPreviews]=useState([]);
+  const [saving,setSaving]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(null);
+  const [customerPhoto,setCustomerPhoto]=useState(null);
+  const [documents,setDocuments]=useState([]);
+  const [documentPreviews,setDocumentPreviews]=useState([]);
 
   useEffect(()=>{
     let cancelled=false;
@@ -78,7 +81,10 @@ export function DealerNewLoanForm({ onBack }) {
 
   async function submit(){
     setError('');
-    if(!borrower.full_name||!/^[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}\n    if(!/^[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}\n    if(!customerPhoto){setError('Customer photo mandatory hai.');setStep('borrower');return;}\n    if(!documents.length){setError('At least one customer document mandatory hai.');setStep('borrower');return;}
+    if(!borrower.full_name||!/^[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}
+    if(!/^[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}
+    if(!customerPhoto){setError('Customer photo mandatory hai.');setStep('borrower');return;}
+    if(!documents.length){setError('At least one customer document mandatory hai.');setStep('borrower');return;}
     if(!vehicleLoan.vehicle_price||!vehicleLoan.loan_amount_requested||!vehicleLoan.tenure_months){setError('Vehicle price, loan amount aur tenure required hai.');setStep('loan');return;}
     setSaving(true);
     try{
