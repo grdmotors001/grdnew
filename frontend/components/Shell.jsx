@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { post, setToken } from '../lib/api';
+import { get, post, setToken } from '../lib/api';
 import { MENU, labelFor } from '../lib/menu';
 import { useDarkMode } from '../lib/theme';
 import {
@@ -97,6 +97,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profile, setProfile] = useState({});
+  const [myAttendance, setMyAttendance] = useState(null);
+  const [attendanceMonth, setAttendanceMonth] = useState(new Date().toISOString().slice(0,7));
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
 
   const palette = [
     '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
@@ -140,7 +143,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     <div className="app">
       <div className="mobileAdminTop"><button onClick={() => setMobileMenu(true)} aria-label="Open menu">☰</button><div><strong>G.R.D. MOTORS</strong><small>eBill Management System</small></div></div>
       {mobileMenu && <button className="mobileMenuBackdrop" aria-label="Close menu" onClick={() => setMobileMenu(false)} />}
-      {profileOpen && <div className="modal"><form className="modalbox profileBox" onSubmit={e=>{e.preventDefault();localStorage.setItem('grd_profile',JSON.stringify(profile));setProfileOpen(false)}}><h2>My Profile</h2><p className="muted">Complete the details used for staff records and communication.</p><div className="formgrid"><Field label="Full Name" value={profile.full_name||''} onChange={v=>setProfile({...profile,full_name:v})} required /><Field label="Mobile No." value={profile.mobile||''} onChange={v=>setProfile({...profile,mobile:v})} required /><Field label="Email" type="email" value={profile.email||''} onChange={v=>setProfile({...profile,email:v})} /><Field label="Department" value={user?.department||'Admin'} onChange={()=>{}} disabled /><Field label="Username" value={user?.username||''} onChange={()=>{}} disabled /><Field label="Address" value={profile.address||''} onChange={v=>setProfile({...profile,address:v})} /></div><div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Cancel</button><button className="btn primary">Save Profile</button></div></form></div>}\n      <aside className={'sidebar' + (collapsed ? ' collapsed' : '') + (mobileMenu ? ' mobile-open' : '')}>
+      {profileOpen && <div className="modal"><div className="modalbox profileBox" style={{maxWidth:760}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><div><h2>My Staff Profile</h2><p className="muted">Profile aur monthly attendance ek hi jagah.</p></div><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Close</button></div><div className="card" style={{marginTop:14}}><div style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}>{myAttendance?.employee?.photo_url ? <img src={myAttendance.employee.photo_url} alt="Staff" style={{width:76,height:76,borderRadius:18,objectFit:'cover',border:'1px solid var(--border)'}}/> : <div className="sidebarAvatar" style={{width:76,height:76,fontSize:28}}>{initial}</div>}<div><h3 style={{margin:0}}>{myAttendance?.employee?.name || user?.username}</h3><div className="muted">{myAttendance?.employee?.designation || user?.department || 'Staff'} · {myAttendance?.employee?.employee_code || 'Employee'}</div><div style={{marginTop:6}}>Date of Joining: <strong>{myAttendance?.employee?.joining_date || 'Not added'}</strong></div></div></div></div>{myAttendance?.employee ? <><div className="formgrid" style={{marginTop:14}}><Field label="Mobile No." value={myAttendance.employee.mobile||user?.mobile||'-'} onChange={()=>{}} disabled /><Field label="Department" value={myAttendance.employee.department||'-'} onChange={()=>{}} disabled /><Field label="Designation" value={myAttendance.employee.designation||'-'} onChange={()=>{}} disabled /><Field label="Date of Joining" value={myAttendance.employee.joining_date||'-'} onChange={()=>{}} disabled /></div><div className="toolbar" style={{marginTop:16}}><div className="field"><label>Attendance Month</label><input type="month" value={attendanceMonth} onChange={async e=>{const m=e.target.value;setAttendanceMonth(m);setAttendanceLoading(true);try{setMyAttendance(await get('/hr/me?month='+m))}catch(err){}finally{setAttendanceLoading(false)}}}/></div></div><div className="formgrid" style={{marginTop:8}}>{[['Present','Present'],['Late','Late'],['Overtime','OT'],['Absent','Absent']].map(([label,key])=>{const a=myAttendance.attendance||[];const val=key==='Present'?a.filter(x=>x.status==='Present').length:key==='Late'?a.filter(x=>Number(x.late_minutes||0)>0).length:key==='OT'?a.reduce((s,x)=>s+Number(x.overtime_hours||0),0).toFixed(2):a.filter(x=>x.status==='Absent').length;return <div className="card" key={key}><div className="muted">{label}</div><strong style={{fontSize:22}}>{val}</strong></div>})}</div><div className="card tableWrap" style={{marginTop:14}}><table className="reportTable"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Status</th><th>Late</th><th>OT</th></tr></thead><tbody>{(myAttendance.attendance||[]).map(x=><tr key={x.work_date}><td>{x.work_date}</td><td>{x.first_in||'-'}</td><td>{x.last_out||'-'}</td><td>{x.status}</td><td>{Number(x.late_minutes||0)} min</td><td>{Number(x.overtime_hours||0).toFixed(2)} hr</td></tr>)}</tbody></table></div></> : <div className="error" style={{marginTop:14}}>{myAttendance?.message || 'HR profile not linked yet.'}</div>}<div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Close</button></div></div></div>}\n      <aside className={'sidebar' + (collapsed ? ' collapsed' : '') + (mobileMenu ? ' mobile-open' : '')}>
         <div className="brand">
           <div className="brandMark">G</div>
           {!collapsed && (
@@ -282,6 +285,8 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           const saved = window.localStorage.getItem('grd_profile');
           setProfile(saved ? JSON.parse(saved) : {});
           setProfileOpen(true);
+          setAttendanceLoading(true);
+          get('/hr/me?month='+attendanceMonth).then(setMyAttendance).catch(()=>setMyAttendance(null)).finally(()=>setAttendanceLoading(false));
           setMobileMenu(false);
         }}>
           <Users size={18} /><small>Profile</small>
