@@ -20,7 +20,7 @@ export const MENU = {
     ['bank', 'Bank Details'],
     ['colour', 'Colour Master'],
   ],
-  Vouchers: [
+  Loan Processing: [\n    ['loan-workflow', 'Loan Applications • DO / FE'],\n  ],\n  Vouchers: [
     ['purchase-bills', 'Purchase Bills'],
     ['production-voucher', 'Production Voucher'],
     ['delivery-challan', 'E-Rickshaw Delivery Challan'],
