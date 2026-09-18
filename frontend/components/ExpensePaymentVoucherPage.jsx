@@ -17,7 +17,7 @@ export function ExpensePaymentVoucherPage(){
   const onPayType=v=>setForm(x=>({...x,pay_to_type:v,pay_to_name:'',dealer_id:'',staff_name:'',vehicle_id:''}));
   const onDealer=v=>{const d=masters.dealers.find(x=>String(x.id)===v);setForm(x=>({...x,dealer_id:v,pay_to_name:d?.name||'',vehicle_id:''}))};
   async function save(e){e.preventDefault();setSaving(true);setError('');setMsg('');try{const r=await post('/expense-payment-voucher',form);setRows(x=>[r.voucher,...x]);setMsg('Voucher '+r.voucher.voucher_no+' saved — sent for Head Office approval');set('amount','');set('bill_no','');set('attachment_url','');set('remarks','');set('vehicle_id','')}catch(e){setError(e.message||'Could not save voucher')}finally{setSaving(false)}}
-  async function approval(id,action){let reason='';if(action==='reject'){reason=window.prompt('Enter rejection reason')||'';if(!reason)return}try{const r=await post(`/expense-payment-voucher/${id}/approval`,{action,reason});setRows(x=>x.map(v=>v.id===id?r.voucher:v));}catch(e){setError(e.message||'Could not update approval')}
+  async function approval(id,action){let reason='';if(action==='reject'){reason=window.prompt('Enter rejection reason')||'';if(!reason)return}try{const r=await post(`/expense-payment-voucher/${id}/approval`,{action,reason});setRows(x=>x.map(v=>v.id===id?r.voucher:v));}catch(e){setError(e.message||'Could not update approval')}}
   const needsRick=form.expense_type==='passing_exp'||form.expense_type==='incentive';
   return <div className="page">
     <div className="pageHeader"><div><h1>Expense Payment Voucher</h1><p className="muted">Head Office controlled payment and expense voucher</p></div></div>
