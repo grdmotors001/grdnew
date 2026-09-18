@@ -109,7 +109,13 @@ export function DealerPage() {
     .catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
 
-  const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07' }); setOpen(true); };
+  const filteredDealers = dealers.filter((d) => {
+ const q = search.trim().toLowerCase();
+ if (!q) return true;
+ return [d.code, d.name, d.mobile, d.gst_no, d.login_id].join(' ').toLowerCase().includes(q);
+ });
+
+ const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07' }); setOpen(true); };
   const openEdit = (d) => { setEditingId(d.id); setForm({ ...d }); setOpen(true); };
 
   const save = (e) => {
@@ -125,15 +131,15 @@ export function DealerPage() {
   return (
     <>
       <div className="actions" style={{ marginBottom: 14 }}>
-        <button className="btn primary" onClick={openNew}>+ Add Dealer</button>
+        <div className="actions"><input className="input" placeholder="Search dealer name, code, mobile…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 320 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}<button className="btn primary" onClick={openNew}>+ Add Dealer</button></div>
       </div>
       <ErrorBanner message={!open ? error : ''} />
-      {dealers.length === 0 ? <EmptyState /> : (
+      {dealers.length === 0 ? <EmptyState /> : filteredDealers.length === 0 ? <EmptyState text="No dealers match your search." /> : (
         <div className="tablewrap">
           <table className="table">
             <thead><tr><th>Code</th><th>Name</th><th>Mobile</th><th>GSTIN</th><th>State</th><th>Login ID</th><th>Blocked</th></tr></thead>
             <tbody>
-              {dealers.map((d) => (
+              {filteredDealers.map((d) => (
                 <tr key={d.id}>
                   <td>{d.code}</td>
                   <td>
