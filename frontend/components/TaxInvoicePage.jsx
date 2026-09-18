@@ -105,6 +105,16 @@ export function TaxInvoicePage() {
     run(async () => { await del(`/tax-invoices/${id}`); setOpen(false); setEditingId(null); load(); });
   };
 
+  const generateEInvoice = (id) => run(async () => {
+    await post(`/tax-invoices/${id}/e-invoice`, {});
+    load();
+  });
+
+  const generateEWayBill = (id) => run(async () => {
+    await post(`/tax-invoices/${id}/e-way-bill`, {});
+    load();
+  });
+
   if (!data) return <div className="card">Loading…</div>;
 
   return (
@@ -155,7 +165,13 @@ export function TaxInvoicePage() {
                   <td><Money value={(Number(i.cgst_amount) || 0) + (Number(i.sgst_amount) || 0) + (Number(i.igst_amount) || 0)} /></td>
                   <td><Money value={i.bill_total} /></td>
                   <td>
-                    <button className="btn" onClick={() => setPrintId(i.id)}>Print</button>
+                    <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                      <button className="btn" onClick={() => setPrintId(i.id)}>Print</button>
+                      {!i.irn && <button className="btn" onClick={() => generateEInvoice(i.id)} disabled={busy}>E-Invoice</button>}
+                      {i.irn && <span className="muted" style={{fontSize:11,alignSelf:'center'}}>IRN ✓</span>}
+                      {!i.eway_bill_no && <button className="btn" onClick={() => generateEWayBill(i.id)} disabled={busy}>E-Way</button>}
+                      {i.eway_bill_no && <span className="muted" style={{fontSize:11,alignSelf:'center'}}>EWB ✓</span>}
+                    </div>
                   </td>
                 </tr>
               ))}
