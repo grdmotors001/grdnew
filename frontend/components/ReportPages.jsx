@@ -1,0 +1,940 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { get, post, put, del, downloadExcel } from '../lib/api';
+import { EmptyState, ErrorBanner, Field, Money } from './ui';
+import { formatDate } from '../lib/date';
+import { DeliveryChallanPrintView } from './PrintDocs';
+
+function useReport(path, extraParams = {}) {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [search, setSearch] = useState('');
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [extra, setExtra] = useState(extraParams);
+
+  useEffect(() => {
+    const q = new URLSearchParams({
+      ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}), ...extra,
+    });
+    get(`${path}?${q}`).then(setData).catch((e) => setError(e.message));
+  }, [path, from, to, search, JSON.stringify(extra)]);
+
+  return { from, setFrom, to, setTo, search, setSearch, data, error, extra, setExtra };
+}
+
+function FilterBar({ r, showSearch = true, children }) {
+  return (
+    <div className="toolbar">
+      <Field label="From" type="date" value={r.from} onChange={r.setFrom} />
+      <Field label="To" type="date" value={r.to} onChange={r.setTo} />
+      {showSearch && <Field label="Search" value={r.search} onChange={r.setSearch} />}
+      {children}
+    </div>
+  );
+}
+
+// Groups consecutive Ledger events that share a Doc No. (a Sale row plus its
+// Hypothecation/direct-received CASH row(s), which the backend always emits
+// back-to-back for the same bill) so they can be rendered as one visual
+// block: a merged Doc No. cell, a single combined net-amount figure, and a
+// boxed outline around the group. Receipts (Day Book rows, blank Doc No.)
+// are left as their own single-row "group".
+function groupLedgerEvents(events) {
+  const out = [];
+  let i = 0;
+  while (i < events.length) {
+    let j = i;
+    if (events[i].doc_no) {
+      while (j + 1 < events.length && events[j + 1].doc_no === events[i].doc_no) j++;
+    }
+    const group = events.slice(i, j + 1);
+    const groupNet = group.reduce((s, e) => s + (e.credit || 0) - (e.debit || 0), 0);
+    group.forEach((e, idx) => out.push({
+      ...e, _groupSize: group.length, _groupPos: idx, _groupNet: groupNet,
+    }));
+    i = j + 1;
+  }
+  return out;
+}
+
+export function PurchaseRegisterPage() {
+  const r = useReport('/reports/purchase-register');
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+  return (
+    <>
+      <FilterBar r={r}>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/purchase-register' + qs(r), 'Purchase_Register.xlsx')}>Export Excel</button>
+      </FilterBar>
+      {r.data.rows.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Party</th><th>Item</th><th>HSN</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead>
+            <tbody>
+              {r.data.rows.map((row, i) => (
+                <tr key={i}>
+                  <td>{formatDate(row.date)}</td><td>{row.bill_no}</td><td>{row.party_name}</td><td>{row.item_name}</td>
+                  <td>{row.hsn}</td><td><Money value={row.taxable_amt} /></td><td><Money value={row.cgst_amt} /></td>
+                  <td><Money value={row.sgst_amt} /></td><td><Money value={row.igst_amt} /></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr><td colSpan={5}><b>Totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.cgst} /></td><td><Money value={r.data.totals.sgst} /></td><td><Money value={r.data.totals.igst} /></td></tr></tfoot>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+function qs(r) {
+  const p = new URLSearchParams({ ...(r.from ? { from: r.from } : {}), ...(r.to ? { to: r.to } : {}), ...(r.search ? { search: r.search } : {}) });
+  return '?' + p.toString();
+}
+
+export function ProductionRegisterPage() {
+  const r = useReport('/reports/production-register');
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+  return (
+    <>
+      <FilterBar r={r}>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/production-register' + qs(r), 'Production_Register.xlsx')}>Export Excel</button>
+      </FilterBar>
+      {r.data.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th></tr></thead>
+            <tbody>{r.data.map((v) => <tr key={v.id}><td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.quantity}</td><td>{v.chassis_no}</td><td>{v.motor_no}</td></tr>)}</tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function DeliveryChallanRegisterPage() {
+  const r = useReport('/reports/delivery-challan-register', { status: 'all' });
+  const [editRow, setEditRow] = useState(null);
+  const [printId, setPrintId] = useState(null);
+  const [editError, setEditError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // "Filter" (F3 in the legacy app) — Product/Dealer/Salesman/Battery Make
+  // dropdowns applied on top of the already-loaded rows (this report isn't
+  // paginated, so the full date-range result set is already on the page —
+  // no need to round-trip to the server for these). Raw Material, Mechanic
+  // and Subsidy from the legacy filter dialog aren't included here since a
+  // Delivery Challan doesn't carry any of those three values.
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filters, setFilters] = useState({ product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' });
+  const [draftFilters, setDraftFilters] = useState(filters);
+  const activeFilterCount = Object.values(filters).filter((v) => v !== 'ALL').length;
+
+  const openEdit = (c) => { setEditError(''); setEditRow({ ...c }); };
+  const setE = (f) => (v) => setEditRow({ ...editRow, [f]: v });
+
+  const saveEdit = async (ev) => {
+    ev.preventDefault();
+    setSaving(true);
+    try {
+      await put(`/delivery-challans/${editRow.id}`, editRow);
+      setEditRow(null);
+      r.setExtra({ ...r.extra }); // re-triggers the report fetch
+    } catch (err) { setEditError(err.message); }
+    setSaving(false);
+  };
+
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+
+  const uniqueSorted = (key) => [...new Set(r.data.map((c) => c[key]).filter(Boolean))].sort();
+  const filteredData = r.data.filter((c) =>
+    (filters.product === 'ALL' || c.product_name === filters.product) &&
+    (filters.dealer === 'ALL' || c.dealer_name === filters.dealer) &&
+    (filters.salesman === 'ALL' || c.salesman === filters.salesman) &&
+    (filters.battery === 'ALL' || c.battery_maker === filters.battery)
+  );
+
+  const openFilter = () => { setDraftFilters(filters); setFilterOpen(true); };
+  const applyFilter = () => { setFilters(draftFilters); setFilterOpen(false); };
+  const resetFilter = () => { const cleared = { product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' }; setDraftFilters(cleared); setFilters(cleared); setFilterOpen(false); };
+
+  return (
+    <>
+      <FilterBar r={r}>
+        <Field label="Status" type="select" value={r.extra.status} options={[{ value: 'all', label: 'All' }, { value: 'sold', label: 'Sold (invoiced)' }, { value: 'unsold', label: 'Unsold' }]} onChange={(v) => r.setExtra({ status: v })} />
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={openFilter}>
+          Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+        </button>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/delivery-challan-register' + qs(r) + `&status=${r.extra.status}`, 'Delivery_Challan_Register.xlsx')}>Export Excel</button>
+      </FilterBar>
+      {filteredData.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th><th>Challan No.</th><th>Party Name</th>
+                <th title="From the Tax Invoice, once this challan is billed">Item Amount</th>
+                <th>Chassis No.</th><th>Colour</th><th>Other</th><th>Sale Bill No.</th>
+                <th>Sale Value</th><th>Salesman</th><th>Battery Make</th>
+                <th>Remarks (1)</th><th>Remarks (2)</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.map((c) => (
+                <tr key={c.id} onDoubleClick={() => openEdit(c)} style={{ cursor: 'pointer' }} title="Double-click to edit">
+                  <td>{formatDate(c.date)}</td><td>{c.challan_no}</td><td>{c.dealer_name}</td>
+                  <td>{c.item_amount ? <Money value={c.item_amount} /> : ''}</td>
+                  <td>{c.chassis_no}</td><td>{c.colour}</td><td>{c.other}</td>
+                  <td>{c.bill_no || '—'}</td>
+                  <td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
+                  <td>{c.salesman}</td><td>{c.battery_maker}</td>
+                  <td>{c.remarks1}</td><td>{c.remarks2}</td>
+                  <td><button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Print</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {filterOpen && (
+        <div className="modal">
+          <div className="modalbox" style={{ maxWidth: 420 }}>
+            <h2>Filter</h2>
+            <div className="formgrid" style={{ gridTemplateColumns: '1fr' }}>
+              <Field label="E-Rickshaw" type="select" value={draftFilters.product}
+                     options={['ALL', ...uniqueSorted('product_name')]}
+                     onChange={(v) => setDraftFilters({ ...draftFilters, product: v })} />
+              <Field label="Dealer" type="select" value={draftFilters.dealer}
+                     options={['ALL', ...uniqueSorted('dealer_name')]}
+                     onChange={(v) => setDraftFilters({ ...draftFilters, dealer: v })} />
+              <Field label="Salesman" type="select" value={draftFilters.salesman}
+                     options={['ALL', ...uniqueSorted('salesman')]}
+                     onChange={(v) => setDraftFilters({ ...draftFilters, salesman: v })} />
+              <Field label="Battery Make" type="select" value={draftFilters.battery}
+                     options={['ALL', ...uniqueSorted('battery_maker')]}
+                     onChange={(v) => setDraftFilters({ ...draftFilters, battery: v })} />
+            </div>
+            <div className="actions" style={{ marginTop: 18, justifyContent: 'space-between' }}>
+              <button type="button" className="btn" onClick={resetFilter}>Reset</button>
+              <div className="actions">
+                <button type="button" className="btn" onClick={() => setFilterOpen(false)}>Cancel</button>
+                <button type="button" className="btn primary" onClick={applyFilter}>Okay</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editRow && (
+        <div className="modal">
+          <form className="modalbox" onSubmit={saveEdit} style={{ maxWidth: 720 }}>
+            <h2>Edit Delivery Challan — {editRow.challan_no}</h2>
+            <ErrorBanner message={editError} />
+            <p className="muted" style={{ marginTop: -6 }}>
+              Chassis/Dealer/Colour aren't editable here — they're snapshotted from the assigned
+              chassis. Cancel and re-create the Delivery Challan if the wrong chassis was picked.
+            </p>
+            <div className="formgrid">
+              <Field label="Challan No." value={editRow.challan_no} onChange={setE('challan_no')} />
+              <Field label="Date" type="date" value={editRow.date} onChange={setE('date')} />
+              <Field label="Destination" value={editRow.destination} onChange={setE('destination')} />
+              <Field label="Salesman" value={editRow.salesman} onChange={setE('salesman')} />
+              <Field label="Sale Bill No." value={editRow.sale_bill_no} onChange={setE('sale_bill_no')} />
+              <Field label="Sale Value" type="number" value={editRow.sale_value} onChange={setE('sale_value')} />
+              <Field label="Battery Maker" value={editRow.battery_maker} onChange={setE('battery_maker')} />
+              <Field label="Remarks (1)" value={editRow.remarks1} onChange={setE('remarks1')} />
+              <Field label="Remarks (2)" value={editRow.remarks2} onChange={setE('remarks2')} />
+            </div>
+            <div className="actions" style={{ marginTop: 18 }}>
+              <button type="button" className="btn" onClick={() => setEditRow(null)}>Cancel</button>
+              <button type="button" className="btn" onClick={() => { setPrintId(editRow.id); }}>Print / Preview</button>
+              <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {printId && <DeliveryChallanPrintView challanId={printId} onClose={() => setPrintId(null)} />}
+    </>
+  );
+}
+
+export function SaleRegisterPage() {
+  const r = useReport('/reports/sale-register');
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+  return (
+    <>
+      <FilterBar r={r}>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/sale-register' + qs(r), 'Sale_Register.xlsx')}>Export Excel</button>
+      </FilterBar>
+      {r.data.invoices.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Buyer</th><th>Product</th><th>Taxable</th><th>Tax</th><th>Total</th></tr></thead>
+            <tbody>
+              {r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td>{i.product_name}</td><td><Money value={i.taxable_value} /></td><td><Money value={i.tax_amount} /></td><td><Money value={i.bill_total} /></td></tr>)}
+            </tbody>
+            <tfoot><tr><td colSpan={4}><b>Totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.tax} /></td><td><Money value={r.data.totals.total} /></td></tr></tfoot>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function GstRegisterPage() {
+  const r = useReport('/reports/gst-register');
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+  return (
+    <>
+      <FilterBar r={r}>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/gst-register' + qs(r), 'GST_Register.xlsx')}>Export Excel</button>
+      </FilterBar>
+      <div className="card" style={{ marginBottom: 14 }}>
+        <b>Outward (Sale) — Net Payable Basis</b>
+        <div className="tablewrap" style={{ marginTop: 8 }}>
+          <table className="table">
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Buyer</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead>
+            <tbody>{r.data.outward.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td><Money value={i.taxable_value} /></td><td><Money value={i.cgst_amount} /></td><td><Money value={i.sgst_amount} /></td><td><Money value={i.igst_amount} /></td></tr>)}</tbody>
+            <tfoot><tr><td colSpan={3}><b>Totals</b></td><td><Money value={r.data.outward_totals.taxable} /></td><td><Money value={r.data.outward_totals.cgst} /></td><td><Money value={r.data.outward_totals.sgst} /></td><td><Money value={r.data.outward_totals.igst} /></td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      <div className="card">
+        <b>Inward (Purchase) — Net Credit Basis</b>
+        <div className="tablewrap" style={{ marginTop: 8 }}>
+          <table className="table">
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Party</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead>
+            <tbody>{r.data.inward.map((row, i) => <tr key={i}><td>{formatDate(row.date)}</td><td>{row.doc_no}</td><td>{row.party_name}</td><td><Money value={row.taxable} /></td><td><Money value={row.cgst} /></td><td><Money value={row.sgst} /></td><td><Money value={row.igst} /></td></tr>)}</tbody>
+            <tfoot><tr><td colSpan={3}><b>Totals</b></td><td><Money value={r.data.inward_totals.taxable} /></td><td><Money value={r.data.inward_totals.cgst} /></td><td><Money value={r.data.inward_totals.sgst} /></td><td><Money value={r.data.inward_totals.igst} /></td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function HypothecationRegisterPage() {
+  const r = useReport('/reports/hypothecation-register');
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+  return (
+    <>
+      <FilterBar r={r}>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/hypothecation-register' + qs(r), 'Hypothecation_Register.xlsx')}>Export Excel</button>
+      </FilterBar>
+      {r.data.invoices.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Buyer</th><th>Chassis No.</th><th>Financer</th><th>Hyp. Amount</th></tr></thead>
+            <tbody>{r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td>{i.chassis_no}</td><td>{i.financer_name}</td><td><Money value={i.hypothecation_amount} /></td></tr>)}</tbody>
+            <tfoot><tr><td colSpan={5}><b>Total Hypothecation</b></td><td><Money value={r.data.total_hyp} /></td></tr></tfoot>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function PaymentReceivablePage() {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [search, setSearch] = useState('');
+  const [showAll, setShowAll] = useState('1');
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  const buildQs = (p = page) => {
+    const params = new URLSearchParams({ page: p, per_page: 50, show_all: showAll });
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    if (search) params.set('search', search);
+    return params;
+  };
+
+  useEffect(() => {
+    get(`/reports/payment-receivable?${buildQs(1)}`).then((d) => { setData(d); setPage(1); }).catch((e) => setError(e.message));
+  }, [from, to, search, showAll]);
+
+  const goToPage = (p) => {
+    setPage(p);
+    get(`/reports/payment-receivable?${buildQs(p)}`).then(setData).catch((e) => setError(e.message));
+  };
+
+  if (error) return <ErrorBanner message={error} />;
+  if (!data) return <div className="card">Loading…</div>;
+
+  return (
+    <>
+      <div className="toolbar">
+        <Field label="From" type="date" value={from} onChange={setFrom} />
+        <Field label="To" type="date" value={to} onChange={setTo} />
+        <Field label="Search (dealer, customer, bill no.)" value={search} onChange={setSearch} />
+        <Field label="Show" type="select" value={showAll}
+               options={[{ value: '0', label: 'Outstanding only' }, { value: '1', label: 'All' }]}
+               onChange={setShowAll} />
+        <button className="btn" style={{ alignSelf: 'flex-end' }}
+                onClick={() => downloadExcel(`/reports/payment-receivable?${buildQs(1)}`, 'Payment_Receivable_Report.xlsx')}>
+          Export Excel
+        </button>
+      </div>
+      {data.rows.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Sr.No.</th><th>Date</th><th>Dealer Name</th><th>Bill No.</th><th>Model</th>
+                <th>Chassis No.</th><th>Other</th><th>Customer</th><th>Mobile No.</th>
+                <th>Value Amt.</th><th>Loan Amt.</th><th>Amt.Recd.</th><th>Balance</th>
+                <th>Financer</th><th>RTO</th><th>Chassis Record</th><th>Ledger</th>
+                <th>Voucher No.</th><th>Cheque No.</th><th>Vehicle No.</th><th>Salesman</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r, idx) => (
+                <tr key={r.id}>
+                  <td>{(data.page - 1) * data.per_page + idx + 1}</td>
+                  <td>{formatDate(r.date)}</td><td>{r.dealer_name}</td><td>{r.bill_no}</td><td>{r.model}</td>
+                  <td>{r.chassis_no}</td><td>{r.other}</td><td>{r.customer}</td><td>{r.mobile_no}</td>
+                  <td><Money value={r.value_amt} /></td><td><Money value={r.loan_amt} /></td>
+                  <td><Money value={r.amt_recd} /></td><td><b><Money value={r.balance} /></b></td>
+                  <td>{r.financer}</td><td>{r.rto}</td><td>{r.chassis_record}</td><td>{r.ledger}</td>
+                  <td>{r.voucher_no}</td><td>{r.cheque_no}</td><td>{r.vehicle_no}</td><td>{r.salesman}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={9}><b>Totals</b></td>
+                <td><Money value={data.totals.value} /></td>
+                <td><Money value={data.totals.loan} /></td>
+                <td><Money value={data.totals.received} /></td>
+                <td><b><Money value={data.totals.balance} /></b></td>
+                <td colSpan={7}></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      {data.total_pages > 1 && (
+        <div className="actions" style={{ marginTop: 12, justifyContent: 'center' }}>
+          <button className="btn" disabled={page <= 1} onClick={() => goToPage(page - 1)}>← Prev</button>
+          <span className="muted" style={{ alignSelf: 'center' }}>
+            Page {data.page} of {data.total_pages} ({data.total.toLocaleString()} total)
+          </span>
+          <button className="btn" disabled={page >= data.total_pages} onClick={() => goToPage(page + 1)}>Next →</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function SubsidyReportPage() {
+  const r = useReport('/reports/subsidy');
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+  return (
+    <>
+      <FilterBar r={r}>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/subsidy' + qs(r), 'Subsidy_Report.xlsx')}>Export Excel</button>
+      </FilterBar>
+      {r.data.invoices.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Buyer</th><th>Chassis No.</th><th>Subsidy</th></tr></thead>
+            <tbody>{r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td>{i.chassis_no}</td><td><Money value={i.subsidy_amount} /></td></tr>)}</tbody>
+            <tfoot><tr><td colSpan={4}><b>Total Subsidy</b></td><td><Money value={r.data.total_subsidy} /></td></tr></tfoot>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function LedgerPage() {
+  const [dealers, setDealers] = useState([]);
+  const [dealerId, setDealerId] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [summary, setSummary] = useState(null);
+  const [summarySearch, setSummarySearch] = useState('');
+  const [data, setData] = useState(null);
+  const [search, setSearch] = useState('');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [error, setError] = useState('');
+
+  const [saleForm, setSaleForm] = useState(null);
+  const [receiptForm, setReceiptForm] = useState(null);
+  const [editError, setEditError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [financers, setFinancers] = useState([]);
+
+  // No dealer selected yet: load the all-dealers balance summary.
+  useEffect(() => {
+    if (dealerId) return;
+    get('/reports/ledger').then((d) => { setSummary(d.summary); setDealers(d.dealers); }).catch((e) => setError(e.message));
+  }, [dealerId]);
+
+  useEffect(() => { get('/masters/financer').then((d) => setFinancers(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+
+  const loadDetail = () => {
+    if (!dealerId) { setData(null); return; }
+    const q = new URLSearchParams({ dealer_id: dealerId, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}) });
+    get(`/reports/ledger?${q}`).then(setData).catch((e) => setError(e.message));
+  };
+  // A dealer is selected: load their full statement.
+  useEffect(loadDetail, [dealerId, from, to, search]);
+
+  const openEventEdit = (e) => {
+    setEditError('');
+    if (e.record_type === 'sale' && e.record_id) {
+      get(`/tax-invoices/${e.record_id}`).then(setSaleForm).catch((err) => setEditError(err.message));
+    } else if (e.record_type === 'receipt' && e.record_id) {
+      setReceiptForm({
+        id: e.record_id, date: e.date, dealer_name: selectedName,
+        credit_received: e.credit || 0, debit_paid: e.debit || 0,
+        narration: (e.lines || [])[0] || '',
+      });
+    }
+  };
+
+  const saveSale = async (ev) => {
+    ev.preventDefault();
+    setSaving(true);
+    try {
+      await put(`/tax-invoices/${saleForm.id}`, saleForm);
+      setSaleForm(null);
+      loadDetail();
+    } catch (err) { setEditError(err.message); }
+    setSaving(false);
+  };
+
+  const saveReceipt = async (ev) => {
+    ev.preventDefault();
+    setSaving(true);
+    try {
+      await post('/day-book', receiptForm);
+      setReceiptForm(null);
+      loadDetail();
+    } catch (err) { setEditError(err.message); }
+    setSaving(false);
+  };
+
+  if (error) return <ErrorBanner message={error} />;
+
+  const selectedName = dealers.find((d) => String(d.id) === String(dealerId))?.name || '';
+  const filteredSummary = (summary || []).filter((s) => !summarySearch || (s.dealer_name || '').toLowerCase().includes(summarySearch.toLowerCase()));
+
+  if (!dealerId) {
+    return (
+      <>
+        <div className="toolbar">
+          <Field label="Search Dealer" value={summarySearch} onChange={setSummarySearch} />
+        </div>
+        {!summary ? <div className="card">Loading…</div> : filteredSummary.length === 0 ? <EmptyState /> : (
+          <div className="tablewrap">
+            <table className="table">
+              <thead><tr><th>Dealer</th><th>Balance</th></tr></thead>
+              <tbody>
+                {filteredSummary.map((s) => (
+                  <tr key={s.dealer_id} onClick={() => setDealerId(String(s.dealer_id))} style={{ cursor: 'pointer' }} title="Click to view statement">
+                    <td><b>{s.dealer_name}</b></td>
+                    <td><b>{s.balance} {s.dc}</b></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  const set = (f) => (v) => setSaleForm({ ...saleForm, [f]: v });
+  const setR = (f) => (v) => setReceiptForm({ ...receiptForm, [f]: v });
+
+  // Totals for the header summary boxes — computed from the full (unsorted,
+  // ungrouped) event list for this date range, independent of the table's
+  // current sort order. Closing balance is just the last chronological
+  // event's running balance, since each row's Balance is already a running
+  // total.
+  const allEvents = data?.events || [];
+  const totalDebit = allEvents.reduce((sum, e) => sum + (Number(e.debit) || 0), 0);
+  const totalCredit = allEvents.reduce((sum, e) => sum + (Number(e.credit) || 0), 0);
+  const lastEvent = allEvents[allEvents.length - 1];
+  const closingBalanceText = lastEvent ? `${lastEvent.balance} ${lastEvent.dc}` : '—';
+
+
+  const displayEvents = groupLedgerEvents(sortOrder === 'desc'
+    // Stable sort by date descending only — same-date entries keep their
+    // original (chronological) relative order instead of being flipped,
+    // so the Balance column still reads as a sensible running total.
+    ? [...(data?.events || [])].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+    : (data?.events || []));
+  const toggleSort = () => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+
+  // Sale rows (and their linked Hypothecation/direct-received CASH rows)
+  // are tinted blue; Day Book receipts are tinted green — so the two kinds
+  // of entries are visually distinct at a glance.
+  const rowTint = (e) => (e.vr_type === 'S' ? '#eef4ff' : '#eafaf1');
+  const groupBorder = '1.5px solid #7d95c9';
+  const groupRowStyle = (e) => ({
+    cursor: e.record_type ? 'pointer' : 'default',
+    background: rowTint(e),
+    borderLeft: e._groupSize > 1 ? groupBorder : undefined,
+    borderRight: e._groupSize > 1 ? groupBorder : undefined,
+    borderTop: e._groupSize > 1 && e._groupPos === 0 ? groupBorder : undefined,
+    borderBottom: e._groupSize > 1 && e._groupPos === e._groupSize - 1 ? groupBorder : undefined,
+  });
+
+  return (
+    <>
+      <div className="toolbar">
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => { setDealerId(''); setSearch(''); }}>← Back to List</button>
+        <Field label="Search" value={search} onChange={setSearch} />
+        <Field label="From" type="date" value={from} onChange={setFrom} />
+        <Field label="To" type="date" value={to} onChange={setTo} />
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => window.print()}>Print</button>
+        <button className="btn" style={{ alignSelf: 'flex-end' }}
+          onClick={() => downloadExcel(`/reports/ledger?${new URLSearchParams({ dealer_id: dealerId, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}) })}`, `Ledger_${selectedName || 'Dealer'}.xlsx`)}>
+          Export Excel
+        </button>
+      </div>
+      <h3 style={{ margin: '4px 0 12px' }}>{selectedName}</h3>
+
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', marginBottom: 16 }}>
+        <div className="card" style={{ boxShadow: 'none' }}>
+          <div className="muted">Total Debit</div>
+          <div className="metric"><Money value={totalDebit} /></div>
+        </div>
+        <div className="card" style={{ boxShadow: 'none' }}>
+          <div className="muted">Total Credit</div>
+          <div className="metric"><Money value={totalCredit} /></div>
+        </div>
+        <div className="card" style={{ boxShadow: 'none' }}>
+          <div className="muted">Balance</div>
+          <div className="metric">{closingBalanceText}</div>
+        </div>
+      </div>
+
+      {!data ? <div className="card">Loading…</div> : data.events.length === 0 ? <EmptyState text="No transactions in this range." /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th onClick={toggleSort} style={{ cursor: 'pointer' }} title="Click to sort by date">
+                  Date {sortOrder === 'asc' ? '▲' : '▼'}
+                </th>
+                <th>Type</th><th>Doc No.</th><th>Particulars</th><th>Debit</th><th>Credit</th>
+                <th>Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayEvents.map((e, i) => (
+                <tr key={i} onClick={() => openEventEdit(e)}
+                    style={groupRowStyle(e)}
+                    title={e.record_type ? 'Click to edit' : ''}>
+                  <td>{formatDate(e.date)}</td><td>{e.vr_type}</td>
+                  {e._groupPos === 0 && <td rowSpan={e._groupSize}>{e.doc_no}</td>}
+                  <td>{e.account} {e.lines?.length ? `— ${e.lines.join(', ')}` : ''}</td>
+                  <td>{Number(e.debit) ? <Money value={e.debit} /> : 'NIL'}</td>
+                  <td>{Number(e.credit) ? <Money value={e.credit} /> : 'NIL'}</td>
+                  <td><b>{e.balance} {e.dc}</b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {saleForm && (
+        <div className="modal">
+          <form className="modalbox" onSubmit={saveSale} style={{ maxWidth: 780 }}>
+            <h2>Edit Sale — Bill No. {saleForm.bill_no}</h2>
+            <ErrorBanner message={editError} />
+            <p className="muted" style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+              {saleForm.buyer_name} — {saleForm.product_name} — Chassis {saleForm.chassis_no}
+            </p>
+            {/* Only the "Internal" tab's fields are editable here — same set as
+                step 1 of the Tax Invoice form. Bill No./Date/Buyer details/GST
+                & tax fields (incl. GST Sale Amount, the taxable-value basis)/
+                Remarks are shown elsewhere (Tax Invoice page) and are
+                intentionally not editable from the Ledger.
+
+                Amount Received is editable here for convenience, but has no
+                bearing on this Ledger's Debit/Credit numbers -- those come
+                from Sale Amount net of Hypothecation, credited only by
+                manually-created Day Book vouchers. Amount Received is
+                tracked separately in Ledger V. */}
+            <div className="formgrid">
+              <Field label="Sale Amount (Internal)" type="number" value={saleForm.sale_amount} onChange={set('sale_amount')} required />
+              <Field label="Amount Received" type="number" value={saleForm.amount_received} onChange={set('amount_received')} />
+              <Field label="Financer Name (Hypothecation)" type="combo" value={saleForm.financer_name}
+                     options={financers.map((f) => ({ value: f.name, label: f.name }))}
+                     onChange={set('financer_name')} />
+              <Field label="Hypothecation Amount" type="number" value={saleForm.hypothecation_amount} onChange={set('hypothecation_amount')} />
+              <div className="field">
+                <label>Balance (Sale − Hypothecation)</label>
+                <input value={((Number(saleForm.sale_amount) || 0) - (Number(saleForm.hypothecation_amount) || 0))
+                         .toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} readOnly disabled />
+              </div>
+              <Field label="Vehicle Reg. No." value={saleForm.vehicle_reg_no} onChange={set('vehicle_reg_no')} />
+              <Field label="Ledger No." value={saleForm.ledger_no} onChange={set('ledger_no')} />
+              <Field label="Chassis Record No." value={saleForm.chassis_record_no} onChange={set('chassis_record_no')} />
+              <Field label="Voucher No." value={saleForm.voucher_no} onChange={set('voucher_no')} />
+              <Field label="Subsidy Amount" type="number" value={saleForm.subsidy_amount} onChange={set('subsidy_amount')} />
+            </div>
+            <div className="actions" style={{ marginTop: 18 }}>
+              <button type="button" className="btn" onClick={() => setSaleForm(null)}>Cancel</button>
+              <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {receiptForm && (
+        <div className="modal">
+          <form className="modalbox" onSubmit={saveReceipt}>
+            <h2>Edit Day Book Entry</h2>
+            <ErrorBanner message={editError} />
+            <div className="formgrid">
+              <Field label="Date" type="date" value={receiptForm.date} onChange={setR('date')} />
+              <Field label="Dealer Name" value={receiptForm.dealer_name} onChange={setR('dealer_name')} required />
+              <Field label="Credit Received" type="number" value={receiptForm.credit_received} onChange={setR('credit_received')} />
+              <Field label="Debit Paid" type="number" value={receiptForm.debit_paid} onChange={setR('debit_paid')} />
+              <Field label="Narration" value={receiptForm.narration} onChange={setR('narration')} />
+            </div>
+            <div className="actions" style={{ marginTop: 18 }}>
+              <button type="button" className="btn" onClick={() => setReceiptForm(null)}>Cancel</button>
+              <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function DayBookPage() {
+  const [data, setData] = useState(null);
+  const [dealers, setDealers] = useState([]);
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({});
+  const [error, setError] = useState('');
+  const [matchResult, setMatchResult] = useState(null);
+  const [matching, setMatching] = useState(false);
+
+  const load = () => get(`/day-book?${new URLSearchParams(search ? { search } : {})}`).then(setData).catch((e) => setError(e.message));
+  useEffect(() => { load(); }, [search]);
+  useEffect(() => { get('/dealers').then((d) => setDealers(d.dealers || [])).catch(() => {}); }, []);
+
+  const openNew = () => { setForm({ date: new Date().toISOString().slice(0, 10), vr_no: data?.next_vr_no }); setOpen(true); };
+  const openEdit = (r) => { setForm({ ...r }); setOpen(true); };
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      await post('/day-book', form);
+      setOpen(false);
+      load();
+    } catch (e) { setError(e.message); }
+  };
+  const remove = async () => {
+    if (!form.id) return;
+    if (!window.confirm('Delete this entry?')) return;
+    try {
+      await del(`/day-book/${form.id}`);
+      setOpen(false);
+      load();
+    } catch (e) { setError(e.message); }
+  };
+  const runAutoMatch = async () => {
+    setMatching(true);
+    setMatchResult(null);
+    try {
+      const res = await post('/day-book/auto-match', {});
+      setMatchResult(res);
+      load();
+    } catch (e) { setError(e.message); }
+    setMatching(false);
+  };
+
+  if (!data) return <div className="card">Loading…</div>;
+  return (
+    <>
+      <div className="toolbar">
+        <Field label="Search Dealer" value={search} onChange={setSearch} />
+        <button className="btn primary" style={{ alignSelf: 'flex-end' }} onClick={openNew}>+ New Entry</button>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={runAutoMatch} disabled={matching}>
+          {matching ? 'Fixing…' : 'Fix Old Entries for Ledger'}
+        </button>
+      </div>
+      {matchResult && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <b>Fixed {matchResult.fixed.length} old entr{matchResult.fixed.length === 1 ? 'y' : 'ies'}</b> so they now show up in the Ledger.
+          {matchResult.fixed.length > 0 && (
+            <ul style={{ marginTop: 8 }}>
+              {matchResult.fixed.map((f) => (
+                <li key={f.id}>Vr.No. {f.vr_no}: "{f.old_name}" → "{f.new_name}"</li>
+              ))}
+            </ul>
+          )}
+          {matchResult.unresolved.length > 0 && (
+            <>
+              <p style={{ marginTop: 10, color: 'var(--red)' }}>
+                <b>{matchResult.unresolved.length}</b> entr{matchResult.unresolved.length === 1 ? 'y' : 'ies'} could not be auto-matched to any dealer — please open and fix these manually:
+              </p>
+              <ul>
+                {matchResult.unresolved.map((u) => (
+                  <li key={u.id}>Vr.No. {u.vr_no}: "{u.dealer_name}"</li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+      <ErrorBanner message={!open ? error : ''} />
+      {data.entries.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>Date</th><th>Vr. No.</th><th>Dealer</th><th>Credit Received</th><th>Debit Paid</th><th>Narration</th></tr></thead>
+            <tbody>{data.entries.map((r) => (
+              <tr key={r.id} onClick={() => openEdit(r)} style={{ cursor: 'pointer' }} title="Click to edit">
+                <td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td>
+                <td><Money value={r.credit_received} /></td><td><Money value={r.debit_paid} /></td><td>{r.narration}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {open && (
+        <div className="modal">
+          <form className="modalbox" onSubmit={save}>
+            <h2>{form.id ? 'Edit Day Book Entry' : 'New Day Book Entry'}</h2>
+            <ErrorBanner message={error} />
+            <div className="formgrid">
+              <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+              <Field label="Dealer Name" type="select" value={form.dealer_name} options={dealers.map((d) => ({ value: d.name, label: d.name }))} onChange={(v) => setForm({ ...form, dealer_name: v })} required />
+              <Field label="Credit Received" type="number" value={form.credit_received} onChange={(v) => setForm({ ...form, credit_received: v })} />
+              <Field label="Debit Paid" type="number" value={form.debit_paid} onChange={(v) => setForm({ ...form, debit_paid: v })} />
+              <Field label="Narration" value={form.narration} onChange={(v) => setForm({ ...form, narration: v })} />
+            </div>
+            <div className="actions" style={{ marginTop: 18, justifyContent: form.id ? 'space-between' : 'flex-end', display: 'flex' }}>
+              {form.id ? <button type="button" className="btn danger" onClick={remove}>Delete</button> : <span />}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
+                <button className="btn primary">Save</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function LedgerVPage() {
+  // Ledger V — reconciliation of Day Book receipts against the "Amount
+  // Received" field entered directly on Tax Invoices, per dealer. Same
+  // summary → dealer-detail shape as W. Ledger, but a narrower, read-only
+  // event set (see the backend's _ledger_v_events_for_dealer for what's
+  // included and why sale/hypothecation are left out here).
+  const [dealers, setDealers] = useState([]);
+  const [dealerId, setDealerId] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [summary, setSummary] = useState(null);
+  const [summarySearch, setSummarySearch] = useState('');
+  const [data, setData] = useState(null);
+  const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (dealerId) return;
+    get('/reports/ledger-v').then((d) => { setSummary(d.summary); setDealers(d.dealers); }).catch((e) => setError(e.message));
+  }, [dealerId]);
+
+  useEffect(() => {
+    if (!dealerId) { setData(null); return; }
+    const q = new URLSearchParams({ dealer_id: dealerId, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}) });
+    get(`/reports/ledger-v?${q}`).then(setData).catch((e) => setError(e.message));
+  }, [dealerId, from, to, search]);
+
+  if (error) return <ErrorBanner message={error} />;
+
+  const selectedName = dealers.find((d) => String(d.id) === String(dealerId))?.name || '';
+  const filteredSummary = (summary || []).filter((s) => !summarySearch || (s.dealer_name || '').toLowerCase().includes(summarySearch.toLowerCase()));
+
+  if (!dealerId) {
+    return (
+      <>
+        <div className="toolbar">
+          <Field label="Search Dealer" value={summarySearch} onChange={setSummarySearch} />
+        </div>
+        {!summary ? <div className="card">Loading…</div> : filteredSummary.length === 0 ? <EmptyState /> : (
+          <div className="tablewrap">
+            <table className="table">
+              <thead><tr><th>Dealer</th><th>Total Received</th></tr></thead>
+              <tbody>
+                {filteredSummary.map((s) => (
+                  <tr key={s.dealer_id} onClick={() => setDealerId(String(s.dealer_id))} style={{ cursor: 'pointer' }} title="Click to view statement">
+                    <td><b>{s.dealer_name}</b></td>
+                    <td><b><Money value={s.total} /></b></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="toolbar">
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => { setDealerId(''); setSearch(''); }}>← Back to List</button>
+        <Field label="Search" value={search} onChange={setSearch} />
+        <Field label="From" type="date" value={from} onChange={setFrom} />
+        <Field label="To" type="date" value={to} onChange={setTo} />
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => window.print()}>Print</button>
+        <button className="btn" style={{ alignSelf: 'flex-end' }}
+          onClick={() => downloadExcel(`/reports/ledger-v?${new URLSearchParams({ dealer_id: dealerId, ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}) })}`, `Ledger_V_${selectedName || 'Dealer'}.xlsx`)}>
+          Export Excel
+        </button>
+      </div>
+      <h3 style={{ margin: '4px 0 12px' }}>{selectedName}</h3>
+      {!data ? <div className="card">Loading…</div> : data.events.length === 0 ? <EmptyState text="No transactions in this range." /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th><th>Doc No.</th><th>Particulars</th>
+                <th>Voucher No.</th><th>Bill No.</th><th>Chassis No.</th><th>Customer</th>
+                <th>Receipt (Day Book)</th><th>Amount Received (Invoice)</th><th>Running Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.events.map((e, i) => (
+                <tr key={i}>
+                  <td>{formatDate(e.date)}</td><td>{e.doc_no}</td><td>{e.particulars}</td>
+                  <td>{e.voucher_no}</td><td>{e.bill_no}</td><td>{e.chassis_no}</td><td>{e.customer}</td>
+                  <td>{e.receipt ? <Money value={e.receipt} /> : ''}</td>
+                  <td>{e.amount_received ? <Money value={e.amount_received} /> : ''}</td>
+                  <td><b><Money value={e.balance} /></b></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
