@@ -19,6 +19,10 @@ TOKEN_MAX_AGE = 60 * 60 * 12  # 12 hours
 _serializer = URLSafeTimedSerializer(SECRET_KEY, salt="ebill-api-token")
 
 
+def issue_pending_token(user):
+    return _serializer.dumps({"uid": user.id, "scope": "otp_pending", "otp_verified": False})
+
+
 def issue_token(user):
     return _serializer.dumps({
         "uid": user.id,
