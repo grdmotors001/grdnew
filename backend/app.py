@@ -486,6 +486,26 @@ def ser_user(u):
             "allowed_modules": (u.allowed_modules or "").split(",") if u.allowed_modules else []}
 
 
+def _staff_dealer_ids():
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if payload.get("is_super_user"):
+        return None
+    return payload.get("dealer_ids") or []
+
+def _assert_dealer_scope(dealer_id):
+    ids = _staff_dealer_ids()
+    if ids is not None and dealer_id not in ids:
+        return _err("You are not allowed to access this dealer data.", 403)
+    return None
+
+def _scope_vehicle_query(query):
+    ids = _staff_dealer_ids()
+    if ids is None: return query
+    if not ids: return query.filter(db.literal(False))
+    names = [d.name for d in Dealer.query.filter(Dealer.id.in_(ids)).all()]
+    return query.filter(Vehicle.dealer_name.in_(names))
+
+
 def ser_formula(f):
     return {"id": f.id, "formula_name": f.formula_name, "product_code": f.product_code,
             "product_name": f.product_name, "raw_item_code": f.raw_item_code,
@@ -1892,7 +1912,7 @@ def closing_stock_premises():
 @app.route("/api/stock/closing-dealers")
 @require_auth
 def closing_stock_dealers():
-    vehicles = Vehicle.query.filter_by(stage="Delivery Challan").order_by(Vehicle.dealer_name, Vehicle.model_name).all()
+    vehicles = _scope_vehicle_query(Vehicle.query.filter_by(stage="Delivery Challan")).order_by(Vehicle.dealer_name, Vehicle.model_name).all()
     summary = {}
     for v in vehicles:
         key = f"{v.dealer_name or '—'}::{v.model_name or '—'}"
