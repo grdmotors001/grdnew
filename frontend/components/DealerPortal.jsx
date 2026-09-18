@@ -27,6 +27,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const [search, setSearch] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
   const [dark, toggleDark] = useDarkMode();
+  const [selectedPurchase, setSelectedPurchase] = useState(null);
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -48,7 +49,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
 
   if (tab === 'newloan') return <DealerNewLoanForm onBack={() => setTab('dashboard')} />;
-  if (tab === 'customer-invoice') return <DealerCustomerInvoicePage onBack={() => setTab('purchases')} />;
+  if (tab === 'customer-invoice') return <DealerCustomerInvoicePage challan={selectedPurchase} onBack={() => setTab('purchases')} />;
 
   return <div className="dealerShell">
     <aside className="dealerSidebar">
@@ -77,7 +78,7 @@ export function DealerPortal({ dealer, onLogout }) {
           {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
         </div>
         {tab==='cashbook' && <DealerCashBook/>}
-        {tab==='purchases' && <DealerPurchases onInvoice={()=>setTab('customer-invoice')}/>}
+        {tab==='purchases' && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
@@ -120,5 +121,5 @@ function DealerTable({headers,rows,row}) {
 function DealerPurchases({onInvoice}) {
   const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   useEffect(()=>{get('/dealer/purchases').then(d=>setRows(d.purchases||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false))},[]);
-  return <div><div className="dealerContentToolbar"><div className="dealerPageIntro"><span className="dealerSectionIcon">▣</span><div><strong>Purchases</strong><small>Delivery Challans received from G.R.D. Motors</small></div></div></div>{error&&<div className="error">{error}</div>}{loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Challan</th><th>Chassis</th><th>Model</th><th>Purchase Value</th><th>Action</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{formatDate(x.date)}</td><td>{x.challan_no}</td><td>{x.chassis_no}</td><td>{x.product_name}</td><td>{x.sale_value||0}</td><td><button className="btn primary" onClick={onInvoice}>Create Customer Invoice</button></td></tr>)}{!rows.length&&<tr><td colSpan="6">No purchases available.</td></tr>}</tbody></table></div>}</div>
+  return <div><div className="dealerContentToolbar"><div className="dealerPageIntro"><span className="dealerSectionIcon">▣</span><div><strong>Purchases</strong><small>Delivery Challans received from G.R.D. Motors</small></div></div></div>{error&&<div className="error">{error}</div>}{loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Challan</th><th>Chassis</th><th>Model</th><th>Purchase Value</th><th>Action</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{formatDate(x.date)}</td><td>{x.challan_no}</td><td>{x.chassis_no}</td><td>{x.product_name}</td><td>{x.sale_value||0}</td><td><button className="btn primary" onClick={()=>onInvoice(x)}>Create Customer Invoice</button></td></tr>)}{!rows.length&&<tr><td colSpan="6">No purchases available.</td></tr>}</tbody></table></div>}</div>
 }
