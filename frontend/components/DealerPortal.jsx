@@ -73,6 +73,7 @@ export function DealerPortal({ dealer, onLogout }) {
       {mobileNav && <div className="dealerMobileNav">{nav.map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
       {error && <div className="error dealerError">{error}</div>}
 
+      <nav className="dealerBottomNav">{nav.filter(x=>['dashboard','stock','purchases','payments','ledger'].includes(x[0])).map(([key,icon,label])=><button key={key} className={tab===key?'active':''} onClick={()=>setTab(key)}><span>{icon}</span><small>{label}</small></button>)}</nav>
       {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab}/>}
       {tab!=='dashboard' && <>
         <div className="dealerContentToolbar">
