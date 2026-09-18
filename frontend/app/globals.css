@@ -276,3 +276,91 @@
 @media(min-width:701px){.mobileMenuBackdrop{display:none}}
 
 .adminBottomNav,.dealerBottomNav{display:none}@media(max-width:700px){.adminBottomNav{position:fixed;left:10px;right:10px;bottom:10px;height:64px;background:var(--card);border:1px solid var(--line);border-radius:18px;z-index:80;display:grid;grid-template-columns:repeat(3,1fr);box-shadow:0 10px 30px #0003}.adminBottomNav button,.dealerBottomNav button{border:0;background:transparent;color:var(--muted);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-weight:700}.adminBottomNav button.active,.dealerBottomNav button.active{color:var(--accent)}.adminBottomNav small,.dealerBottomNav small{font-size:10px}.main,.mainCollapsed{padding-bottom:88px}.dealerBottomNav{position:fixed;left:10px;right:10px;bottom:10px;height:64px;background:var(--card);border:1px solid var(--line);border-radius:18px;z-index:80;display:grid;grid-template-columns:repeat(5,1fr);box-shadow:0 10px 30px #0003}.dealerMain{padding-bottom:88px}.profileBox{max-width:650px}.profileBox .field input:disabled{opacity:.7}}
+
+
+/* Purchase Bill mobile fix v2: force item editor into stacked cards so the
+   wide desktop grid never creates a clipped horizontal scroll on phones. */
+@media(max-width:700px){
+  .purchaseBillModal{overflow:hidden}
+  .purchaseItemWrap{
+    width:100%;
+    max-width:100%;
+    overflow:visible !important;
+  }
+  .purchaseItemTable{
+    display:block !important;
+    width:100% !important;
+    min-width:0 !important;
+    table-layout:auto !important;
+  }
+  .purchaseItemTable thead{display:none !important}
+  .purchaseItemTable tbody{display:block !important;width:100%}
+  .purchaseItemTable tbody tr{
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;
+    width:100% !important;
+    min-width:0 !important;
+    margin:0 0 12px !important;
+    padding:10px 12px !important;
+    border:1px solid var(--line) !important;
+    border-radius:12px !important;
+    background:var(--card) !important;
+  }
+  .purchaseItemTable tbody td{
+    display:flex !important;
+    width:auto !important;
+    min-width:0 !important;
+    max-width:100% !important;
+    align-items:center !important;
+    justify-content:space-between !important;
+    gap:8px !important;
+    padding:9px 0 !important;
+    border:0 !important;
+    border-bottom:1px solid var(--line) !important;
+    white-space:normal !important;
+    overflow:hidden !important;
+  }
+  .purchaseItemTable tbody td::before{
+    content:attr(data-label) !important;
+    flex:0 0 auto !important;
+    font-size:10px !important;
+    font-weight:700 !important;
+    color:var(--muted) !important;
+    text-align:left !important;
+  }
+  .purchaseItemTable tbody td:nth-child(1){grid-column:1 / -1}
+  .purchaseItemTable tbody td:nth-child(2),
+  .purchaseItemTable tbody td:nth-child(3){grid-column:1 / -1}
+  .purchaseItemTable tbody td:nth-child(10){
+    grid-column:1 / -1;
+    justify-content:flex-end !important;
+    border-bottom:0 !important;
+  }
+  .purchaseItemTable tbody td:nth-child(10)::before{display:none !important}
+  .purchaseItemTable tbody td input{
+    display:block !important;
+    flex:1 1 auto !important;
+    width:1px !important;
+    min-width:0 !important;
+    max-width:100% !important;
+    height:40px;
+    padding:8px 9px !important;
+    border:1px solid var(--line) !important;
+    border-radius:8px !important;
+    background:var(--input-bg) !important;
+    color:var(--ink) !important;
+  }
+  .purchaseItemTable tbody td:nth-child(2),
+  .purchaseItemTable tbody td:nth-child(3){
+    align-items:center !important;
+  }
+  .purchaseBillModal .actions{
+    position:sticky;
+    bottom:0;
+    background:var(--modal-bg);
+    margin:14px -14px -14px;
+    padding:12px 14px;
+    border-top:1px solid var(--line);
+    z-index:4;
+  }
+}
