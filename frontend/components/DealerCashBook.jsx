@@ -14,7 +14,7 @@ export function DealerCashBook(){
   const [tab,setTab]=useState('book'), [from,setFrom]=useState(today()), [to,setTo]=useState(today()), [opening,setOpening]=useState('');
   const [data,setData]=useState({receipts:[],expenses:[],handovers:[],summary:{}});
   const [loading,setLoading]=useState(false), [saving,setSaving]=useState(false), [error,setError]=useState(''), [message,setMessage]=useState('');
-  const [receipt,setReceipt]=useState({date:today(),customer_name:'',customer_phone:'',application_no:'',booking_for:'',amount:'',payment_mode:'cash',reference_no:'',remarks:''});
+  const [receipt,setReceipt]=useState({date:today(),customer_name:'',customer_phone:'',application_no:'',dealer_register_page_no:'',booking_for:'',amount:'',payment_mode:'cash',reference_no:'',remarks:''});
   const [expense,setExpense]=useState({date:today(),category:'tea_customer',amount:'',paid_to:'',remarks:''});
   const [handover,setHandover]=useState({date:today(),amount:'',sent_to:'',remarks:''});
 
@@ -48,11 +48,11 @@ export function DealerCashBook(){
       <input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)}/><input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)}/><input className="input" type="number" min="0" placeholder="Opening balance" value={opening} onChange={e=>setOpening(e.target.value)}/>
     </div>
 
-    {tab==='receipt'&&<form className="card" onSubmit={e=>{e.preventDefault();save('/dealer/cash-book/receipt',receipt,d=>`Dealer Receipt ${d.receipt.receipt_no} created`,()=>setReceipt({...receipt,customer_name:'',customer_phone:'',application_no:'',booking_for:'',amount:'',reference_no:'',remarks:''}))}}>
+    {tab==='receipt'&&<form className="card" onSubmit={e=>{e.preventDefault();save('/dealer/cash-book/receipt',receipt,d=>`Dealer Receipt ${d.receipt.receipt_no} created`,()=>setReceipt({...receipt,customer_name:'',customer_phone:'',application_no:'',dealer_register_page_no:'',booking_for:'',amount:'',reference_no:'',remarks:''}))}}>
       <h2>Customer Booking / Down Payment Receipt</h2><p className="muted">Independent G.R.D. dealer receipt. It does not create or modify CHFPL receipts.</p>
       <div className="grid">
         <input className="input" type="date" value={receipt.date} onChange={e=>setReceipt({...receipt,date:e.target.value})} required/><input className="input" placeholder="Customer Name" value={receipt.customer_name} onChange={e=>setReceipt({...receipt,customer_name:e.target.value})} required/>
-        <input className="input" placeholder="Customer Phone" value={receipt.customer_phone} onChange={e=>setReceipt({...receipt,customer_phone:e.target.value})}/><input className="input" placeholder="Application / Booking No." value={receipt.application_no} onChange={e=>setReceipt({...receipt,application_no:e.target.value})}/>
+        <input className="input" placeholder="Customer Phone" value={receipt.customer_phone} onChange={e=>setReceipt({...receipt,customer_phone:e.target.value})}/><input className="input" placeholder="Dealer Register Page No." value={receipt.dealer_register_page_no} onChange={e=>setReceipt({...receipt,dealer_register_page_no:e.target.value})}/><input className="input" placeholder="Application / Booking No." value={receipt.application_no} onChange={e=>setReceipt({...receipt,application_no:e.target.value})}/>
         <input className="input" placeholder="Vehicle / Model" value={receipt.booking_for} onChange={e=>setReceipt({...receipt,booking_for:e.target.value})}/><input className="input" type="number" min="0.01" step="0.01" placeholder="Amount" value={receipt.amount} onChange={e=>setReceipt({...receipt,amount:e.target.value})} required/>
         <select className="input" value={receipt.payment_mode} onChange={e=>setReceipt({...receipt,payment_mode:e.target.value})}><option value="cash">Cash</option><option value="upi">UPI</option><option value="bank">Bank</option><option value="cheque">Cheque</option><option value="other">Other</option></select>
         <input className="input" placeholder="Reference No." value={receipt.reference_no} onChange={e=>setReceipt({...receipt,reference_no:e.target.value})}/><input className="input" placeholder="Remarks" value={receipt.remarks} onChange={e=>setReceipt({...receipt,remarks:e.target.value})}/>
