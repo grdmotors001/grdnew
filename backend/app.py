@@ -25,7 +25,7 @@ import urllib.request
 import urllib.error
 import json as _json
 import hmac
-from datetime import date, datetime as dt
+from datetime import date, datetime as dt, timedelta
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from sqlalchemy.orm import joinedload
@@ -42,7 +42,7 @@ except ImportError:
 
 from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicle, User,
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
-                     ProductionFormula, ProductionVoucher, ProductionVoucherItem,
+                     ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
                      DeliveryChallan, TaxInvoice, PurchaseBill, PurchaseBillItem,
                      OldRickshaw, BatteryDeliveryChallan, JournalStock, DayBook, ExpensePaymentVoucher)
 from menu_config import MENU, find_item, all_items
@@ -901,6 +901,179 @@ def chassis_rule_update():
             setattr(row, field, str(data.get(field) or "").strip())
     db.session.commit()
     return jsonify(ser_chassis_rule(row))
+
+
+# ---------------------------------------------------------------------------
+# Loan workflow: DO -> FE -> DO decision
+# ---------------------------------------------------------------------------
+def _ensure_loan_workflow_tables():
+    LoanWorkflow.__table__.create(db.engine, checkfirst=True)
+    LoanWorkflowLog.__table__.create(db.engine, checkfirst=True)
+
+
+def _workflow_expire(row):
+    if row.status == "DO_APPROVED" and row.do_expiry_at and row.do_expiry_at <= dt.utcnow():
+        old = row.status
+        row.status = "DO_EXPIRED"
+        db.session.add(LoanWorkflowLog(application_id=row.id, action="DO_EXPIRED",
+            from_status=old, to_status=row.status, details="30-day DO validity completed"))
+        db.session.commit()
+        return True
+    return False
+
+
+def _ser_workflow(row):
+    _workflow_expire(row)
+    return {
+        "id": row.id, "application_no": row.application_no,
+        "dealer_id": row.dealer_id, "dealer_name": row.dealer.name if row.dealer else None,
+        "customer_id": row.customer_id, "customer_name": row.customer.full_name if row.customer else None,
+        "status": row.status, "do_user_id": row.do_user_id, "fe_user_id": row.fe_user_id,
+        "do_remark": row.do_remark, "fe_remark": row.fe_remark,
+        "approved_at": _iso(row.approved_at), "do_expiry_at": _iso(row.do_expiry_at),
+        "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at),
+    }
+
+
+def _workflow_user():
+    uid = getattr(g, "current_user_id", None)
+    return User.query.get(uid) if uid else None
+
+
+@app.get("/api/loan-workflow")
+@require_auth
+def loan_workflow_list():
+    _ensure_loan_workflow_tables()
+    user = _workflow_user()
+    rows = LoanWorkflow.query.order_by(LoanWorkflow.id.desc()).limit(500).all()
+    result = []
+    for row in rows:
+        _workflow_expire(row)
+        if user and not user.is_super_user:
+            dept = (user.department or "").strip().lower()
+            if dept == "fe" and row.fe_user_id != user.id:
+                continue
+        result.append(_ser_workflow(row))
+    return jsonify({"success": True, "applications": result})
+
+
+@app.get("/api/loan-workflow/field-executives")
+@require_auth
+def loan_workflow_fe_list():
+    _ensure_loan_workflow_tables()
+    rows = User.query.filter(User.department.ilike("FE")).order_by(User.username.asc()).all()
+    return jsonify({"success": True, "field_executives": [
+        {"id": u.id, "username": u.username, "department": u.department} for u in rows
+    ]})
+
+
+@app.post("/api/loan-workflow/create")
+@require_auth
+def loan_workflow_create():
+    _ensure_loan_workflow_tables()
+    data = request.get_json(silent=True) or {}
+    dealer_id = data.get("dealer_id")
+    customer_id = data.get("customer_id")
+    if not dealer_id or not customer_id:
+        return _err("Dealer and customer are required")
+    dealer = Dealer.query.get(dealer_id)
+    customer = Customer.query.get(customer_id)
+    if not dealer or not customer or customer.dealer_id != dealer.id:
+        return _err("Dealer/customer mismatch", 422)
+    application_no = (data.get("application_no") or "").strip()
+    if not application_no:
+        application_no = f"GRD-LOAN-{dt.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:4].upper()}"
+    row = LoanWorkflow(application_no=application_no, dealer_id=dealer.id, customer_id=customer.id, status="DO_PENDING")
+    db.session.add(row)
+    db.session.flush()
+    db.session.add(LoanWorkflowLog(application_id=row.id, action="SUBMITTED", to_status="DO_PENDING",
+        user_id=getattr(g, "current_user_id", None), details="Loan application submitted to DO"))
+    db.session.commit()
+    return jsonify({"success": True, "application": _ser_workflow(row)}), 201
+
+
+@app.post("/api/loan-workflow/<int:row_id>/assign-fe")
+@require_auth
+def loan_workflow_assign_fe(row_id):
+    _ensure_loan_workflow_tables()
+    row = LoanWorkflow.query.get_or_404(row_id)
+    data = request.get_json(silent=True) or {}
+    fe_id = data.get("fe_user_id")
+    fe = User.query.get(fe_id) if fe_id else None
+    if not fe or (fe.department or "").strip().lower() != "fe":
+        return _err("Valid FE user is required", 422)
+    _workflow_expire(row)
+    if row.status not in {"DO_PENDING", "FE_ASSIGNED"}:
+        return _err("Application cannot be assigned in its current status", 409)
+    old = row.status
+    row.fe_user_id = fe.id
+    row.do_user_id = getattr(g, "current_user_id", None)
+    row.status = "FE_ASSIGNED"
+    db.session.add(LoanWorkflowLog(application_id=row.id, action="FE_ASSIGNED",
+        from_status=old, to_status=row.status, user_id=getattr(g, "current_user_id", None),
+        details=f"Assigned FE user {fe.id}"))
+    db.session.commit()
+    return jsonify({"success": True, "application": _ser_workflow(row)})
+
+
+@app.post("/api/loan-workflow/<int:row_id>/fe-submit")
+@require_auth
+def loan_workflow_fe_submit(row_id):
+    _ensure_loan_workflow_tables()
+    row = LoanWorkflow.query.get_or_404(row_id)
+    user = _workflow_user()
+    if row.status != "FE_ASSIGNED" or row.fe_user_id != getattr(user, "id", None):
+        return _err("This application is not assigned to you", 403)
+    data = request.get_json(silent=True) or {}
+    photos = data.get("live_photos") or []
+    remark = (data.get("remark") or "").strip()
+    if not photos:
+        return _err("At least one live photo is required", 422)
+    if not remark:
+        return _err("FE remark is required", 422)
+    old = row.status
+    row.fe_live_photos = _json.dumps(photos)
+    row.fe_remark = remark
+    row.status = "FE_SUBMITTED"
+    db.session.add(LoanWorkflowLog(application_id=row.id, action="FE_SUBMITTED",
+        from_status=old, to_status=row.status, user_id=user.id, remark=remark,
+        details=f"{len(photos)} live photo(s) submitted"))
+    db.session.commit()
+    return jsonify({"success": True, "application": _ser_workflow(row)})
+
+
+@app.post("/api/loan-workflow/<int:row_id>/decision")
+@require_auth
+def loan_workflow_decision(row_id):
+    _ensure_loan_workflow_tables()
+    row = LoanWorkflow.query.get_or_404(row_id)
+    if row.status != "FE_SUBMITTED":
+        return _err("Only FE-submitted applications can be decided", 409)
+    data = request.get_json(silent=True) or {}
+    decision = (data.get("decision") or "").strip().upper()
+    remark = (data.get("remark") or "").strip()
+    if decision not in {"APPROVE", "HOLD", "REJECT"}:
+        return _err("Decision must be APPROVE, HOLD or REJECT", 422)
+    if not remark:
+        return _err("DO remark is required", 422)
+    old = row.status
+    now = dt.utcnow()
+    row.do_user_id = getattr(g, "current_user_id", None)
+    row.do_remark = remark
+    row.do_decision_at = now
+    if decision == "APPROVE":
+        row.status = "DO_APPROVED"
+        row.approved_at = now
+        row.do_expiry_at = now + timedelta(days=30)
+    elif decision == "HOLD":
+        row.status = "DO_HOLD"
+    else:
+        row.status = "DO_REJECTED"
+    db.session.add(LoanWorkflowLog(application_id=row.id, action=f"DO_{decision}",
+        from_status=old, to_status=row.status, user_id=getattr(g, "current_user_id", None),
+        remark=remark))
+    db.session.commit()
+    return jsonify({"success": True, "application": _ser_workflow(row)})
 
 
 # ---------------------------------------------------------------------------
