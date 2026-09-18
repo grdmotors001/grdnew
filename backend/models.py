@@ -637,7 +637,7 @@ class User(db.Model):
 
 
 class ExpensePaymentVoucher(db.Model):
-    """Head Office expense payment voucher."""
+    """Head Office expense payment voucher with approval and payment controls."""
     id = db.Column(db.Integer, primary_key=True)
     voucher_no = db.Column(db.String(30), unique=True, index=True)
     date = db.Column(db.Date, nullable=False)
@@ -648,6 +648,15 @@ class ExpensePaymentVoucher(db.Model):
     expense_type = db.Column(db.String(80), nullable=False)
     vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), nullable=True, index=True)
     chassis_no = db.Column(db.String(60))
+    payment_mode = db.Column(db.String(20), nullable=False, default="cash")  # cash / bank / upi / cheque
     amount = db.Column(db.Float, nullable=False, default=0)
+    bill_no = db.Column(db.String(80))
+    attachment_url = db.Column(db.String(500))
     remarks = db.Column(db.String(500))
+    status = db.Column(db.String(20), nullable=False, default="pending")  # pending / approved / rejected
+    created_by = db.Column(db.String(120))
+    approved_by = db.Column(db.String(120))
+    approved_at = db.Column(db.DateTime)
+    rejection_reason = db.Column(db.String(500))
+    paid_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
