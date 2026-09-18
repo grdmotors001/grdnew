@@ -124,7 +124,7 @@ export function DealerNewLoanForm({ onBack }) {
         {step==='borrower'&&<PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/>}
         {step==='guarantor'&&<PersonFields value={guarantor} setValue={setGuarantor} title="Guaranter" relationLabel="Relation with Borrower"/>}
         {step==='coBorrower'&&<PersonFields value={coBorrower} setValue={setCoBorrower} title="Co-Borrower" relationLabel="Relation with Borrower" compact/>}
-        {step==='loan'&&<LoanAndSale vehicleLoan={vehicleLoan} setVehicle={setVehicle} sale={sale} setSale={setSale} totalDeal={totalDeal} balance={balance}/>}
+        {step==='loan'&&<LoanAndSale vehicleLoan={vehicleLoan} setVehicle={setVehicle} sale={sale} setSale={setSale} totalDeal={totalDeal} balance={balance} loanType={loanType} setLoanType={setLoanType} loanMasters={loanMasters}/>}
 
         {error&&<div className="error dealerError">{error}</div>}
         <div className="dealerFormFooter"><button className="btn" type="button" onClick={onBack}>Cancel</button><div className="dealerFooterRight">
