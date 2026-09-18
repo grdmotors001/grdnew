@@ -100,6 +100,11 @@ def integration_masters():
              "fuel_type": p.fuel_type, "gst_rate": p.gst_rate}
             for p in products
         ],
+        "financers": [
+            {"id": f.id, "code": f.code, "name": f.name, "mobile": f.mobile,
+             "account_no": f.account_no, "ifsc": f.ifsc}
+            for f in SimpleMaster.query.filter_by(kind="financer").order_by(SimpleMaster.name.asc()).all()
+        ],
     })
 
 
