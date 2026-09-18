@@ -65,7 +65,7 @@ export function UserPage({ setActive, setOptionUserId }) {
             <div className="formgrid">
               <Field label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} required />
               <Field label="Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
-              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v })} options={['Admin','Factory','Dealer','Billing','Cashier','Salesman'].map(v => [v,v])} />
+              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v })} options={['Admin','Factory','Dealer','Billing','Cashier','Salesman']} />
               <Field label="Super User (unrestricted access)" type="checkbox" value={form.is_super_user}
                      onChange={(v) => setForm({ ...form, is_super_user: v })} />
               <div className="field">
