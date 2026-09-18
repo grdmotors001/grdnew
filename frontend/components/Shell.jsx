@@ -30,6 +30,7 @@ const ICONS = {
 };
 
 export function Login({ onLogin }) {
+  const [mode, setMode] = useState('staff');
   const [userid, setUserid] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -40,9 +41,9 @@ export function Login({ onLogin }) {
     setError('');
     setBusy(true);
     try {
-      const data = await post('/auth/login', { userid, password });
+      const data = await post(mode === 'dealer' ? '/auth/dealer-login' : '/auth/login', { userid, password });
       setToken(data.token);
-      onLogin(data.user);
+      onLogin(mode === 'dealer' ? { ...data.dealer, is_dealer: true } : data.user);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -54,10 +55,14 @@ export function Login({ onLogin }) {
     <div className="login">
       <form className="loginbox" onSubmit={submit}>
         <h1>G.R.D. Motors</h1>
-        <p className="muted">eBill Administration</p>
+        <p className="muted">{mode === 'dealer' ? 'Dealer Portal' : 'eBill Administration'}</p>
+        <div className="loginModes">
+          <button type="button" className={'btn' + (mode === 'staff' ? ' primary' : '')} onClick={() => { setMode('staff'); setUserid('admin'); setPassword(''); setError(''); }}>Staff Login</button>
+          <button type="button" className={'btn' + (mode === 'dealer' ? ' primary' : '')} onClick={() => { setMode('dealer'); setUserid(''); setPassword(''); setError(''); }}>Dealer Login</button>
+        </div>
         {error && <div className="error">{error}</div>}
         <div className="field">
-          <label>User ID</label>
+          <label>{mode === 'dealer' ? 'Dealer ID' : 'User ID'}</label>
           <input value={userid} onChange={(e) => setUserid(e.target.value)} autoFocus />
         </div>
         <div className="field" style={{ marginTop: 12 }}>
