@@ -6,6 +6,13 @@ import { formatDate } from '../lib/date';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const blankItem = () => ({ item_name: '', hsn_code: '', qty: 1, rate: 0, gst_rate: 18 });
+const n = (v) => Number(v || 0);
+const itemCalc = (it) => {
+  const taxable = n(it.qty) * n(it.rate);
+  const gst = taxable * n(it.gst_rate) / 100;
+  const interstate = String(it._stateCode || '') !== '07';
+  return { taxable, gst: interstate ? 0 : gst, cgst: interstate ? 0 : gst / 2, sgst: interstate ? 0 : gst / 2, igst: interstate ? gst : 0, total: taxable + gst };
+};
 
 export function PurchaseBillPage() {
   const [rows, setRows] = useState([]);
@@ -15,6 +22,7 @@ export function PurchaseBillPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [form, setForm] = useState({ date: today(), party_state_code: '07', items: [blankItem()] });
+  const totals = form.items.reduce((a, it) => { const x = itemCalc({ ...it, _stateCode: form.party_state_code }); a.taxable += x.taxable; a.cgst += x.cgst; a.sgst += x.sgst; a.igst += x.igst; a.total += x.total; return a; }, { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => get('/purchase-bills').then(setRows).catch((e) => setError(e.message));
@@ -132,43 +140,70 @@ export function PurchaseBillPage() {
 
       {open && (
         <div className="modal">
-          <form className="modalbox" onSubmit={save} style={{ maxWidth: 880 }}>
-            <h2>{form.id ? 'Edit Purchase Bill' : 'New Purchase Bill'}</h2>
-            <ErrorBanner message={error} />
-            <div className="formgrid">
-              <Field label="Bill No." value={form.bill_no} onChange={(v) => setForm({ ...form, bill_no: v })} />
-              <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
-              <Field label="Party Name" value={form.party_name} onChange={(v) => setForm({ ...form, party_name: v })} required />
-              <Field label="Party GSTIN" value={form.party_gst_no} onChange={(v) => setForm({ ...form, party_gst_no: v })} />
-              <Field label="Party State Code" value={form.party_state_code} onChange={(v) => setForm({ ...form, party_state_code: v })} />
-              <Field label="Remarks" value={form.remarks} onChange={(v) => setForm({ ...form, remarks: v })} />
+          <form className="modalbox" onSubmit={save} style={{ maxWidth: 1180, padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+                <div><div style={{fontSize:12,color:'#64748b',fontWeight:700,textTransform:'uppercase'}}>Purchase Voucher</div><h2 style={{margin:'3px 0 0'}}>{form.id ? 'Edit Purchase Bill' : 'New Purchase Bill'}</h2></div>
+                <button type="button" className="btn" onClick={() => setOpen(false)}>✕</button>
+              </div>
             </div>
+            <div style={{padding:22}}>
+              <ErrorBanner message={error} />
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:14,background:'#f8fafc',padding:16,borderRadius:10}}>
+                <Field label="Supplier / Party Name" value={form.party_name} onChange={(v) => setForm({...form,party_name:v})} required />
+                <Field label="Supplier GSTIN" value={form.party_gst_no} onChange={(v) => setForm({...form,party_gst_no:v.toUpperCase()})} />
+                <Field label="Supplier Invoice No." value={form.bill_no} onChange={(v) => setForm({...form,bill_no:v})} />
+                <Field label="Invoice Date" type="date" value={form.date} onChange={(v) => setForm({...form,date:v})} />
+                <Field label="State Code" value={form.party_state_code} onChange={(v) => setForm({...form,party_state_code:v})} />
+                <div style={{gridColumn:'span 3'}}><Field label="Remarks" value={form.remarks} onChange={(v) => setForm({...form,remarks:v})} /></div>
+              </div>
 
-            <div style={{ marginTop: 14 }}>
-              <b style={{ fontSize: 13 }}>Items</b>
-              <div className="tablewrap" style={{ marginTop: 8 }}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'22px 0 8px'}}>
+                <div><b style={{fontSize:15}}>Item Details</b><div style={{fontSize:12,color:'#64748b'}}>Add products/materials purchased from the supplier.</div></div>
+                <button type="button" className="btn primary" onClick={addItem}>+ Add Item</button>
+              </div>
+
+              <div className="tablewrap" style={{border:'1px solid #e2e8f0',borderRadius:10}}>
                 <table className="table">
-                  <thead><tr><th>Item Name</th><th>HSN</th><th>Qty</th><th>Rate</th><th>GST %</th><th></th></tr></thead>
+                  <thead><tr><th>#</th><th style={{minWidth:220}}>Item / Description</th><th>HSN/SAC</th><th>Qty</th><th>Rate</th><th>GST %</th><th>Taxable</th><th>GST</th><th>Total</th><th></th></tr></thead>
                   <tbody>
-                    {form.items.map((it, idx) => (
+                    {form.items.map((it, idx) => { const x=itemCalc({...it,_stateCode:form.party_state_code}); return (
                       <tr key={idx}>
-                        <td><input value={it.item_name} onChange={(e) => updateItem(idx, 'item_name', e.target.value)} required /></td>
-                        <td><input value={it.hsn_code} onChange={(e) => updateItem(idx, 'hsn_code', e.target.value)} /></td>
-                        <td><input type="number" value={it.qty} onChange={(e) => updateItem(idx, 'qty', e.target.value)} style={{ width: 70 }} /></td>
-                        <td><input type="number" value={it.rate} onChange={(e) => updateItem(idx, 'rate', e.target.value)} style={{ width: 90 }} /></td>
-                        <td><input type="number" value={it.gst_rate} onChange={(e) => updateItem(idx, 'gst_rate', e.target.value)} style={{ width: 70 }} /></td>
-                        <td><button type="button" className="btn danger" onClick={() => removeItem(idx)}>✕</button></td>
+                        <td>{idx+1}</td>
+                        <td><input value={it.item_name} placeholder="Enter item name" onChange={(e)=>updateItem(idx,'item_name',e.target.value)} required /></td>
+                        <td><input value={it.hsn_code} placeholder="HSN" onChange={(e)=>updateItem(idx,'hsn_code',e.target.value)} /></td>
+                        <td><input type="number" min="0" step="0.01" value={it.qty} onChange={(e)=>updateItem(idx,'qty',e.target.value)} /></td>
+                        <td><input type="number" min="0" step="0.01" value={it.rate} onChange={(e)=>updateItem(idx,'rate',e.target.value)} /></td>
+                        <td><input type="number" min="0" step="0.01" value={it.gst_rate} onChange={(e)=>updateItem(idx,'gst_rate',e.target.value)} /></td>
+                        <td><Money value={x.taxable}/></td><td><Money value={x.cgst+x.sgst+x.igst}/></td><td><b><Money value={x.total}/></b></td>
+                        <td>{form.items.length>1 && <button type="button" className="btn danger" onClick={()=>removeItem(idx)}>✕</button>}</td>
                       </tr>
-                    ))}
+                    );})}
                   </tbody>
                 </table>
               </div>
-              <button type="button" className="btn" style={{ marginTop: 8 }} onClick={addItem}>+ Add Item Line</button>
-            </div>
 
-            <div className="actions" style={{ marginTop: 18 }}>
-              <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
-              <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+              <div style={{display:'grid',gridTemplateColumns:'1fr minmax(280px,360px)',gap:20,marginTop:18}}>
+                <div style={{padding:14,background:'#f8fafc',borderRadius:10,fontSize:13}}>
+                  <b>Tax Summary</b>
+                  <div style={{display:'flex',gap:22,marginTop:10,flexWrap:'wrap'}}>
+                    <span>Taxable: <b><Money value={totals.taxable}/></b></span>
+                    <span>CGST: <b><Money value={totals.cgst}/></b></span>
+                    <span>SGST: <b><Money value={totals.sgst}/></b></span>
+                    <span>IGST: <b><Money value={totals.igst}/></b></span>
+                  </div>
+                </div>
+                <div style={{border:'1px solid #e2e8f0',borderRadius:10,padding:16}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}><span>Taxable Amount</span><b><Money value={totals.taxable}/></b></div>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginTop:8}}><span>Total GST</span><b><Money value={totals.cgst+totals.sgst+totals.igst}/></b></div>
+                  <div style={{borderTop:'2px solid #0f172a',marginTop:12,paddingTop:12,display:'flex',justifyContent:'space-between',fontSize:18}}><b>Grand Total</b><b><Money value={totals.total}/></b></div>
+                </div>
+              </div>
+
+              <div className="actions" style={{marginTop:20}}>
+                <button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button>
+                <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save Purchase Bill'}</button>
+              </div>
             </div>
           </form>
         </div>
