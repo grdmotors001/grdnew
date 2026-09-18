@@ -257,7 +257,11 @@ def _expense_voucher_dict(v):
             "pay_to_type":v.pay_to_type,"pay_to_name":v.pay_to_name,"dealer_id":v.dealer_id,
             "staff_name":v.staff_name,"expense_type":v.expense_type,
             "expense_type_name":next((x["name"] for x in EXPENSE_TYPES if x["id"]==v.expense_type),v.expense_type),
-            "vehicle_id":v.vehicle_id,"chassis_no":v.chassis_no,"amount":v.amount,"remarks":v.remarks}
+            "vehicle_id":v.vehicle_id,"chassis_no":v.chassis_no,"payment_mode":v.payment_mode,
+            "amount":v.amount,"bill_no":v.bill_no,"attachment_url":v.attachment_url,
+            "remarks":v.remarks,"status":v.status,"created_by":v.created_by,
+            "approved_by":v.approved_by,"approved_at":_iso(v.approved_at.date()) if v.approved_at else None,
+            "rejection_reason":v.rejection_reason,"paid_at":_iso(v.paid_at.date()) if v.paid_at else None}
 
 @app.get("/api/expense-payment-voucher/masters")
 @require_auth
@@ -301,9 +305,11 @@ def expense_payment_voucher():
     d=request.get_json(silent=True) or {}
     pt=(d.get("pay_to_type") or "").strip().lower(); pn=(d.get("pay_to_name") or "").strip()
     et=(d.get("expense_type") or "").strip().lower(); amount=_f(d.get("amount"),0)
+    pm=(d.get("payment_mode") or "cash").strip().lower()
     if pt not in {"dealer","staff","other"}: return _err("Valid Pay To is required")
     if not pn:return _err("Pay To Name is required")
     if et not in {x["id"] for x in EXPENSE_TYPES}:return _err("Valid Expense Type is required")
+    if pm not in {"cash","bank","upi","cheque"}:return _err("Valid Payment Mode is required")
     if amount<=0:return _err("Amount must be greater than zero")
     vid=d.get("vehicle_id"); did=d.get("dealer_id"); staff=(d.get("staff_name") or "").strip() or None; chassis=None
     if vid:
@@ -316,12 +322,32 @@ def expense_payment_voucher():
     if et in {"passing_exp","incentive"} and not vid:return _err("Select a rickshaw for Passing Expense / Incentive")
     voucher=ExpensePaymentVoucher(date=_parse_date(d.get("date")) or dt.utcnow().date(),
         pay_to_type=pt,pay_to_name=pn,dealer_id=int(did) if did else None,staff_name=staff,
-        expense_type=et,vehicle_id=vid,chassis_no=chassis,amount=round(amount,2),
-        remarks=(d.get("remarks") or "").strip() or None)
+        expense_type=et,vehicle_id=vid,chassis_no=chassis,payment_mode=pm,amount=round(amount,2),
+        bill_no=(d.get("bill_no") or "").strip() or None,
+        attachment_url=(d.get("attachment_url") or "").strip() or None,
+        remarks=(d.get("remarks") or "").strip() or None,
+        status="pending",created_by=(getattr(g,"current_user_payload",{}) or {}).get("username"))
     db.session.add(voucher); db.session.flush(); voucher.voucher_no=f"EXP-{voucher.id:06d}"
     db.session.commit()
     return jsonify({"success":True,"voucher":_expense_voucher_dict(voucher)}),201
 
+@app.route("/api/expense-payment-voucher/<int:voucher_id>/approval",methods=["POST"])
+@require_auth
+@require_super_user
+def expense_payment_voucher_approval(voucher_id):
+    voucher=ExpensePaymentVoucher.query.get(voucher_id)
+    if not voucher:return _err("Voucher not found",404)
+    d=request.get_json(silent=True) or {}
+    action=(d.get("action") or "").strip().lower()
+    if action not in {"approve","reject"}:return _err("Action must be approve or reject")
+    if voucher.status!="pending":return _err("Only pending vouchers can be approved or rejected")
+    if action=="reject" and not (d.get("reason") or "").strip():return _err("Rejection reason is required")
+    voucher.status="approved" if action=="approve" else "rejected"
+    voucher.approved_by=(getattr(g,"current_user_payload",{}) or {}).get("username")
+    voucher.approved_at=dt.utcnow()
+    voucher.rejection_reason=(d.get("reason") or "").strip() or None
+    db.session.commit()
+    return jsonify({"success":True,"voucher":_expense_voucher_dict(voucher)})
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
