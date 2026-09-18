@@ -3088,29 +3088,25 @@ def _auto_migrate():
     ALTER TABLE ADD COLUMN, so existing rows survive a model change. For
     Postgres/MySQL in production, use a real migration tool (Alembic) instead
     — the quoting/type rules here are SQLite-specific."""
-    if db.engine.dialect.name != "sqlite":
-        print(f"[auto-migrate] Skipped — using {db.engine.dialect.name}, not SQLite. "
-              f"Add new columns via a proper migration (e.g. Alembic) instead.")
-        return
-
     from sqlalchemy import inspect
 
     inspector = inspect(db.engine)
     existing_tables = set(inspector.get_table_names())
 
-    def sqlite_type(col):
-        t = str(col.type)
-        if "BOOLEAN" in t:
-            return "BOOLEAN"
-        if "INTEGER" in t:
-            return "INTEGER"
-        if "FLOAT" in t or "NUMERIC" in t:
-            return "FLOAT"
-        if "DATE" in t:
-            return "DATE"
-        if "DATETIME" in t:
-            return "DATETIME"
-        return "TEXT"
+    if db.engine.dialect.name == "sqlite":
+        def column_type(col):
+            t = str(col.type)
+            if "BOOLEAN" in t: return "BOOLEAN"
+            if "INTEGER" in t: return "INTEGER"
+            if "FLOAT" in t or "NUMERIC" in t: return "FLOAT"
+            if "DATE" in t: return "DATE"
+            if "DATETIME" in t: return "DATETIME"
+            return "TEXT"
+    else:
+        # Production (Supabase/PostgreSQL): keep schema in sync with mapped
+        # columns. New columns are nullable so existing rows remain valid.
+        def column_type(col):
+            return col.type.compile(dialect=db.engine.dialect)
 
     with db.engine.begin() as conn:
         for table in db.metadata.sorted_tables:
@@ -3120,7 +3116,7 @@ def _auto_migrate():
             for col in table.columns:
                 if col.name in existing_cols:
                     continue
-                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {sqlite_type(col)}'
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {column_type(col)}'
                 print(f"[auto-migrate] {ddl}")
                 conn.exec_driver_sql(ddl)
 
