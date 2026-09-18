@@ -34,7 +34,12 @@ export function DealerPortal({ dealer, onLogout }) {
         <div className="card"><div className="muted">Delivery Challans</div><div className="metric">{challans.length}</div></div>
         <div className="card"><div className="muted">Tax Invoices</div><div className="metric">{invoices.length}</div></div>
       </div>
-      <div className="actions dealerTabs"><input className="input" placeholder="Search chassis, bill, challan, model…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 240, flex: '1 1 240px' }} />
+      <div className="actions dealerTabs">
+        <button className="btn primary" type="button" onClick={() => {
+          const chfplUrl = process.env.NEXT_PUBLIC_CHFPL_URL || 'https://capitalhind.vercel.app';
+          window.location.href = `${chfplUrl}/app/dealer/new-application`;
+        }}>+ New Loan Application</button>
+        <input className="input" placeholder="Search chassis, bill, challan, model…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 240, flex: '1 1 240px' }} />
         <button className={'btn' + (tab === 'stock' ? ' primary' : '')} onClick={() => setTab('stock')}>My Stock</button>
         <button className={'btn' + (tab === 'challans' ? ' primary' : '')} onClick={() => setTab('challans')}>Delivery Challans</button>
         <button className={'btn' + (tab === 'invoices' ? ' primary' : '')} onClick={() => setTab('invoices')}>Tax Invoices</button>
