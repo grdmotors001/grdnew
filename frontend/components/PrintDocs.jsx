@@ -53,6 +53,14 @@ function Overlay({ onClose, children, extraActions, title = 'Print / View Docume
 
   const copyLabel = COPY_TYPES.find(([k]) => k === copyType)?.[1] || 'Original';
 
+  const printDocument = async () => {
+    // Let the document/images finish rendering before opening the browser
+    // print dialog. This is more reliable than calling print() directly from
+    // a React overlay render.
+    try { await document.fonts?.ready; } catch {}
+    setTimeout(() => window.print(), 80);
+  };
+
   return (
     <div className="printOverlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="printPanel">
@@ -85,8 +93,8 @@ function Overlay({ onClose, children, extraActions, title = 'Print / View Docume
           <div className="printFooterActions">
             <button className="btn wa" onClick={shareWhatsapp}>Whatsapp</button>
             <button className="btn mail" onClick={shareEmail}>Email</button>
-            <button className="btn dl" onClick={() => window.print()}>Download</button>
-            <button className="btn pr" onClick={() => window.print()}>Print</button>
+            <button className="btn dl" onClick={printDocument}>Download / PDF</button>
+            <button className="btn pr" onClick={printDocument}>Print</button>
           </div>
         </div>
       </div>
@@ -299,9 +307,16 @@ function AccCol({ items, c }) {
 
 export function DeliveryChallanPrintView({ challanId, onClose }) {
   const [data, setData] = useState(null);
+  const [error, setError] = useState('');
   const [logoFailed, setLogoFailed] = useState(false);
-  useEffect(() => { get(`/delivery-challans/${challanId}/print`).then(setData); }, [challanId]);
-  if (!data) return null;
+  useEffect(() => {
+    setData(null); setError('');
+    get(`/delivery-challans/${challanId}/print`)
+      .then(setData)
+      .catch((e) => setError(e.message || 'Unable to load Delivery Challan print.'));
+  }, [challanId]);
+  if (error) return <div className="modal"><div className="modalbox" style={{maxWidth:520}}><h3>Delivery Challan Print</h3><div className="error">{error}</div><button className="btn" onClick={onClose}>Close</button></div></div>;
+  if (!data) return <div className="modal"><div className="modalbox" style={{maxWidth:420}}>Loading Delivery Challan…</div></div>;
   const { challan: c, company } = data;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
   const logoSrc = logoFailed || !c.umrn_code ? '/UMRN/_default.png' : `/UMRN/${c.umrn_code}.jpg`;
@@ -469,8 +484,14 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
 export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose }) {
   const [doc, setDoc] = useState(initialDoc);
   const [data, setData] = useState(null);
+  const [error, setError] = useState('');
 
-  useEffect(() => { get(`/tax-invoices/${invoiceId}/print?doc=${doc}`).then(setData); }, [invoiceId, doc]);
+  useEffect(() => {
+    setData(null); setError('');
+    get(`/tax-invoices/${invoiceId}/print?doc=${doc}`)
+      .then(setData)
+      .catch((e) => setError(e.message || 'Unable to load Tax Invoice print.'));
+  }, [invoiceId, doc]);
 
   const downloadUploadCode = async () => {
     const token = getToken();
@@ -487,7 +508,8 @@ export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose
     window.URL.revokeObjectURL(url);
   };
 
-  if (!data) return null;
+  if (error) return <div className="modal"><div className="modalbox" style={{maxWidth:520}}><h3>Tax Invoice Print</h3><div className="error">{error}</div><button className="btn" onClick={onClose}>Close</button></div></div>;
+  if (!data) return <div className="modal"><div className="modalbox" style={{maxWidth:420}}>Loading Tax Invoice…</div></div>;
   const { invoice: i, company, doc_title, doc_no_label, rto_address,
     print_bank_name, print_bank_account_no, print_bank_ifsc } = data;
 
