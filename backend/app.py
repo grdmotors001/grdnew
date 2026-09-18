@@ -280,7 +280,7 @@ def expense_payment_voucher_masters():
 def expense_payment_voucher_rickshaws():
     dealer_id=request.args.get("dealer_id",type=int)
     staff_name=(request.args.get("staff_name") or "").strip()
-    q=DeliveryChallan.query.filter(DeliveryChallan.cancelled.is_(False)).order_by(
+    q=DeliveryChallan.query.options(joinedload(DeliveryChallan.dealer)).filter(DeliveryChallan.cancelled.is_(False)).order_by(
         DeliveryChallan.date.desc(),DeliveryChallan.id.desc())
     if dealer_id: q=q.filter(DeliveryChallan.dealer_id==dealer_id)
     elif staff_name:
@@ -2278,8 +2278,9 @@ def purchase_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
     rows = []
-    for b in PurchaseBill.query.order_by(PurchaseBill.date).all():
-        if not _in_range(b.date, from_date, to_date) or not _matches(search, b.party_name, b.bill_no):
+    purchase_query = PurchaseBill.query.filter(*_date_filter(PurchaseBill.date, from_date, to_date)).order_by(PurchaseBill.date)
+    for b in purchase_query.all():
+        if not _matches(search, b.party_name, b.bill_no):
             continue
         for it in b.items:
             rows.append({"date": _iso(b.date), "bill_no": b.bill_no or ".", "party_name": b.party_name,
@@ -2303,8 +2304,8 @@ def purchase_register():
 def production_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
-    vouchers = [v for v in ProductionVoucher.query.order_by(ProductionVoucher.date).all()
-                if _in_range(v.date, from_date, to_date) and _matches(search, v.product_name, v.chassis_no)]
+    vouchers = [v for v in ProductionVoucher.query.filter(*_date_filter(ProductionVoucher.date, from_date, to_date)).order_by(ProductionVoucher.date).all()
+                if _matches(search, v.product_name, v.chassis_no)]
     if request.args.get("export") == "csv":
         headers = ["Date", "Vou. No.", "Product Name", "Quantity", "Chassis No.", "Motor No.", "Controller No."]
         return _csv_response("Production_Register.csv", headers,
@@ -2369,9 +2370,8 @@ def delivery_challan_register():
 def sale_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
-    invoices = [i for i in TaxInvoice.query.order_by(TaxInvoice.date).all()
-                if _in_range(i.date, from_date, to_date)
-                and _matches(search, i.buyer_name, i.dealer_name, i.product_name, i.chassis_no, i.bill_no)]
+    invoices = [i for i in TaxInvoice.query.filter(*_date_filter(TaxInvoice.date, from_date, to_date)).order_by(TaxInvoice.date).all()
+                if _matches(search, i.buyer_name, i.dealer_name, i.product_name, i.chassis_no, i.bill_no)]
     if request.args.get("export") == "csv":
         headers = ["Date", "Bill No.", "Buyer Name", "Product Name", "Chassis No.", "Taxable Value",
                    "Tax Amount", "Insurance", "Registration", "Bill Total"]
@@ -2392,11 +2392,11 @@ def sale_register():
 def gst_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
-    outward = [i for i in TaxInvoice.query.filter_by(cancelled=False).order_by(TaxInvoice.date).all()
-               if _in_range(i.date, from_date, to_date) and _matches(search, i.buyer_name, i.bill_no)]
+    outward = [i for i in TaxInvoice.query.filter(TaxInvoice.cancelled.is_(False), *_date_filter(TaxInvoice.date, from_date, to_date)).order_by(TaxInvoice.date).all()
+               if _matches(search, i.buyer_name, i.bill_no)]
     inward = []
-    for b in PurchaseBill.query.order_by(PurchaseBill.date).all():
-        if not _in_range(b.date, from_date, to_date) or not _matches(search, b.party_name, b.bill_no):
+    for b in PurchaseBill.query.filter(*_date_filter(PurchaseBill.date, from_date, to_date)).order_by(PurchaseBill.date).all():
+        if not _matches(search, b.party_name, b.bill_no):
             continue
         for it in b.items:
             inward.append({"date": _iso(b.date), "doc_no": b.bill_no or ".", "party_name": b.party_name,
@@ -2426,9 +2426,9 @@ def hypothecation_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
     invoices = [i for i in TaxInvoice.query.filter(TaxInvoice.financer_name.isnot(None),
-                                                     TaxInvoice.financer_name != "").order_by(TaxInvoice.date).all()
-                if _in_range(i.date, from_date, to_date)
-                and _matches(search, i.buyer_name, i.financer_name, i.bill_no)]
+                                                     TaxInvoice.financer_name != "",
+                                                     *_date_filter(TaxInvoice.date, from_date, to_date)).order_by(TaxInvoice.date).all()
+                if _matches(search, i.buyer_name, i.financer_name, i.bill_no)]
     if request.args.get("export") == "csv":
         headers = ["Date", "Bill No.", "Buyer Name", "Chassis No.", "Financer Name", "Hypothecation Amount"]
         return _csv_response("Hypothecation_Register.csv", headers,
@@ -2527,8 +2527,8 @@ def payment_receivable_report():
 def subsidy_report():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
-    invoices = [i for i in TaxInvoice.query.filter(TaxInvoice.subsidy_amount > 0).order_by(TaxInvoice.date).all()
-                if _in_range(i.date, from_date, to_date) and _matches(search, i.buyer_name, i.bill_no)]
+    invoices = [i for i in TaxInvoice.query.filter(TaxInvoice.subsidy_amount > 0, *_date_filter(TaxInvoice.date, from_date, to_date)).order_by(TaxInvoice.date).all()
+                if _matches(search, i.buyer_name, i.bill_no)]
     if request.args.get("export") == "csv":
         headers = ["Date", "Bill No.", "Buyer Name", "Chassis No.", "Subsidy Amount"]
         return _csv_response("Subsidy_Report.csv", headers,
@@ -2550,13 +2550,11 @@ def _ledger_balances_summary(dealers_, from_date, to_date):
         db.session.query(DeliveryChallan.dealer_id, TaxInvoice)
         .select_from(TaxInvoice)
         .outerjoin(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
-        .filter(TaxInvoice.cancelled.is_(False))
+        .filter(TaxInvoice.cancelled.is_(False), *_date_filter(TaxInvoice.date, from_date, to_date))
         .all()
     )
     name_to_id = {_norm_name(d.name): d.id for d in dealers_ if d.name}
     for dealer_id, ti in inv_rows:
-        if not _in_range(ti.date, from_date, to_date):
-            continue
         if dealer_id not in balances:
             dealer_id = name_to_id.get(_norm_name(ti.dealer_name or ''))
         if dealer_id not in balances:
@@ -2572,9 +2570,8 @@ def _ledger_balances_summary(dealers_, from_date, to_date):
 
     for vr_no, dealer_name, credit_received, debit_paid, d in \
             db.session.query(DayBook.vr_no, DayBook.dealer_name, DayBook.credit_received,
-                              DayBook.debit_paid, DayBook.date).all():
-        if not _in_range(d, from_date, to_date):
-            continue
+                              DayBook.debit_paid, DayBook.date)
+            .filter(*_date_filter(DayBook.date, from_date, to_date)).all():
         dealer_id = name_to_id.get(_norm_name(dealer_name))
         if dealer_id is None:
             continue
@@ -2605,10 +2602,9 @@ def _ledger_events_for_dealer(dealer, from_date, to_date):
         .filter(TaxInvoice.cancelled.is_(False))
         .filter(db.or_(DeliveryChallan.dealer_id == dealer.id,
                        db.func.lower(db.func.trim(TaxInvoice.dealer_name)) ==
-                       db.func.lower(db.func.trim(dealer.name or '')))))
+                       db.func.lower(db.func.trim(dealer.name or ''))))
+        .filter(*_date_filter(TaxInvoice.date, from_date, to_date)))
     for ti in query.all():
-        if not _in_range(ti.date, from_date, to_date):
-            continue
         # Debit is Sale Amount NET of Hypothecation (the financer pays the
         # hypothecated portion directly, so it's not part of what the
         # dealer owes from their own ledger) -- NOT the full Sale Amount,
@@ -2650,10 +2646,8 @@ def _ledger_events_for_dealer(dealer, from_date, to_date):
         # (collapse all whitespace runs to a single space, then lowercase) before
         # comparing, so entries aren't lost to formatting differences.
         target_name = _norm_name(dealer.name)
-        for row in DayBook.query.all():
+        for row in DayBook.query.filter(*_date_filter(DayBook.date, from_date, to_date)).all():
             if _norm_name(row.dealer_name) != target_name:
-                continue
-            if not _in_range(row.date, from_date, to_date):
                 continue
             events.append({"date": row.date, "vr_type": "C", "doc_no": "", "account": "CASH",
                             "debit": row.debit_paid or 0, "credit": row.credit_received or 0,
@@ -2740,11 +2734,11 @@ def _ledger_v_summary(dealers_, from_date, to_date):
     inv_rows = (
         db.session.query(DeliveryChallan.dealer_id, TaxInvoice.date, TaxInvoice.amount_received)
         .join(TaxInvoice, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
-        .filter(TaxInvoice.cancelled.is_(False))
+        .filter(TaxInvoice.cancelled.is_(False), *_date_filter(TaxInvoice.date, from_date, to_date))
         .all()
     )
     for dealer_id, ti_date, amount_received in inv_rows:
-        if dealer_id not in totals or not _in_range(ti_date, from_date, to_date):
+        if dealer_id not in totals:
             continue
         totals[dealer_id] += amount_received or 0
 
@@ -2753,9 +2747,8 @@ def _ledger_v_summary(dealers_, from_date, to_date):
         if d.name:
             name_to_id.setdefault(_norm_name(d.name), d.id)
     for dealer_name, credit_received, d in \
-            db.session.query(DayBook.dealer_name, DayBook.credit_received, DayBook.date).all():
-        if not _in_range(d, from_date, to_date):
-            continue
+            db.session.query(DayBook.dealer_name, DayBook.credit_received, DayBook.date)
+            .filter(*_date_filter(DayBook.date, from_date, to_date)).all():
         dealer_id = name_to_id.get(_norm_name(dealer_name))
         if dealer_id is None:
             continue
@@ -2788,10 +2781,9 @@ def _ledger_v_events_for_dealer(dealer, from_date, to_date):
         .filter(TaxInvoice.cancelled.is_(False))
         .filter(db.or_(DeliveryChallan.dealer_id == dealer.id,
                        db.func.lower(db.func.trim(TaxInvoice.dealer_name)) ==
-                       db.func.lower(db.func.trim(dealer.name or '')))))
+                       db.func.lower(db.func.trim(dealer.name or ''))))
+        .filter(*_date_filter(TaxInvoice.date, from_date, to_date)))
     for ti in query.all():
-        if not _in_range(ti.date, from_date, to_date):
-            continue
         if ti.amount_received:
             # Particulars shows what was sold (product + chassis) rather than
             # repeating the buyer's name, which already has its own Customer
@@ -2809,10 +2801,8 @@ def _ledger_v_events_for_dealer(dealer, from_date, to_date):
         # DayBook.dealer_name is free text and can differ from Dealer.name by
         # spacing/case.
         target_name = _norm_name(dealer.name)
-        for row in DayBook.query.all():
+        for row in DayBook.query.filter(*_date_filter(DayBook.date, from_date, to_date)).all():
             if _norm_name(row.dealer_name) != target_name:
-                continue
-            if not _in_range(row.date, from_date, to_date):
                 continue
             if not row.credit_received:
                 continue
