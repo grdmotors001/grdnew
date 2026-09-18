@@ -33,6 +33,8 @@ function PersonFields({ value, setValue, title, relationLabel, compact=false }) 
   </div>;
 }
 
+async function fileToDataUrl(file){return await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file)})}
+
 export function DealerNewLoanForm({ onBack }) {
   const [step,setStep]=useState('borrower');
   const [borrower,setBorrower]=useState(blankPerson);
@@ -92,6 +94,8 @@ export function DealerNewLoanForm({ onBack }) {
         customer_id:customerId||null,borrower,guarantor,co_borrower,vehicle_loan:vehicleLoan,
         loan_type:loanType,
         dealer_register_page_no:sale.register_page_no,
+        customer_photo:customerPhoto ? {name:customerPhoto.name,type:customerPhoto.type,data_url:await fileToDataUrl(customerPhoto)} : null,
+        documents:await Promise.all(documents.map(async f=>({name:f.name,type:f.type,data_url:await fileToDataUrl(f)}))),
         sale_details:{sale_amount:Number(sale.sale_amount)||0,file_charge:Number(sale.file_charge)||0,total_deal_amount:totalDeal,booking_amount:Number(sale.booking_amount)||0,balance_before_billing:balance}
       });
       setSuccess(d);
