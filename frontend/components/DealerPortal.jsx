@@ -51,7 +51,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
 
   if (tab === 'newloan') return <DealerNewLoanForm onBack={() => setTab('dashboard')} />;
-  if (tab === 'customer-invoice') return <DealerCustomerInvoicePage challan={selectedPurchase} onBack={() => setTab('purchases')} />;
+  if (tab === 'customer-invoice') return <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} />;
 
   return <div className="dealerShell">
     <aside className="dealerSidebar">
