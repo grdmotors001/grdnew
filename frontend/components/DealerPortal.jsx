@@ -45,7 +45,7 @@ export function DealerPortal({ dealer, onLogout }) {
         <button className={'btn' + (tab === 'invoices' ? ' primary' : '')} onClick={() => setTab('invoices')}>Tax Invoices</button>
       </div>
       {tab === 'cashbook' && <DealerCashBook />}
-      {tab === 'newloan' && <DealerNewLoanForm />}
+      {tab === 'newloan' && <DealerNewLoanForm onBack={() => setTab('stock')} />}
       {tab === 'stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']}>{filteredStock.map(v => <tr key={v.id}><td>{formatDate(v.date)}</td><td><b>{v.chassis_no}</b></td><td>{v.model_name}</td><td>{v.motor_no}</td><td>{v.colour}</td></tr>)}</DealerTable>}
       {tab === 'challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']}>{filteredChallans.map(c => <tr key={c.id}><td>{formatDate(c.date)}</td><td>{c.challan_no}</td><td>{c.chassis_no}</td><td>{c.product_name}</td><td>{c.destination}</td></tr>)}</DealerTable>}
       {tab === 'invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']}>{filteredInvoices.map(i => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.chassis_no}</td><td>{i.product_name}</td><td>{i.buyer_name}</td><td>{i.bill_total}</td></tr>)}</DealerTable>}
