@@ -20,7 +20,7 @@ export function ClosingStockPremisesPage() {
         <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Model</th><th>Colour</th><th>Qty</th></tr></thead>
-            <tbody>{data.summary.map((s, i) => <tr key={i}><td>{s.model_name}</td><td>{s.colour}</td><td>{s.qty}</td></tr>)}</tbody>
+            <tbody>{data.summary.map((s, i) => <tr key={i}><td data-label="Model">{s.model_name}</td><td data-label="Colour">{s.colour}</td><td data-label="Qty">{s.qty}</td></tr>)}</tbody>
           </table>
         </div>
       </div>
@@ -28,7 +28,7 @@ export function ClosingStockPremisesPage() {
         <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Chassis No.</th><th>Model</th><th>Motor No.</th><th>Colour</th></tr></thead>
-            <tbody>{data.vehicles.map((v) => <tr key={v.id}><td>{formatDate(v.date)}</td><td><b>{v.chassis_no}</b></td><td>{v.model_name}</td><td>{v.motor_no}</td><td>{v.colour}</td></tr>)}</tbody>
+            <tbody>{data.vehicles.map((v) => <tr key={v.id}><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></tr>)}</tbody>
           </table>
         </div>
       )}
@@ -52,7 +52,7 @@ export function ClosingStockDealersPage() {
         <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Dealer</th><th>Model</th><th>Qty</th></tr></thead>
-            <tbody>{data.summary.map((s, i) => <tr key={i}><td>{s.dealer_name}</td><td>{s.model_name}</td><td>{s.qty}</td></tr>)}</tbody>
+            <tbody>{data.summary.map((s, i) => <tr key={i}><td data-label="Dealer">{s.dealer_name}</td><td data-label="Model">{s.model_name}</td><td data-label="Qty">{s.qty}</td></tr>)}</tbody>
           </table>
         </div>
       </div>
@@ -60,7 +60,7 @@ export function ClosingStockDealersPage() {
         <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Chassis No.</th><th>Model</th><th>Dealer</th></tr></thead>
-            <tbody>{data.vehicles.map((v) => <tr key={v.id}><td>{formatDate(v.date)}</td><td><b>{v.chassis_no}</b></td><td>{v.model_name}</td><td>{v.dealer_name}</td></tr>)}</tbody>
+            <tbody>{data.vehicles.map((v) => <tr key={v.id}><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Dealer">{v.dealer_name}</td></tr>)}</tbody>
           </table>
         </div>
       )}
@@ -92,8 +92,8 @@ export function ClosingStockRawPage() {
             <tbody>
               {(rows.rows || rows.events || rows).map((r, i) => (
                 <tr key={i} onClick={() => setDetailItem(r.name)} style={{ cursor: 'pointer' }} title="Click for item ledger">
-                  <td>{r.name}</td><td>{r.hsn}</td><td>{r.opening ?? 0}</td><td>{r.purchased}</td><td>{r.consumed}</td>
-                  <td><b>{r.closing}</b></td>
+                  <td data-label="Item">{r.name}</td><td data-label="HSN">{r.hsn}</td><td data-label="Opening">{r.opening ?? 0}</td><td data-label="Purchased">{r.purchased}</td><td data-label="Consumed">{r.consumed}</td>
+                  <td data-label="Closing"><b>{r.closing}</b></td>
                 </tr>
               ))}
             </tbody>
@@ -138,8 +138,8 @@ function RawItemLedgerModal({ itemName, defaultFrom, defaultTo, onClose }) {
               <tbody>
                 {(rows.events || rows).map((e, i) => (
                   <tr key={i}>
-                    <td>{formatDate(e.date)}</td><td>{e.type}</td><td>{e.doc_no}</td><td>{e.party_name}</td>
-                    <td>{e.particulars}</td><td>{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td>{e.balance}</td>
+                    <td data-label="Date">{formatDate(e.date)}</td><td data-label="Type">{e.type}</td><td data-label="Doc No.">{e.doc_no}</td><td data-label="Party / Ref">{e.party_name}</td>
+                    <td data-label="Particulars">{e.particulars}</td><td data-label="Qty">{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td data-label="Balance">{e.balance}</td>
                   </tr>
                 ))}
               </tbody>
@@ -182,8 +182,8 @@ export function StockLedgerPremisesPage() {
             <tbody>
               {(rows.events || rows).map((e, i) => (
                 <tr key={i}>
-                  <td>{formatDate(e.date)}</td><td>{e.type}</td><td>{e.doc_no}</td><td>{e.chassis_no}</td>
-                  <td>{e.particulars}</td><td>{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td>{e.balance}</td>
+                  <td data-label="Date">{formatDate(e.date)}</td><td data-label="Type">{e.type}</td><td data-label="Doc No.">{e.doc_no}</td><td data-label="Chassis No.">{e.chassis_no}</td>
+                  <td data-label="Particulars">{e.particulars}</td><td data-label="Qty">{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td data-label="Balance">{e.balance}</td>
                 </tr>
               ))}
             </tbody>
@@ -225,8 +225,8 @@ export function StockLedgerDealersPage() {
             <tbody>
               {(rows.events || rows).map((e, i) => (
                 <tr key={i}>
-                  <td>{formatDate(e.date)}</td><td>{e.type}</td><td>{e.doc_no}</td><td>{e.chassis_no}</td>
-                  <td>{e.dealer_name}</td><td>{e.particulars}</td><td>{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td>{e.balance}</td>
+                  <td data-label="Date">{formatDate(e.date)}</td><td data-label="Type">{e.type}</td><td data-label="Doc No.">{e.doc_no}</td><td data-label="Chassis No.">{e.chassis_no}</td>
+                  <td data-label="Dealer">{e.dealer_name}</td><td data-label="Particulars">{e.particulars}</td><td data-label="Qty">{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td data-label="Balance">{e.balance}</td>
                 </tr>
               ))}
             </tbody>
