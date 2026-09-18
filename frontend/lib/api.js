@@ -5,6 +5,7 @@
 // localStorage and attached to every request.
 const base = '/api/backend';
 const TOKEN_KEY = 'ebill_token';
+const DEFAULT_TIMEOUT_MS = 20000;
 
 export function getToken() {
   if (typeof window === 'undefined') return null;
@@ -24,23 +25,34 @@ export async function api(path, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
-  const r = await fetch(base + path, { ...options, headers, cache: 'no-store' });
-  if (r.status === 401) {
-    setToken(null);
-    const err = new Error('Session expired — please sign in again.');
-    err.authError = true;
-    throw err;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, preserveAuthOn401 = false, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(base + path, { ...fetchOptions, headers, cache: 'no-store', signal: controller.signal });
+    if (r.status === 401) {
+      if (!preserveAuthOn401) setToken(null);
+      const err = new Error('Session expired — please sign in again.');
+      err.authError = true;
+      throw err;
+    }
+    const contentType = r.headers.get('content-type') || '';
+    const d = contentType.includes('application/json') ? await r.json().catch(() => ({})) : null;
+    if (!r.ok) throw new Error((d && d.error) || `Request failed (${r.status})`);
+    return d;
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('Request timed out. Please try again.');
+    if (error instanceof TypeError) throw new Error('Network error. Please check the connection and try again.');
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  const contentType = r.headers.get('content-type') || '';
-  const d = contentType.includes('application/json') ? await r.json().catch(() => ({})) : null;
-  if (!r.ok) throw new Error((d && d.error) || `Request failed (${r.status})`);
-  return d;
 }
 
-export const get = (p) => api(p);
-export const post = (p, b) => api(p, { method: 'POST', body: JSON.stringify(b) });
-export const put = (p, b) => api(p, { method: 'PUT', body: JSON.stringify(b) });
-export const del = (p) => api(p, { method: 'DELETE' });
+export const get = (p, options = {}) => api(p, options);
+export const post = (p, b, options = {}) => api(p, { ...options, method: 'POST', body: JSON.stringify(b) });
+export const put = (p, b, options = {}) => api(p, { ...options, method: 'PUT', body: JSON.stringify(b) });
+export const del = (p, options = {}) => api(p, { ...options, method: 'DELETE' });
 
 // Excel export: the backend only knows how to hand back CSV (export=csv),
 // so we fetch that same CSV, parse it (PapaParse handles quoted/commaed
