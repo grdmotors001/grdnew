@@ -78,7 +78,12 @@ export default function App() {
 
   useEffect(() => {
     if (!getToken()) { setCheckedAuth(true); return; }
-    get('/auth/me').then(setUser).catch(() => setToken(null)).finally(() => setCheckedAuth(true));
+    get('/auth/me')
+      .then(setUser)
+      .catch(() => get('/dealer/me')
+        .then((dealer) => setUser({ ...dealer, is_dealer: true }))
+        .catch(() => setToken(null)))
+      .finally(() => setCheckedAuth(true));
   }, []);
 
   if (!checkedAuth) return null;
