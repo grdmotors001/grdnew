@@ -99,6 +99,7 @@ function LogoUploadField({ umrnCode }) {
 
 export function DealerPage() {
   const [dealers, setDealers] = useState([]);
+  const [search, setSearch] = useState('');
   const [suggestedCode, setSuggestedCode] = useState('');
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
