@@ -2628,6 +2628,28 @@ def _ledger_events_for_dealer(dealer, from_date, to_date):
     return events, balance
 
 
+@app.route("/api/dealer/ledger")
+@require_dealer_auth
+def dealer_ledger():
+    """Dealer portal ledger: only the currently authenticated dealer's statement."""
+    dealer = Dealer.query.get(getattr(g, "current_dealer_id", None))
+    if not dealer:
+        return _err("Dealer not found.", 404)
+    from_date, to_date = _date_bounds()
+    events, balance = _ledger_events_for_dealer(dealer, from_date, to_date)
+    search = request.args.get("search", "").strip()
+    if search:
+        events = [e for e in events if _matches(search, e["account"], e["doc_no"], *(e.get("lines") or []))]
+    return jsonify({
+        "dealer": ser_dealer(dealer),
+        "from": _iso(from_date) if from_date else None,
+        "to": _iso(to_date) if to_date else None,
+        "events": events,
+        "closing_balance": round(abs(balance), 2),
+        "dc": "Cr" if balance >= 0 else "Dr",
+    })
+
+
 @app.route("/api/reports/ledger")
 @require_auth
 def ledger():
