@@ -40,7 +40,7 @@ from models import (db, Company, SimpleMaster, Dealer, Product, Vehicle, User,
                      DeliveryChallan, TaxInvoice, PurchaseBill, PurchaseBillItem,
                      OldRickshaw, BatteryDeliveryChallan, JournalStock, DayBook)
 from menu_config import MENU, find_item, all_items
-from auth import issue_token, require_auth, require_super_user
+from auth import issue_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -335,6 +335,74 @@ def login():
         return _err("Invalid User ID or Password.", 401)
     token = issue_token(user)
     return jsonify({"token": token, "user": ser_user(user)})
+
+
+@app.route("/api/auth/dealer-login", methods=["POST"])
+def dealer_login():
+    data = request.get_json(silent=True) or {}
+    login_id = (data.get("userid") or "").strip()
+    password = data.get("password") or ""
+    dealer = Dealer.query.filter_by(login_id=login_id).first()
+    if not dealer or dealer.blocked:
+        return _err("Dealer login is blocked or not found.", 401)
+    if not dealer.check_password(password):
+        return _err("Invalid Dealer ID or Password.", 401)
+    token = issue_dealer_token(dealer)
+    return jsonify({
+        "token": token,
+        "dealer": {
+            "id": dealer.id, "code": dealer.code, "name": dealer.name,
+            "login_id": dealer.login_id,
+        },
+    })
+
+
+@app.route("/api/dealer/me")
+@require_dealer_auth
+def dealer_me():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer:
+        return _err("Dealer not found", 404)
+    return jsonify({
+        "id": dealer.id, "code": dealer.code, "name": dealer.name,
+        "login_id": dealer.login_id,
+    })
+
+
+@app.route("/api/dealer/stock")
+@require_dealer_auth
+def dealer_stock():
+    dealer_id = g.current_dealer_id
+    vehicles = (Vehicle.query
+                .filter(Vehicle.stage == "Delivery Challan")
+                .filter(db.func.lower(db.func.trim(Vehicle.dealer_name)) ==
+                        db.func.lower(db.func.trim(Dealer.query.get_or_404(dealer_id).name)))
+                .order_by(Vehicle.date.desc(), Vehicle.id.desc()).all())
+    return jsonify({
+        "vehicles": [ser_vehicle(v) for v in vehicles],
+        "count": len(vehicles),
+    })
+
+
+@app.route("/api/dealer/delivery-challans")
+@require_dealer_auth
+def dealer_delivery_challans():
+    rows = (DeliveryChallan.query
+            .filter_by(dealer_id=g.current_dealer_id)
+            .order_by(DeliveryChallan.date.desc(), DeliveryChallan.id.desc()).all())
+    return jsonify({"challans": [ser_dc(c) for c in rows]})
+
+
+@app.route("/api/dealer/tax-invoices")
+@require_dealer_auth
+def dealer_tax_invoices():
+    rows = (TaxInvoice.query
+            .outerjoin(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+            .filter(TaxInvoice.cancelled.is_(False))
+            .filter(db.or_(DeliveryChallan.dealer_id == g.current_dealer_id,
+                           TaxInvoice.dealer_name == Dealer.query.get_or_404(g.current_dealer_id).name))
+            .order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc()).all())
+    return jsonify({"invoices": [ser_ti(i) for i in rows]})
 
 
 @app.route("/api/auth/me")
