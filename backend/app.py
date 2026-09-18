@@ -1088,6 +1088,13 @@ def dealer_payment_create():
     p=DealerPayment(dealer_id=d.id,order_id=order_id,amount=amount,allocation_type=at,allocation_json=_json.dumps(allocation),status="created"); db.session.add(p); db.session.commit()
     return jsonify({"payment":_dealer_payment_json(p),"payment_session_id":result.get("payment_session_id"),"order_id":order_id})
 
+@app.get("/api/dealer/payment/<order_id>")
+@require_dealer_auth
+def dealer_payment_status(order_id):
+    d=_dealer_current(); p=DealerPayment.query.filter_by(order_id=order_id,dealer_id=d.id if d else 0).first()
+    if not p: return _err("Payment not found",404)
+    return jsonify({"payment":_dealer_payment_json(p)})
+
 @app.post("/api/dealer/payment/webhook")
 def dealer_payment_webhook():
     # Cashfree webhook signature verification must be configured before marking money paid.
