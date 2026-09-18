@@ -24,18 +24,6 @@ class Company(db.Model):
     pan = db.Column(db.String(20))
 
 
-class BankAccount(db.Model):
-    """GRD Motors bank accounts used by receipts and other payment documents."""
-    id = db.Column(db.Integer, primary_key=True)
-    bank_name = db.Column(db.String(120), nullable=False)
-    account_no = db.Column(db.String(50))
-    ifsc = db.Column(db.String(50))
-    branch = db.Column(db.String(120))
-    is_default = db.Column(db.Boolean, default=False, index=True)
-    active = db.Column(db.Boolean, default=True, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-
 class SimpleMaster(db.Model):
     """
     Generic table used for the small 'code + name (+extra)' masters:
@@ -617,83 +605,12 @@ class DayBook(db.Model):
     vr_no = db.Column(db.Integer, unique=True)          # Day Book's own running voucher number
     date = db.Column(db.Date)
     dealer_name = db.Column(db.String(200), nullable=False)   # free-text party name, as in the original
+    bank_id = db.Column(db.Integer, db.ForeignKey("simple_master.id"), index=True)  # selected GRD bank
     credit_received = db.Column(db.Float, default=0)   # money received from the party (reduces balance due)
     debit_paid = db.Column(db.Float, default=0)        # money paid out to the party (increases balance due)
     narration = db.Column(db.String(500))               # e.g. "UPI 1525", "V C NO-2939 (RAJ KUMAR)"
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    @staticmethod
-    def next_vr_no():
-        last = DayBook.query.order_by(DayBook.vr_no.desc()).first()
-        return (last.vr_no + 1) if last and last.vr_no else 1
-
-
-class User(db.Model):
-    """Internal application login user with department and dealer scope."""
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50), unique=True, nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    is_super_user = db.Column(db.Boolean, default=False)
-    permissions = db.Column(db.String(50))
-    allowed_modules = db.Column(db.Text)
-    department = db.Column(db.String(30), default="Admin", index=True)
-    assigned_dealer_ids = db.Column(db.Text)  # comma-separated Dealer IDs; empty = no dealer scope
-
-    def has_module_access(self, key):
-        if self.is_super_user:
-            return True
-        if not self.allowed_modules:
-            return False
-        return key in self.allowed_modules.split(",")
-
-    def get_assigned_dealer_ids(self):
-        if not self.assigned_dealer_ids:
-            return []
-        return [int(x) for x in self.assigned_dealer_ids.split(",") if x.strip().isdigit()]
-
-    def set_password(self, raw):
-        self.password_hash = generate_password_hash(raw)
-
-    def check_password(self, raw):
-        return check_password_hash(self.password_hash, raw)
-
-
-class ExpensePaymentVoucher(db.Model):
-    """Head Office expense payment voucher with approval and payment controls."""
-    id = db.Column(db.Integer, primary_key=True)
-    voucher_no = db.Column(db.String(30), unique=True, index=True)
-    date = db.Column(db.Date, nullable=False)
-    pay_to_type = db.Column(db.String(20), nullable=False)  # dealer / staff / other
-    pay_to_name = db.Column(db.String(200), nullable=False)
-    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=True, index=True)
-    staff_name = db.Column(db.String(120))
-    expense_type = db.Column(db.String(80), nullable=False)
-    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), nullable=True, index=True)
-    chassis_no = db.Column(db.String(60))
-    payment_mode = db.Column(db.String(20), nullable=False, default="cash")  # cash / bank / upi / cheque
-    amount = db.Column(db.Float, nullable=False, default=0)
-    bill_no = db.Column(db.String(80))
-    attachment_url = db.Column(db.String(500))
-    remarks = db.Column(db.String(500))
-    status = db.Column(db.String(20), nullable=False, default="pending")  # pending / approved / rejected
-    created_by = db.Column(db.String(120))
-    approved_by = db.Column(db.String(120))
-    approved_at = db.Column(db.DateTime)
-    rejection_reason = db.Column(db.String(500))
-    paid_at = db.Column(db.DateTime)
+"UPI 1525", "V C NO-2939 (RAJ KUMAR)"
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-
-class DealerPayment(db.Model):
-    """Dealer online payment intent/receipt. allocation_json stores challan/invoice allocations."""
-    id = db.Column(db.Integer, primary_key=True)
-    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
-    order_id = db.Column(db.String(80), unique=True, nullable=False, index=True)
-    amount = db.Column(db.Float, nullable=False)
-    allocation_type = db.Column(db.String(20), default="on_account")
-    allocation_json = db.Column(db.Text)
-    status = db.Column(db.String(20), default="created", index=True)
-    cf_payment_id = db.Column(db.String(80))
-    payment_method = db.Column(db.String(50))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    paid_at = db.Column(db.DateTime)
