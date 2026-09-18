@@ -109,6 +109,39 @@ def integration_masters():
 
 
 # ---------------------------------------------------------------------------
+# Dealer-facing GRD masters for the dealer loan form
+# ---------------------------------------------------------------------------
+@app.get("/api/dealer/loan-masters")
+@require_dealer_auth
+def dealer_loan_masters():
+    products = (Product.query
+                .filter(Product.fro == "F")
+                .order_by(Product.name.asc())
+                .all())
+    financers = (SimpleMaster.query
+                 .filter_by(kind="financer")
+                 .order_by(SimpleMaster.name.asc())
+                 .all())
+    return jsonify({
+        "success": True,
+        "models": [
+            {"id": p.id, "code": p.code, "name": p.name,
+             "fuel_type": p.fuel_type, "gst_rate": p.gst_rate}
+            for p in products
+        ],
+        "financers": [
+            {"id": f.id, "code": f.code, "name": f.name,
+             "mobile": f.mobile, "account_no": f.account_no, "ifsc": f.ifsc}
+            for f in financers
+        ],
+        "loan_types": [
+            {"id": "NEW", "name": "NEW MODEL"},
+            {"id": "OLD", "name": "OLD MODEL"},
+        ],
+    })
+
+
+# ---------------------------------------------------------------------------
 # Dealer customer + CHFPL loan bridge
 # ---------------------------------------------------------------------------
 def _ensure_customer_table():
@@ -185,6 +218,7 @@ def dealer_submit_loan():
             "guarantor": guarantor,
             "co_borrower": co_borrower,
             "vehicle_loan": vehicle_loan,
+            "loan_type": str(data.get("loan_type") or "").strip().upper() or None,
             "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
         }
         body = _json.dumps(payload).encode("utf-8")
