@@ -24,3 +24,8 @@ CREATE INDEX IF NOT EXISTS idx_dealer_payment_status ON dealer_payment(status);
 ALTER TABLE dealer ADD COLUMN IF NOT EXISTS bank_name VARCHAR(120);
 ALTER TABLE dealer ADD COLUMN IF NOT EXISTS bank_account_no VARCHAR(50);
 ALTER TABLE dealer ADD COLUMN IF NOT EXISTS bank_ifsc VARCHAR(50);
+
+
+-- Receipt / Day Book: selected GRD bank
+ALTER TABLE day_book ADD COLUMN IF NOT EXISTS bank_id INTEGER REFERENCES simple_master(id);
+CREATE INDEX IF NOT EXISTS idx_day_book_bank_id ON day_book(bank_id);
