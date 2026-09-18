@@ -101,6 +101,7 @@ class Dealer(db.Model):
     address2 = db.Column(db.String(200))
     mobile = db.Column(db.String(30))
     gst_no = db.Column(db.String(30))
+    registration_type = db.Column(db.String(20), default="registered", index=True)  # registered / unregistered
     state = db.Column(db.String(100))
     state_code = db.Column(db.String(10))
     pan = db.Column(db.String(20))
@@ -666,3 +667,18 @@ class ExpensePaymentVoucher(db.Model):
     rejection_reason = db.Column(db.String(500))
     paid_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class DealerPayment(db.Model):
+    """Dealer online payment intent/receipt. allocation_json stores challan/invoice allocations."""
+    id = db.Column(db.Integer, primary_key=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    order_id = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    amount = db.Column(db.Float, nullable=False)
+    allocation_type = db.Column(db.String(20), default="on_account")
+    allocation_json = db.Column(db.Text)
+    status = db.Column(db.String(20), default="created", index=True)
+    cf_payment_id = db.Column(db.String(80))
+    payment_method = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    paid_at = db.Column(db.DateTime)
