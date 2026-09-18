@@ -172,3 +172,17 @@
   .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .toolbar .field{min-width:0}
 }
+
+
+/* Stock tables: preserve the desktop table while switching to readable cards on phones. */
+@media(max-width:700px){
+  .stockTable{overflow:visible;background:transparent;border:0;border-radius:0}
+  .stockTable .table{min-width:0;width:100%;display:block}
+  .stockTable .table thead{display:none}
+  .stockTable .table tbody{display:block}
+  .stockTable .table tr{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;margin:0 0 10px;padding:8px 12px;box-shadow:0 1px 2px #00000008}
+  .stockTable .table td{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;border:0;border-bottom:1px solid var(--line);padding:9px 0;white-space:normal;text-align:right}
+  .stockTable .table td:last-child{border-bottom:0}
+  .stockTable .table td::before{content:attr(data-label);font-weight:600;color:var(--muted);text-align:left;flex:0 0 42%}
+  .stockTable .table td b{overflow-wrap:anywhere}
+}
