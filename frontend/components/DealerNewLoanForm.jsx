@@ -41,9 +41,17 @@ export function DealerNewLoanForm({ onBack }) {
   const [customerId,setCustomerId]=useState('');
   const [customerSearch,setCustomerSearch]=useState('');
   const [customers,setCustomers]=useState([]);
-  const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',vehicle_price:'',down_payment:'',loan_amount_requested:'',tenure_months:''});
+  const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',vehicle_price:'',down_payment:'',loan_amount_requested:'',tenure_months:'',financer_id:''});
+  const [loanType,setLoanType]=useState('NEW');
+  const [loanMasters,setLoanMasters]=useState({models:[],financers:[],loan_types:[]});
   const [sale,setSale]=useState({sale_amount:'',file_charge:'',booking_amount:'',register_page_no:''});
   const [saving,setSaving]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(null);
+
+  useEffect(()=>{
+    let cancelled=false;
+    get('/dealer/loan-masters').then(d=>{if(!cancelled)setLoanMasters(d||{})}).catch(()=>{});
+    return()=>{cancelled=true};
+  },[]);
 
   useEffect(()=>{
     let cancelled=false;
@@ -76,6 +84,7 @@ export function DealerNewLoanForm({ onBack }) {
     try{
       const d=await post('/dealer/submit-loan',{
         customer_id:customerId||null,borrower,guarantor,co_borrower,vehicle_loan:vehicleLoan,
+        loan_type:loanType,
         dealer_register_page_no:sale.register_page_no,
         sale_details:{sale_amount:Number(sale.sale_amount)||0,file_charge:Number(sale.file_charge)||0,total_deal_amount:totalDeal,booking_amount:Number(sale.booking_amount)||0,balance_before_billing:balance}
       });
@@ -140,12 +149,14 @@ export function DealerNewLoanForm({ onBack }) {
   </div>;
 }
 
-function LoanAndSale({vehicleLoan,setVehicle,sale,setSale,totalDeal,balance}){
+function LoanAndSale({vehicleLoan,setVehicle,sale,setSale,totalDeal,balance,loanType,setLoanType,loanMasters}){
   const setV=(k,v)=>{const next={...vehicleLoan,[k]:v};if(k==='vehicle_price'||k==='down_payment')next.loan_amount_requested=Math.max((Number(next.vehicle_price)||0)-(Number(next.down_payment)||0),0);setVehicle(k,v)};
   const setS=(k,v)=>setSale({...sale,[k]:v});
   return <div className="dealerLoanDetails">
     <div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">VEHICLE & LOAN</span><h2>Loan Details</h2></div></div>
-      <div className="dealerPersonGrid"><label>Vehicle Model / Model ID<input className="input" placeholder="Model / Model ID" value={vehicleLoan.vehicle_model_id} onChange={e=>setV('vehicle_model_id',e.target.value)}/></label>
+      <div className="dealerPersonGrid"><label>Loan Type *<select className="input" value={loanType} onChange={e=>setLoanType(e.target.value)}><option value="NEW">NEW MODEL</option><option value="OLD">OLD MODEL</option></select></label>
+      <label>Vehicle Model *<select className="input" value={vehicleLoan.vehicle_model_id} onChange={e=>setV('vehicle_model_id',e.target.value)}><option value="">Select model</option>{(loanMasters.models||[]).map(m=><option key={m.id} value={m.id}>{m.name}{m.code?' · '+m.code:''}</option>)}</select></label>
+      <label>Financer *<select className="input" value={vehicleLoan.financer_id} onChange={e=>setV('financer_id',e.target.value)}><option value="">Select financer</option>{(loanMasters.financers||[]).map(f=><option key={f.id} value={f.id}>{f.name}{f.code?' · '+f.code:''}</option>)}</select></label>
       <label>Vehicle Price *<input className="input" type="number" min="0" placeholder="₹ Vehicle price" value={vehicleLoan.vehicle_price} onChange={e=>setV('vehicle_price',e.target.value)}/></label>
       <label>Down Payment<input className="input" type="number" min="0" placeholder="₹ Down payment" value={vehicleLoan.down_payment} onChange={e=>setV('down_payment',e.target.value)}/></label>
       <label>Loan Amount Requested *<input className="input" readOnly value={vehicleLoan.loan_amount_requested} placeholder="Auto calculated"/></label>
