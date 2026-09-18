@@ -460,6 +460,7 @@ export function SubsidyReportPage() {
 
 export function LedgerPage() {
   const [dealers, setDealers] = useState([]);
+  const [banks, setBanks] = useState([]);
   const [dealerId, setDealerId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -734,7 +735,7 @@ export function DayBookPage() {
 
   const load = () => get(`/day-book?${new URLSearchParams(search ? { search } : {})}`).then(setData).catch((e) => setError(e.message));
   useEffect(() => { load(); }, [search]);
-  useEffect(() => { get('/dealers').then((d) => setDealers(d.dealers || [])).catch(() => {}); }, []);
+  useEffect(() => { get('/dealers').then((d) => setDealers(d.dealers || [])).catch(() => {}); get('/masters/bank').then((d) => setBanks(d || [])).catch(() => {}); }, []);
 
   const openNew = () => { setForm({ date: new Date().toISOString().slice(0, 10), vr_no: data?.next_vr_no }); setOpen(true); };
   const openEdit = (r) => { setForm({ ...r }); setOpen(true); };
@@ -804,10 +805,10 @@ export function DayBookPage() {
       {data.entries.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Vr. No.</th><th>Dealer</th><th>Credit Received</th><th>Debit Paid</th><th>Narration</th></tr></thead>
+            <thead><tr><th>Date</th><th>Vr. No.</th><th>Dealer</th><th>Bank</th><th>Credit Received</th><th>Debit Paid</th><th>Narration</th></tr></thead>
             <tbody>{data.entries.map((r) => (
               <tr key={r.id} onClick={() => openEdit(r)} style={{ cursor: 'pointer' }} title="Click to edit">
-                <td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td>
+                <td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td><td>{r.bank_name || '—'}</td>
                 <td><Money value={r.credit_received} /></td><td><Money value={r.debit_paid} /></td><td>{r.narration}</td>
               </tr>
             ))}</tbody>
@@ -822,6 +823,7 @@ export function DayBookPage() {
             <div className="formgrid">
               <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
               <Field label="Dealer Name" type="select" value={form.dealer_name} options={dealers.map((d) => ({ value: d.name, label: d.name }))} onChange={(v) => setForm({ ...form, dealer_name: v })} required />
+              <Field label="Bank" type="select" value={form.bank_id || ''} options={[{ value: '', label: 'Select Bank' }, ...banks.map((b) => ({ value: b.id, label: `${b.name}${b.account_no ? ` — ${b.account_no}` : ''}` }))]} onChange={(v) => setForm({ ...form, bank_id: v || null })} />
               <Field label="Credit Received" type="number" value={form.credit_received} onChange={(v) => setForm({ ...form, credit_received: v })} />
               <Field label="Debit Paid" type="number" value={form.debit_paid} onChange={(v) => setForm({ ...form, debit_paid: v })} />
               <Field label="Narration" value={form.narration} onChange={(v) => setForm({ ...form, narration: v })} />
