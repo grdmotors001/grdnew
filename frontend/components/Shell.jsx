@@ -96,6 +96,8 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   const [accent, setAccent] = useState('#2563eb');
   const [showPalette, setShowPalette] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profile, setProfile] = useState({});
 
   const palette = [
     '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
@@ -139,7 +141,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     <div className="app">
       <div className="mobileAdminTop"><button onClick={() => setMobileMenu(true)} aria-label="Open menu">☰</button><div><strong>G.R.D. MOTORS</strong><small>eBill Management System</small></div></div>
       {mobileMenu && <button className="mobileMenuBackdrop" aria-label="Close menu" onClick={() => setMobileMenu(false)} />}
-      <aside className={'sidebar' + (collapsed || mobileMenu ? ' collapsed' : '')}>
+      {profileOpen && <div className="modal"><form className="modalbox profileBox" onSubmit={e=>{e.preventDefault();localStorage.setItem('grd_profile',JSON.stringify(profile));setProfileOpen(false)}}><h2>My Profile</h2><p className="muted">Complete the details used for staff records and communication.</p><div className="formgrid"><Field label="Full Name" value={profile.full_name||''} onChange={v=>setProfile({...profile,full_name:v})} required /><Field label="Mobile No." value={profile.mobile||''} onChange={v=>setProfile({...profile,mobile:v})} required /><Field label="Email" type="email" value={profile.email||''} onChange={v=>setProfile({...profile,email:v})} /><Field label="Department" value={user?.department||'Admin'} onChange={()=>{}} disabled /><Field label="Username" value={user?.username||''} onChange={()=>{}} disabled /><Field label="Address" value={profile.address||''} onChange={v=>setProfile({...profile,address:v})} /></div><div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Cancel</button><button className="btn primary">Save Profile</button></div></form></div>}\n      <aside className={'sidebar' + (collapsed || mobileMenu ? ' collapsed' : '')}>
         <div className="brand">
           <div className="brandMark">G</div>
           {!collapsed && (
