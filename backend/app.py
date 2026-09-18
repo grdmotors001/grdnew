@@ -28,6 +28,7 @@ from datetime import date, datetime as dt
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from sqlalchemy.orm import joinedload
+from sqlalchemy import or_
 
 # Load backend/.env if present (local dev convenience — e.g. DATABASE_URL,
 # SECRET_KEY). No-op in production/Vercel, where real env vars are set
@@ -95,7 +96,7 @@ def dealer_customers():
     query = Customer.query.filter_by(dealer_id=g.current_dealer_id)
     if q:
         like = f"%{q}%"
-        query = query.filter(db.or_(Customer.full_name.ilike(like), Customer.phone.ilike(like), Customer.pan.ilike(like)))
+        query = query.filter(or_(Customer.full_name.ilike(like), Customer.phone.ilike(like), Customer.pan.ilike(like)))
     rows = query.order_by(Customer.full_name.asc()).limit(30).all()
     return jsonify({"customers": [ser_customer(c) for c in rows]})
 
