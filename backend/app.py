@@ -584,7 +584,7 @@ def ser_ti(i):
             "amount_received": i.amount_received, "subsidy_amount": i.subsidy_amount,
             "subsidy_status": i.subsidy_status, "rto_name": i.rto_name,
             "vehicle_reg_no": i.vehicle_reg_no, "despatch_through": i.despatch_through,
-            "eway_bill_no": i.eway_bill_no, "mode_term": i.mode_term, "bank_name": i.bank_name,
+            "eway_bill_no": i.eway_bill_no, "irn": i.irn, "e_invoice_ack_no": i.e_invoice_ack_no, "e_invoice_ack_date": _iso(i.e_invoice_ack_date), "e_invoice_status": i.e_invoice_status, "e_invoice_qr_code": i.e_invoice_qr_code, "e_invoice_error": i.e_invoice_error, "eway_bill_status": i.eway_bill_status, "eway_bill_date": _iso(i.eway_bill_date), "eway_bill_valid_upto": _iso(i.eway_bill_valid_upto), "eway_bill_error": i.eway_bill_error, "mode_term": i.mode_term, "bank_name": i.bank_name,
             "bank_account_no": i.bank_account_no, "bank_ifsc": i.bank_ifsc, "cvr_no": i.cvr_no,
             "license_no": i.license_no, "cancelled_cheque_no": i.cancelled_cheque_no,
             "remarks": i.remarks, "ledger_no": i.ledger_no, "voucher_no": i.voucher_no,
@@ -1777,6 +1777,41 @@ def tax_invoices():
         "total_pages": (total + per_page - 1) // per_page if total else 1,
         "uninvoiced_challans": [ser_dc(c) for c in uninvoiced_challans],
     })
+
+
+@app.route("/api/tax-invoices/<int:invoice_id>/e-invoice", methods=["POST"])
+@require_auth
+def generate_e_invoice(invoice_id):
+    ti = TaxInvoice.query.get_or_404(invoice_id)
+    if ti.cancelled:
+        return _err("Cancelled invoice cannot generate e-Invoice.", 400)
+    if ti.irn:
+        return jsonify(ser_ti(ti))
+    if not os.environ.get("EINVOICE_API_URL"):
+        ti.e_invoice_status = "not_configured"
+        ti.e_invoice_error = "E-Invoice API credentials/provider are not configured. Configure EINVOICE_API_URL and approved API credentials first."
+        db.session.commit()
+        return _err(ti.e_invoice_error, 503)
+    # Provider-specific NIC/GSP adapter is intentionally kept behind the
+    # configured endpoint; government API onboarding/credentials are required
+    # before production generation is possible.
+    return _err("E-Invoice provider is configured but the provider adapter is not enabled yet.", 501)
+
+
+@app.route("/api/tax-invoices/<int:invoice_id>/e-way-bill", methods=["POST"])
+@require_auth
+def generate_e_way_bill(invoice_id):
+    ti = TaxInvoice.query.get_or_404(invoice_id)
+    if ti.cancelled:
+        return _err("Cancelled invoice cannot generate e-Way Bill.", 400)
+    if ti.eway_bill_no:
+        return jsonify(ser_ti(ti))
+    if not os.environ.get("EWAY_API_URL"):
+        ti.eway_bill_status = "not_configured"
+        ti.eway_bill_error = "E-Way Bill API credentials/provider are not configured. Configure EWAY_API_URL and approved API credentials first."
+        db.session.commit()
+        return _err(ti.eway_bill_error, 503)
+    return _err("E-Way Bill provider is configured but the provider adapter is not enabled yet.", 501)
 
 
 @app.route("/api/tax-invoices/<int:invoice_id>", methods=["GET", "PUT", "DELETE"])
