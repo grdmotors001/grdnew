@@ -380,6 +380,18 @@ class TaxInvoice(db.Model):
     vehicle_reg_no = db.Column(db.String(30))
     despatch_through = db.Column(db.String(120))
     eway_bill_no = db.Column(db.String(40))
+    # Government e-Invoice / e-Way Bill integration references
+    irn = db.Column(db.String(100), index=True)
+    e_invoice_ack_no = db.Column(db.String(50))
+    e_invoice_ack_date = db.Column(db.DateTime)
+    e_invoice_status = db.Column(db.String(20), default="not_generated")
+    e_invoice_qr_code = db.Column(db.Text)
+    e_invoice_signed_data = db.Column(db.Text)
+    e_invoice_error = db.Column(db.Text)
+    eway_bill_status = db.Column(db.String(20), default="not_generated")
+    eway_bill_date = db.Column(db.DateTime)
+    eway_bill_valid_upto = db.Column(db.DateTime)
+    eway_bill_error = db.Column(db.Text)
 
     # Mode / Term of payment (legacy desktop app field, e.g. "BANK/CASH")
     mode_term = db.Column(db.String(40), default="BANK/CASH")
