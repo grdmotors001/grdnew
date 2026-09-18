@@ -75,14 +75,14 @@ export function ClosingStockRawPage() {
     <>
       <DateFilterBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
       <ErrorBanner message={error} />
-      {!rows ? <div className="card">Loading…</div> : rows.length === 0 ? <EmptyState /> : (
+      {!rows ? <div className="card">Loading…</div> : (rows.rows || rows.events || rows).length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Item</th><th>HSN</th><th>Purchased</th><th>Consumed</th><th>Closing</th></tr></thead>
+            <thead><tr><th>Item</th><th>HSN</th><th>Opening</th><th>Purchased</th><th>Consumed</th><th>Closing</th></tr></thead>
             <tbody>
-              {rows.map((r, i) => (
+              {(rows.rows || rows.events || rows).map((r, i) => (
                 <tr key={i} onClick={() => setDetailItem(r.name)} style={{ cursor: 'pointer' }} title="Click for item ledger">
-                  <td>{r.name}</td><td>{r.hsn}</td><td>{r.purchased}</td><td>{r.consumed}</td>
+                  <td>{r.name}</td><td>{r.hsn}</td><td>{r.opening ?? 0}</td><td>{r.purchased}</td><td>{r.consumed}</td>
                   <td><b>{r.closing}</b></td>
                 </tr>
               ))}
@@ -106,7 +106,7 @@ function RawItemLedgerModal({ itemName, defaultFrom, defaultTo, onClose }) {
   useEffect(() => {
     const q = new URLSearchParams({ item_name: itemName, ...(from ? { from } : {}), ...(to ? { to } : {}) });
     setRows(null);
-    get(`/stock/ledger-raw?${q}`).then(setRows).catch((e) => setError(e.message));
+    get(`/stock/ledger-raw?${q}`).then((d) => setRows(d)).catch((e) => setError(e.message));
   }, [itemName, from, to]);
 
   return (
@@ -126,7 +126,7 @@ function RawItemLedgerModal({ itemName, defaultFrom, defaultTo, onClose }) {
             <table className="table">
               <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Party / Ref</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
               <tbody>
-                {rows.map((e, i) => (
+                {(rows.events || rows).map((e, i) => (
                   <tr key={i}>
                     <td>{formatDate(e.date)}</td><td>{e.type}</td><td>{e.doc_no}</td><td>{e.party_name}</td>
                     <td>{e.particulars}</td><td>{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td>{e.balance}</td>
@@ -158,7 +158,7 @@ export function StockLedgerPremisesPage() {
 
   useEffect(() => {
     const q = new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) });
-    get(`/stock/ledger-premises?${q}`).then(setRows).catch((e) => setError(e.message));
+    get(`/stock/ledger-premises?${q}`).then((d) => setRows(d)).catch((e) => setError(e.message));
   }, [from, to]);
 
   return (
@@ -195,7 +195,7 @@ export function StockLedgerDealersPage() {
   useEffect(() => { get('/dealers').then((d) => setDealers(d.dealers)); }, []);
   useEffect(() => {
     const q = new URLSearchParams({ ...(dealerId ? { dealer_id: dealerId } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}) });
-    get(`/stock/ledger-dealers?${q}`).then(setRows).catch((e) => setError(e.message));
+    get(`/stock/ledger-dealers?${q}`).then((d) => setRows(d)).catch((e) => setError(e.message));
   }, [dealerId, from, to]);
 
   return (
