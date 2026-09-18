@@ -1613,236 +1613,196 @@ def closing_stock_dealers():
 @app.route("/api/stock/closing-raw")
 @require_auth
 def closing_stock_raw():
-    # Was previously loading EVERY PurchaseBillItem and EVERY
-    # ProductionVoucherItem row into Python (.all()) and aggregating by
-    # hand -- with 517k+ production_voucher_item rows in production, that
-    # was what caused this page to 502 (the request took too long / the
-    # dev server gave up). Doing the date filter + SUM/GROUP BY in SQL
-    # instead means the database does the heavy lifting and only the
-    # already-aggregated per-item totals come back to Python.
     from_date, to_date = _date_bounds()
 
-    purchased_q = (
-        db.session.query(
-            db.func.trim(PurchaseBillItem.item_name),
-            db.func.max(PurchaseBillItem.hsn_code),
-            db.func.sum(PurchaseBillItem.qty),
-        )
-        .join(PurchaseBill, PurchaseBillItem.bill_id == PurchaseBill.id)
-        .filter(*_date_filter(PurchaseBill.date, from_date, to_date))
-        .group_by(db.func.trim(PurchaseBillItem.item_name))
-    )
-    consumed_q = (
-        db.session.query(
-            db.func.trim(ProductionVoucherItem.item_name),
-            db.func.sum(ProductionVoucherItem.qty),
-        )
-        .join(ProductionVoucher, ProductionVoucherItem.voucher_id == ProductionVoucher.id)
-        .filter(*_date_filter(ProductionVoucher.date, from_date, to_date))
-        .group_by(db.func.trim(ProductionVoucherItem.item_name))
-    )
-    journal_q = (
-        db.session.query(
-            db.func.trim(JournalStock.item_name),
-            db.func.sum(db.case((JournalStock.qty >= 0, JournalStock.qty), else_=0)),
-            db.func.sum(db.case((JournalStock.qty < 0, -JournalStock.qty), else_=0)),
-        )
-        .filter(JournalStock.item_type == "R", *_date_filter(JournalStock.date, from_date, to_date))
-        .group_by(db.func.trim(JournalStock.item_name))
-    )
+    def stock_totals(before=None, start=None, end=None):
+        purchased = {}
+        consumed = {}
+        journal_in = {}
+        journal_out = {}
 
-    purchased = {}
-    for name, hsn, qty in purchased_q.all():
-        d = purchased.setdefault(name, {"hsn": hsn, "purchased": 0.0, "consumed": 0.0})
-        d["purchased"] += float(qty or 0)
-        if hsn and not d["hsn"]:
-            d["hsn"] = hsn
-    for name, qty in consumed_q.all():
-        d = purchased.setdefault(name, {"hsn": None, "purchased": 0.0, "consumed": 0.0})
-        d["consumed"] += float(qty or 0)
-    for name, added, removed in journal_q.all():
-        d = purchased.setdefault(name, {"hsn": None, "purchased": 0.0, "consumed": 0.0})
-        d["purchased"] += float(added or 0)
-        d["consumed"] += float(removed or 0)
+        q = db.session.query(db.func.trim(PurchaseBillItem.item_name), db.func.sum(PurchaseBillItem.qty))\
+            .join(PurchaseBill, PurchaseBillItem.bill_id == PurchaseBill.id)
+        if before:
+            q = q.filter(PurchaseBill.date < before)
+        else:
+            q = q.filter(*_date_filter(PurchaseBill.date, start, end))
+        for name, qty in q.group_by(db.func.trim(PurchaseBillItem.item_name)).all():
+            purchased[name] = float(qty or 0)
 
-    rows = [{"name": name, "hsn": d["hsn"], "purchased": d["purchased"], "consumed": d["consumed"],
-             "closing": round(d["purchased"] - d["consumed"], 2)}
-            for name, d in sorted(purchased.items())]
+        q = db.session.query(db.func.trim(ProductionVoucherItem.item_name), db.func.sum(ProductionVoucherItem.qty))\
+            .join(ProductionVoucher, ProductionVoucherItem.voucher_id == ProductionVoucher.id)
+        if before:
+            q = q.filter(ProductionVoucher.date < before)
+        else:
+            q = q.filter(*_date_filter(ProductionVoucher.date, start, end))
+        for name, qty in q.group_by(db.func.trim(ProductionVoucherItem.item_name)).all():
+            consumed[name] = float(qty or 0)
+
+        q = db.session.query(db.func.trim(JournalStock.item_name),
+                             db.func.sum(db.case((JournalStock.qty >= 0, JournalStock.qty), else_=0)),
+                             db.func.sum(db.case((JournalStock.qty < 0, -JournalStock.qty), else_=0)))\
+            .filter(JournalStock.item_type == "R")
+        if before:
+            q = q.filter(JournalStock.date < before)
+        else:
+            q = q.filter(*_date_filter(JournalStock.date, start, end))
+        for name, added, removed in q.group_by(db.func.trim(JournalStock.item_name)).all():
+            journal_in[name] = float(added or 0)
+            journal_out[name] = float(removed or 0)
+
+        return purchased, consumed, journal_in, journal_out
+
+    opening_p, opening_c, opening_ji, opening_jo = stock_totals(before=from_date) if from_date else ({},{},{},{})
+    period_p, period_c, period_ji, period_jo = stock_totals(start=from_date, end=to_date)
+
+    names = set(opening_p) | set(opening_c) | set(opening_ji) | set(opening_jo) | set(period_p) | set(period_c) | set(period_ji) | set(period_jo)
+    hsn_rows = db.session.query(db.func.trim(PurchaseBillItem.item_name), db.func.max(PurchaseBillItem.hsn_code))\
+        .join(PurchaseBill, PurchaseBillItem.bill_id == PurchaseBill.id).group_by(db.func.trim(PurchaseBillItem.item_name)).all()
+    hsn = {name: code for name, code in hsn_rows}
+
+    rows = []
+    for name in sorted(names):
+        opening = (opening_p.get(name,0) + opening_ji.get(name,0)
+                   - opening_c.get(name,0) - opening_jo.get(name,0))
+        purchased = period_p.get(name,0) + period_ji.get(name,0)
+        consumed = period_c.get(name,0) + period_jo.get(name,0)
+        rows.append({
+            "name": name, "hsn": hsn.get(name),
+            "opening": round(opening, 2),
+            "purchased": round(purchased, 2),
+            "consumed": round(consumed, 2),
+            "closing": round(opening + purchased - consumed, 2),
+        })
     return jsonify(rows)
-
 
 @app.route("/api/stock/ledger-raw")
 @require_auth
 def stock_ledger_raw():
-    """Per-item drill-down for L. Closing Stock - Raw Material — click an item
-    to see the chronological IN/OUT trail (purchases, production consumption,
-    journal adjustments) with a running closing balance, filterable by date."""
     item_name = request.args.get("item_name", "").strip()
     if not item_name:
         return jsonify({"error": "item_name is required"}), 400
     from_date, to_date = _date_bounds()
-
-    # Previously this looped over every matching row and accessed
-    # item.voucher / item.bill (a lazy-loaded relationship), which fires
-    # one extra SQL query PER ROW -- for a common component used in
-    # thousands of production vouchers (e.g. 6,444 times), that's 6,444+
-    # extra round-trips to Supabase in a single request, which is exactly
-    # what was timing out as a 502. Selecting the joined columns directly
-    # in one query (and pushing the date filter into SQL instead of
-    # filtering in Python after fetching everything) avoids both problems.
     events = []
 
-    purchase_rows = (
-        db.session.query(PurchaseBillItem.qty, PurchaseBill.date, PurchaseBill.bill_no, PurchaseBill.party_name)
-        .join(PurchaseBill, PurchaseBillItem.bill_id == PurchaseBill.id)
-        .filter(db.func.trim(PurchaseBillItem.item_name) == item_name, *_date_filter(PurchaseBill.date, from_date, to_date))
-        .all()
-    )
-    for qty, d, bill_no, party_name in purchase_rows:
-        events.append({"date": _iso(d), "type": "IN", "doc_no": bill_no,
-                        "party_name": party_name, "particulars": f"Purchase Bill — {item_name}",
-                        "qty": qty or 0, "_sort": d or date.min})
+    def add_rows(before=False):
+        purchase_q = db.session.query(PurchaseBillItem.qty, PurchaseBill.date, PurchaseBill.bill_no, PurchaseBill.party_name)\
+            .join(PurchaseBill, PurchaseBillItem.bill_id == PurchaseBill.id)\
+            .filter(db.func.trim(PurchaseBillItem.item_name) == item_name)
+        production_q = db.session.query(ProductionVoucherItem.qty, ProductionVoucher.date, ProductionVoucher.vou_no,
+                                        ProductionVoucher.chassis_no, ProductionVoucher.product_name)\
+            .join(ProductionVoucher, ProductionVoucherItem.voucher_id == ProductionVoucher.id)\
+            .filter(db.func.trim(ProductionVoucherItem.item_name) == item_name)
+        journal_q = JournalStock.query.filter(JournalStock.item_type == "R",
+                                                db.func.trim(JournalStock.item_name) == item_name)
+        if before:
+            if from_date:
+                purchase_q = purchase_q.filter(PurchaseBill.date < from_date)
+                production_q = production_q.filter(ProductionVoucher.date < from_date)
+                journal_q = journal_q.filter(JournalStock.date < from_date)
+            else:
+                return
+        else:
+            purchase_q = purchase_q.filter(*_date_filter(PurchaseBill.date, from_date, to_date))
+            production_q = production_q.filter(*_date_filter(ProductionVoucher.date, from_date, to_date))
+            journal_q = journal_q.filter(*_date_filter(JournalStock.date, from_date, to_date))
+        return purchase_q.all(), production_q.all(), journal_q.all()
 
-    production_rows = (
-        db.session.query(ProductionVoucherItem.qty, ProductionVoucher.date, ProductionVoucher.vou_no,
-                          ProductionVoucher.chassis_no, ProductionVoucher.product_name)
-        .join(ProductionVoucher, ProductionVoucherItem.voucher_id == ProductionVoucher.id)
-        .filter(db.func.trim(ProductionVoucherItem.item_name) == item_name, *_date_filter(ProductionVoucher.date, from_date, to_date))
-        .all()
-    )
-    for qty, d, vou_no, chassis_no, product_name in production_rows:
-        events.append({"date": _iso(d), "type": "OUT", "doc_no": vou_no,
-                        "party_name": chassis_no, "particulars": f"Production — {product_name}",
-                        "qty": qty or 0, "_sort": d or date.min})
+    opening = 0.0
+    if from_date:
+        p, prod, j = add_rows(before=True)
+        opening += sum(float(x[0] or 0) for x in p)
+        opening -= sum(float(x[0] or 0) for x in prod)
+        opening += sum(float(x.qty or 0) for x in j)
 
-    journal_rows = (
-        JournalStock.query
-        .filter(JournalStock.item_type == "R", db.func.trim(JournalStock.item_name) == item_name,
-                *_date_filter(JournalStock.date, from_date, to_date))
-        .all()
-    )
-    for j in journal_rows:
-        events.append({"date": _iso(j.date), "type": "IN" if j.qty >= 0 else "OUT", "doc_no": j.vou_no,
-                        "party_name": "", "particulars": j.reason or "Journal Stock adjustment",
-                        "qty": abs(j.qty or 0), "_sort": j.date or date.min})
-
-    events.sort(key=lambda e: e["_sort"])
-    balance = 0
+    p, prod, j = add_rows(before=False)
+    for qty, d, bill_no, party_name in p:
+        events.append({"date": _iso(d), "type":"IN", "doc_no":bill_no, "party_name":party_name,
+                        "particulars":f"Purchase Bill — {item_name}", "qty":qty or 0, "_sort":d or date.min})
+    for qty, d, vou_no, chassis_no, product_name in prod:
+        events.append({"date": _iso(d), "type":"OUT", "doc_no":vou_no, "party_name":chassis_no,
+                        "particulars":f"Production — {product_name}", "qty":qty or 0, "_sort":d or date.min})
+    for j in j:
+        events.append({"date":_iso(j.date), "type":"IN" if j.qty >= 0 else "OUT", "doc_no":j.vou_no,
+                        "party_name":"","particulars":j.reason or "Journal Stock adjustment",
+                        "qty":abs(j.qty or 0), "_sort":j.date or date.min})
+    events.sort(key=lambda e:e["_sort"])
+    balance = opening
     for e in events:
-        balance += e["qty"] if e["type"] == "IN" else -e["qty"]
-        e["balance"] = round(balance, 2)
+        balance += e["qty"] if e["type"]=="IN" else -e["qty"]
+        e["balance"] = round(balance,2)
         del e["_sort"]
-    return jsonify(events)
+    return jsonify({"opening_balance": round(opening,2), "events": events})
 
-
-# ---------------------------------------------------------------------------
-# Stock > M/N — Stock Ledger (chronological IN/OUT, running balance)
-# ---------------------------------------------------------------------------
 @app.route("/api/stock/ledger-premises")
 @require_auth
 def stock_ledger_premises():
-    # Rewritten for the same reason as closing-raw / ledger-raw: the old
-    # version loaded ALL ProductionVoucher (17k+) and ALL DeliveryChallan
-    # (17k+) rows, filtered dates in Python, and accessed dc.dealer.name
-    # per row -- a lazy-loaded relationship, so that's 17k+ *extra* SQL
-    # round-trips in a single request. Joining Dealer directly and pushing
-    # the date filter into SQL avoids both problems.
     from_date, to_date = _date_bounds()
     events = []
+    opening = 0
+    if from_date:
+        opening += sum((r[0] or 1) for r in db.session.query(ProductionVoucher.quantity).filter(ProductionVoucher.date < from_date).all())
+        opening -= sum(1 for r in db.session.query(DeliveryChallan.id).filter(DeliveryChallan.date < from_date, DeliveryChallan.cancelled.is_(False)).all())
 
-    pv_rows = (
-        db.session.query(ProductionVoucher.date, ProductionVoucher.vou_no, ProductionVoucher.chassis_no,
-                          ProductionVoucher.product_name, ProductionVoucher.quantity)
-        .filter(*_date_filter(ProductionVoucher.date, from_date, to_date))
-        .all()
-    )
+    pv_rows = db.session.query(ProductionVoucher.date, ProductionVoucher.vou_no, ProductionVoucher.chassis_no,
+                               ProductionVoucher.product_name, ProductionVoucher.quantity)\
+        .filter(*_date_filter(ProductionVoucher.date, from_date, to_date)).all()
     for d, vou_no, chassis_no, product_name, qty in pv_rows:
-        events.append({"date": _iso(d), "type": "IN", "doc_no": vou_no,
-                        "chassis_no": chassis_no, "particulars": f"Production — {product_name}",
-                        "qty": qty or 1, "_sort": d or date.min})
-
-    dc_rows = (
-        db.session.query(DeliveryChallan.date, DeliveryChallan.challan_no, DeliveryChallan.chassis_no, Dealer.name)
-        .outerjoin(Dealer, DeliveryChallan.dealer_id == Dealer.id)
-        .filter(DeliveryChallan.cancelled.is_(False), *_date_filter(DeliveryChallan.date, from_date, to_date))
-        .all()
-    )
+        events.append({"date":_iso(d),"type":"IN","doc_no":vou_no,"chassis_no":chassis_no,
+                       "particulars":f"Production — {product_name}","qty":qty or 1,"_sort":d or date.min})
+    dc_rows = db.session.query(DeliveryChallan.date, DeliveryChallan.challan_no, DeliveryChallan.chassis_no, Dealer.name)\
+        .outerjoin(Dealer, DeliveryChallan.dealer_id == Dealer.id)\
+        .filter(DeliveryChallan.cancelled.is_(False), *_date_filter(DeliveryChallan.date, from_date, to_date)).all()
     for d, challan_no, chassis_no, dealer_name in dc_rows:
-        events.append({"date": _iso(d), "type": "OUT", "doc_no": challan_no,
-                        "chassis_no": chassis_no,
-                        "particulars": f"Delivery Challan to {dealer_name or ''}",
-                        "qty": 1, "_sort": d or date.min})
-
-    events.sort(key=lambda e: e["_sort"])
-    balance = 0
+        events.append({"date":_iso(d),"type":"OUT","doc_no":challan_no,"chassis_no":chassis_no,
+                       "particulars":f"Delivery Challan to {dealer_name or ''}","qty":1,"_sort":d or date.min})
+    events.sort(key=lambda e:e["_sort"])
+    balance=opening
     for e in events:
-        balance += e["qty"] if e["type"] == "IN" else -e["qty"]
-        e["balance"] = balance
-        del e["_sort"]
-    return jsonify(events)
-
+        balance += e["qty"] if e["type"]=="IN" else -e["qty"]
+        e["balance"]=balance; del e["_sort"]
+    return jsonify({"opening_balance": opening, "events": events})
 
 @app.route("/api/stock/ledger-dealers")
 @require_auth
 def stock_ledger_dealers():
-    # Same fix as ledger-premises above: join instead of lazy-loading
-    # .dealer / .delivery_challan per row, and filter dates in SQL.
     dealer_id = request.args.get("dealer_id", type=int)
     from_date, to_date = _date_bounds()
-    events = []
-
-    dc_q = (
-        db.session.query(DeliveryChallan.date, DeliveryChallan.challan_no, DeliveryChallan.chassis_no,
-                          DeliveryChallan.product_name, Dealer.name)
-        .outerjoin(Dealer, DeliveryChallan.dealer_id == Dealer.id)
-        .filter(DeliveryChallan.cancelled.is_(False), *_date_filter(DeliveryChallan.date, from_date, to_date))
-    )
+    events=[]
+    dc_base = db.session.query(DeliveryChallan.date, DeliveryChallan.challan_no, DeliveryChallan.chassis_no,
+                               DeliveryChallan.product_name, Dealer.name, DeliveryChallan.dealer_id)\
+        .outerjoin(Dealer, DeliveryChallan.dealer_id == Dealer.id)\
+        .filter(DeliveryChallan.cancelled.is_(False))
+    ti_base = db.session.query(TaxInvoice.date, TaxInvoice.bill_no, TaxInvoice.chassis_no,
+                               TaxInvoice.product_name, TaxInvoice.dealer_name, DeliveryChallan.dealer_id)\
+        .outerjoin(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)\
+        .filter(TaxInvoice.cancelled.is_(False))
     if dealer_id:
-        dc_q = dc_q.filter(DeliveryChallan.dealer_id == dealer_id)
-    for d, challan_no, chassis_no, product_name, dealer_name in dc_q.all():
-        events.append({"date": _iso(d), "type": "IN", "doc_no": challan_no,
-                        "chassis_no": chassis_no, "dealer_name": dealer_name or "",
-                        "particulars": f"Delivery Challan — {product_name}", "qty": 1,
-                        "_sort": d or date.min})
+        dc_base=dc_base.filter(DeliveryChallan.dealer_id==dealer_id)
+        ti_base=ti_base.filter(DeliveryChallan.dealer_id==dealer_id)
 
-    ti_q = (
-        db.session.query(TaxInvoice.date, TaxInvoice.bill_no, TaxInvoice.chassis_no,
-                          TaxInvoice.product_name, TaxInvoice.dealer_name, DeliveryChallan.dealer_id)
-        .outerjoin(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
-        .filter(TaxInvoice.cancelled.is_(False), *_date_filter(TaxInvoice.date, from_date, to_date))
-    )
-    if dealer_id:
-        ti_q = ti_q.filter(DeliveryChallan.dealer_id == dealer_id)
-    for d, bill_no, chassis_no, product_name, dealer_name, _did in ti_q.all():
-        events.append({"date": _iso(d), "type": "OUT", "doc_no": bill_no,
-                        "chassis_no": chassis_no, "dealer_name": dealer_name or "",
-                        "particulars": f"Tax Invoice — {product_name}", "qty": 1,
-                        "_sort": d or date.min})
+    opening={}
+    if from_date:
+        for d, ch, chassis, product, dealer_name, did in dc_base.filter(DeliveryChallan.date < from_date).all():
+            key=did or dealer_name or ""
+            opening[key]=opening.get(key,0)+1
+        for d, bill, chassis, product, dealer_name, did in ti_base.filter(TaxInvoice.date < from_date).all():
+            key=did or dealer_name or ""
+            opening[key]=opening.get(key,0)-1
 
-    events.sort(key=lambda e: e["_sort"])
-    running = {}
+    for d,ch,chassis,product,dealer_name,did in dc_base.filter(*_date_filter(DeliveryChallan.date,from_date,to_date)).all():
+        events.append({"date":_iso(d),"type":"IN","doc_no":ch,"chassis_no":chassis,"dealer_name":dealer_name or "",
+                       "particulars":f"Delivery Challan — {product}","qty":1,"_key":did or dealer_name or "","_sort":d or date.min})
+    for d,bill,chassis,product,dealer_name,did in ti_base.filter(*_date_filter(TaxInvoice.date,from_date,to_date)).all():
+        events.append({"date":_iso(d),"type":"OUT","doc_no":bill,"chassis_no":chassis,"dealer_name":dealer_name or "",
+                       "particulars":f"Tax Invoice — {product}","qty":1,"_key":did or dealer_name or "","_sort":d or date.min})
+    events.sort(key=lambda e:e["_sort"])
+    running=dict(opening)
     for e in events:
-        key = e.get("dealer_name", "")
-        running[key] = running.get(key, 0) + (e["qty"] if e["type"] == "IN" else -e["qty"])
-        e["balance"] = running[key]
-        del e["_sort"]
-    return jsonify(events)
-
-
-# ---------------------------------------------------------------------------
-# Reports > O-V — all live-computed, all support ?export=csv
-# ---------------------------------------------------------------------------
-def _csv_response(filename, headers, rows):
-    import csv
-    from io import StringIO
-    from flask import Response
-    buf = StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(headers)
-    writer.writerows(rows)
-    return Response(buf.getvalue(), mimetype="text/csv",
-                     headers={"Content-Disposition": f"attachment; filename={filename}"})
-
+        key=e.pop("_key")
+        running[key]=running.get(key,0)+(e["qty"] if e["type"]=="IN" else -e["qty"])
+        e["balance"]=running[key]; del e["_sort"]
+    return jsonify({"opening_balances": opening, "events": events})
 
 @app.route("/api/reports/purchase-register")
 @require_auth
