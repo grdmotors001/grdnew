@@ -14,6 +14,7 @@ import { DeliveryChallanPage } from '../components/DeliveryChallanPage';
 import { TaxInvoicePage } from '../components/TaxInvoicePage';
 import { PurchaseBillPage } from '../components/PurchaseBillPage';
 import { OldRickshawPage, BatteryDeliveryChallanPage, JournalStockPage } from '../components/MinorVoucherPages';
+import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
 import {
   ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage,
   StockLedgerPremisesPage, StockLedgerDealersPage,
@@ -43,6 +44,7 @@ const CUSTOM_PAGES = {
   'old-rickshaw': () => <OldRickshawPage />,
   'battery-delivery-challan': () => <BatteryDeliveryChallanPage />,
   'journal-stock': () => <JournalStockPage />,
+  'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'closing-stock-premises': () => <ClosingStockPremisesPage />,
   'closing-stock-dealers': () => <ClosingStockDealersPage />,
   'closing-stock-raw': () => <ClosingStockRawPage />,
