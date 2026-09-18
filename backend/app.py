@@ -242,8 +242,19 @@ def dealer_submit_loan():
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"CHFPL rejected the loan: {detail[:500]}")
 
+        _ensure_loan_workflow_tables()
+        application_no = str(result.get("application_no") or result.get("application", {}).get("application_no") or "").strip()
+        if not application_no:
+            application_no = f"GRD-LOAN-{dt.utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:4].upper()}"
+        workflow = LoanWorkflow.query.filter_by(application_no=application_no).first()
+        if not workflow:
+            workflow = LoanWorkflow(application_no=application_no, dealer_id=dealer.id, customer_id=customer.id, status="DO_PENDING")
+            db.session.add(workflow)
+            db.session.flush()
+            db.session.add(LoanWorkflowLog(application_id=workflow.id, action="SUBMITTED",
+                to_status="DO_PENDING", details="Dealer loan submitted"))
         db.session.commit()
-        return jsonify({"success": True, "customer": ser_customer(customer), **result})
+        return jsonify({"success": True, "customer": ser_customer(customer), "workflow": _ser_workflow(workflow), **result})
     except Exception as exc:
         db.session.rollback()
         return _err(str(exc), 502)
