@@ -70,6 +70,28 @@ class ChassisRule(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class Customer(db.Model):
+    """Dealer customer master used by the GRD dealer loan/booking flow."""
+    id = db.Column(db.Integer, primary_key=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    full_name = db.Column(db.String(200), nullable=False)
+    phone = db.Column(db.String(30), nullable=False, index=True)
+    email = db.Column(db.String(120))
+    dob = db.Column(db.Date)
+    gender = db.Column(db.String(20))
+    pan = db.Column(db.String(20))
+    aadhaar_masked = db.Column(db.String(30))
+    occupation = db.Column(db.String(120))
+    monthly_income = db.Column(db.Float)
+    pincode = db.Column(db.String(10))
+    city = db.Column(db.String(100))
+    state = db.Column(db.String(100))
+    address = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    dealer = db.relationship("Dealer", backref=db.backref("customers", lazy=True))
+
+
 class Dealer(db.Model):
     """Dealer Master (Setup > 1. Dealer Master) — legacy Sheet9 'AMC' table."""
     id = db.Column(db.Integer, primary_key=True)
