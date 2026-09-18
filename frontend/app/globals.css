@@ -74,6 +74,33 @@
 .docDeclaration{margin:18px 0;font-size:13px;line-height:1.7}
 .docSignRow{display:flex;justify-content:space-between;margin-top:60px;font-size:13px}
 
+/* Purchase Bill form: responsive GST-style editor on phones */
+.purchaseBillModal{width:min(1180px,100%);max-height:92vh}
+.purchaseBillModal input{width:100%;min-width:0}
+.purchaseItemTable input{min-width:82px}
+@media(max-width:700px){
+  .modal{padding:8px;align-items:flex-start}
+  .purchaseBillModal{width:100%;max-height:calc(100dvh - 16px);border-radius:18px}
+  .purchaseBillModal>div:nth-child(2){padding:14px !important}
+  .purchaseBillHeadGrid{grid-template-columns:1fr !important;gap:10px !important;padding:12px !important}
+  .purchaseBillHeadGrid>div[style*="grid-column"]{grid-column:auto !important}
+  .purchaseItemWrap{overflow:visible;border:0 !important;background:transparent;box-shadow:none}
+  .purchaseItemTable{min-width:0 !important;width:100%;display:block}
+  .purchaseItemTable thead{display:none}
+  .purchaseItemTable tbody{display:block}
+  .purchaseItemTable tr{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin:0 0 10px;padding:10px 12px}
+  .purchaseItemTable td{display:flex;align-items:center;justify-content:space-between;gap:10px;white-space:normal;text-align:right;border:0;border-bottom:1px solid var(--line);padding:9px 0;min-width:0}
+  .purchaseItemTable td::before{content:attr(data-label);font-size:10px;font-weight:700;color:var(--muted);text-align:left;flex:0 0 auto}
+  .purchaseItemTable td:nth-child(2),.purchaseItemTable td:nth-child(3){grid-column:1 / -1}
+  .purchaseItemTable td:nth-child(10){grid-column:1 / -1;justify-content:flex-end;border-bottom:0}
+  .purchaseItemTable td:nth-child(1){font-weight:700;color:var(--muted)}
+  .purchaseItemTable td:nth-child(7),.purchaseItemTable td:nth-child(8),.purchaseItemTable td:nth-child(9){font-weight:600}
+  .purchaseItemTable td input{width:100%;min-width:0;padding:9px;border-radius:8px}
+  .purchaseItemTable td:nth-child(2) input,.purchaseItemTable td:nth-child(3) input{flex:1}
+  .purchaseItemTable td:nth-child(10)::before{display:none}
+  .purchaseBillModal .actions{position:sticky;bottom:0;background:var(--modal-bg);margin:14px -14px -14px;padding:12px 14px;border-top:1px solid var(--line);z-index:4}
+}
+
 @media(max-width:700px){
   .printPanel{width:100vw}
   .printHeader{flex-wrap:wrap}
