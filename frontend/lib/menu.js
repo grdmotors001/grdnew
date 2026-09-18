@@ -53,6 +53,7 @@ export const MENU = {
   ],
   Utilities: [
     ['backup-restore', 'Backup / Restore'],
+    ['hr-attendance', 'HR • Attendance & Salary'],
   ],
 };
 
