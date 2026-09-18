@@ -7,16 +7,19 @@ import { formatDate } from '../lib/date';
 export function ClosingStockPremisesPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
   useEffect(() => {
     setError('');
     get('/stock/closing-premises').then(setData).catch((e) => setError(e.message));
   }, []);
   if (error) return <ErrorBanner message={error} />;
   if (!data) return <div className="card">Loading…</div>;
+  const q = search.trim().toLowerCase();
+  const vehicles = data.vehicles.filter((v) => [v.date, v.chassis_no, v.model_name, v.motor_no, v.colour].join(' ').toLowerCase().includes(q));
   return (
     <>
       <div className="card" style={{ marginBottom: 14 }}>
-        <b>Summary by Model / Colour</b>
+        <div className="actions" style={{ justifyContent: 'space-between' }}><b>Summary by Model / Colour</b><input className="input" placeholder="Search model, colour, chassis…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} /></div>
         <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Model</th><th>Colour</th><th>Qty</th></tr></thead>
@@ -24,11 +27,11 @@ export function ClosingStockPremisesPage() {
           </table>
         </div>
       </div>
-      {data.vehicles.length === 0 ? <EmptyState text="No stock at Premises." /> : (
+      {vehicles.length === 0 ? <EmptyState text={search ? 'No stock matches your search.' : 'No stock at Premises.'} /> : (
         <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Chassis No.</th><th>Model</th><th>Motor No.</th><th>Colour</th></tr></thead>
-            <tbody>{data.vehicles.map((v) => <tr key={v.id}><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></tr>)}</tbody>
+            <tbody>{vehicles.map((v) => <tr key={v.id}><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></tr>)}</tbody>
           </table>
         </div>
       )}
@@ -39,16 +42,19 @@ export function ClosingStockPremisesPage() {
 export function ClosingStockDealersPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
   useEffect(() => {
     setError('');
     get('/stock/closing-dealers').then(setData).catch((e) => setError(e.message));
   }, []);
   if (error) return <ErrorBanner message={error} />;
   if (!data) return <div className="card">Loading…</div>;
+  const q = search.trim().toLowerCase();
+  const vehicles = data.vehicles.filter((v) => [v.date, v.chassis_no, v.model_name, v.dealer_name].join(' ').toLowerCase().includes(q));
   return (
     <>
       <div className="card" style={{ marginBottom: 14 }}>
-        <b>Summary by Dealer / Model</b>
+        <div className="actions" style={{ justifyContent: 'space-between' }}><b>Summary by Dealer / Model</b><input className="input" placeholder="Search dealer, model, chassis…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} /></div>
         <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Dealer</th><th>Model</th><th>Qty</th></tr></thead>
@@ -56,11 +62,11 @@ export function ClosingStockDealersPage() {
           </table>
         </div>
       </div>
-      {data.vehicles.length === 0 ? <EmptyState text="No stock with dealers." /> : (
+      {vehicles.length === 0 ? <EmptyState text={search ? 'No stock matches your search.' : 'No stock with dealers.'} /> : (
         <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Chassis No.</th><th>Model</th><th>Dealer</th></tr></thead>
-            <tbody>{data.vehicles.map((v) => <tr key={v.id}><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Dealer">{v.dealer_name}</td></tr>)}</tbody>
+            <tbody>{vehicles.map((v) => <tr key={v.id}><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Dealer">{v.dealer_name}</td></tr>)}</tbody>
           </table>
         </div>
       )}
