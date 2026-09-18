@@ -364,3 +364,68 @@
     z-index:4;
   }
 }
+
+
+/* Mobile navigation hardening */
+.adminBottomNavForce,.dealerBottomNavForce{display:none}
+@media(max-width:700px){
+  .sidebar.mobile-open{transform:translateX(0) !important}
+  .sidebar.collapsed.mobile-open{transform:translateX(0) !important}
+  .adminBottomNavForce{
+    position:fixed !important;
+    left:10px !important;
+    right:10px !important;
+    bottom:max(10px, env(safe-area-inset-bottom)) !important;
+    height:64px !important;
+    display:grid !important;
+    grid-template-columns:repeat(3,1fr) !important;
+    background:var(--card) !important;
+    border:1px solid var(--line) !important;
+    border-radius:18px !important;
+    z-index:9999 !important;
+    box-shadow:0 10px 30px #0003 !important;
+  }
+  .adminBottomNavForce button{
+    border:0 !important;
+    background:transparent !important;
+    color:var(--muted) !important;
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:3px !important;
+    font-weight:700 !important;
+  }
+  .adminBottomNavForce button.active{color:var(--accent) !important}
+  .adminBottomNavForce small{font-size:10px !important}
+  .dealerBottomNavForce{
+    position:fixed !important;
+    left:10px !important;
+    right:10px !important;
+    bottom:max(10px, env(safe-area-inset-bottom)) !important;
+    height:64px !important;
+    display:grid !important;
+    grid-template-columns:repeat(5,1fr) !important;
+    background:var(--card) !important;
+    border:1px solid var(--line) !important;
+    border-radius:18px !important;
+    z-index:9999 !important;
+    box-shadow:0 10px 30px #0003 !important;
+  }
+  .dealerBottomNavForce button{
+    border:0 !important;
+    background:transparent !important;
+    color:var(--muted) !important;
+    display:flex !important;
+    flex-direction:column !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:3px !important;
+    font-weight:700 !important;
+    min-width:0 !important;
+  }
+  .dealerBottomNavForce button.active{color:var(--accent) !important}
+  .dealerBottomNavForce button span{font-size:18px !important;line-height:1 !important}
+  .dealerBottomNavForce small{font-size:9px !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;max-width:100%}
+  .main,.mainCollapsed,.dealerMain{padding-bottom:96px !important}
+}
