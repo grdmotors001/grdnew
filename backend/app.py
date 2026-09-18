@@ -192,6 +192,14 @@ def dealer_submit_loan():
         return _err("Dealer not found", 404)
     if not borrower.get("full_name") or not borrower.get("phone"):
         return _err("Borrower name and phone are required")
+    if not re.fullmatch(r"\d{12}", str(borrower.get("aadhaar") or "")):
+        return _err("12-digit Aadhaar is required")
+    photo = data.get("customer_photo") or {}
+    documents = data.get("documents") or []
+    if not photo.get("data_url"):
+        return _err("Customer photo is mandatory")
+    if not isinstance(documents, list) or not documents:
+        return _err("At least one customer document is mandatory")
 
     created_customer = False
     try:
