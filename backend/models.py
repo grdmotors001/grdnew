@@ -92,6 +92,44 @@ class Customer(db.Model):
     dealer = db.relationship("Dealer", backref=db.backref("customers", lazy=True))
 
 
+
+class LoanWorkflow(db.Model):
+    """GRD loan workflow state shared by Dealer, DO and FE teams."""
+    id = db.Column(db.Integer, primary_key=True)
+    application_no = db.Column(db.String(40), unique=True, index=True, nullable=False)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=False, index=True)
+    status = db.Column(db.String(30), default="DO_PENDING", index=True)
+    do_user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    fe_user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    do_remark = db.Column(db.Text)
+    fe_remark = db.Column(db.Text)
+    fe_live_photos = db.Column(db.Text)
+    do_decision_at = db.Column(db.DateTime)
+    approved_at = db.Column(db.DateTime)
+    do_expiry_at = db.Column(db.DateTime, index=True)
+    chfpl_reference = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    dealer = db.relationship("Dealer")
+    customer = db.relationship("Customer")
+    do_user = db.relationship("User", foreign_keys=[do_user_id])
+    fe_user = db.relationship("User", foreign_keys=[fe_user_id])
+
+
+class LoanWorkflowLog(db.Model):
+    """Immutable audit trail for every loan workflow action."""
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(db.Integer, db.ForeignKey("loan_workflow.id"), nullable=False, index=True)
+    action = db.Column(db.String(50), nullable=False)
+    from_status = db.Column(db.String(30))
+    to_status = db.Column(db.String(30))
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    remark = db.Column(db.Text)
+    details = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
 class Dealer(db.Model):
     """Dealer Master (Setup > 1. Dealer Master) — legacy Sheet9 'AMC' table."""
     id = db.Column(db.Integer, primary_key=True)
