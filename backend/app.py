@@ -481,6 +481,8 @@ def ser_chassis_rule(row):
 def ser_user(u):
     return {"id": u.id, "username": u.username, "is_super_user": u.is_super_user,
             "permissions": u.permissions,
+            "department": u.department or "Admin",
+            "assigned_dealer_ids": u.get_assigned_dealer_ids(),
             "allowed_modules": (u.allowed_modules or "").split(",") if u.allowed_modules else []}
 
 
@@ -1061,6 +1063,9 @@ def users():
             return _err("Password is required for a new user.")
         u.is_super_user = bool(data.get("is_super_user"))
         u.permissions = data.get("permissions")
+        u.department = (data.get("department") or "Admin").strip()
+        dealer_ids = data.get("assigned_dealer_ids") or []
+        u.assigned_dealer_ids = ",".join(str(int(x)) for x in dealer_ids if str(x).isdigit())
         db.session.add(u)
         db.session.commit()
         return jsonify(ser_user(u)), 201
