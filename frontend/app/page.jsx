@@ -26,6 +26,7 @@ import {
 } from '../components/ReportPages';
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { DealerPortal } from '../components/DealerPortal';
+import { HRAttendancePage } from '../components/HRAttendancePage';
 import { SIMPLE_MASTERS } from '../lib/menu';
 
 const CUSTOM_PAGES = {
@@ -62,6 +63,7 @@ const CUSTOM_PAGES = {
   'day-book': () => <DayBookPage />,
   'ledger-v': () => <LedgerVPage />,
   'backup-restore': () => <PlaceholderPage label="Backup / Restore" />,
+  'hr-attendance': () => <HRAttendancePage />,
 };
 
 function PageRouter({ active, setActive, optionUserId, setOptionUserId }) {
