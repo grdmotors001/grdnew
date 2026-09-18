@@ -7,13 +7,20 @@ import { Field, Card, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 export function SimpleMasterPage({ kind }) {
   const meta = SIMPLE_MASTERS[kind] || { label: kind, fields: [['name', 'Name', 'text']] };
   const [rows, setRows] = useState([]);
+  const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => get(`/masters/${kind}`).then(setRows).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, [kind]);
+  useEffect(() => { load(); setSearch(''); }, [kind]);
+
+  const filteredRows = rows.filter((r) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return meta.fields.some(([f]) => String(r[f] ?? '').toLowerCase().includes(q));
+  });
 
   const openNew = () => { setEditingId(null); setForm({}); setOpen(true); };
   const openEdit = (r) => { setEditingId(r.id); setForm({ ...r }); setOpen(true); };
@@ -44,16 +51,17 @@ export function SimpleMasterPage({ kind }) {
     <>
       <div className="actions" style={{ marginBottom: 14 }}>
         <button className="btn primary" onClick={openNew}>+ Add {meta.label}</button>
+        {rows.length > 0 && <><input className="input" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 320 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}</>}
       </div>
       <ErrorBanner message={!open ? error : ''} />
-      {rows.length === 0 ? <EmptyState /> : (
+      {rows.length === 0 ? <EmptyState /> : filteredRows.length === 0 ? <EmptyState text="No records match your search." /> : (
         <div className="tablewrap">
           <table className="table">
             <thead>
               <tr>{meta.fields.map(([f, l]) => <th key={f}>{l}</th>)}</tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.id}>
                   {meta.fields.map(([f], i) => (
                     <td key={f}>
