@@ -1,17 +1,26 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { get } from '../lib/api';
 import { formatDate } from '../lib/date';
 import { DealerCashBook } from './DealerCashBook';
 import { DealerNewLoanForm } from './DealerNewLoanForm';
 
+const nav = [
+  ['dashboard', '⌂', 'Dashboard'],
+  ['stock', '▣', 'My Stock'],
+  ['challans', '▤', 'Delivery Challans'],
+  ['invoices', '▥', 'Tax Invoices'],
+  ['cashbook', '₹', 'Cash Book'],
+];
+
 export function DealerPortal({ dealer, onLogout }) {
   const [stock, setStock] = useState(null);
   const [challans, setChallans] = useState([]);
   const [invoices, setInvoices] = useState([]);
-  const [tab, setTab] = useState('stock');
+  const [tab, setTab] = useState('dashboard');
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [mobileNav, setMobileNav] = useState(false);
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -20,39 +29,81 @@ export function DealerPortal({ dealer, onLogout }) {
   }, []);
 
   const q = search.trim().toLowerCase();
-  const filteredStock = (stock?.vehicles || []).filter((v) => [v.date, v.chassis_no, v.model_name, v.motor_no, v.colour].join(' ').toLowerCase().includes(q));
-  const filteredChallans = challans.filter((v) => [v.date, v.challan_no, v.chassis_no, v.product_name, v.destination].join(' ').toLowerCase().includes(q));
-  const filteredInvoices = invoices.filter((v) => [v.date, v.bill_no, v.chassis_no, v.product_name, v.buyer_name].join(' ').toLowerCase().includes(q));
+  const filteredStock = (stock?.vehicles || []).filter(v => [v.date,v.chassis_no,v.model_name,v.motor_no,v.colour].join(' ').toLowerCase().includes(q));
+  const filteredChallans = challans.filter(v => [v.date,v.challan_no,v.chassis_no,v.product_name,v.destination].join(' ').toLowerCase().includes(q));
+  const filteredInvoices = invoices.filter(v => [v.date,v.bill_no,v.chassis_no,v.product_name,v.buyer_name].join(' ').toLowerCase().includes(q));
 
-  return (
-    <div className="dealerPortal">
-      <header className="dealerPortalHeader">
-        <div><h1>G.R.D. Motors — Dealer Portal</h1><div className="muted">{dealer.name} · {dealer.code || dealer.login_id}</div></div>
-        <button className="btn" onClick={onLogout}>Log Out</button>
+  const latest = useMemo(() => [
+    ...challans.map(x => ({type:'Delivery Challan',no:x.challan_no,date:x.date,text:x.chassis_no||x.product_name})),
+    ...invoices.map(x => ({type:'Tax Invoice',no:x.bill_no,date:x.date,text:x.chassis_no||x.product_name}))
+  ].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5), [challans,invoices]);
+
+  const dealerName = dealer.name || dealer.full_name || 'Dealer';
+  const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
+
+  if (tab === 'newloan') return <DealerNewLoanForm onBack={() => setTab('dashboard')} />;
+
+  return <div className="dealerShell">
+    <aside className="dealerSidebar">
+      <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
+      <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
+      <nav className="dealerSideNav">{nav.map(([key,icon,label]) =>
+        <button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>setTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
+      )}</nav>
+      <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
+    </aside>
+
+    <main className="dealerMain">
+      <header className="dealerTopbar">
+        <button className="dealerMobileMenu" onClick={()=>setMobileNav(v=>!v)}>☰</button>
+        <div><div className="dealerEyebrow">DEALER PANEL</div><h1>{tab==='dashboard'?'Dashboard':nav.find(x=>x[0]===tab)?.[2]||'Dealer Panel'}</h1></div>
+        <div className="dealerTopActions"><div className="dealerWelcome">Welcome, <b>{dealerName}</b></div><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
       </header>
-      {error && <div className="error">{error}</div>}
-      <div className="grid dealerMetrics">
-        <div className="card"><div className="muted">Current Stock</div><div className="metric">{stock?.count ?? '—'}</div></div>
-        <div className="card"><div className="muted">Delivery Challans</div><div className="metric">{challans.length}</div></div>
-        <div className="card"><div className="muted">Tax Invoices</div><div className="metric">{invoices.length}</div></div>
-      </div>
-      <div className="actions dealerTabs">
-        <button className="btn" type="button" onClick={() => setTab('cashbook')}>₹ Cash Book</button>
-        <button className="btn primary" type="button" onClick={() => setTab('newloan')}>+ New Loan Application</button>
-        <input className="input" placeholder="Search chassis, bill, challan, model…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 240, flex: '1 1 240px' }} />
-        <button className={'btn' + (tab === 'stock' ? ' primary' : '')} onClick={() => setTab('stock')}>My Stock</button>
-        <button className={'btn' + (tab === 'challans' ? ' primary' : '')} onClick={() => setTab('challans')}>Delivery Challans</button>
-        <button className={'btn' + (tab === 'invoices' ? ' primary' : '')} onClick={() => setTab('invoices')}>Tax Invoices</button>
-      </div>
-      {tab === 'cashbook' && <DealerCashBook />}
-      {tab === 'newloan' && <DealerNewLoanForm onBack={() => setTab('stock')} />}
-      {tab === 'stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']}>{filteredStock.map(v => <tr key={v.id}><td>{formatDate(v.date)}</td><td><b>{v.chassis_no}</b></td><td>{v.model_name}</td><td>{v.motor_no}</td><td>{v.colour}</td></tr>)}</DealerTable>}
-      {tab === 'challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']}>{filteredChallans.map(c => <tr key={c.id}><td>{formatDate(c.date)}</td><td>{c.challan_no}</td><td>{c.chassis_no}</td><td>{c.product_name}</td><td>{c.destination}</td></tr>)}</DealerTable>}
-      {tab === 'invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']}>{filteredInvoices.map(i => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.chassis_no}</td><td>{i.product_name}</td><td>{i.buyer_name}</td><td>{i.bill_total}</td></tr>)}</DealerTable>}
-    </div>
-  );
+
+      {mobileNav && <div className="dealerMobileNav">{nav.map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
+      {error && <div className="error dealerError">{error}</div>}
+
+      {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab}/>}
+      {tab!=='dashboard' && <>
+        <div className="dealerContentToolbar">
+          <div className="dealerPageIntro"><span className="dealerSectionIcon">{nav.find(x=>x[0]===tab)?.[1]}</span><div><strong>{nav.find(x=>x[0]===tab)?.[2]}</strong><small>Dealer-wise records</small></div></div>
+          {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
+        </div>
+        {tab==='cashbook' && <DealerCashBook/>}
+        {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
+        {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
+        {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
+      </>}
+    </main>
+  </div>;
 }
 
-function DealerTable({ headers, children }) {
-  return <div className="tablewrap dealerTable"><table className="table"><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{children}</tbody></table></div>;
+function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,latest,onNewLoan,onOpen}) {
+  const cards=[
+    ['Current Stock',stockCount??'—','Vehicles currently assigned','stock','▣'],
+    ['Delivery Challans',challanCount,'Recent challan records','challans','▤'],
+    ['Tax Invoices',invoiceCount,'Invoice records','invoices','▥'],
+    ['Cash Book','₹','Receipts, expenses & handover','cashbook','₹']
+  ];
+  return <div className="dealerDashboard">
+    <section className="dealerHero"><div><span className="dealerHeroKicker">G.R.D. MOTORS</span><h2>Welcome back, {dealerName}</h2><p>Manage stock, documents, cash book and loan applications from one place.</p></div><button className="dealerPrimaryAction" onClick={onNewLoan}><span>＋</span> New Loan Application</button></section>
+    <section className="dealerKpis">{cards.map(([label,value,sub,key,icon])=><button className="dealerKpi" key={key} onClick={()=>onOpen(key)}><div className="dealerKpiIcon">{icon}</div><div className="dealerKpiText"><span>{label}</span><strong>{value}</strong><small>{sub}</small></div><i>→</i></button>)}</section>
+    <section className="dealerDashboardGrid">
+      <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Quick Actions</h3><p>Common dealer work</p></div></div>
+        <div className="dealerQuickGrid">
+          <button onClick={onNewLoan}><span className="quickIcon">＋</span><b>New Loan</b><small>Create customer & loan</small></button>
+          <button onClick={()=>onOpen('stock')}><span className="quickIcon">▣</span><b>View Stock</b><small>Check available vehicles</small></button>
+          <button onClick={()=>onOpen('challans')}><span className="quickIcon">▤</span><b>Delivery Challans</b><small>View challan history</small></button>
+          <button onClick={()=>onOpen('cashbook')}><span className="quickIcon">₹</span><b>Cash Book</b><small>Receipts & handover</small></button>
+        </div>
+      </div>
+      <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Recent Activity</h3><p>Latest document records</p></div></div>
+        {latest.length?<div className="dealerActivity">{latest.map((x,i)=><div className="dealerActivityRow" key={x.type+x.no+i}><span className="activityDot"></span><div><b>{x.type}</b><small>{x.no||'—'} · {x.text||'—'}</small></div><time>{formatDate(x.date)}</time></div>)}</div>:<div className="dealerEmpty">No recent records available.</div>}
+      </div>
+    </section>
+  </div>;
+}
+
+function DealerTable({headers,rows,row}) {
+  return <div className="tablewrap dealerTable"><table className="table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((item,i)=><tr key={item.id??i}>{row(item)}</tr>)}{!rows.length&&<tr><td colSpan={headers.length}><div className="dealerEmpty">No records found.</div></td></tr>}</tbody></table></div>;
 }
