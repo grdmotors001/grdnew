@@ -4,6 +4,16 @@ import { get, post, del } from '../lib/api';
 import { MENU } from '../lib/menu';
 import { Field, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
+const DEPARTMENT_DEFAULT_MODULES = {
+  Admin: MENU.Setup.flatMap(([k]) => [k]),
+  Factory: ['production-voucher', 'production-register', 'closing-stock-premises', 'closing-stock-raw', 'stock-ledger-premises'],
+  Dealer: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
+  Billing: ['delivery-challan', 'tax-invoice', 'sale-register', 'gst-register', 'hypothecation-register', 'payment-receivable-report', 'ledger', 'ledger-v'],
+  Cashier: ['expense-payment-voucher', 'day-book', 'ledger', 'ledger-v', 'payment-receivable-report'],
+  Salesman: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
+  HR: [],
+};
+
 export function UserPage({ setActive, setOptionUserId }) {
   const [rows, setRows] = useState([]);
   const [dealers, setDealers] = useState([]);
@@ -65,9 +75,12 @@ export function UserPage({ setActive, setOptionUserId }) {
             <div className="formgrid">
               <Field label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} required />
               <Field label="Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
-              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v })} options={['Admin','Factory','Dealer','Billing','Cashier','Salesman']} />
+              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v, allowed_modules: DEPARTMENT_DEFAULT_MODULES[v] || [] })} options={['Admin','Factory','Dealer','Billing','Cashier','Salesman','HR']} />
               <Field label="Super User (unrestricted access)" type="checkbox" value={form.is_super_user}
                      onChange={(v) => setForm({ ...form, is_super_user: v })} />
+              <div className="muted" style={{ gridColumn: '1 / -1', fontSize: 12 }}>
+                Department selection gives default module access. Super User always has full access. You can fine-tune modules from Permissions after saving.
+              </div>
               <div className="field">
                 <label>Assigned Dealers (Salesman / Dealer staff)</label>
                 <select multiple value={(form.assigned_dealer_ids || []).map(String)}
