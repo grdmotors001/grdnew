@@ -28,6 +28,7 @@ export const MENU = {
     ['old-rickshaw', 'Old Rickshaw'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['journal-stock', 'Journal Stock'],
+    ['expense-payment-voucher', 'Expense Payment Voucher'],
   ],
   Stock: [
     ['closing-stock-premises', 'Closing Stock - Premises'],
