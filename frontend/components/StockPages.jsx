@@ -12,7 +12,7 @@ export function ClosingStockPremisesPage() {
     <>
       <div className="card" style={{ marginBottom: 14 }}>
         <b>Summary by Model / Colour</b>
-        <div className="tablewrap" style={{ marginTop: 10 }}>
+        <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Model</th><th>Colour</th><th>Qty</th></tr></thead>
             <tbody>{data.summary.map((s, i) => <tr key={i}><td>{s.model_name}</td><td>{s.colour}</td><td>{s.qty}</td></tr>)}</tbody>
@@ -20,7 +20,7 @@ export function ClosingStockPremisesPage() {
         </div>
       </div>
       {data.vehicles.length === 0 ? <EmptyState text="No stock at Premises." /> : (
-        <div className="tablewrap">
+        <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Chassis No.</th><th>Model</th><th>Motor No.</th><th>Colour</th></tr></thead>
             <tbody>{data.vehicles.map((v) => <tr key={v.id}><td>{formatDate(v.date)}</td><td><b>{v.chassis_no}</b></td><td>{v.model_name}</td><td>{v.motor_no}</td><td>{v.colour}</td></tr>)}</tbody>
@@ -39,7 +39,7 @@ export function ClosingStockDealersPage() {
     <>
       <div className="card" style={{ marginBottom: 14 }}>
         <b>Summary by Dealer / Model</b>
-        <div className="tablewrap" style={{ marginTop: 10 }}>
+        <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Dealer</th><th>Model</th><th>Qty</th></tr></thead>
             <tbody>{data.summary.map((s, i) => <tr key={i}><td>{s.dealer_name}</td><td>{s.model_name}</td><td>{s.qty}</td></tr>)}</tbody>
@@ -47,7 +47,7 @@ export function ClosingStockDealersPage() {
         </div>
       </div>
       {data.vehicles.length === 0 ? <EmptyState text="No stock with dealers." /> : (
-        <div className="tablewrap">
+        <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Chassis No.</th><th>Model</th><th>Dealer</th></tr></thead>
             <tbody>{data.vehicles.map((v) => <tr key={v.id}><td>{formatDate(v.date)}</td><td><b>{v.chassis_no}</b></td><td>{v.model_name}</td><td>{v.dealer_name}</td></tr>)}</tbody>
@@ -76,7 +76,7 @@ export function ClosingStockRawPage() {
       <DateFilterBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
       <ErrorBanner message={error} />
       {!rows ? <div className="card">Loading…</div> : (rows.rows || rows.events || rows).length === 0 ? <EmptyState /> : (
-        <div className="tablewrap">
+        <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Item</th><th>HSN</th><th>Opening</th><th>Purchased</th><th>Consumed</th><th>Closing</th></tr></thead>
             <tbody>
@@ -122,7 +122,7 @@ function RawItemLedgerModal({ itemName, defaultFrom, defaultTo, onClose }) {
         <DateFilterBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
         <ErrorBanner message={error} />
         {!rows ? <div className="card">Loading…</div> : (rows.events || []).length === 0 ? <EmptyState text="No movements for this item in the selected period." /> : (
-          <div className="tablewrap">
+          <div className="tablewrap stockTable">
             <table className="table">
               <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Party / Ref</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
               <tbody>
@@ -166,7 +166,7 @@ export function StockLedgerPremisesPage() {
       <DateFilterBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
       <ErrorBanner message={error} />
       {!rows ? <div className="card">Loading…</div> : (rows.events || []).length === 0 ? <EmptyState /> : (
-        <div className="tablewrap">
+        <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Chassis No.</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
             <tbody>
@@ -207,7 +207,7 @@ export function StockLedgerDealersPage() {
       </div>
       <ErrorBanner message={error} />
       {!rows ? <div className="card">Loading…</div> : rows.length === 0 ? <EmptyState /> : (
-        <div className="tablewrap">
+        <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Chassis No.</th><th>Dealer</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
             <tbody>
