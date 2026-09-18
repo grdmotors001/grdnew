@@ -613,14 +613,15 @@ class DayBook(db.Model):
 
 
 class User(db.Model):
-    """App login user — legacy Sheet23 'uid/pw' table, but with proper hashing here."""
+    """Internal application login user with department and dealer scope."""
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    is_super_user = db.Column(db.Boolean, default=False)   # su == 'S'
-    permissions = db.Column(db.String(50))                  # per, e.g. "Y Y"
-    allowed_modules = db.Column(db.Text)                    # comma-separated menu-item keys this user may access
-                                                              # (ignored for super users, who always see everything)
+    is_super_user = db.Column(db.Boolean, default=False)
+    permissions = db.Column(db.String(50))
+    allowed_modules = db.Column(db.Text)
+    department = db.Column(db.String(30), default="Admin", index=True)
+    assigned_dealer_ids = db.Column(db.Text)  # comma-separated Dealer IDs; empty = no dealer scope
 
     def has_module_access(self, key):
         if self.is_super_user:
@@ -628,6 +629,11 @@ class User(db.Model):
         if not self.allowed_modules:
             return False
         return key in self.allowed_modules.split(",")
+
+    def get_assigned_dealer_ids(self):
+        if not self.assigned_dealer_ids:
+            return []
+        return [int(x) for x in self.assigned_dealer_ids.split(",") if x.strip().isdigit()]
 
     def set_password(self, raw):
         self.password_hash = generate_password_hash(raw)
