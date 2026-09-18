@@ -24,6 +24,18 @@ class Company(db.Model):
     pan = db.Column(db.String(20))
 
 
+class BankAccount(db.Model):
+    """GRD Motors bank accounts used by receipts and other payment documents."""
+    id = db.Column(db.Integer, primary_key=True)
+    bank_name = db.Column(db.String(120), nullable=False)
+    account_no = db.Column(db.String(50))
+    ifsc = db.Column(db.String(50))
+    branch = db.Column(db.String(120))
+    is_default = db.Column(db.Boolean, default=False, index=True)
+    active = db.Column(db.Boolean, default=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class SimpleMaster(db.Model):
     """
     Generic table used for the small 'code + name (+extra)' masters:
