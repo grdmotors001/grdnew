@@ -10,6 +10,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function DeliveryChallanPage() {
   const [data, setData] = useState(null);
   const [dealers, setDealers] = useState([]);
+  const [batteryMakers, setBatteryMakers] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ date: today() });
   const [printId, setPrintId] = useState(null);
@@ -25,7 +26,11 @@ export function DeliveryChallanPage() {
     if (s) params.set('search', s);
     get(`/delivery-challans?${params}`).then(setData).catch((e) => setError(e.message));
   };
-  useEffect(() => { load(1, search); get('/dealers').then((d) => setDealers(d.dealers)); }, []);
+  useEffect(() => {
+    load(1, search);
+    get('/dealers').then((d) => setDealers(d.dealers || []));
+    get('/masters/battery-maker').then((rows) => setBatteryMakers(rows || [])).catch(() => {});
+  }, []);
 
   const goToPage = (p) => { setPage(p); load(p, search); };
   const runSearch = (e) => { e.preventDefault(); setPage(1); load(1, search); };
@@ -33,6 +38,11 @@ export function DeliveryChallanPage() {
   const openNew = () => {
     setForm({ date: today(), challan_no: data?.suggested_challan_no || '' });
     setOpen(true);
+  };
+
+  const selectVehicle = (value) => {
+    const vehicle = (data?.available_vehicles || []).find((v) => String(v.id) === String(value));
+    setForm({ ...form, vehicle_id: Number(value), battery_maker: vehicle?.battery_maker || '', battery_no1: vehicle?.battery_no1 || '', battery_no2: vehicle?.battery_no2 || '', battery_no3: vehicle?.battery_no3 || '', battery_no4: vehicle?.battery_no4 || '' });
   };
 
   const save = (e) => {
@@ -122,12 +132,18 @@ export function DeliveryChallanPage() {
                      onChange={(v) => setForm({ ...form, dealer_id: Number(v) })} required />
               <Field label="Chassis to Dispatch" type="select" value={form.vehicle_id}
                      options={data.available_vehicles.map((v) => ({ value: v.id, label: `${v.chassis_no} — ${v.model_name}` }))}
-                     onChange={(v) => setForm({ ...form, vehicle_id: Number(v) })} required />
+                     onChange={selectVehicle} required />
               <Field label="Destination" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} />
               <Field label="Salesman" value={form.salesman} onChange={(v) => setForm({ ...form, salesman: v })} />
               <Field label="Dealer Page No." value={form.dealer_page_no} onChange={(v) => setForm({ ...form, dealer_page_no: v })} />
               <Field label="Sale Value" type="number" value={form.sale_value} onChange={(v) => setForm({ ...form, sale_value: v })} />
-              <Field label="Battery Maker" value={form.battery_maker} onChange={(v) => setForm({ ...form, battery_maker: v })} />
+              <Field label="Battery Maker" type="select" value={form.battery_maker}
+                     options={[{ value: '', label: 'Select Battery Maker' }, ...batteryMakers.map((b) => ({ value: b.name, label: b.name }))]}
+                     onChange={(v) => setForm({ ...form, battery_maker: v })} />
+              <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
+              <Field label="Battery No. 2" value={form.battery_no2} onChange={(v) => setForm({ ...form, battery_no2: v })} />
+              <Field label="Battery No. 3" value={form.battery_no3} onChange={(v) => setForm({ ...form, battery_no3: v })} />
+              <Field label="Battery No. 4" value={form.battery_no4} onChange={(v) => setForm({ ...form, battery_no4: v })} />
               <Field label="Remarks" value={form.remarks1} onChange={(v) => setForm({ ...form, remarks1: v })} />
             </div>
             <div className="actions" style={{ marginTop: 18 }}>
