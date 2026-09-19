@@ -28,13 +28,14 @@ export function DealerCashBook(){
     ...(data.expenses||[]).map(e=>({date:e.date,type:'Expense',no:e.expense_no,narration:e.category_label||e.category,debit:Number(e.amount||0),credit:0})),
     ...(data.handovers||[]).map(h=>({date:h.date,type:'HO Handover',no:h.handover_no,narration:h.sent_to||'Head Office',debit:Number(h.amount||0),credit:0}))
   ].sort((a,b)=>String(a.date).localeCompare(String(b.date))||String(a.no).localeCompare(String(b.no))),[data]);
-  const closing=Number(opening||0)+Number(data.summary?.net_movement||0);
+  const openingBalance=Number(data.summary?.opening_balance ?? 0);
+  const closing=Number(data.summary?.closing_balance ?? (openingBalance+Number(data.summary?.net_movement||0)));
 
   return <div className="dealerPortal">
     <div className="dealerPortalHeader"><div><h1>Shop Cash Book</h1><div className="muted">G.R.D. dealer cash — customer receipts, shop expenses and Head Office handover</div></div></div>
     {error&&<div className="error">{error}</div>}{message&&<div className="card" style={{marginBottom:12}}>{message}</div>}
     <div className="grid dealerMetrics">
-      <div className="card"><div className="muted">Opening</div><div className="metric">{money(opening)}</div></div>
+      <div className="card"><div className="muted">Opening</div><div className="metric">{money(openingBalance)}</div></div>
       <div className="card"><div className="muted">Cash Received</div><div className="metric">{money(data.summary?.cash_received)}</div></div>
       <div className="card"><div className="muted">Expenses</div><div className="metric">{money(data.summary?.expenses)}</div></div>
       <div className="card"><div className="muted">HO Handover</div><div className="metric">{money(data.summary?.ho_handover)}</div></div>
@@ -45,7 +46,7 @@ export function DealerCashBook(){
       <button className={'btn'+(tab==='receipt'?' primary':'')} onClick={()=>setTab('receipt')}>+ Customer Receipt</button>
       <button className={'btn'+(tab==='expense'?' primary':'')} onClick={()=>setTab('expense')}>+ Expense</button>
       <button className={'btn'+(tab==='handover'?' primary':'')} onClick={()=>setTab('handover')}>+ HO Handover</button>
-      <input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)}/><input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)}/><input className="input" type="number" min="0" placeholder="Opening balance" value={opening} onChange={e=>setOpening(e.target.value)}/>
+      <input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)}/><input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)}/><div className="muted" style={{alignSelf:'center',fontSize:12}}>Opening = previous closing (auto)</div>
     </div>
 
     {tab==='receipt'&&<form className="card" onSubmit={e=>{e.preventDefault();save('/dealer/cash-book/receipt',receipt,d=>`Dealer Receipt ${d.receipt.receipt_no} created`,()=>setReceipt({...receipt,customer_name:'',customer_phone:'',application_no:'',dealer_register_page_no:'',booking_for:'',amount:'',reference_no:'',remarks:''}))}}>
