@@ -641,6 +641,7 @@ class OldRickshaw(db.Model):
     # Old-rickshaw sale: no Tax Invoice is created for this sale.
     status = db.Column(db.String(20), default="available")  # available / sold / cancelled
     dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+    # Explicitly bind this relationship to dealer_id because sale_dealer_id also references Dealer.
     dealer = db.relationship("Dealer", foreign_keys=[dealer_id])
     sale_date = db.Column(db.Date)
     sale_dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
