@@ -12,6 +12,8 @@ import { DealerLedgerPage } from './DealerLedgerPage';
 const nav = [
   ['dashboard', '⌂', 'Dashboard'],
   ['stock', '▣', 'My Stock'],
+  ['old-stock', '▥', 'Old Rickshaw Stock'],
+  ['battery-stock', '🔋', 'Battery Stock'],
   ['challans', '▤', 'Delivery Challans'],
   ['invoices', '▥', 'Tax Invoices'],
   ['cashbook', '₹', 'Cash Book'],
@@ -21,6 +23,8 @@ const nav = [
 
 export function DealerPortal({ dealer, onLogout }) {
   const [stock, setStock] = useState(null);
+  const [oldStock, setOldStock] = useState(null);
+  const [batteryStock, setBatteryStock] = useState(null);
   const [challans, setChallans] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [tab, setTab] = useState('dashboard');
@@ -32,13 +36,15 @@ export function DealerPortal({ dealer, onLogout }) {
   const canPurchase = dealer.purchase_access === true;
 
   useEffect(() => {
-    Promise.all([get('/dealer/stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
-      .then(([s, c, i]) => { setStock(s); setChallans(c.challans || []); setInvoices(i.invoices || []); })
+    Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
+      .then(([s, o, b, c, i]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); })
       .catch((e) => setError(e.message));
   }, []);
 
   const q = search.trim().toLowerCase();
   const filteredStock = (stock?.vehicles || []).filter(v => [v.date,v.chassis_no,v.model_name,v.motor_no,v.colour].join(' ').toLowerCase().includes(q));
+  const filteredOldStock = (oldStock?.rickshaws || []).filter(v => [v.sale_date,v.vehicle_reg_no,v.model_name,v.owner_name,v.sp_no].join(' ').toLowerCase().includes(q));
+  const filteredBatteryStock = (batteryStock?.batteries || []).filter(v => [v.date,v.battery_maker,v.battery_no,v.reference_no].join(' ').toLowerCase().includes(q));
   const filteredChallans = challans.filter(v => [v.date,v.challan_no,v.chassis_no,v.product_name,v.destination].join(' ').toLowerCase().includes(q));
   const filteredInvoices = invoices.filter(v => [v.date,v.bill_no,v.chassis_no,v.product_name,v.buyer_name].join(' ').toLowerCase().includes(q));
 
@@ -91,6 +97,8 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
+        {tab==='old-stock' && <DealerTable headers={['Sale Date','Record No.','Reg. No.','Model','Owner','Sale Amount','Loan','Down Payment','SP No.']} rows={filteredOldStock} row={v=><><td data-label="Sale Date">{formatDate(v.sale_date)}</td><td data-label="Record No.">{v.record_no}</td><td data-label="Reg. No."><b>{v.vehicle_reg_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Owner">{v.owner_name||'—'}</td><td data-label="Sale Amount">{v.sale_amount}</td><td data-label="Loan">{v.loan_amount}</td><td data-label="Down Payment">{v.down_payment}</td><td data-label="SP No.">{v.sp_no||'—'}</td></>}/>}
+        {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
       </>}
