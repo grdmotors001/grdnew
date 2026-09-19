@@ -1068,12 +1068,47 @@ def dashboard():
         "tax_invoice": monthly_map.get(m, {}).get("Tax Invoice", 0),
     } for m in months]
 
+    # Dashboard billing split is aggregated here so the browser does not make
+    # a second GST Register request every time the dashboard month changes.
+    if db.engine.dialect.name == "postgresql":
+        invoice_month = db.func.to_char(TaxInvoice.date, "YYYY-MM")
+    else:
+        invoice_month = db.func.strftime("%Y-%m", TaxInvoice.date)
+    interstate_cond = db.or_(
+        TaxInvoice.state_type == "O",
+        db.and_(TaxInvoice.state_type.is_(None), TaxInvoice.buyer_state_code.isnot(None),
+                TaxInvoice.buyer_state_code != "07"),
+    )
+    taxable_expr = (
+        db.func.coalesce(TaxInvoice.gst_sale_amount, TaxInvoice.sale_amount, 0)
+        - db.func.coalesce(TaxInvoice.discount, 0)
+    )
+    billed_rows = (db.session.query(
+            invoice_month.label("month"),
+            db.func.sum(db.case((interstate_cond, 1), else_=0)).label("interstate_count"),
+            db.func.sum(db.case((~interstate_cond, 1), else_=0)).label("local_count"),
+            db.func.sum(db.case((interstate_cond, taxable_expr), else_=0)).label("interstate_taxable"),
+            db.func.sum(db.case((~interstate_cond, taxable_expr), else_=0)).label("local_taxable"),
+        )
+        .filter(TaxInvoice.cancelled.is_(False), TaxInvoice.date.isnot(None))
+        .group_by(invoice_month)
+        .order_by(invoice_month)
+        .all())
+    billed_monthly = [{
+        "month": str(month),
+        "interstateCount": int(interstate_count or 0),
+        "interstateTaxable": round(float(interstate_taxable or 0), 2),
+        "localCount": int(local_count or 0),
+        "localTaxable": round(float(local_taxable or 0), 2),
+    } for month, interstate_count, local_count, interstate_taxable, local_taxable in billed_rows]
+
     return jsonify({
         "manufacturing": [ser_vehicle(v) for v in vehicles if v.stage == "Manufacturing"],
         "delivery_challan": [ser_vehicle(v) for v in vehicles if v.stage == "Delivery Challan"],
         "tax_invoice": [ser_vehicle(v) for v in vehicles if v.stage == "Tax Invoice"],
         "stage_counts": stage_counts,
         "monthly": monthly,
+        "billed_monthly": billed_monthly,
     })
 
 
