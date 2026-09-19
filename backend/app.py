@@ -905,6 +905,52 @@ def dealer_me():
     })
 
 
+@app.route("/api/dealer/old-rickshaws")
+@require_dealer_auth
+def dealer_old_rickshaws():
+    rows=(OldRickshaw.query.filter(OldRickshaw.sale_dealer_id==g.current_dealer_id,
+                                   OldRickshaw.status=="sold")
+          .order_by(OldRickshaw.sale_date.desc(),OldRickshaw.id.desc()).all())
+    return jsonify({"rickshaws":[ser_old_rickshaw(r) for r in rows],"count":len(rows)})
+
+
+@app.route("/api/dealer/battery-stock")
+@require_dealer_auth
+def dealer_battery_stock():
+    rows=(BatteryStockMovement.query.filter_by(dealer_id=g.current_dealer_id,movement_type="withdrawal")
+          .order_by(BatteryStockMovement.date.desc(),BatteryStockMovement.id.desc()).all())
+    # Battery numbers are unique inventory units; later movement types can be
+    # added without changing the dealer-facing response.
+    return jsonify({"batteries":[{"id":r.id,"date":_iso(r.date),"battery_maker":r.battery_maker,
+        "battery_no":r.battery_no,"qty":r.qty,"reference_no":r.reference_no,"remarks":r.remarks}
+        for r in rows],"count":sum(int(r.qty or 0) for r in rows)})
+
+
+@app.route("/api/dealer/rickshaw-battery-options")
+@require_auth
+def dealer_rickshaw_battery_options():
+    dealer_id=request.args.get("dealer_id",type=int)
+    kind=(request.args.get("type") or "new").lower()
+    if not dealer_id:return _err("Dealer is required.")
+    dealer=Dealer.query.get_or_404(dealer_id)
+    out=[]
+    if kind=="old":
+        rows=OldRickshaw.query.filter_by(sale_dealer_id=dealer.id,status="sold").order_by(OldRickshaw.vehicle_reg_no).all()
+        for r in rows:
+            nums=_battery_fields(r)
+            out.append({"id":r.id,"reg_no":r.vehicle_reg_no,"model_name":r.model_name,
+                        "has_battery":any(nums),"battery_numbers":[n for n in nums if n]})
+    else:
+        rows=(Vehicle.query.filter(Vehicle.stage=="Delivery Challan",
+                                   db.func.lower(db.func.trim(Vehicle.dealer_name))==db.func.lower(db.func.trim(dealer.name)))
+              .order_by(Vehicle.chassis_no).all())
+        for r in rows:
+            nums=_battery_fields(r)
+            out.append({"id":r.id,"chassis_no":r.chassis_no,"model_name":r.model_name,
+                        "has_battery":any(nums),"battery_numbers":[n for n in nums if n]})
+    return jsonify({"rickshaws":out})
+
+
 @app.route("/api/dealer/stock")
 @require_dealer_auth
 def dealer_stock():
