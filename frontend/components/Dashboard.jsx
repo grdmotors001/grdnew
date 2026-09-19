@@ -95,9 +95,6 @@ export function Dashboard({ setActive }) {
   const [error, setError] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(null); // 'YYYY-MM' or 'all'
 
-  const [billed, setBilled] = useState(null);
-  const [billedError, setBilledError] = useState('');
-
   useEffect(() => {
     get('/dashboard').then(setD).catch((e) => setError(e.message));
   }, []);
@@ -119,9 +116,7 @@ export function Dashboard({ setActive }) {
     return keys.slice(-12);
   }, [d]);
 
-  // Default to the most recent month once data has loaded, instead of
-  // "all" — keeps the initial billed-summary fetch scoped to one month
-  // rather than pulling every invoice ever raised.
+  // Default to the most recent month once data has loaded.
   useEffect(() => {
     if (selectedMonth === null && months.length) setSelectedMonth(months[months.length - 1]);
   }, [months, selectedMonth]);
