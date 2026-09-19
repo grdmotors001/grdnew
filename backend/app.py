@@ -2660,6 +2660,18 @@ def battery_swap_vouchers():
     fk=(d.get("from_type") or "").lower();tk=(d.get("to_type") or "").lower()
     if fk not in {"new","old"} or tk not in {"new","old"}:return _err("Valid From/To rickshaw type is required.")
     src=target(fk,d.get("from_id"));dst=target(tk,d.get("to_id"))
+    # Legacy/previous Delivery Challans may have the battery snapshot while
+    # Vehicle's live battery fields are blank. Restore the live fields from
+    # that snapshot before performing the swap, so a real fitted battery is
+    # never reported as "no battery".
+    for obj, kind in ((src, fk), (dst, tk)):
+        if kind == "new" and not any(_battery_fields(obj)):
+            dc = (DeliveryChallan.query.filter_by(vehicle_id=obj.id)
+                  .order_by(DeliveryChallan.id.desc()).first())
+            if dc:
+                dc_nums=[getattr(dc,f"battery_no{i}",None) for i in range(1,5)]
+                if any(dc_nums):
+                    _battery_set(obj, dc.battery_maker, dc_nums)
     if hasattr(src,"dealer_name") and fk=="new":
         if (src.dealer_name or "").strip().lower() != dealer.name.strip().lower():return _err("From rickshaw is not with this dealer.")
     if fk=="old" and src.dealer_id!=dealer.id:return _err("From old rickshaw is not with this dealer.")
