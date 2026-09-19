@@ -950,10 +950,27 @@ def dealer_rickshaw_battery_options():
         rows=(Vehicle.query.filter(Vehicle.stage=="Delivery Challan",
                                    db.func.lower(db.func.trim(Vehicle.dealer_name))==db.func.lower(db.func.trim(dealer.name)))
               .order_by(Vehicle.chassis_no).all())
+        # Delivery Challan keeps the historical battery snapshot. Vehicle
+        # battery fields can be blank after a swap/legacy update, so use the
+        # DC snapshot as the initial/current stock view for this screen.
+        dc_by_vehicle={}
+        vehicle_ids=[v.id for v in rows]
+        if vehicle_ids:
+            dcs=(DeliveryChallan.query.filter(DeliveryChallan.vehicle_id.in_(vehicle_ids))
+                 .order_by(DeliveryChallan.id.desc()).all())
+            for dc in dcs:
+                if dc.vehicle_id not in dc_by_vehicle:
+                    dc_by_vehicle[dc.vehicle_id]=dc
         for r in rows:
             nums=_battery_fields(r)
+            maker=getattr(r,"battery_maker",None)
+            dc=dc_by_vehicle.get(r.id)
+            dc_nums=[getattr(dc,f"battery_no{i}",None) for i in range(1,5)] if dc else []
+            if not any(nums) and any(dc_nums):
+                nums=dc_nums
+                maker=dc.battery_maker
             out.append({"id":r.id,"chassis_no":r.chassis_no,"model_name":r.model_name,
-                        "battery_maker":r.battery_maker,"has_battery":any(nums),
+                        "battery_maker":maker,"has_battery":any(nums),
                         "battery_numbers":[n for n in nums if n]})
     return jsonify({"rickshaws":out})
 
