@@ -2947,7 +2947,7 @@ def payment_receivable_report():
 
     def _row_dict(ti, salesman):
         balance = round((ti.sale_amount or 0) - (ti.hypothecation_amount or 0) - (ti.amount_received or 0), 2)
-        return {"id": ti.id, "date": _iso(ti.date), "dealer_name": ti.dealer_name, "bill_no": ti.bill_no,
+        return {"id": ti.id, "vehicle_id": ti.vehicle_id, "date": _iso(ti.date), "dealer_name": ti.dealer_name, "bill_no": ti.bill_no,
                 "model": ti.product_name, "chassis_no": ti.chassis_no, "other": ti.other_desc,
                 "customer": ti.buyer_name, "mobile_no": ti.buyer_mobile,
                 "value_amt": ti.sale_amount or 0, "loan_amt": ti.hypothecation_amount or 0,
@@ -2955,24 +2955,48 @@ def payment_receivable_report():
                 "financer": ti.financer_name, "rto": ti.rto_name,
                 "chassis_record": ti.chassis_record_no, "ledger": ti.ledger_no,
                 "voucher_no": ti.voucher_no, "cheque_no": ti.cancelled_cheque_no,
-                "vehicle_no": ti.vehicle_reg_no, "salesman": salesman}
+                "vehicle_no": ti.vehicle_reg_no, "salesman": salesman,
+                "incentive_amount": 0, "incentive_voucher_no": "", "incentive_date": None}
+
+    def _attach_incentives(out):
+        vehicle_ids=[x["vehicle_id"] for x in out if x.get("vehicle_id")]
+        if not vehicle_ids:return out
+        iv_rows=(ExpensePaymentVoucher.query
+                 .filter(ExpensePaymentVoucher.expense_type=="incentive",
+                         ExpensePaymentVoucher.vehicle_id.in_(vehicle_ids),
+                         ExpensePaymentVoucher.status.in_(["pending","approved"]))
+                 .order_by(ExpensePaymentVoucher.id.desc()).all())
+        seen=set()
+        for iv in iv_rows:
+            if iv.vehicle_id in seen:continue
+            seen.add(iv.vehicle_id)
+            for row in out:
+                if row.get("vehicle_id")==iv.vehicle_id:
+                    row["incentive_amount"]=iv.amount or 0
+                    row["incentive_voucher_no"]=iv.voucher_no or ""
+                    row["incentive_date"]=_iso(iv.date)
+                    break
+        return out
 
     if request.args.get("export") == "csv":
         rows = base.order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc()).all()
+        out = _attach_incentives([_row_dict(ti, sm) for ti, sm in rows])
         headers = ["Date", "Dealer Name", "Bill No.", "Model", "Chassis No.", "Other", "Customer",
                    "Mobile No.", "Value Amt.", "Loan Amt.", "Amt. Recd.", "Balance", "Financer", "RTO",
-                   "Chassis Record", "Ledger", "Voucher No.", "Cheque No.", "Vehicle No.", "Salesman"]
+                   "Chassis Record", "Ledger", "Voucher No.", "Cheque No.", "Vehicle No.", "Salesman",
+                   "Incentive Amount", "Incentive Voucher No.", "Incentive Date"]
         out_rows = [[d["date"], d["dealer_name"], d["bill_no"], d["model"], d["chassis_no"], d["other"],
                      d["customer"], d["mobile_no"], d["value_amt"], d["loan_amt"], d["amt_recd"],
                      d["balance"], d["financer"], d["rto"], d["chassis_record"], d["ledger"],
-                     d["voucher_no"], d["cheque_no"], d["vehicle_no"], d["salesman"]]
-                    for d in (_row_dict(ti, sm) for ti, sm in rows)]
+                     d["voucher_no"], d["cheque_no"], d["vehicle_no"], d["salesman"],
+                     d["incentive_amount"], d["incentive_voucher_no"], d["incentive_date"]]
+                    for d in out]
         return _csv_response("Payment_Receivable_Report.csv", headers, out_rows)
 
     total = base.count()
     page_rows = (base.order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc())
                  .offset((page - 1) * per_page).limit(per_page).all())
-    out = [_row_dict(ti, sm) for ti, sm in page_rows]
+    out = _attach_incentives([_row_dict(ti, sm) for ti, sm in page_rows])
 
     value_sum, loan_sum, recd_sum, balance_sum = base.with_entities(
         db.func.coalesce(db.func.sum(TaxInvoice.sale_amount), 0),
