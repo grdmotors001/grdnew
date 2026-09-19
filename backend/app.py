@@ -673,7 +673,7 @@ def ser_dc(c):
             "toolkit": c.toolkit, "jack": c.jack, "charger": c.charger, "mat": c.mat,
             "stapney": c.stapney, "front_glass": c.front_glass, "center_lock": c.center_lock,
             "h_lock": c.h_lock, "salesman": c.salesman, "sale_bill_no": c.sale_bill_no,
-            "sale_value": c.sale_value, "remarks1": c.remarks1, "remarks2": c.remarks2}
+            "sale_value": c.sale_value, "dealer_page_no": getattr(c, "dealer_page_no", None), "remarks1": c.remarks1, "remarks2": c.remarks2}
 
 
 def ser_ti(i):
@@ -2005,7 +2005,7 @@ def delivery_challans():
             mat=bool(data.get("mat", True)), stapney=bool(data.get("stapney", False)),
             front_glass=bool(data.get("front_glass", False)), h_lock=bool(data.get("h_lock", False)),
             salesman=data.get("salesman"), sale_bill_no=data.get("sale_bill_no"),
-            sale_value=_f(data.get("sale_value")), remarks1=data.get("remarks1"),
+            sale_value=_f(data.get("sale_value")), dealer_page_no=(data.get("dealer_page_no") or "").strip() or None, remarks1=data.get("remarks1"),
             remarks2=data.get("remarks2"),
         )
         db.session.add(dc)
@@ -2128,6 +2128,7 @@ def delivery_challan_detail(challan_id):
     dc.salesman = data.get("salesman")
     dc.sale_bill_no = data.get("sale_bill_no")
     dc.sale_value = _f(data.get("sale_value"))
+    dc.dealer_page_no = (data.get("dealer_page_no") or "").strip() or None
     dc.remarks1 = data.get("remarks1")
     dc.remarks2 = data.get("remarks2")
     db.session.commit()
