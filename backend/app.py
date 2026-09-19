@@ -752,6 +752,7 @@ def verify_otp():
 
 @app.route("/api/auth/dealer-login", methods=["POST"])
 def dealer_login():
+    _ensure_dealer_login_columns()
     data = request.get_json(silent=True) or {}
     login_id = (data.get("userid") or "").strip()
     password = data.get("password") or ""
