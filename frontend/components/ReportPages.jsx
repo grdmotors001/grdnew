@@ -212,6 +212,7 @@ export function ProductionRegisterPage() {
 export function DeliveryChallanRegisterPage() {
   const r = useReport('/reports/delivery-challan-register', { status: 'all', page: 1, per_page: 100 });
   const [editRow, setEditRow] = useState(null);
+  const [detailRow, setDetailRow] = useState(null);
   const [printId, setPrintId] = useState(null);
   const [editError, setEditError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -305,6 +306,7 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.battery_maker}</td><td>{c.battery_no1}</td><td>{c.battery_no2}</td><td>{c.battery_no3}</td><td>{c.battery_no4}</td>
                   <td>{c.remarks1}</td><td>{c.remarks2}</td>
                   <td style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn" onClick={(e) => { e.stopPropagation(); setDetailRow(c); }}>View</button>
                     <button className="btn" onClick={(e) => { e.stopPropagation(); openEdit(c); }}>Edit</button>
                     <button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Preview</button>
                   </td>
@@ -393,6 +395,40 @@ export function DeliveryChallanRegisterPage() {
         </div>
       )}
 
+      {detailRow && (
+        <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) setDetailRow(null); }}>
+          <div className="modalbox" style={{ maxWidth: 820 }}>
+            <h2>Delivery Challan Details — {detailRow.challan_no}</h2>
+            <div className="formgrid">
+              <Field label="Challan No." value={detailRow.challan_no || '—'} readOnly />
+              <Field label="Date" value={detailRow.date ? formatDate(detailRow.date) : '—'} readOnly />
+              <Field label="Dealer" value={detailRow.dealer_name || '—'} readOnly />
+              <Field label="Salesman" value={detailRow.salesman || '—'} readOnly />
+              <Field label="Model Name" value={detailRow.product_name || '—'} readOnly />
+              <Field label="Chassis No." value={detailRow.chassis_no || '—'} readOnly />
+              <Field label="Motor No." value={detailRow.motor_no || '—'} readOnly />
+              <Field label="Controller No." value={detailRow.controller_no || '—'} readOnly />
+              <Field label="Differential No." value={detailRow.differential_no || '—'} readOnly />
+              <Field label="Colour" value={detailRow.colour || '—'} readOnly />
+              <Field label="Battery Maker" value={detailRow.battery_maker || '—'} readOnly />
+              <Field label="Battery No. 1" value={detailRow.battery_no1 || '—'} readOnly />
+              <Field label="Battery No. 2" value={detailRow.battery_no2 || '—'} readOnly />
+              <Field label="Battery No. 3" value={detailRow.battery_no3 || '—'} readOnly />
+              <Field label="Battery No. 4" value={detailRow.battery_no4 || '—'} readOnly />
+              <Field label="Item Amount" value={detailRow.item_amount ?? '—'} readOnly />
+              <Field label="Sale Bill No." value={detailRow.bill_no || '—'} readOnly />
+              <Field label="Sale Value" value={detailRow.sale_value ?? '—'} readOnly />
+              <Field label="Destination" value={detailRow.destination || '—'} readOnly />
+              <Field label="Other" value={detailRow.other || '—'} readOnly />
+              <Field label="Remarks 1" value={detailRow.remarks1 || '—'} readOnly />
+              <Field label="Remarks 2" value={detailRow.remarks2 || '—'} readOnly />
+            </div>
+            <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setDetailRow(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
       {printId && <DeliveryChallanPrintView challanId={printId} onClose={() => setPrintId(null)} />}
     </>
   );
