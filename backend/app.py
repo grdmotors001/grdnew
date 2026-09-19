@@ -2615,9 +2615,10 @@ def old_rickshaw_delivery_challans():
     data=request.get_json(silent=True) or {}
     rec=OldRickshaw.query.get(data.get("old_rickshaw_id"))
     if not rec:return _err("Old Rickshaw not found.")
-    if rec.status=="sold":return _err("Sold Old Rickshaw cannot be dispatched.")
+    if rec.status in {"sold", "dispatched"}:return _err("This Old Rickshaw is already sold/dispatched.")
     dealer=Dealer.query.get(data.get("dealer_id"))
     if not dealer:return _err("Dealer is required.")
+    if dealer.blocked:return _err("Selected dealer is blocked.")
     challan_no=(data.get("challan_no") or "").strip()
     if not challan_no:
         n=(db.session.query(db.func.count(OldRickshaw.id)).filter(OldRickshaw.factory_challan_no.isnot(None)).scalar() or 0)+1
