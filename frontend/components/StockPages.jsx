@@ -140,11 +140,11 @@ function RawItemLedgerModal({ itemName, defaultFrom, defaultTo, onClose }) {
         {!rows ? <div className="card">Loading…</div> : (rows.events || []).length === 0 ? <EmptyState text="No movements for this item in the selected period." /> : (
           <div className="tablewrap stockTable">
             <table className="table">
-              <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Party / Ref</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
+              <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Chassis No.</th><th>Model</th><th>Party / Ref</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
               <tbody>
                 {(rows.events || rows).map((e, i) => (
                   <tr key={i}>
-                    <td data-label="Date">{formatDate(e.date)}</td><td data-label="Type">{e.type}</td><td data-label="Doc No.">{e.doc_no}</td><td data-label="Party / Ref">{e.party_name}</td>
+                    <td data-label="Date">{formatDate(e.date)}</td><td data-label="Type">{e.type}</td><td data-label="Doc No.">{e.doc_no}</td><td data-label="Chassis No.">{e.chassis_no||'—'}</td><td data-label="Model">{e.model_name||'—'}</td><td data-label="Party / Ref">{e.party_name}</td>
                     <td data-label="Particulars">{e.particulars}</td><td data-label="Qty">{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td data-label="Balance">{e.balance}</td>
                   </tr>
                 ))}
@@ -184,12 +184,12 @@ export function StockLedgerPremisesPage() {
       {!rows ? <div className="card">Loading…</div> : (rows.events || []).length === 0 ? <EmptyState /> : (
         <div className="tablewrap stockTable">
           <table className="table">
-            <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Chassis No.</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>Doc No.</th><th>Chassis No.</th><th>Model</th><th>Particulars</th><th>Qty</th><th>Balance</th></tr></thead>
             <tbody>
               {(rows.events || rows).map((e, i) => (
                 <tr key={i}>
                   <td data-label="Date">{formatDate(e.date)}</td><td data-label="Type">{e.type}</td><td data-label="Doc No.">{e.doc_no}</td><td data-label="Chassis No.">{e.chassis_no}</td>
-                  <td data-label="Particulars">{e.particulars}</td><td data-label="Qty">{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td data-label="Balance">{e.balance}</td>
+                  <td data-label="Model">{e.model_name||'—'}</td><td data-label="Particulars">{e.particulars}</td><td data-label="Qty">{e.type === 'IN' ? '+' : '-'}{e.qty}</td><td data-label="Balance">{e.balance}</td>
                 </tr>
               ))}
             </tbody>
