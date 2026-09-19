@@ -115,6 +115,17 @@ class LoanWorkflow(db.Model):
     do_no = db.Column(db.String(50), unique=True, index=True)
     customer_photo = db.Column(db.Text)
     customer_documents = db.Column(db.Text)
+    # Billing workflow: dealer prepares a pending sale after loan approval;
+    # only authorised GRD billing users can approve it and allow invoice generation.
+    billing_status = db.Column(db.String(30), default="NOT_REQUESTED", index=True)
+    dealer_description = db.Column(db.Text)
+    billing_vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), index=True)
+    billing_chassis_no = db.Column(db.String(60))
+    billing_sale_amount = db.Column(db.Float, default=0)
+    billing_requested_at = db.Column(db.DateTime)
+    billing_approved_by = db.Column(db.String(120))
+    billing_approved_at = db.Column(db.DateTime)
+    billing_invoice_id = db.Column(db.Integer, db.ForeignKey("tax_invoice.id"))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
