@@ -1996,15 +1996,27 @@ def delivery_challans():
         if vehicle.stage != "Manufacturing":
             return _err("That chassis has already moved past Manufacturing.")
 
+        # Snapshot the battery fitted on the vehicle at the moment of delivery.
+        # This keeps the Delivery Challan/Register historical even if the vehicle
+        # later gets a Battery Swap / Exchange.
+        battery_maker = data.get("battery_maker")
+        if battery_maker in (None, ""):
+            battery_maker = getattr(vehicle, "battery_maker", None)
+        battery_nos = [data.get(f"battery_no{i}") for i in range(1, 5)]
+        vehicle_battery_nos = [getattr(vehicle, f"battery_no{i}", None) for i in range(1, 5)]
+        battery_nos = [
+            battery_nos[i] if battery_nos[i] not in (None, "") else vehicle_battery_nos[i]
+            for i in range(4)
+        ]
         dc = DeliveryChallan(
             challan_no=data.get("challan_no"), date=_parse_date(data.get("date")) or date.today(),
             dealer_id=dealer.id, vehicle_id=vehicle.id, destination=data.get("destination"),
             product_name=vehicle.model_name, chassis_no=vehicle.chassis_no,
             motor_no=vehicle.motor_no, controller_no=vehicle.controller_no,
             differential_no=vehicle.differential_no, colour=vehicle.colour, other=vehicle.other,
-            battery_maker=data.get("battery_maker"), battery_no1=data.get("battery_no1"),
-            battery_no2=data.get("battery_no2"), battery_no3=data.get("battery_no3"),
-            battery_no4=data.get("battery_no4"),
+            battery_maker=battery_maker, battery_no1=battery_nos[0],
+            battery_no2=battery_nos[1], battery_no3=battery_nos[2],
+            battery_no4=battery_nos[3],
             toolkit=bool(data.get("toolkit", True)), jack=bool(data.get("jack", True)),
             charger=bool(data.get("charger", True)), center_lock=bool(data.get("center_lock", False)),
             mat=bool(data.get("mat", True)), stapney=bool(data.get("stapney", False)),
@@ -2111,6 +2123,11 @@ def delivery_challan_detail(challan_id):
         dc.differential_no = new_vehicle.differential_no
         dc.colour = new_vehicle.colour
         dc.other = new_vehicle.other
+        dc.battery_maker = getattr(new_vehicle, "battery_maker", None)
+        dc.battery_no1 = getattr(new_vehicle, "battery_no1", None)
+        dc.battery_no2 = getattr(new_vehicle, "battery_no2", None)
+        dc.battery_no3 = getattr(new_vehicle, "battery_no3", None)
+        dc.battery_no4 = getattr(new_vehicle, "battery_no4", None)
         new_vehicle.stage = "Delivery Challan"
         new_vehicle.dealer_name = new_dealer.name
 
