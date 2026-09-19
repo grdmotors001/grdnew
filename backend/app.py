@@ -380,28 +380,89 @@ def expense_payment_voucher_rickshaws():
 def expense_payment_voucher():
     if request.method=="GET":
         fd,td=_date_bounds()
+        status=(request.args.get("status") or "").strip().lower()
+        et=(request.args.get("expense_type") or "").strip().lower()
         q=ExpensePaymentVoucher.query.order_by(ExpensePaymentVoucher.date.desc(),ExpensePaymentVoucher.id.desc())
         if fd:q=q.filter(ExpensePaymentVoucher.date>=fd)
         if td:q=q.filter(ExpensePaymentVoucher.date<=td)
+        if et:q=q.filter(ExpensePaymentVoucher.expense_type==et)
+        if status=="paid":q=q.filter(ExpensePaymentVoucher.paid_at.isnot(None))
+        elif status=="unpaid":q=q.filter(ExpensePaymentVoucher.paid_at.is_(None))
         rows=q.limit(500).all()
         return jsonify({"vouchers":[_expense_voucher_dict(x) for x in rows],"total":sum(float(x.amount or 0) for x in rows)})
+
     d=request.get_json(silent=True) or {}
     pt=(d.get("pay_to_type") or "").strip().lower()
     pn=(d.get("pay_to_name") or "").strip()
     et=(d.get("expense_type") or "").strip().lower()
-    amount=_f(d.get("amount"),0)
     pm=(d.get("payment_mode") or "cash").strip().lower()
     if pt not in {"dealer","staff","other"}: return _err("Valid Pay To is required")
     if not pn:return _err("Pay To Name is required")
     if et not in {x["id"] for x in EXPENSE_TYPES}:return _err("Valid Expense Type is required")
     if pm not in {"cash","bank","upi","cheque"}:return _err("Valid Payment Mode is required")
+
+    date_value=_parse_date(d.get("date")) or dt.utcnow().date()
+    common_remarks=(d.get("remarks") or "").strip() or None
+    created_by=(getattr(g,"current_user_payload",{}) or {}).get("username")
+
+    # Fabrication: one model-wise quantity entry, paid per rickshaw/unit.
+    if et=="fabrication":
+        work_model=(d.get("work_model_name") or "").strip()
+        qty=_f(d.get("work_qty"),0)
+        rate=_f(d.get("rate_per_unit"),0)
+        if not work_model:return _err("Model is required for Fabrication Work")
+        if qty<=0:return _err("Fabrication Qty must be greater than zero")
+        if rate<=0:return _err("Rate per rickshaw must be greater than zero")
+        amount=round(qty*rate,2)
+        voucher=ExpensePaymentVoucher(date=date_value,pay_to_type=pt,pay_to_name=pn,
+            dealer_id=None,staff_name=(d.get("staff_name") or "").strip() or None,
+            expense_type=et,vehicle_id=None,chassis_no=None,payment_mode=pm,amount=amount,
+            bill_no=(d.get("bill_no") or "").strip() or None,
+            attachment_url=(d.get("attachment_url") or "").strip() or None,
+            remarks=common_remarks,status="pending",created_by=created_by,
+            work_type="fabrication",work_model_name=work_model,work_qty=qty,rate_per_unit=rate)
+        db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";db.session.commit()
+        return jsonify({"success":True,"voucher":_expense_voucher_dict(voucher)}),201
+
+    # Assembly: select multiple rickshaws; create one work-payment row per rickshaw
+    # so each chassis has its own paid/unpaid state.
+    if et=="assembly":
+        mechanic=(d.get("staff_name") or "").strip()
+        if not mechanic:return _err("Select Assembler / Mechanic")
+        rate=_f(d.get("rate_per_unit"),0)
+        if rate<=0:return _err("Rate per rickshaw must be greater than zero")
+        raw_ids=d.get("vehicle_ids") if isinstance(d.get("vehicle_ids"),list) else []
+        if not raw_ids:return _err("Select at least one rickshaw for Assembly Work")
+        clean_ids=[]
+        for raw_id in raw_ids:
+            try:vid=int(raw_id)
+            except (TypeError,ValueError):return _err("Invalid rickshaw selection")
+            if vid not in clean_ids:clean_ids.append(vid)
+        existing={x[0] for x in db.session.query(ExpensePaymentVoucher.vehicle_id).filter(
+            ExpensePaymentVoucher.expense_type=="assembly",
+            ExpensePaymentVoucher.vehicle_id.in_(clean_ids),
+            ExpensePaymentVoucher.status!="rejected").all()}
+        if existing:return _err("Some selected rickshaws already have an Assembly payment. Use the unpaid list.")
+        created=[]
+        for vid in clean_ids:
+            dc=DeliveryChallan.query.filter_by(vehicle_id=vid,cancelled=False).order_by(DeliveryChallan.id.desc()).first()
+            if not dc:return _err(f"Selected rickshaw {vid} was not found")
+            voucher=ExpensePaymentVoucher(date=date_value,pay_to_type="staff",pay_to_name=mechanic,
+                dealer_id=dc.dealer_id,staff_name=mechanic,expense_type=et,vehicle_id=vid,
+                chassis_no=dc.chassis_no,payment_mode=pm,amount=round(rate,2),
+                bill_no=(d.get("bill_no") or "").strip() or None,
+                attachment_url=(d.get("attachment_url") or "").strip() or None,
+                remarks=common_remarks,status="pending",created_by=created_by,
+                work_type="assembly",work_model_name=dc.product_name,work_qty=1,rate_per_unit=rate)
+            db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";created.append(voucher)
+        db.session.commit()
+        return jsonify({"success":True,"count":len(created),"vouchers":[_expense_voucher_dict(v) for v in created]}),201
+
+    amount=_f(d.get("amount"),0)
     if amount<=0:return _err("Amount must be greater than zero")
     vehicle_ids=d.get("vehicle_ids") if isinstance(d.get("vehicle_ids"),list) else []
     if et=="incentive" and not vehicle_ids and d.get("vehicle_id"):vehicle_ids=[d.get("vehicle_id")]
     if et=="incentive" and not vehicle_ids:return _err("Select at least one rickshaw for Incentive")
-    date_value=_parse_date(d.get("date")) or dt.utcnow().date()
-    common_remarks=(d.get("remarks") or "").strip() or None
-    created_by=(getattr(g,"current_user_payload",{}) or {}).get("username")
     if et=="incentive":
         clean_ids=[]
         for raw_id in vehicle_ids:
@@ -429,6 +490,7 @@ def expense_payment_voucher():
             db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";created.append(voucher)
         db.session.commit()
         return jsonify({"success":True,"count":len(created),"vouchers":[_expense_voucher_dict(v) for v in created]}),201
+
     vid=d.get("vehicle_id");did=d.get("dealer_id");staff=(d.get("staff_name") or "").strip() or None;chassis=None
     if vid:
         try:vid=int(vid)
