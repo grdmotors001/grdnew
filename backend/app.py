@@ -1503,7 +1503,7 @@ def dealer_pending_sales():
     challans=(DeliveryChallan.query.filter_by(dealer_id=did,cancelled=False)
               .order_by(DeliveryChallan.date.desc(),DeliveryChallan.id.desc()).limit(500).all())
     return jsonify({"applications":[_ser_workflow(x) for x in rows],
-                    "vehicles":[{"vehicle_id":x.vehicle_id,"chassis_no":x.chassis_no,
+                    "vehicles":[{"challan_id":x.id,"vehicle_id":x.vehicle_id,"chassis_no":x.chassis_no,
                                  "model_name":x.product_name,"challan_no":x.challan_no,
                                  "sale_value":x.sale_value or 0,"date":_iso(x.date)}
                                 for x in challans if x.vehicle_id]})
