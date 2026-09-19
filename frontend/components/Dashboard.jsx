@@ -137,28 +137,21 @@ export function Dashboard({ setActive }) {
 
   const filteredAll = selectedMonth === 'all' ? all : all.filter((v) => monthKey(v.date) === selectedMonth);
 
-  // Billed (Tax Invoice) split into Interstate (IGST) vs Local (CGST+SGST),
-  // scoped to whichever month is selected — reuses the same GST Register
-  // endpoint the "S. GST Register" report already relies on for this split.
-  useEffect(() => {
-    if (!selectedMonth) return;
-    setBilledError('');
-    const params = selectedMonth === 'all'
-      ? ''
-      : `?from=${firstOfMonth(selectedMonth)}&to=${lastOfMonth(selectedMonth)}`;
-    get(`/reports/gst-register${params}`).then((r) => {
-      const outward = r.outward || [];
-      const interstate = outward.filter((i) => Number(i.igst_amount) > 0);
-      const local = outward.filter((i) => !(Number(i.igst_amount) > 0));
-      const sum = (rows, key) => rows.reduce((s, i) => s + Number(i[key] || 0), 0);
-      setBilled({
-        interstateCount: interstate.length,
-        interstateTaxable: sum(interstate, 'taxable_value'),
-        localCount: local.length,
-        localTaxable: sum(local, 'taxable_value'),
-      });
-    }).catch((e) => setBilledError(e.message));
-  }, [selectedMonth]);
+  // Billing split is included in the dashboard response, so changing the
+  // month no longer triggers a second GST Register API call.
+  const billed = useMemo(() => {
+    const rows = d?.billed_monthly || [];
+    if (!rows.length) return { interstateCount: 0, interstateTaxable: 0, localCount: 0, localTaxable: 0 };
+    const selected = selectedMonth === 'all'
+      ? rows
+      : rows.filter((r) => r.month === selectedMonth);
+    return selected.reduce((out, r) => ({
+      interstateCount: out.interstateCount + Number(r.interstateCount || 0),
+      interstateTaxable: out.interstateTaxable + Number(r.interstateTaxable || 0),
+      localCount: out.localCount + Number(r.localCount || 0),
+      localTaxable: out.localTaxable + Number(r.localTaxable || 0),
+    }), { interstateCount: 0, interstateTaxable: 0, localCount: 0, localTaxable: 0 });
+  }, [d, selectedMonth]);
 
   if (error) return <div className="error">{error}</div>;
   if (!d) return <div className="card">Loading dashboard…</div>;
@@ -197,10 +190,7 @@ export function Dashboard({ setActive }) {
 
       <div className="card" style={{ marginTop: 16 }}>
         <b>Billed — Interstate vs Local {selectedMonth && selectedMonth !== 'all' ? `(${monthLabel(selectedMonth)})` : '(All time)'}</b>
-        {billedError ? <div className="error" style={{ marginTop: 10 }}>{billedError}</div> : !billed ? (
-          <div className="muted" style={{ marginTop: 10 }}>Loading…</div>
-        ) : (
-          <div className="grid" style={{ marginTop: 12, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+        <div className="grid" style={{ marginTop: 12, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
             <div className="card" style={{ boxShadow: 'none' }}>
               <span className="muted">Interstate (IGST)</span>
               <div className="metric">{billed.interstateCount}</div>
@@ -212,7 +202,6 @@ export function Dashboard({ setActive }) {
               <div className="muted"><Money value={billed.localTaxable} /> taxable</div>
             </div>
           </div>
-        )}
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
