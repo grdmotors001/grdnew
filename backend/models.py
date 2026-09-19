@@ -125,7 +125,7 @@ class LoanWorkflow(db.Model):
     billing_requested_at = db.Column(db.DateTime)
     billing_approved_by = db.Column(db.String(120))
     billing_approved_at = db.Column(db.DateTime)
-    billing_invoice_id = db.Column(db.Integer, db.ForeignKey("tax_invoice.id"))
+    billing_invoice_id = db.Column(db.Integer, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
