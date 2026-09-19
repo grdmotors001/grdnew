@@ -660,24 +660,60 @@ def ser_daybook(r):
 # Auth
 # ---------------------------------------------------------------------------
 def _ensure_auth_columns():
-    """Idempotently add the staff mobile column before any User ORM query.
-    Use a dedicated engine transaction so a failed/concurrent migration does
-    not poison the session used by the login request."""
+    """Idempotently add login-related columns before any User ORM query.
+    Existing GRD databases may predate newer staff-auth fields."""
     try:
         with db.engine.begin() as conn:
             inspector = inspect(conn)
             if not inspector.has_table("user"):
                 return
             columns = {c["name"] for c in inspector.get_columns("user")}
-            if "mobile" not in columns:
-                if db.engine.dialect.name == "postgresql":
-                    conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS mobile VARCHAR(30)'))
-                else:
-                    conn.execute(text('ALTER TABLE "user" ADD COLUMN mobile VARCHAR(30)'))
+            additions = {
+                "mobile": 'VARCHAR(30)',
+            }
+            for name, sql_type in additions.items():
+                if name not in columns:
+                    if db.engine.dialect.name == "postgresql":
+                        conn.execute(text(f'ALTER TABLE "user" ADD COLUMN IF NOT EXISTS {name} {sql_type}'))
+                    else:
+                        conn.execute(text(f'ALTER TABLE "user" ADD COLUMN {name} {sql_type}'))
     except Exception as exc:
-        # Do not leave a broken SQLAlchemy session behind. The next query will
-        # still surface the real DB problem instead of a misleading 500 caused
-        # by a failed migration transaction.
+        db.session.rollback()
+        return str(exc)
+    return None
+
+
+def _ensure_dealer_login_columns():
+    """Idempotently add Dealer columns introduced after older databases were created.
+    Dealer ORM queries select the whole row, so one missing column can otherwise
+    turn a valid dealer login into a production 500."""
+    try:
+        with db.engine.begin() as conn:
+            inspector = inspect(conn)
+            if not inspector.has_table("dealer"):
+                return
+            columns = {c["name"] for c in inspector.get_columns("dealer")}
+            additions = {
+                "registration_type": ("VARCHAR(20)", "'registered'"),
+                "bank_name": ("VARCHAR(120)", "NULL"),
+                "bank_account_no": ("VARCHAR(50)", "NULL"),
+                "bank_ifsc": ("VARCHAR(50)", "NULL"),
+                "login_id": ("VARCHAR(50)", "NULL"),
+                "password_hash": ("VARCHAR(255)", "NULL"),
+            }
+            for name, (sql_type, default_sql) in additions.items():
+                if name in columns:
+                    continue
+                if db.engine.dialect.name == "postgresql":
+                    ddl = f'ALTER TABLE "dealer" ADD COLUMN IF NOT EXISTS {name} {sql_type}'
+                    if default_sql != "NULL":
+                        ddl += f" DEFAULT {default_sql}"
+                else:
+                    ddl = f'ALTER TABLE "dealer" ADD COLUMN {name} {sql_type}'
+                    if default_sql != "NULL":
+                        ddl += f" DEFAULT {default_sql}"
+                conn.execute(text(ddl))
+    except Exception as exc:
         db.session.rollback()
         return str(exc)
     return None
