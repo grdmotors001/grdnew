@@ -3070,7 +3070,13 @@ def production_register():
         return _csv_response("Production_Register.csv", headers,
                               [[_iso(v.date), v.vou_no, v.product_name, v.quantity, v.chassis_no,
                                 v.motor_no, v.controller_no] for v in vouchers])
-    return jsonify([ser_pv(v) for v in vouchers])
+    out = []
+    for v in vouchers:
+        row = ser_pv(v)
+        vehicle = Vehicle.query.filter_by(chassis_no=v.chassis_no).first()
+        row["stage"] = vehicle.stage if vehicle else "Manufacturing"
+        out.append(row)
+    return jsonify(out)
 
 
 @app.route("/api/reports/delivery-challan-register")
