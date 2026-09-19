@@ -26,6 +26,8 @@ export const MENU = {
     ['delivery-challan', 'E-Rickshaw Delivery Challan'],
     ['tax-invoice', 'Tax Invoice'],
     ['old-rickshaw', 'Old Rickshaw'],
+    ['battery-swap', 'Battery Swap / Exchange Voucher'],
+    ['battery-withdrawal', 'Battery Withdrawal'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['journal-stock', 'Journal Stock'],
     ['expense-payment-voucher', 'Expense Payment Voucher'],
