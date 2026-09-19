@@ -1168,6 +1168,8 @@ def menu():
 @app.route("/api/dashboard")
 @require_auth
 def dashboard():
+    for _cash_model in (DealerCashReceipt, DealerCashExpense, DealerCashHandover):
+        _cash_model.__table__.create(db.engine, checkfirst=True)
     # Dashboard must NEVER pull the complete Vehicle/TaxInvoice history into
     # the browser. Production installations can have 50k+ raw products and
     # 17k+ manufactured/sold vehicles. Keep the pipeline preview small and
