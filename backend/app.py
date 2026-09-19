@@ -29,7 +29,7 @@ from datetime import date, datetime as dt, timedelta
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from sqlalchemy.orm import joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, text, inspect
 
 # Load backend/.env if present (local dev convenience — e.g. DATABASE_URL,
 # SECRET_KEY). No-op in production/Vercel, where real env vars are set
@@ -659,8 +659,22 @@ def ser_daybook(r):
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
+def _ensure_auth_columns():
+    """Keep the login endpoint compatible with databases created before the
+    staff mobile field was added. This is intentionally idempotent."""
+    try:
+        inspector = inspect(db.engine)
+        if inspector.has_table("user"):
+            columns = {c["name"] for c in inspector.get_columns("user")}
+            if "mobile" not in columns:
+                db.session.execute(text('ALTER TABLE "user" ADD COLUMN mobile VARCHAR(30)'))
+                db.session.commit()
+    except Exception:
+        db.session.rollback()
+
 @app.route("/api/auth/login", methods=["POST"])
 def login():
+    _ensure_auth_columns()
     data = request.get_json(silent=True) or {}
     userid = (data.get("userid") or "").strip()
     password = data.get("password") or ""
