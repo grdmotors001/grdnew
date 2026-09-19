@@ -159,14 +159,14 @@ export function BatteryWithdrawalPage() {
   return <div className="page"><div className="card"><h2>Battery Withdrawal</h2><p className="muted">Rickshaw se battery nikaal kar dealer ke battery stock me aa jayegi.</p><ErrorBanner message={error}/>
     <form onSubmit={save}><div className="formgrid">
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Dealer" type="select" value={form.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setForm({...form,dealer_id:Number(v),rickshaw_id:'',battery_no:''})} required/>
+      <Field label="Dealer" type="combo" value={dealers.find(d=>String(d.id)===String(form.dealer_id))?.name || ''} options={dealers.map(d=>({value:d.name,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>{const d=dealers.find(x=>String(x.name).toLowerCase()===String(v).toLowerCase());setForm({...form,dealer_id:d?Number(d.id):'',rickshaw_id:'',battery_no:''})}} required/>
       <Field label="Rickshaw Type" type="select" value={form.rickshaw_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,rickshaw_type:v,rickshaw_id:'',battery_no:''})}/>
       <Field label="Rickshaw" type="select" value={form.rickshaw_id} options={rickshaws.map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')}))} onChange={v=>setForm({...form,rickshaw_id:Number(v),battery_no:''})} required/>
       <Field label="Battery No." type="select" value={form.battery_no} options={(current?.battery_numbers||[]).map(n=>({value:n,label:n}))} onChange={v=>setForm({...form,battery_no:v})} required/>
       <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
     </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Withdraw Battery'}</button></div></form></div>
-    <div className="card"><h2>Dealer Battery Withdrawal History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Dealer</th><th>Battery Maker</th><th>Battery No.</th><th>Reference</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.dealer_name}</td><td>{r.battery_maker}</td><td>{r.battery_no}</td><td>{r.reference_no||'—'}</td></tr>)}</tbody></table></div></div>
+    <div className="card"><h2>Dealer Battery Withdrawal History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Dealer</th><th>Battery Maker</th><th>Battery No.</th><th>Reference</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.dealer_name}</td><td>{r.battery_maker}</td><td>{r.battery_no}</td><td>{r.reference_no||'—'}</td><td><button className="btn danger" onClick={()=>window.confirm('Delete this withdrawal?')&&del('/battery-withdrawal?id='+r.id).then(load).catch(e=>setError(e.message))}>Delete</button></td></tr>)}</tbody></table></div></div>
   </div>;
 }
 
