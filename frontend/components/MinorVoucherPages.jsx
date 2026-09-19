@@ -9,15 +9,23 @@ const today = () => new Date().toISOString().slice(0, 10);
 export function OldRickshawPage() {
   const [data,setData]=useState(null),[dealers,setDealers]=useState([]);
   const [open,setOpen]=useState(false),[saleOpen,setSaleOpen]=useState(false),[saleRow,setSaleRow]=useState(null);
-  const [form,setForm]=useState({date:today(),source:'manual'}),[sale,setSale]=useState({sale_date:today()});
+  const emptyForm={date:today(),source:'manual',record_no:'',vou_no:'',chfpl_ref_no:'',party_name:'',purchase_ref_no:'',
+    vehicle_reg_no:'',model_name:'',owner_name:'',salesman:'',purchase_amount:'',file_charge:'',
+    battery_maker:'',battery_no1:'',battery_no2:'',battery_no3:'',battery_no4:'',sp_no:'',dealer_page_no:'',
+    challan_no:'',ledger_date:'',sale_type:'',do_number:'',chassis_no:'',charger:'',mat:'',jack:'',
+    centre_lock:'',big_mirror:'',colour:'',toolkit:'',stepney:'',out_name:'',remarks1:'',remarks2:''};
+  const emptySale={sale_date:today(),dealer_id:'',sale_amount:'',file_charge:'',loan_amount:'',down_payment:'',
+    dealer_page_no:'',sp_no:'',sale_ref_no:'',sale_type:'',do_number:'',out_name:'',receipt_amount:'',
+    receipt_no:'',ledger:'',resale_date:'',resale_ledger:''};
+  const [form,setForm]=useState(emptyForm),[sale,setSale]=useState(emptySale);
   const {busy,error,setError,run}=useAsyncAction();
 
-  const load=()=>get('/old-rickshaws').then(d=>setData(d)).catch(e=>setError(e.message));
+  const load=()=>get('/old-rickshaws').then(setData).catch(e=>setError(e.message));
   useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});},[]);
 
-  const openNew=()=>{setForm({date:today(),source:'manual',record_no:data?.suggested_record_no||''});setOpen(true);};
+  const openNew=()=>{setForm({...emptyForm,date:today(),record_no:data?.suggested_record_no||'',vou_no:data?.suggested_vou_no||''});setOpen(true);};
   const save=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaws',form);setOpen(false);load();});};
-  const openSale=r=>{setSaleRow(r);setSale({sale_date:today(),dealer_id:'',sale_amount:r.purchase_amount||'',file_charge:'',loan_amount:'',down_payment:'',dealer_page_no:r.dealer_page_no||'',sp_no:r.sp_no||''});setSaleOpen(true);};
+  const openSale=r=>{setSaleRow(r);setSale({...emptySale,sale_date:today(),sale_amount:r.sale_amount||r.purchase_amount||'',file_charge:r.file_charge||'',dealer_page_no:r.dealer_page_no||'',sp_no:r.sp_no||'',receipt_amount:r.receipt_amount||'',receipt_no:r.receipt_no||'',ledger:r.ledger||'',resale_date:r.resale_date||'',resale_ledger:r.resale_ledger||'',sale_type:r.sale_type||'',do_number:r.do_number||'',out_name:r.out_name||''});setSaleOpen(true);};
   const saveSale=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaws/sale',{...sale,id:saleRow.id});setSaleOpen(false);setSaleRow(null);load();});};
   const remove=id=>{if(!confirm('Delete this record?'))return;run(async()=>{await del('/old-rickshaws/'+id);load();});};
 
@@ -25,39 +33,61 @@ export function OldRickshawPage() {
   return <>
     <div className="actions" style={{marginBottom:14}}>
       <button className="btn primary" onClick={openNew}>+ Purchase / Available Old Rickshaw</button>
-      <span className="muted" style={{alignSelf:'center'}}>Record No. is the regular GRD serial. SP No. is only for Old Rickshaw manual register.</span>
+      <span className="muted" style={{alignSelf:'center'}}>Old Rickshaw register: Excel/legacy fields are available for both opening and sale entries.</span>
     </div>
     <ErrorBanner message={!open&&!saleOpen?error:''}/>
     {data.records.length===0?<EmptyState text="No Old Rickshaw currently available in GRD stock."/>:
       <div className="tablewrap"><table className="table"><thead><tr>
-        <th>Record No.</th><th>Date</th><th>Status</th><th>Source</th><th>Reg. No.</th><th>Model</th><th>Battery</th><th>Purchase Amt.</th><th>SP No.</th><th>Action</th>
+        <th>Record No.</th><th>Date</th><th>Ledger Date</th><th>Vou. No.</th><th>Status</th><th>Source</th><th>Reg. No.</th><th>Owner</th><th>Model</th><th>Sales Man</th><th>Sale Type</th><th>DO No.</th><th>Chassis No.</th><th>Battery</th><th>Colour</th><th>Purchase Amt.</th><th>Sold Amt.</th><th>Loan Amt.</th><th>Received</th><th>Balance</th><th>SP No.</th><th>Out Name</th><th>Action</th>
       </tr></thead><tbody>{data.records.map(r=><tr key={r.id}>
-        <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td><td><b>{r.vehicle_reg_no}</b></td><td>{r.model_name}</td>
-        <td>{r.has_battery?'Yes':'No'}</td><td><Money value={r.purchase_amount}/></td><td>{r.sp_no||'—'}</td>
+        <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.ledger_date?formatDate(r.ledger_date):'—'}</td><td>{r.vou_no||'—'}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td>
+        <td><b>{r.vehicle_reg_no||'—'}</b></td><td>{r.owner_name||'—'}</td><td>{r.model_name||'—'}</td><td>{r.salesman||'—'}</td><td>{r.sale_type||'—'}</td><td>{r.do_number||'—'}</td><td>{r.chassis_no||'—'}</td>
+        <td>{r.has_battery?'Yes':'No'}</td><td>{r.colour||'—'}</td><td><Money value={r.purchase_amount}/></td><td><Money value={r.sold_amount||r.sale_amount}/></td><td><Money value={r.loan_amount}/></td><td><Money value={r.receipt_amount}/></td><td><Money value={r.balance_amount}/></td><td>{r.sp_no||'—'}</td><td>{r.out_name||r.sold_to||'—'}</td>
         <td>{r.status==='available'&&<button className="btn primary" onClick={()=>openSale(r)}>Sale to Dealer</button>} <button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td>
       </tr>)}</tbody></table></div>}
+
     {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
-      <h2>Old Rickshaw Purchase / Opening</h2><ErrorBanner message={error}/>
+      <h2>Old Rickshaw Purchase / Excel Register Entry</h2><ErrorBanner message={error}/>
       <div className="formgrid">
         <Field label="Record No." value={form.record_no} onChange={v=>setForm({...form,record_no:v})}/>
+        <Field label="Vou. No." value={form.vou_no} onChange={v=>setForm({...form,vou_no:v})}/>
         <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+        <Field label="Ledger Date" type="date" value={form.ledger_date} onChange={v=>setForm({...form,ledger_date:v})}/>
         <Field label="Purchase Source" type="select" value={form.source} options={[{value:'manual',label:'Manual Purchase'},{value:'chfpl',label:'CHFPL Available for Sale'}]} onChange={v=>setForm({...form,source:v})}/>
         <Field label="CHFPL / Purchase Ref No." value={form.chfpl_ref_no||form.purchase_ref_no||''} onChange={v=>setForm({...form,chfpl_ref_no:v,purchase_ref_no:v})}/>
+        <Field label="Party Name" value={form.party_name} onChange={v=>setForm({...form,party_name:v})}/>
         <Field label="Vehicle Reg. No." value={form.vehicle_reg_no} onChange={v=>setForm({...form,vehicle_reg_no:v})} required/>
+        <Field label="Chassis No." value={form.chassis_no} onChange={v=>setForm({...form,chassis_no:v})}/>
         <Field label="Model Name" value={form.model_name} onChange={v=>setForm({...form,model_name:v})}/>
         <Field label="Previous Owner" value={form.owner_name} onChange={v=>setForm({...form,owner_name:v})}/>
+        <Field label="Sales Man" value={form.salesman} onChange={v=>setForm({...form,salesman:v})}/>
+        <Field label="Challan No." value={form.challan_no} onChange={v=>setForm({...form,challan_no:v})}/>
+        <Field label="Sale Type" type="select" value={form.sale_type} options={[{value:'cash',label:'Cash'},{value:'finance',label:'Finance'}]} onChange={v=>setForm({...form,sale_type:v})}/>
+        <Field label="DO Number" value={form.do_number} onChange={v=>setForm({...form,do_number:v})}/>
         <Field label="Purchase Amount" type="number" value={form.purchase_amount} onChange={v=>setForm({...form,purchase_amount:v})}/>
-        <Field label="Battery Maker" value={form.battery_maker} onChange={v=>setForm({...form,battery_maker:v})}/>
+        <Field label="File Charge" type="number" value={form.file_charge} onChange={v=>setForm({...form,file_charge:v})}/>
+        <Field label="Battery Maker / Name" value={form.battery_maker} onChange={v=>setForm({...form,battery_maker:v})}/>
         <Field label="Battery No. 1" value={form.battery_no1} onChange={v=>setForm({...form,battery_no1:v})}/>
         <Field label="Battery No. 2" value={form.battery_no2} onChange={v=>setForm({...form,battery_no2:v})}/>
         <Field label="Battery No. 3" value={form.battery_no3} onChange={v=>setForm({...form,battery_no3:v})}/>
         <Field label="Battery No. 4" value={form.battery_no4} onChange={v=>setForm({...form,battery_no4:v})}/>
+        <Field label="Charger" value={form.charger} onChange={v=>setForm({...form,charger:v})}/>
+        <Field label="Mat" value={form.mat} onChange={v=>setForm({...form,mat:v})}/>
+        <Field label="Jack" value={form.jack} onChange={v=>setForm({...form,jack:v})}/>
+        <Field label="Centre Lock" value={form.centre_lock} onChange={v=>setForm({...form,centre_lock:v})}/>
+        <Field label="Big Mirror" value={form.big_mirror} onChange={v=>setForm({...form,big_mirror:v})}/>
+        <Field label="Colour" value={form.colour} onChange={v=>setForm({...form,colour:v})}/>
+        <Field label="Toolkit" value={form.toolkit} onChange={v=>setForm({...form,toolkit:v})}/>
+        <Field label="Stepney" value={form.stepney} onChange={v=>setForm({...form,stepney:v})}/>
         <Field label="SP No. (Old Register)" value={form.sp_no} onChange={v=>setForm({...form,sp_no:v})}/>
         <Field label="Dealer Page No." value={form.dealer_page_no} onChange={v=>setForm({...form,dealer_page_no:v})}/>
-        <Field label="Remarks" value={form.remarks1} onChange={v=>setForm({...form,remarks1:v})}/>
+        <Field label="Out Name" value={form.out_name} onChange={v=>setForm({...form,out_name:v})}/>
+        <Field label="Remarks 1" value={form.remarks1} onChange={v=>setForm({...form,remarks1:v})}/>
+        <Field label="Remarks 2" value={form.remarks2} onChange={v=>setForm({...form,remarks2:v})}/>
       </div>
       <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save'}</button></div>
     </form></div>}
+
     {saleOpen&&<div className="modal"><form className="modalbox" onSubmit={saveSale}>
       <h2>Old Rickshaw Sale — No Tax Invoice</h2><ErrorBanner message={error}/>
       <p className="muted">This sale updates dealer stock. No Tax Invoice is generated.</p>
@@ -65,18 +95,25 @@ export function OldRickshawPage() {
         <Field label="Sale Date" type="date" value={sale.sale_date} onChange={v=>setSale({...sale,sale_date:v})}/>
         <Field label="Dealer" type="select" value={sale.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setSale({...sale,dealer_id:Number(v)})} required/>
         <Field label="Sale Amount" type="number" value={sale.sale_amount} onChange={v=>setSale({...sale,sale_amount:v})}/>
-        <Field label="File Charge" type="number" value={sale.file_charge} onChange={v=>setSale({...sale,file_charge:v})}/>
+        <Field label="Sale Type" type="select" value={sale.sale_type} options={[{value:'cash',label:'Cash'},{value:'finance',label:'Finance'}]} onChange={v=>setSale({...sale,sale_type:v})}/>
         <Field label="Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSale({...sale,loan_amount:v})}/>
         <Field label="Down Payment" type="number" value={sale.down_payment} onChange={v=>setSale({...sale,down_payment:v})}/>
+        <Field label="File Charge" type="number" value={sale.file_charge} onChange={v=>setSale({...sale,file_charge:v})}/>
         <Field label="Dealer Page No." value={sale.dealer_page_no} onChange={v=>setSale({...sale,dealer_page_no:v})}/>
         <Field label="SP No. (Old Register)" value={sale.sp_no} onChange={v=>setSale({...sale,sp_no:v})}/>
         <Field label="Sale Ref No." value={sale.sale_ref_no} onChange={v=>setSale({...sale,sale_ref_no:v})}/>
+        <Field label="DO Number" value={sale.do_number} onChange={v=>setSale({...sale,do_number:v})}/>
+        <Field label="Out Name" value={sale.out_name} onChange={v=>setSale({...sale,out_name:v})}/>
+        <Field label="Receipt Amount" type="number" value={sale.receipt_amount} onChange={v=>setSale({...sale,receipt_amount:v})}/>
+        <Field label="Receipt No." value={sale.receipt_no} onChange={v=>setSale({...sale,receipt_no:v})}/>
+        <Field label="Ledger" value={sale.ledger} onChange={v=>setSale({...sale,ledger:v})}/>
+        <Field label="Resale Date" type="date" value={sale.resale_date} onChange={v=>setSale({...sale,resale_date:v})}/>
+        <Field label="Resale Ledger" value={sale.resale_ledger} onChange={v=>setSale({...sale,resale_ledger:v})}/>
       </div>
       <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setSaleOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Sale'}</button></div>
     </form></div>}
   </>;
 }
-
 
 export function BatterySwapVoucherPage() {
   const [dealers,setDealers]=useState([]),[rows,setRows]=useState([]),[rickshaws,setRickshaws]=useState({new:[],old:[]});
