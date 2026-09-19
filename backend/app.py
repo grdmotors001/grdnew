@@ -271,6 +271,7 @@ EXPENSE_TYPES = [
     {"id":"stationery","name":"Stationery"},{"id":"printer","name":"Printer"},
     {"id":"computer_repair","name":"Computer Repair"},{"id":"cleaning","name":"Cleaning"},
     {"id":"passing_exp","name":"Passing Expense"},{"id":"incentive","name":"Incentive"},
+    {"id":"fabrication","name":"Fabrication Work"},{"id":"assembly","name":"Assembly Work"},
     {"id":"other","name":"Other"},
 ]
 
@@ -283,7 +284,10 @@ def _expense_voucher_dict(v):
             "amount":v.amount,"bill_no":v.bill_no,"attachment_url":v.attachment_url,
             "remarks":v.remarks,"status":v.status,"created_by":v.created_by,
             "approved_by":v.approved_by,"approved_at":_iso(v.approved_at.date()) if v.approved_at else None,
-            "rejection_reason":v.rejection_reason,"paid_at":_iso(v.paid_at.date()) if v.paid_at else None}
+            "rejection_reason":v.rejection_reason,"paid_at":_iso(v.paid_at.date()) if v.paid_at else None,
+            "payment_status":"Paid" if v.paid_at else "Unpaid",
+            "work_type":v.work_type,"work_model_name":v.work_model_name,
+            "work_qty":v.work_qty,"rate_per_unit":v.rate_per_unit}
 
 @app.get("/api/expense-payment-voucher/incentive-pending")
 @require_auth
@@ -1400,7 +1404,7 @@ def loan_workflow_decision(row_id):
 # Setup > Simple masters (Party, Battery Maker, RTO, Financer, Mechanic,
 # Bank, Colour) — one generic CRUD keyed by `kind`, matching SimpleMaster.
 # ---------------------------------------------------------------------------
-SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "bank", "colour"}
+SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour"}
 
 
 def _save_simple_master(kind, data, row_id=None):
