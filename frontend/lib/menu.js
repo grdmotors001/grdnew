@@ -82,7 +82,7 @@ export const NAV_GROUPS = {
     ['old-rickshaw', 'Old Rickshaw'],
   ],
   Accounts: [
-    ['journal-stock', 'Journal Stock'], ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['journal-stock', 'Journal Stock'], ['expense-payment-voucher', 'Expense Payment Voucher'], ['cash-at-dealer', 'Cash at Dealer'],
     ['ledger', 'Ledger'], ['day-book', 'Day Book'], ['ledger-v', 'Ledger V'],
     ['payment-receivable-report', 'Payment Receivable'], ['gst-register', 'GST Register'],
     ['hypothecation-register', 'Hypothecation Register'], ['incentive-register', 'Incentive Register'],
