@@ -1,18 +1,30 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post, setToken } from '../lib/api';
-import { MENU, labelFor } from '../lib/menu';
+import { NAV_GROUPS, groupForKey, labelFor } from '../lib/menu';
 import { useDarkMode } from '../lib/theme';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
   Truck, Receipt, Car, BookOpen, Warehouse, Store, Boxes, ClipboardList, FileText,
   BarChart3, Wallet, Gift, Calendar, Key, Database, LogOut, ChevronLeft, ChevronRight,
-  Sun, Moon, Palette,
+  Sun, Moon, Palette, CreditCard, ClipboardCheck, Settings2,
 } from 'lucide-react';
 
 // Icon per menu key — mirrors MENU's grouping in lib/menu.js so the sidebar
 // (collapsed or expanded) always has a matching icon for every item.
+
+const GROUP_ICONS = {
+  Masters: Sliders,
+  Factory: Factory,
+  'Sales & Billing': Receipt,
+  Accounts: CreditCard,
+  Inventory: Warehouse,
+  HR: Users,
+  Reports: BarChart3,
+  System: Settings2,
+};
+
 const ICONS = {
   dealer: Building2, party: Users, product: Package, 'chassis-master': Car, 'battery-maker': BatteryCharging,
   rto: Landmark, financer: HandCoins, 'production-formula': FlaskConical, mechanic: Wrench,
@@ -138,6 +150,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   };
 
   const initial = (user?.username || '?').charAt(0).toUpperCase();
+  const activeGroup = groupForKey(active);
+  const groupItems = activeGroup === 'Dashboard' ? [] : (NAV_GROUPS[activeGroup] || []);
+  const allowedFor = (items) => user?.is_super_user ? items : items.filter(([key]) => (user?.allowed_modules || []).includes(key));
 
   return (
     <div className="app">
@@ -229,27 +244,31 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             collapsed={collapsed}
             onClick={() => selectMenu('dashboard')}
           />
-          {Object.entries(MENU).map(([group, items]) => {
-            const allowed = user?.is_super_user ? items : items.filter(([key]) => (user?.allowed_modules || []).includes(key));
+          {Object.entries(NAV_GROUPS).map(([group, items]) => {
+            const allowed = allowedFor(items);
             if (!allowed.length) return null;
+            const GroupIcon = GROUP_ICONS[group] || FileText;
+            const firstKey = allowed[0]?.[0];
             return (
-            <div className="group" key={group}>
-              {collapsed ? <div className="groupGap" /> : <h4>{group}</h4>}
-              {allowed.map(([key, label]) => (
-                <NavItem
-                  key={key}
-                  icon={ICONS[key] || FileText}
-                  label={label}
-                  active={active === key}
-                  collapsed={collapsed}
-                  onClick={() => selectMenu(key)}
-                />
-              ))}
-            </div>
-          );
+              <div className="navGroupHead" key={group}>
+                <button
+                  className={'navGroupButton' + (activeGroup === group ? ' active' : '')}
+                  title={collapsed ? group : undefined}
+                  onClick={() => {
+                    const target = activeGroup === group && allowed.some(([key]) => key === active)
+                      ? active
+                      : firstKey;
+                    if (target) selectMenu(target);
+                  }}
+                >
+                  <GroupIcon size={18} />
+                  {!collapsed && <span>{group}</span>}
+                  {!collapsed && <span className="navGroupCount">{allowed.length}</span>}
+                </button>
+              </div>
+            );
           })}
         </nav>
-
         <div className="sidebarFooter">
           <div className="sidebarAvatar">{initial}</div>
           {!collapsed && (
@@ -267,10 +286,24 @@ export function Shell({ active, setActive, user, onLogout, children }) {
       </aside>
       <main className={'main' + (collapsed ? ' mainCollapsed' : '')}>
         <div className="top">
-          <div>
-            <div className="title">{active === 'dashboard' ? 'Dashboard' : labelFor(active)}</div>
-            <div className="subtitle">{user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
+          <div className="topTitleBlock">
+            <div className="title">{active === 'dashboard' ? 'Dashboard' : activeGroup}</div>
+            <div className="subtitle">{active === 'dashboard' ? 'Admin Overview' : labelFor(active)} · {user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
           </div>
+          {activeGroup !== 'Dashboard' && groupItems.length > 0 && (
+            <div className="moduleStrip" aria-label={activeGroup}>
+              {allowedFor(groupItems).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={'moduleStripItem' + (active === key ? ' active' : '')}
+                  onClick={() => selectMenu(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {children}
       </main>
