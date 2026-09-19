@@ -944,7 +944,8 @@ def dealer_rickshaw_battery_options():
         for r in rows:
             nums=_battery_fields(r)
             out.append({"id":r.id,"reg_no":r.vehicle_reg_no,"model_name":r.model_name,
-                        "has_battery":any(nums),"battery_numbers":[n for n in nums if n]})
+                        "battery_maker":r.battery_maker,"has_battery":any(nums),
+                        "battery_numbers":[n for n in nums if n]})
     else:
         rows=(Vehicle.query.filter(Vehicle.stage=="Delivery Challan",
                                    db.func.lower(db.func.trim(Vehicle.dealer_name))==db.func.lower(db.func.trim(dealer.name)))
@@ -952,7 +953,8 @@ def dealer_rickshaw_battery_options():
         for r in rows:
             nums=_battery_fields(r)
             out.append({"id":r.id,"chassis_no":r.chassis_no,"model_name":r.model_name,
-                        "has_battery":any(nums),"battery_numbers":[n for n in nums if n]})
+                        "battery_maker":r.battery_maker,"has_battery":any(nums),
+                        "battery_numbers":[n for n in nums if n]})
     return jsonify({"rickshaws":out})
 
 
