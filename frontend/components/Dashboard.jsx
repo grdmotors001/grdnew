@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { get } from '../lib/api';
 import { Pill, EmptyState, Money } from './ui';
 import { formatDate } from '../lib/date';
+import { NAV_GROUPS } from '../lib/menu';
+import { Sliders, Factory, Receipt, CreditCard, Warehouse, Users, BarChart3, Settings2 } from 'lucide-react';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthKey = (d) => (d || '').slice(0, 7); // 'YYYY-MM'
@@ -11,6 +13,12 @@ const monthLabel = (key) => {
   return `${MONTH_NAMES[Number(m) - 1]} ${y}`;
 };
 const firstOfMonth = (key) => `${key}-01`;
+const GROUP_ICONS = {
+  Masters: Sliders, Factory: Factory, 'Sales & Billing': Receipt,
+  Accounts: CreditCard, Inventory: Warehouse, HR: Users,
+  Reports: BarChart3, System: Settings2,
+};
+
 const lastOfMonth = (key) => {
   const [y, m] = key.split('-').map(Number);
   const last = new Date(y, m, 0).getDate();
@@ -90,7 +98,8 @@ function MonthlyTrendChart({ months, series, selected, onSelect, stageData }) {
   );
 }
 
-export function Dashboard({ setActive }) {
+export function Dashboard({ setActive, user }) {
+  const allowedFor = (items) => user?.is_super_user ? items : items.filter(([key]) => (user?.allowed_modules || []).includes(key));
   const [d, setD] = useState(null);
   const [error, setError] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(null); // 'YYYY-MM' or 'all'
@@ -153,6 +162,24 @@ export function Dashboard({ setActive }) {
 
   return (
     <>
+      <div className="adminModuleGrid">
+        {Object.entries(NAV_GROUPS).map(([group, items]) => {
+          const allowed = allowedFor(items);
+          if (!allowed.length) return null;
+          const Icon = GROUP_ICONS[group] || Settings2;
+          return (
+            <button key={group} type="button" className="adminModuleTile" onClick={() => setActive(allowed[0][0])}>
+              <div className="adminModuleTileIcon"><Icon size={20} /></div>
+              <div className="adminModuleTileBody">
+                <strong>{group}</strong>
+                <span>{allowed.length} modules</span>
+                <small>{allowed.slice(0, 3).map(([, label]) => label).join(' · ')}{allowed.length > 3 ? ' · …' : ''}</small>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="grid">
         <div className="card">
           <span className="muted">Manufacturing</span>
