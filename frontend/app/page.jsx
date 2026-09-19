@@ -13,7 +13,7 @@ import { ProductionVoucherPage } from '../components/ProductionVoucherPage';
 import { DeliveryChallanPage } from '../components/DeliveryChallanPage';
 import { TaxInvoicePage } from '../components/TaxInvoicePage';
 import { PurchaseBillPage } from '../components/PurchaseBillPage';
-import { OldRickshawPage, BatteryDeliveryChallanPage, JournalStockPage } from '../components/MinorVoucherPages';
+import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, BatteryDeliveryChallanPage, JournalStockPage } from '../components/MinorVoucherPages';
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import {
@@ -44,6 +44,8 @@ const CUSTOM_PAGES = {
   'delivery-challan': () => <DeliveryChallanPage />,
   'tax-invoice': () => <TaxInvoicePage />,
   'old-rickshaw': () => <OldRickshawPage />,
+  'battery-swap': () => <BatterySwapVoucherPage />,
+  'battery-withdrawal': () => <BatteryWithdrawalPage />,
   'battery-delivery-challan': () => <BatteryDeliveryChallanPage />,
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
