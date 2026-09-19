@@ -60,6 +60,57 @@ export const MENU = {
   ],
 };
 
+
+// Admin navigation: keep the sidebar at the main functional level and show
+// the selected group's modules in the sticky header. This prevents a long
+// list of individual admin options while keeping every existing module reachable.
+export const NAV_GROUPS = {
+  Masters: [
+    ['company', 'Company Details'], ['dealer', 'Dealer Master'], ['party', 'Party Master'],
+    ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
+    ['rto', 'RTO Master'], ['financer', 'Financer Master'], ['production-formula', 'Production Formula'],
+    ['mechanic', 'Mechanic Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
+    ['user', 'User Master'], ['option-setting', 'User Option Setting'],
+  ],
+  Factory: [
+    ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
+    ['battery-delivery-challan', 'Battery Delivery Challan'], ['journal-stock', 'Journal Stock'],
+    ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'],
+  ],
+  'Sales & Billing': [
+    ['purchase-bills', 'Purchase Bills'], ['tax-invoice', 'Tax Invoice'],
+    ['old-rickshaw', 'Old Rickshaw'], ['expense-payment-voucher', 'Expense Payment Voucher'],
+  ],
+  Accounts: [
+    ['ledger', 'Ledger'], ['day-book', 'Day Book'], ['ledger-v', 'Ledger V'],
+    ['payment-receivable-report', 'Payment Receivable'], ['gst-register', 'GST Register'],
+    ['hypothecation-register', 'Hypothecation Register'], ['incentive-register', 'Incentive Register'],
+    ['subsidy-report', 'Subsidy Report'],
+  ],
+  Inventory: [
+    ['closing-stock-premises', 'Closing Stock - Premises'], ['closing-stock-dealers', 'Closing Stock - Dealers'],
+    ['closing-stock-raw', 'Closing Stock - Raw Material'], ['stock-ledger-premises', 'Stock Ledger - Premises'],
+    ['stock-ledger-dealers', 'Stock Ledger - Dealers'],
+  ],
+  HR: [
+    ['hr-attendance', 'Attendance & Salary'],
+  ],
+  Reports: [
+    ['purchase-register', 'Purchase Register'], ['production-register', 'Production Register'],
+    ['delivery-challan-register', 'Delivery Challan Register'], ['sale-register', 'Sale Register'],
+  ],
+  System: [
+    ['backup-restore', 'Backup / Restore'], ['password', 'Password'],
+  ],
+};
+
+export function groupForKey(key) {
+  for (const [group, items] of Object.entries(NAV_GROUPS)) {
+    if (items.some(([k]) => k === key)) return group;
+  }
+  return 'Dashboard';
+}
+
 export function labelFor(key) {
   for (const items of Object.values(MENU)) {
     for (const [k, l] of items) if (k === key) return l;
