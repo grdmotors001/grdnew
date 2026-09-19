@@ -100,7 +100,7 @@ export default function App() {
 
   return (
     <Shell active={active} setActive={setActive} user={user} onLogout={() => { setToken(null); setUser(null); }}>
-      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} />
+      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} />
     </Shell>
   );
 }
