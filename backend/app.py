@@ -3103,7 +3103,11 @@ def production_register():
     status = (request.args.get("status") or "all").lower()
     page = max(1, _i(request.args.get("page"), 1))
     per_page = min(100, max(25, _i(request.args.get("per_page"), 50)))
+    # Join Vehicle once and carry its stage with each voucher. The old
+    # implementation ran one extra Vehicle query per row (50+ queries on the
+    # first page), which could make the register hit the API timeout.
     query = (ProductionVoucher.query
+             .outerjoin(Vehicle, Vehicle.chassis_no == ProductionVoucher.chassis_no)
              .filter(*_date_filter(ProductionVoucher.date, from_date, to_date)))
     if search:
         like = f"%{search}%"
@@ -3112,32 +3116,29 @@ def production_register():
             ProductionVoucher.chassis_no.ilike(like),
             ProductionVoucher.vou_no.ilike(like),
         ))
-    if status in ("factory","delivered"):
-        # Use a correlated existence filter instead of joining the full
-        # Vehicle table; this keeps the 17k+ row register fast.
-        if status == "factory":
-            query = query.filter(~db.exists().where(
-                db.and_(Vehicle.chassis_no == ProductionVoucher.chassis_no,
-                        Vehicle.stage.in_(["Delivery Challan","Tax Invoice"]))))
-        else:
-            query = query.filter(db.exists().where(
-                db.and_(Vehicle.chassis_no == ProductionVoucher.chassis_no,
-                        Vehicle.stage.in_(["Delivery Challan","Tax Invoice"]))))
-    total = query.count()
-    vouchers = (query.order_by(ProductionVoucher.date.asc(), ProductionVoucher.id.asc())
-                .offset((page-1)*per_page).limit(per_page).all())
+    delivered_stages = ["Delivery Challan", "Tax Invoice"]
+    if status == "factory":
+        query = query.filter(db.or_(Vehicle.id.is_(None), ~Vehicle.stage.in_(delivered_stages)))
+    elif status == "delivered":
+        query = query.filter(Vehicle.stage.in_(delivered_stages))
+
+    total = query.with_entities(ProductionVoucher.id).count()
+    voucher_rows = (query
+                    .add_columns(Vehicle.stage)
+                    .order_by(ProductionVoucher.date.asc(), ProductionVoucher.id.asc())
+                    .offset((page-1)*per_page).limit(per_page).all())
     if request.args.get("export") == "csv":
-        vouchers = query.order_by(ProductionVoucher.date.asc(), ProductionVoucher.id.asc()).all()
+        voucher_rows = (query
+                        .add_columns(Vehicle.stage)
+                        .order_by(ProductionVoucher.date.asc(), ProductionVoucher.id.asc()).all())
         headers = ["Date", "Vou. No.", "Product Name", "Quantity", "Chassis No.", "Motor No.", "Controller No."]
         return _csv_response("Production_Register.csv", headers,
                               [[_iso(v.date), v.vou_no, v.product_name, v.quantity, v.chassis_no,
-                                v.motor_no, v.controller_no] for v in vouchers])
+                                v.motor_no, v.controller_no] for v, _stage in voucher_rows])
     out = []
-    for v in vouchers:
+    for v, stage in voucher_rows:
         row = ser_pv_list(v)
-        row["stage"] = "Delivered" if db.session.query(Vehicle.id).filter(
-            Vehicle.chassis_no == v.chassis_no,
-            Vehicle.stage.in_(["Delivery Challan","Tax Invoice"])).first() else "In Factory Stock"
+        row["stage"] = "Delivered" if stage in delivered_stages else "In Factory Stock"
         out.append(row)
     return jsonify({
         "rows": out, "page": page, "per_page": per_page, "total": total,
