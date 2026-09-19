@@ -638,8 +638,17 @@ class OldRickshaw(db.Model):
     # Excel/legacy outbound reference
     out_name = db.Column(db.String(200))
 
+    # Factory dispatch / old-rickshaw delivery challan. Separate from the
+    # normal new-rickshaw Delivery Challan flow.
+    factory_challan_no = db.Column(db.String(60), index=True)
+    factory_challan_date = db.Column(db.Date)
+    factory_dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+    factory_salesman = db.Column(db.String(100))
+    chfpl_available_date = db.Column(db.Date)
+    chfpl_dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+
     # Old-rickshaw sale: no Tax Invoice is created for this sale.
-    status = db.Column(db.String(20), default="available")  # available / sold / cancelled
+    status = db.Column(db.String(20), default="available")  # available / dispatched / sold / cancelled
     dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
     # Explicitly bind this relationship to dealer_id because sale_dealer_id also references Dealer.
     dealer = db.relationship("Dealer", foreign_keys=[dealer_id])
