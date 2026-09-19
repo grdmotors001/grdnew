@@ -1770,16 +1770,48 @@ def production_vouchers():
     })
 
 
-@app.route("/api/production-vouchers/<int:voucher_id>", methods=["DELETE"])
+@app.route("/api/production-vouchers/<int:voucher_id>", methods=["GET", "PUT", "DELETE"])
 @require_auth
-def production_voucher_delete(voucher_id):
+def production_voucher_detail(voucher_id):
     pv = ProductionVoucher.query.get_or_404(voucher_id)
+    if request.method == "GET":
+        return jsonify(ser_pv(pv))
+    if request.method == "PUT":
+        data = request.get_json(silent=True) or {}
+        new_chassis = (data.get("chassis_no") or pv.chassis_no).strip()
+        if new_chassis != pv.chassis_no and Vehicle.query.filter(Vehicle.chassis_no == new_chassis, Vehicle.id != getattr(pv.vehicle, "id", -1)).first():
+            return _err(f"Chassis No. '{new_chassis}' already exists.")
+        for field in ("vou_no","date","product_name","quantity","chassis_no","motor_no","controller_no",
+                      "differential_no","colour","colour_code","other","battery_maker","battery_no1",
+                      "battery_no2","battery_no3","battery_no4","toolkit","jack","charger","mat",
+                      "stapney","front_glass","h_lock","center_lock","remarks","machnic"):
+            if field in data:
+                value = data.get(field)
+                if field == "date": value = _parse_date(value)
+                elif field == "quantity": value = _i(value, 1)
+                pv.__setattr__(field, value)
+        if pv.vou_no and ProductionVoucher.query.filter(ProductionVoucher.vou_no == pv.vou_no, ProductionVoucher.id != pv.id).first():
+            return _err(f"Vou. No. '{pv.vou_no}' is already in use.")
+        vehicle = Vehicle.query.filter_by(chassis_no=pv.chassis_no).first()
+        if vehicle:
+            vehicle.model_name = pv.product_name
+            vehicle.date = pv.date
+            vehicle.motor_no = pv.motor_no
+            vehicle.controller_no = pv.controller_no
+            vehicle.differential_no = pv.differential_no
+            vehicle.colour = pv.colour
+            vehicle.colour_code = pv.colour_code
+            vehicle.other = pv.other
+        db.session.commit()
+        return jsonify(ser_pv(pv))
+    # DELETE
     vehicle = Vehicle.query.filter_by(chassis_no=pv.chassis_no).first()
     if vehicle and vehicle.stage == "Manufacturing":
         db.session.delete(vehicle)
     db.session.delete(pv)
     db.session.commit()
     return jsonify({"deleted": True})
+
 
 
 # ---------------------------------------------------------------------------
