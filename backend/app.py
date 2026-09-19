@@ -3331,6 +3331,7 @@ def closing_stock_premises():
             if pv and pv.product_name:
                 v.model_name = pv.product_name
     summary = {}
+    for v in vehicles:
         key = f"{v.model_name or '—'}::{v.colour or '—'}"
         summary[key] = summary.get(key, 0) + 1
     return jsonify({"vehicles": [ser_vehicle(v) for v in vehicles],
