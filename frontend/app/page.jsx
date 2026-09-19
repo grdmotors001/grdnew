@@ -15,6 +15,7 @@ import { TaxInvoicePage } from '../components/TaxInvoicePage';
 import { PurchaseBillPage } from '../components/PurchaseBillPage';
 import { OldRickshawPage, BatteryDeliveryChallanPage, JournalStockPage } from '../components/MinorVoucherPages';
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
+import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import {
   ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage,
   StockLedgerPremisesPage, StockLedgerDealersPage,
@@ -58,6 +59,7 @@ const CUSTOM_PAGES = {
   'gst-register': () => <GstRegisterPage />,
   'hypothecation-register': () => <HypothecationRegisterPage />,
   'payment-receivable-report': () => <PaymentReceivablePage />,
+  'incentive-register': () => <IncentiveRegisterPage />,
   'subsidy-report': () => <SubsidyReportPage />,
   ledger: () => <LedgerPage />,
   'day-book': () => <DayBookPage />,
