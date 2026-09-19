@@ -117,6 +117,7 @@ export function OldRickshawPage() {
 
 export function BatterySwapVoucherPage() {
   const [dealers,setDealers]=useState([]),[rows,setRows]=useState([]),[rickshaws,setRickshaws]=useState({new:[],old:[]});
+  const [detailRow,setDetailRow]=useState(null);
   const [form,setForm]=useState({date:today(),dealer_id:'',dealer_name:'',from_type:'new',from_id:'',to_type:'new',to_id:'',remarks:''});
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-swap-vouchers')]);setDealers(d.dealers||[]);setRows(v.records||[]);}catch(e){setError(e.message)}};
@@ -143,7 +144,37 @@ export function BatterySwapVoucherPage() {
       <Field label="To Rickshaw" type="select" value={form.to_id} options={opts(form.to_type)} onChange={v=>{setError('');setForm({...form,to_id:Number(v)})}} required/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
     </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Battery Swap / Exchange'}</button></div></form>
-  </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From</th><th>To</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{dealers.find(d=>d.id===r.dealer_id)?.name||r.dealer_id}</td><td>{r.mode}</td><td>{r.from_type} #{r.from_id}</td><td>{r.to_type} #{r.to_id}</td><td><button className="btn danger" onClick={()=>remove(r.id)} disabled={busy}>Delete</button></td></tr>)}</tbody></table></div></div></div>;
+  </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From Rickshaw</th><th>To Rickshaw</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{dealers.find(d=>d.id===r.dealer_id)?.name||r.dealer_id}</td><td>{r.mode}</td><td><b>{r.from_model_name||'—'}</b><br/><span className="muted">{r.from_chassis_no||r.from_reg_no||('ID '+r.from_id)}</span></td>
+<td><b>{r.to_model_name||'—'}</b><br/><span className="muted">{r.to_chassis_no||r.to_reg_no||('ID '+r.to_id)}</span></td>
+<td style={{display:'flex',gap:6}}>
+  <button className="btn" onClick={()=>setDetailRow(r)}>View</button>
+  <button className="btn danger" onClick={()=>remove(r.id)} disabled={busy}>Delete</button>
+</td></tr>)}</tbody></table></div>
+    {detailRow&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setDetailRow(null)}}>
+      <div className="modalbox" style={{maxWidth:760}}>
+        <h2>Battery Swap / Exchange — {detailRow.voucher_no}</h2>
+        <div className="formgrid">
+          <Field label="Date" value={formatDate(detailRow.date)} readOnly />
+          <Field label="Dealer" value={dealers.find(d=>d.id===detailRow.dealer_id)?.name||detailRow.dealer_id} readOnly />
+          <Field label="Mode" value={detailRow.mode} readOnly />
+          <Field label="From Type" value={detailRow.from_type} readOnly />
+          <Field label="From Model" value={detailRow.from_model_name||'—'} readOnly />
+          <Field label="From Chassis / Reg. No." value={detailRow.from_chassis_no||detailRow.from_reg_no||'—'} readOnly />
+          <Field label="From Battery Maker" value={detailRow.from_battery_maker||'—'} readOnly />
+          <Field label="From Battery Nos." value={(detailRow.from_battery_numbers||[]).filter(Boolean).join(', ')||'—'} readOnly />
+          <Field label="To Type" value={detailRow.to_type} readOnly />
+          <Field label="To Model" value={detailRow.to_model_name||'—'} readOnly />
+          <Field label="To Chassis / Reg. No." value={detailRow.to_chassis_no||detailRow.to_reg_no||'—'} readOnly />
+          <Field label="To Battery Maker" value={detailRow.to_battery_maker||'—'} readOnly />
+          <Field label="To Battery Nos." value={(detailRow.to_battery_numbers||[]).filter(Boolean).join(', ')||'—'} readOnly />
+          <Field label="Remarks" value={detailRow.remarks||'—'} readOnly />
+        </div>
+        <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
+          <button className="btn" onClick={()=>setDetailRow(null)}>Close</button>
+        </div>
+      </div>
+    </div>}
+  </div>;
 }
 
 export function BatteryWithdrawalPage() {
