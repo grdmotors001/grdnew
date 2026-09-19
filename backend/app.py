@@ -1509,6 +1509,24 @@ def loan_workflow_decision(row_id):
 # Setup > Simple masters (Party, Battery Maker, RTO, Financer, Mechanic,
 # Bank, Colour) — one generic CRUD keyed by `kind`, matching SimpleMaster.
 # ---------------------------------------------------------------------------
+def _ensure_simple_master_columns():
+    try:
+        with db.engine.begin() as conn:
+            inspector=inspect(conn)
+            if not inspector.has_table("simple_master"): return
+            columns={x["name"] for x in inspector.get_columns("simple_master")}
+            additions={"color_hex":"VARCHAR(20)","color_hex2":"VARCHAR(20)","is_double_tone":"BOOLEAN DEFAULT FALSE"}
+            for name,sql_type in additions.items():
+                if name not in columns:
+                    if db.engine.dialect.name=="postgresql":
+                        conn.execute(text(f'ALTER TABLE "simple_master" ADD COLUMN IF NOT EXISTS {name} {sql_type}'))
+                    else:
+                        conn.execute(text(f'ALTER TABLE simple_master ADD COLUMN {name} {sql_type}'))
+    except Exception as exc:
+        db.session.rollback()
+        return str(exc)
+    return None
+
 SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour"}
 
 
@@ -1546,6 +1564,7 @@ def _save_simple_master(kind, data, row_id=None):
 @app.route("/api/masters/<kind>", methods=["GET", "POST"])
 @require_auth
 def simple_masters(kind):
+    _ensure_simple_master_columns()
     if kind not in SIMPLE_KINDS:
         return _err(f"Unknown master kind '{kind}'", 404)
 
@@ -1561,6 +1580,7 @@ def simple_masters(kind):
 @app.route("/api/masters/<kind>/<int:row_id>", methods=["PUT", "DELETE"])
 @require_auth
 def simple_masters_detail(kind, row_id):
+    _ensure_simple_master_columns()
     if kind not in SIMPLE_KINDS:
         return _err(f"Unknown master kind '{kind}'", 404)
 
