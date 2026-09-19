@@ -102,7 +102,7 @@ export function ProductionRegisterPage() {
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
 
-  const rows = r.data || [];
+  const rows = r.data.rows || [];
   const setStatus = (status) => r.setExtra({ ...r.extra, status });
 
   const openEdit = (v) => { setEditError(''); setEditRow({ ...v }); };
@@ -147,6 +147,14 @@ export function ProductionRegisterPage() {
               </tr>;
             })}</tbody>
           </table>
+        </div>
+      )}
+
+      {(r.data.total_pages || 1) > 1 && (
+        <div className="actions" style={{ marginTop: 12, justifyContent: 'center', gap: 8 }}>
+          <button className="btn" disabled={r.data.page <= 1} onClick={() => goPage(r.data.page - 1)}>← Prev</button>
+          <span className="muted" style={{ alignSelf: 'center' }}>Page {r.data.page} of {r.data.total_pages} ({r.data.total.toLocaleString()} total)</span>
+          <button className="btn" disabled={r.data.page >= r.data.total_pages} onClick={() => goPage(r.data.page + 1)}>Next →</button>
         </div>
       )}
 
