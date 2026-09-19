@@ -2725,9 +2725,31 @@ def battery_swap_vouchers():
                     "to":ser_old_rickshaw(dst) if tk=="old" else ser_vehicle(dst)}),201
 
 
-@app.route("/api/battery-withdrawal", methods=["GET","POST"])
+@app.route("/api/battery-withdrawal", methods=["GET","POST","DELETE"])
 @require_auth
 def battery_withdrawal():
+    if request.method=="DELETE":
+        movement_id=request.args.get("id",type=int)
+        mov=BatteryStockMovement.query.get_or_404(movement_id)
+        if mov.movement_type!="withdrawal": return _err("Only withdrawal records can be deleted here.")
+        kind=mov.source_type
+        obj=Vehicle.query.get(mov.source_id) if kind=="new" else OldRickshaw.query.get(mov.source_id) if kind=="old" else None
+        if not obj:return _err("Original rickshaw record not found.")
+        # Do not re-fit a battery if a later swap/withdrawal touched this rickshaw.
+        newer=BatteryStockMovement.query.filter(
+            BatteryStockMovement.id>mov.id,
+            BatteryStockMovement.source_type==kind,
+            BatteryStockMovement.source_id==mov.source_id,
+            BatteryStockMovement.movement_type=="withdrawal").first()
+        if newer:return _err("This withdrawal cannot be deleted because a later withdrawal exists for the same rickshaw.")
+        nums=_battery_fields(obj)
+        if mov.battery_no in nums:return _err("This battery is already fitted on the rickshaw.")
+        slot=next((j for j in range(1,5) if not getattr(obj,f"battery_no{j}",None)),None)
+        if not slot:return _err("No empty battery slot is available on the rickshaw.")
+        if not getattr(obj,"battery_maker",None): obj.battery_maker=mov.battery_maker
+        setattr(obj,f"battery_no{slot}",mov.battery_no)
+        db.session.delete(mov);db.session.commit()
+        return jsonify({"deleted":True})
     if request.method=="GET":
         dealer_id=request.args.get("dealer_id",type=int)
         q=BatteryStockMovement.query.filter_by(movement_type="withdrawal")
