@@ -2640,9 +2640,38 @@ def old_rickshaw_sale():
     return jsonify(ser_old_rickshaw(rec))
 
 
-@app.route("/api/battery-swap-vouchers", methods=["GET","POST"])
+@app.route("/api/battery-swap-vouchers", methods=["GET","POST","DELETE"])
 @require_auth
 def battery_swap_vouchers():
+    if request.method=="DELETE":
+        voucher_id=request.args.get("id",type=int)
+        v=BatterySwapVoucher.query.get_or_404(voucher_id)
+        # Only allow deleting the latest swap touching either rickshaw, so a
+        # later swap cannot be silently corrupted.
+        newer=BatterySwapVoucher.query.filter(
+            BatterySwapVoucher.id > v.id,
+            db.or_(
+                db.and_(BatterySwapVoucher.from_type==v.from_type, BatterySwapVoucher.from_id==v.from_id),
+                db.and_(BatterySwapVoucher.to_type==v.from_type, BatterySwapVoucher.to_id==v.from_id),
+                db.and_(BatterySwapVoucher.from_type==v.to_type, BatterySwapVoucher.from_id==v.to_id),
+                db.and_(BatterySwapVoucher.to_type==v.to_type, BatterySwapVoucher.to_id==v.to_id),
+            )).first()
+        if newer:
+            return _err("This swap cannot be deleted because a later battery swap already uses one of these rickshaws.")
+        def obj(kind, ident):
+            return Vehicle.query.get(ident) if kind=="new" else OldRickshaw.query.get(ident)
+        src=obj(v.from_type,v.from_id); dst=obj(v.to_type,v.to_id)
+        if not src or not dst:return _err("Rickshaw record not found.")
+        sb=_battery_fields(src); tb=_battery_fields(dst)
+        if v.mode=="exchange":
+            _battery_set(src,getattr(dst,"battery_maker",None),tb)
+            _battery_set(dst,getattr(src,"battery_maker",None),sb)
+        else:
+            # For a normal swap, the destination received the source battery.
+            _battery_set(src,getattr(dst,"battery_maker",None),tb)
+            _battery_set(dst,None,[None,None,None,None])
+        db.session.delete(v); db.session.commit()
+        return jsonify({"deleted":True})
     if request.method=="GET":
         rows=BatterySwapVoucher.query.order_by(BatterySwapVoucher.date.desc(),BatterySwapVoucher.id.desc()).limit(300).all()
         return jsonify({"records":[{"id":x.id,"voucher_no":x.voucher_no,"date":_iso(x.date),"dealer_id":x.dealer_id,
