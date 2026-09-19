@@ -1337,6 +1337,33 @@ def chassis_rule_update():
 def _ensure_loan_workflow_tables():
     LoanWorkflow.__table__.create(db.engine, checkfirst=True)
     LoanWorkflowLog.__table__.create(db.engine, checkfirst=True)
+    # Older production databases need the billing workflow columns added
+    # before SQLAlchemy selects the full LoanWorkflow row.
+    try:
+        with db.engine.begin() as conn:
+            inspector=inspect(conn)
+            if not inspector.has_table("loan_workflow"): return
+            columns={x["name"] for x in inspector.get_columns("loan_workflow")}
+            additions={
+                "billing_status":"VARCHAR(30) DEFAULT 'NOT_REQUESTED'",
+                "dealer_description":"TEXT",
+                "billing_vehicle_id":"INTEGER",
+                "billing_chassis_no":"VARCHAR(60)",
+                "billing_sale_amount":"DOUBLE PRECISION DEFAULT 0",
+                "billing_requested_at":"TIMESTAMP",
+                "billing_approved_by":"VARCHAR(120)",
+                "billing_approved_at":"TIMESTAMP",
+                "billing_invoice_id":"INTEGER",
+            }
+            for name,sql_type in additions.items():
+                if name not in columns:
+                    if db.engine.dialect.name=="postgresql":
+                        conn.execute(text(f'ALTER TABLE "loan_workflow" ADD COLUMN IF NOT EXISTS {name} {sql_type}'))
+                    else:
+                        conn.execute(text(f'ALTER TABLE loan_workflow ADD COLUMN {name} {sql_type}'))
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[loan-workflow] billing schema check failed: {exc}")
 
 
 def _workflow_expire(row):
@@ -1359,6 +1386,15 @@ def _ser_workflow(row):
         "status": row.status, "do_user_id": row.do_user_id, "fe_user_id": row.fe_user_id,
         "do_remark": row.do_remark, "fe_remark": row.fe_remark,
         "approved_at": _iso(row.approved_at), "do_expiry_at": _iso(row.do_expiry_at),
+        "billing_status": getattr(row,"billing_status","NOT_REQUESTED"),
+        "dealer_description": getattr(row,"dealer_description",None),
+        "billing_vehicle_id": getattr(row,"billing_vehicle_id",None),
+        "billing_chassis_no": getattr(row,"billing_chassis_no",None),
+        "billing_sale_amount": getattr(row,"billing_sale_amount",0) or 0,
+        "billing_requested_at": _iso(getattr(row,"billing_requested_at",None)),
+        "billing_approved_by": getattr(row,"billing_approved_by",None),
+        "billing_approved_at": _iso(getattr(row,"billing_approved_at",None)),
+        "billing_invoice_id": getattr(row,"billing_invoice_id",None),
         "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at),
     }
 
