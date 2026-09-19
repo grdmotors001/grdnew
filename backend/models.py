@@ -40,6 +40,9 @@ class SimpleMaster(db.Model):
     is_default = db.Column(db.Boolean, default=False)  # e.g. the Bank to use on invoices when none is picked explicitly
     ifsc = db.Column(db.String(50))
     extra = db.Column(db.String(300))
+    color_hex = db.Column(db.String(20))       # primary RGB/HEX preview for Colour Master
+    color_hex2 = db.Column(db.String(20))      # optional second tone
+    is_double_tone = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
