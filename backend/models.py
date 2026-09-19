@@ -825,6 +825,12 @@ class ExpensePaymentVoucher(db.Model):
     approved_at = db.Column(db.DateTime)
     rejection_reason = db.Column(db.String(500))
     paid_at = db.Column(db.DateTime)
+    # Work-payment fields: fabrication is model-wise/qty-wise; assembly is
+    # one selected rickshaw per voucher (multi-select creates multiple rows).
+    work_type = db.Column(db.String(30), index=True)          # fabrication / assembly
+    work_model_name = db.Column(db.String(200))
+    work_qty = db.Column(db.Float, default=1)
+    rate_per_unit = db.Column(db.Float, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
