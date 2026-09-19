@@ -69,7 +69,17 @@ export function SimpleMasterPage({ kind }) {
                         <a onClick={() => openEdit(r)} style={{ color: 'var(--accent)', cursor: 'pointer' }}>
                           {String(r[f] ?? '')}
                         </a>
-                      ) : f === 'is_default' ? (r[f] ? 'Yes' : '') : String(r[f] ?? '')}
+                      ) : f === 'is_default' ? (r[f] ? 'Yes' : '') : f === 'is_double_tone' ? (r[f] ? 'Yes' : 'No') : f === 'color_hex' ? (
+                        <span style={{display:'inline-flex',alignItems:'center',gap:7}}>
+                          <span style={{width:24,height:16,borderRadius:4,border:'1px solid var(--border)',background:r.color_hex||'transparent',display:'inline-block'}} />
+                          {r.color_hex||'—'}
+                        </span>
+                      ) : f === 'color_hex2' ? (
+                        <span style={{display:'inline-flex',alignItems:'center',gap:7}}>
+                          <span style={{width:24,height:16,borderRadius:4,border:'1px solid var(--border)',background:r.is_double_tone&&r.color_hex2?r.color_hex2:'transparent',display:'inline-block'}} />
+                          {r.is_double_tone?(r.color_hex2||'—'):'—'}
+                        </span>
+                      ) : String(r[f] ?? '')}
                     </td>
                   ))}
                 </tr>
@@ -86,8 +96,19 @@ export function SimpleMasterPage({ kind }) {
             <div className="formgrid">
               {meta.fields.map(([f, l, type]) => (
                 <Field key={f} label={l} type={type} value={form[f]} onChange={(v) => setForm({ ...form, [f]: v })} required={f === 'name'} />
+              
               ))}
             </div>
+            {kind === 'colour' && <div className="card" style={{gridColumn:'1 / -1',padding:12}}>
+                <b>Colour Preview</b>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginTop:10}}>
+                  <div style={{width:110,height:42,borderRadius:8,border:'1px solid var(--border)',
+                    background:form.is_double_tone&&form.color_hex2
+                      ? `linear-gradient(90deg,${form.color_hex||'#fff'} 0 50%,${form.color_hex2} 50% 100%)`
+                      : (form.color_hex||'transparent')}} />
+                  <span className="muted">{form.is_double_tone?'Double Tone':'Single Tone'}</span>
+                </div>
+              </div>}
             <div className="actions" style={{ marginTop: 18, justifyContent: 'space-between' }}>
               {editingId ? (
                 <button type="button" className="btn danger" disabled={busy} onClick={() => remove(editingId)}>Delete</button>
