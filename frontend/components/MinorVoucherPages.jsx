@@ -12,7 +12,7 @@ export function OldRickshawPage() {
   const [form,setForm]=useState({date:today(),source:'manual'}),[sale,setSale]=useState({sale_date:today()});
   const {busy,error,setError,run}=useAsyncAction();
 
-  const load=()=>get('/old-rickshaws?status='+encodeURIComponent('available')).then(d=>setData(d)).catch(e=>setError(e.message));
+  const load=()=>get('/old-rickshaws').then(d=>setData(d)).catch(e=>setError(e.message));
   useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});},[]);
 
   const openNew=()=>{setForm({date:today(),source:'manual',record_no:data?.suggested_record_no||''});setOpen(true);};
@@ -30,11 +30,11 @@ export function OldRickshawPage() {
     <ErrorBanner message={!open&&!saleOpen?error:''}/>
     {data.records.length===0?<EmptyState text="No Old Rickshaw currently available in GRD stock."/>:
       <div className="tablewrap"><table className="table"><thead><tr>
-        <th>Record No.</th><th>Date</th><th>Source</th><th>Reg. No.</th><th>Model</th><th>Battery</th><th>Purchase Amt.</th><th>SP No.</th><th>Action</th>
+        <th>Record No.</th><th>Date</th><th>Status</th><th>Source</th><th>Reg. No.</th><th>Model</th><th>Battery</th><th>Purchase Amt.</th><th>SP No.</th><th>Action</th>
       </tr></thead><tbody>{data.records.map(r=><tr key={r.id}>
-        <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td><td><b>{r.vehicle_reg_no}</b></td><td>{r.model_name}</td>
+        <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td><td><b>{r.vehicle_reg_no}</b></td><td>{r.model_name}</td>
         <td>{r.has_battery?'Yes':'No'}</td><td><Money value={r.purchase_amount}/></td><td>{r.sp_no||'—'}</td>
-        <td><button className="btn primary" onClick={()=>openSale(r)}>Sale to Dealer</button> <button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td>
+        <td>{r.status==='available'&&<button className="btn primary" onClick={()=>openSale(r)}>Sale to Dealer</button>} <button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td>
       </tr>)}</tbody></table></div>}
     {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
       <h2>Old Rickshaw Purchase / Opening</h2><ErrorBanner message={error}/>
