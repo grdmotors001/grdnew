@@ -207,6 +207,14 @@ class Vehicle(db.Model):
     colour_code = db.Column(db.String(20))
     other = db.Column(db.String(60))
 
+    # Battery set currently fitted on the vehicle. These fields are kept on
+    # Vehicle so battery swap/withdrawal works for both new and old rickshaws.
+    battery_maker = db.Column(db.String(120))
+    battery_no1 = db.Column(db.String(60))
+    battery_no2 = db.Column(db.String(60))
+    battery_no3 = db.Column(db.String(60))
+    battery_no4 = db.Column(db.String(60))
+
     stage = db.Column(db.String(30), default="Manufacturing")  # Manufacturing / Delivery Challan / Tax Invoice
     dealer_name = db.Column(db.String(200))
 
@@ -584,31 +592,100 @@ class OldRickshaw(db.Model):
     used vehicle already registered with the RTO.
     """
     id = db.Column(db.Integer, primary_key=True)
+    # Record No. is the normal running serial for GRD's Old Rickshaw register.
+    record_no = db.Column(db.Integer, index=True)
     vou_no = db.Column(db.String(20))
     date = db.Column(db.Date)
 
-    party_name = db.Column(db.String(200))       # AMN — ledger/account this is booked against
-    vehicle_reg_no = db.Column(db.String(30))     # VEHNO
-    model_name = db.Column(db.String(200))         # IMN
-    owner_name = db.Column(db.String(200))         # ONAME — person who owned/sold it
-    salesman = db.Column(db.String(100))            # SNAME
+    # Purchase/source side
+    source = db.Column(db.String(20), default="manual")       # manual / chfpl
+    chfpl_ref_no = db.Column(db.String(60))
+    party_name = db.Column(db.String(200))
+    purchase_ref_no = db.Column(db.String(60))
+    purchase_amount = db.Column(db.Float, default=0)
+    file_charge = db.Column(db.Float, default=0)
 
-    sold_amount = db.Column(db.Float, default=0)     # SOLDAMT
-    loan_amount = db.Column(db.Float, default=0)      # LOANAMT
-    receipt_amount = db.Column(db.Float, default=0)    # RCPTAMT
-    receipt_no = db.Column(db.String(30))               # RNO
+    # Vehicle identity
+    vehicle_reg_no = db.Column(db.String(30))
+    model_name = db.Column(db.String(200))
+    owner_name = db.Column(db.String(200))
+    salesman = db.Column(db.String(100))
+
+    # Battery fitted on the old rickshaw
+    battery_maker = db.Column(db.String(120))
+    battery_no1 = db.Column(db.String(60))
+    battery_no2 = db.Column(db.String(60))
+    battery_no3 = db.Column(db.String(60))
+    battery_no4 = db.Column(db.String(60))
+
+    # Old-rickshaw sale: no Tax Invoice is created for this sale.
+    status = db.Column(db.String(20), default="available")  # available / sold / cancelled
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+    dealer = db.relationship("Dealer")
+    sale_date = db.Column(db.Date)
+    sale_dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+    sale_dealer = db.relationship("Dealer", foreign_keys=[sale_dealer_id])
+    sale_ref_no = db.Column(db.String(60))
+    sale_amount = db.Column(db.Float, default=0)
+    loan_amount = db.Column(db.Float, default=0)
+    down_payment = db.Column(db.Float, default=0)
+    sold_to = db.Column(db.String(200))
+
+    # Dealer's own register/page reference. Same sequence is used for new and old.
+    dealer_page_no = db.Column(db.String(40))
+    # SP No. is the manual Sale-Purchase register reference used only for old rickshaws.
+    sp_no = db.Column(db.String(60))
+
+    # Legacy receipt/ledger fields retained for existing records.
+    sold_amount = db.Column(db.Float, default=0)
+    receipt_amount = db.Column(db.Float, default=0)
+    receipt_no = db.Column(db.String(30))
     ledger = db.Column(db.String(200))
-
-    resale_date = db.Column(db.Date)               # SDT — if/when resold
+    resale_date = db.Column(db.Date)
     resale_ledger = db.Column(db.String(200))
-
     remarks1 = db.Column(db.String(300))
     remarks2 = db.Column(db.String(300))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     @property
     def balance_amount(self):
-        return round((self.sold_amount or 0) - (self.receipt_amount or 0), 2)
+        return round((self.sold_amount or self.sale_amount or 0) - (self.receipt_amount or 0), 2)
+
+
+class BatteryStockMovement(db.Model):
+    """
+    Battery movement ledger. It supports batteries received into dealer stock
+    through a rickshaw withdrawal and batteries moved between rickshaws.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, default=datetime.utcnow().date)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    dealer = db.relationship("Dealer")
+    battery_maker = db.Column(db.String(120))
+    battery_no = db.Column(db.String(60), nullable=False, index=True)
+    qty = db.Column(db.Integer, default=1)
+    movement_type = db.Column(db.String(30), nullable=False)  # withdrawal / return / opening
+    source_type = db.Column(db.String(20))                    # new / old / manual
+    source_id = db.Column(db.Integer)
+    reference_no = db.Column(db.String(60))
+    remarks = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class BatterySwapVoucher(db.Model):
+    """Audit record for a battery swap/exchange between two rickshaws."""
+    id = db.Column(db.Integer, primary_key=True)
+    voucher_no = db.Column(db.String(30), unique=True)
+    date = db.Column(db.Date)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    dealer = db.relationship("Dealer")
+    from_type = db.Column(db.String(10), nullable=False)       # new / old
+    from_id = db.Column(db.Integer, nullable=False)
+    to_type = db.Column(db.String(10), nullable=False)         # new / old
+    to_id = db.Column(db.Integer, nullable=False)
+    mode = db.Column(db.String(20), default="swap")             # swap / exchange
+    remarks = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 class BatteryDeliveryChallan(db.Model):
