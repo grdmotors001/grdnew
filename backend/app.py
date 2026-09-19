@@ -673,7 +673,9 @@ def ser_product(p):
 def ser_simple(row):
     return {"id": row.id, "kind": row.kind, "name": row.name, "code": row.code,
             "address": row.address, "mobile": row.mobile, "account_no": row.account_no,
-            "is_default": row.is_default, "ifsc": row.ifsc, "extra": row.extra}
+            "is_default": row.is_default, "ifsc": row.ifsc, "extra": row.extra,
+            "color_hex": getattr(row, "color_hex", None), "color_hex2": getattr(row, "color_hex2", None),
+            "is_double_tone": bool(getattr(row, "is_double_tone", False))}
 
 
 def ser_chassis_month(row):
@@ -1522,6 +1524,10 @@ def _save_simple_master(kind, data, row_id=None):
     row.account_no = data.get("account_no")
     row.ifsc = data.get("ifsc")
     row.extra = data.get("extra")
+    if kind == "colour":
+        row.color_hex = (data.get("color_hex") or "").strip() or None
+        row.is_double_tone = bool(data.get("is_double_tone"))
+        row.color_hex2 = (data.get("color_hex2") or "").strip() or None if row.is_double_tone else None
     if "is_default" in data:
         row.is_default = bool(data.get("is_default"))
         db.session.add(row)
