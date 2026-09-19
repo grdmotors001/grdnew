@@ -10,7 +10,7 @@ export function ProductionVoucherPage() {
   const [data, setData] = useState(null);
   const [products, setProducts] = useState([]);
   const [formulas, setFormulas] = useState([]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false);\n  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ date: today(), quantity: 1 });
   const [bomPreview, setBomPreview] = useState(null);
   const [page, setPage] = useState(1);
@@ -46,7 +46,16 @@ export function ProductionVoucherPage() {
 
   const rows = data?.vouchers || [];
 
-  const openNew = () => { setForm({ date: today(), quantity: 1, formula_name: '' }); setBomPreview(null); setOpen(true); };
+  const openNew = () => { setEditingId(null); setForm({ date: today(), quantity: 1, formula_name: '' }); setBomPreview(null); setOpen(true); };
+  const openEdit = async (id) => {
+    try {
+      const d = await get(`/production-vouchers/${id}`);
+      setEditingId(id);
+      setForm(d.voucher || d);
+      setBomPreview(null);
+      setOpen(true);
+    } catch (e) { setError(e.message); }
+  };
 
   const generateCode = () => {
     if (!form.product_name) { setError('Choose a product first.'); return; }
@@ -98,7 +107,7 @@ export function ProductionVoucherPage() {
       {!data ? <div className="card">Loading…</div> : rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Chassis No.</th><th>Motor No.</th><th>Colour</th><th>Raw Material Lines</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Vou. No.</th><th>Model Name</th><th>Chassis No.</th><th>Motor No.</th><th>Colour</th><th>Raw Material Lines</th><th></th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -126,7 +135,7 @@ export function ProductionVoucherPage() {
       {open && (
         <div className="modal">
           <form className="modalbox" onSubmit={save} style={{ maxWidth: 720 }}>
-            <h2>New Production Voucher</h2>
+            <h2>{editingId ? "Edit Production Voucher" : "New Production Voucher"}</h2>
             <ErrorBanner message={error} />
             <div className="formgrid">
               <Field label="Finished Product" type="select" value={form.product_name}
