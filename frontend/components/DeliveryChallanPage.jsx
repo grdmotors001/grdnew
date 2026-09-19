@@ -64,6 +64,7 @@ export function DeliveryChallanPage() {
   const [data, setData] = useState(null);
   const [dealers, setDealers] = useState([]);
   const [batteryMakers, setBatteryMakers] = useState([]);
+  const [colourMasters, setColourMasters] = useState([]);
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
   const [form, setForm] = useState({ date: today(), ...blankAccessories() });
@@ -82,12 +83,21 @@ export function DeliveryChallanPage() {
     load(1, search);
     get('/dealers').then((d) => setDealers(d.dealers || []));
     get('/masters/battery-maker').then((rows) => setBatteryMakers(rows || [])).catch(() => {});
+    get('/masters/colour').then((rows) => setColourMasters(rows || [])).catch(() => {});
   }, []);
 
   const goToPage = (p) => { setPage(p); load(p, search); };
   const runSearch = (e) => { e.preventDefault(); setPage(1); load(1, search); };
 
   const dealerById = (id) => dealers.find((d) => String(d.id) === String(id));
+  const colourMeta = (name) => colourMasters.find((x) => String(x.name||'').trim().toLowerCase() === String(name||'').trim().toLowerCase());
+  const colourPreview = (name) => {
+    const x=colourMeta(name);
+    if (!x?.color_hex) return null;
+    return {background:x.is_double_tone&&x.color_hex2
+      ? `linear-gradient(90deg,${x.color_hex} 0 50%,${x.color_hex2} 50% 100%)`
+      : x.color_hex};
+  };
 
   const applyDealer = (value, baseForm = form) => {
     const dealer = dealers.find((d) =>
@@ -260,6 +270,10 @@ export function DeliveryChallanPage() {
 
               <Field label="Destination" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} />
               <Field label="Salesman" value={form.salesman} readOnly />
+              <div className="field"><label>Colour</label><div style={{display:'flex',alignItems:'center',gap:8}}>
+                <div style={{width:42,height:28,borderRadius:6,border:'1px solid var(--border)',background:colourPreview(selectedVehicle?.colour)?.background||'transparent'}} />
+                <input value={selectedVehicle?.colour||form.colour||''} readOnly style={{background:'var(--surface-2)',flex:1}} />
+              </div></div>
 
               <div style={{ gridColumn: '1 / -1' }}>
                 <VehicleDetails vehicle={selectedVehicle} />
@@ -305,7 +319,10 @@ export function DeliveryChallanPage() {
               <Field label="Salesman" value={editRow.salesman} onChange={(v) => setEditRow({ ...editRow, salesman: v })} />
               <Field label="Chassis No." value={editRow.chassis_no} readOnly />
               <Field label="Model Name" value={editRow.product_name} readOnly />
-              <Field label="Colour" value={editRow.colour} readOnly />
+              <div className="field"><label>Colour</label><div style={{display:'flex',alignItems:'center',gap:8}}>
+                <div style={{width:42,height:28,borderRadius:6,border:'1px solid var(--border)',background:colourPreview(editRow.colour)?.background||'transparent'}} />
+                <input value={editRow.colour||''} readOnly style={{background:'var(--surface-2)',flex:1}} />
+              </div></div>
               <Field label="Motor No." value={editRow.motor_no} readOnly />
               <Field label="Formula Name" value={formVehicle?.formula_name} readOnly />
               <Field label="Battery Maker" type="select" value={editRow.battery_maker}
