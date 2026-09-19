@@ -8,16 +8,17 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 export function OldRickshawPage() {
   const [data,setData]=useState(null),[dealers,setDealers]=useState([]);
-  const [open,setOpen]=useState(false),[saleOpen,setSaleOpen]=useState(false),[saleRow,setSaleRow]=useState(null);
+  const [open,setOpen]=useState(false),[saleOpen,setSaleOpen]=useState(false),[dispatchOpen,setDispatchOpen]=useState(false),[saleRow,setSaleRow]=useState(null);
   const emptyForm={date:today(),source:'manual',record_no:'',vou_no:'',chfpl_ref_no:'',party_name:'',purchase_ref_no:'',
     vehicle_reg_no:'',model_name:'',owner_name:'',salesman:'',purchase_amount:'',file_charge:'',
     battery_maker:'',battery_no1:'',battery_no2:'',battery_no3:'',battery_no4:'',sp_no:'',dealer_page_no:'',
     challan_no:'',ledger_date:'',sale_type:'',do_number:'',chassis_no:'',charger:'',mat:'',jack:'',
     centre_lock:'',big_mirror:'',colour:'',toolkit:'',stepney:'',out_name:'',remarks1:'',remarks2:''};
-  const emptySale={sale_date:today(),dealer_id:'',sale_amount:'',file_charge:'',loan_amount:'',down_payment:'',
+  const emptySale={sale_date:today(),dealer_id:'',sold_to:'',sale_amount:'',file_charge:'',loan_amount:'',down_payment:'',
     dealer_page_no:'',sp_no:'',sale_ref_no:'',sale_type:'',do_number:'',out_name:'',receipt_amount:'',
     receipt_no:'',ledger:'',resale_date:'',resale_ledger:''};
   const [form,setForm]=useState(emptyForm),[sale,setSale]=useState(emptySale);
+  const [dispatch,setDispatch]=useState({date:today(),old_rickshaw_id:'',dealer_id:'',challan_no:''});
   const {busy,error,setError,run}=useAsyncAction();
 
   const load=()=>get('/old-rickshaws').then(setData).catch(e=>setError(e.message));
@@ -25,7 +26,9 @@ export function OldRickshawPage() {
 
   const openNew=()=>{setForm({...emptyForm,date:today(),record_no:data?.suggested_record_no||'',vou_no:data?.suggested_vou_no||''});setOpen(true);};
   const save=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaws',form);setOpen(false);load();});};
-  const openSale=r=>{setSaleRow(r);setSale({...emptySale,sale_date:today(),sale_amount:r.sale_amount||r.purchase_amount||'',file_charge:r.file_charge||'',dealer_page_no:r.dealer_page_no||'',sp_no:r.sp_no||'',receipt_amount:r.receipt_amount||'',receipt_no:r.receipt_no||'',ledger:r.ledger||'',resale_date:r.resale_date||'',resale_ledger:r.resale_ledger||'',sale_type:r.sale_type||'',do_number:r.do_number||'',out_name:r.out_name||''});setSaleOpen(true);};
+  const openDispatch=()=>{setDispatch({date:today(),old_rickshaw_id:'',dealer_id:'',challan_no:''});setDispatchOpen(true);};
+  const saveDispatch=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaw-delivery-challans',dispatch);setDispatchOpen(false);load();});};
+  const openSale=r=>{setSaleRow(r);setSale({...emptySale,sale_date:today(),sold_to:r.sold_to||'',sale_amount:r.sale_amount||r.purchase_amount||'',file_charge:r.file_charge||'',dealer_page_no:r.dealer_page_no||'',sp_no:r.sp_no||'',receipt_amount:r.receipt_amount||'',receipt_no:r.receipt_no||'',ledger:r.ledger||'',resale_date:r.resale_date||'',resale_ledger:r.resale_ledger||'',sale_type:r.sale_type||'',do_number:r.do_number||'',out_name:r.out_name||''});setSaleOpen(true);};
   const saveSale=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaws/sale',{...sale,id:saleRow.id});setSaleOpen(false);setSaleRow(null);load();});};
   const remove=id=>{if(!confirm('Delete this record?'))return;run(async()=>{await del('/old-rickshaws/'+id);load();});};
 
@@ -33,14 +36,15 @@ export function OldRickshawPage() {
   return <>
     <div className="actions" style={{marginBottom:14}}>
       <button className="btn primary" onClick={openNew}>+ Purchase / Available Old Rickshaw</button>
+      <button className="btn" onClick={openDispatch}>+ Factory Old Rickshaw Challan</button>
       <span className="muted" style={{alignSelf:'center'}}>Old Rickshaw register: Excel/legacy fields are available for both opening and sale entries.</span>
     </div>
     <ErrorBanner message={!open&&!saleOpen?error:''}/>
     {data.records.length===0?<EmptyState text="No Old Rickshaw currently available in GRD stock."/>:
       <div className="tablewrap"><table className="table"><thead><tr>
-        <th>Record No.</th><th>Date</th><th>Ledger Date</th><th>Vou. No.</th><th>Status</th><th>Source</th><th>Reg. No.</th><th>Owner</th><th>Model</th><th>Sales Man</th><th>Sale Type</th><th>DO No.</th><th>Chassis No.</th><th>Battery</th><th>Colour</th><th>Purchase Amt.</th><th>Sold Amt.</th><th>Loan Amt.</th><th>Received</th><th>Balance</th><th>SP No.</th><th>Out Name</th><th>Action</th>
+        <th>Record No.</th><th>Date</th><th>Ledger Date</th><th>Dealer</th><th>Factory Challan</th><th>Salesman</th><th>Vou. No.</th><th>Status</th><th>Source</th><th>Reg. No.</th><th>Owner</th><th>Model</th><th>Sales Man</th><th>Sale Type</th><th>DO No.</th><th>Chassis No.</th><th>Battery</th><th>Colour</th><th>Purchase Amt.</th><th>Sold Amt.</th><th>Loan Amt.</th><th>Received</th><th>Balance</th><th>SP No.</th><th>Out Name</th><th>Action</th>
       </tr></thead><tbody>{data.records.map(r=><tr key={r.id}>
-        <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.ledger_date?formatDate(r.ledger_date):'—'}</td><td>{r.vou_no||'—'}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td>
+        <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.ledger_date?formatDate(r.ledger_date):'—'}</td><td>{r.dealer_name||r.factory_dealer_name||'—'}</td><td>{r.factory_challan_no||'—'}</td><td>{r.dealer_salesman||r.factory_salesman||r.salesman||'—'}</td><td>{r.vou_no||'—'}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td>
         <td><b>{r.vehicle_reg_no||'—'}</b></td><td>{r.owner_name||'—'}</td><td>{r.model_name||'—'}</td><td>{r.salesman||'—'}</td><td>{r.sale_type||'—'}</td><td>{r.do_number||'—'}</td><td>{r.chassis_no||'—'}</td>
         <td>{r.has_battery?'Yes':'No'}</td><td>{r.colour||'—'}</td><td><Money value={r.purchase_amount}/></td><td><Money value={r.sold_amount||r.sale_amount}/></td><td><Money value={r.loan_amount}/></td><td><Money value={r.receipt_amount}/></td><td><Money value={r.balance_amount}/></td><td>{r.sp_no||'—'}</td><td>{r.out_name||r.sold_to||'—'}</td>
         <td>{r.status==='available'&&<button className="btn primary" onClick={()=>openSale(r)}>Sale to Dealer</button>} <button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td>
@@ -99,6 +103,7 @@ export function OldRickshawPage() {
         <Field label="Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSale({...sale,loan_amount:v})}/>
         <Field label="Down Payment" type="number" value={sale.down_payment} onChange={v=>setSale({...sale,down_payment:v})}/>
         <Field label="File Charge" type="number" value={sale.file_charge} onChange={v=>setSale({...sale,file_charge:v})}/>
+        <Field label="Sale to New Customer Name" value={sale.sold_to} onChange={v=>setSale({...sale,sold_to:v})} required/>
         <Field label="Dealer Page No." value={sale.dealer_page_no} onChange={v=>setSale({...sale,dealer_page_no:v})}/>
         <Field label="SP No. (Old Register)" value={sale.sp_no} onChange={v=>setSale({...sale,sp_no:v})}/>
         <Field label="Sale Ref No." value={sale.sale_ref_no} onChange={v=>setSale({...sale,sale_ref_no:v})}/>
@@ -112,6 +117,18 @@ export function OldRickshawPage() {
       </div>
       <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setSaleOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Sale'}</button></div>
     </form></div>}
+    {dispatchOpen&&<div className="modal"><form className="modalbox" onSubmit={saveDispatch}>
+<h2>Old Rickshaw Factory Delivery Challan</h2><ErrorBanner message={error}/>
+      <p className="muted">Separate challan for dispatching an old rickshaw from GRD factory to a dealer. Salesman is fetched automatically from Dealer Master.</p>
+      <div className="formgrid">
+        <Field label="Challan No." value={dispatch.challan_no} onChange={v=>setDispatch({...dispatch,challan_no:v})} />
+        <Field label="Date" type="date" value={dispatch.date} onChange={v=>setDispatch({...dispatch,date:v})}/>
+        <Field label="Old Rickshaw" type="select" value={dispatch.old_rickshaw_id} options={data.records.filter(r=>r.status!=='sold').map(r=>({value:r.id,label:(r.vehicle_reg_no||r.chassis_no||r.record_no)+' — '+(r.model_name||'')}))} onChange={v=>setDispatch({...dispatch,old_rickshaw_id:Number(v)})} required/>
+        <Field label="Dealer" type="select" value={dispatch.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setDispatch({...dispatch,dealer_id:Number(v)})} required/>
+        <Field label="Salesman" value={dealers.find(d=>String(d.id)===String(dispatch.dealer_id))?.salesman||''} onChange={()=>{}} />
+      </div>
+      <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setDispatchOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Create Old Rickshaw Challan'}</button></div>
+    </form></div>
   </>;
 }
 
