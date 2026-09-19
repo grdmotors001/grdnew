@@ -2010,7 +2010,8 @@ def delivery_challans():
         ]
         dc = DeliveryChallan(
             challan_no=data.get("challan_no"), date=_parse_date(data.get("date")) or date.today(),
-            dealer_id=dealer.id, vehicle_id=vehicle.id, destination=data.get("destination"),
+            dealer_id=dealer.id, vehicle_id=vehicle.id,
+            destination=data.get("destination") or " ".join(x for x in [dealer.address1, dealer.address2] if x),
             product_name=vehicle.model_name, chassis_no=vehicle.chassis_no,
             motor_no=vehicle.motor_no, controller_no=vehicle.controller_no,
             differential_no=vehicle.differential_no, colour=vehicle.colour, other=vehicle.other,
@@ -2021,8 +2022,11 @@ def delivery_challans():
             charger=bool(data.get("charger", True)), center_lock=bool(data.get("center_lock", False)),
             mat=bool(data.get("mat", True)), stapney=bool(data.get("stapney", False)),
             front_glass=bool(data.get("front_glass", False)), h_lock=bool(data.get("h_lock", False)),
-            salesman=data.get("salesman"), sale_bill_no=data.get("sale_bill_no"),
-            sale_value=_f(data.get("sale_value")), dealer_page_no=(data.get("dealer_page_no") or "").strip() or None, remarks1=data.get("remarks1"),
+            salesman=data.get("salesman") or dealer.salesman,
+            sale_bill_no=data.get("sale_bill_no"),
+            sale_value=_f(data.get("sale_value")),
+            dealer_page_no=(data.get("dealer_page_no") or "").strip() or None,
+            remarks1=data.get("remarks1"),
             remarks2=data.get("remarks2"),
         )
         db.session.add(dc)
@@ -2071,6 +2075,21 @@ def delivery_challans():
     # available_vehicles is inherently small (only vehicles still in the
     # Manufacturing stage, not the whole history) -- fine to send in full.
     available_vehicles = Vehicle.query.filter_by(stage="Manufacturing").order_by(Vehicle.chassis_no).all()
+    # Formula name is stored on the Production Voucher, not Vehicle.
+    available_chassis = [v.chassis_no for v in available_vehicles if v.chassis_no]
+    formula_by_chassis = {}
+    if available_chassis:
+        formula_by_chassis = {
+            pv.chassis_no: pv.formula_name
+            for pv in ProductionVoucher.query.filter(ProductionVoucher.chassis_no.in_(available_chassis)).all()
+            if pv.formula_name
+        }
+    available_payload = []
+    for v in available_vehicles:
+        row = ser_vehicle(v)
+        row["formula_name"] = formula_by_chassis.get(v.chassis_no)
+        available_payload.append(row)
+
     next_no = (db.session.query(db.func.max(DeliveryChallan.id)).scalar() or 0) + 1
     return jsonify({
         "challans": out,
@@ -2078,7 +2097,7 @@ def delivery_challans():
         "per_page": per_page,
         "total": total,
         "total_pages": (total + per_page - 1) // per_page if total else 1,
-        "available_vehicles": [ser_vehicle(v) for v in available_vehicles],
+        "available_vehicles": available_payload,
         "suggested_challan_no": f"DC{next_no + 16500}",
     })
 
@@ -2131,28 +2150,21 @@ def delivery_challan_detail(challan_id):
         new_vehicle.stage = "Delivery Challan"
         new_vehicle.dealer_name = new_dealer.name
 
-    dc.challan_no = data.get("challan_no") or dc.challan_no
-    dc.date = _parse_date(data.get("date")) or dc.date
-    dc.destination = data.get("destination")
-    dc.battery_maker = data.get("battery_maker")
-    dc.battery_no1 = data.get("battery_no1")
-    dc.battery_no2 = data.get("battery_no2")
-    dc.battery_no3 = data.get("battery_no3")
-    dc.battery_no4 = data.get("battery_no4")
-    dc.toolkit = bool(data.get("toolkit", dc.toolkit))
-    dc.jack = bool(data.get("jack", dc.jack))
-    dc.charger = bool(data.get("charger", dc.charger))
-    dc.center_lock = bool(data.get("center_lock", dc.center_lock))
-    dc.mat = bool(data.get("mat", dc.mat))
-    dc.stapney = bool(data.get("stapney", dc.stapney))
-    dc.front_glass = bool(data.get("front_glass", dc.front_glass))
-    dc.h_lock = bool(data.get("h_lock", dc.h_lock))
-    dc.salesman = data.get("salesman")
-    dc.sale_bill_no = data.get("sale_bill_no")
-    dc.sale_value = _f(data.get("sale_value"))
-    dc.dealer_page_no = (data.get("dealer_page_no") or "").strip() or None
-    dc.remarks1 = data.get("remarks1")
-    dc.remarks2 = data.get("remarks2")
+    if "challan_no" in data: dc.challan_no = data.get("challan_no") or dc.challan_no
+    if "date" in data: dc.date = _parse_date(data.get("date")) or dc.date
+    if "destination" in data: dc.destination = data.get("destination")
+    # Never erase a historical battery snapshot just because an older client
+    # omitted these fields from its PUT payload.
+    for field in ("battery_maker", "battery_no1", "battery_no2", "battery_no3", "battery_no4"):
+        if field in data: setattr(dc, field, data.get(field))
+    for field in ("toolkit", "jack", "charger", "center_lock", "mat", "stapney", "front_glass", "h_lock"):
+        if field in data: setattr(dc, field, bool(data.get(field)))
+    if "salesman" in data: dc.salesman = data.get("salesman")
+    if "sale_bill_no" in data: dc.sale_bill_no = data.get("sale_bill_no")
+    if "sale_value" in data: dc.sale_value = _f(data.get("sale_value"), dc.sale_value)
+    if "dealer_page_no" in data: dc.dealer_page_no = (data.get("dealer_page_no") or "").strip() or None
+    if "remarks1" in data: dc.remarks1 = data.get("remarks1")
+    if "remarks2" in data: dc.remarks2 = data.get("remarks2")
     db.session.commit()
     return jsonify(ser_dc(dc))
 
@@ -3082,7 +3094,7 @@ def delivery_challan_register():
     if is_export:
         challans = query.order_by(DeliveryChallan.date.desc(), DeliveryChallan.id.desc()).all()
     else:
-        challans = (query.order_by(DeliveryChallan.date.desc(), DeliveryChallan.id.desc())
+        challans = (query.order_by(DeliveryChallan.date.asc(), DeliveryChallan.id.asc())
                     .offset((page - 1) * per_page).limit(per_page).all())
 
     page_ids = [c.id for c in challans]
@@ -3120,6 +3132,8 @@ def delivery_challan_register():
         row = ser_dc(c)
         row["bill_no"] = bill_no_by_challan.get(c.id)
         row["item_amount"] = item_amount_by_challan.get(c.id)
+        row["sale_value"] = item_amount_by_challan.get(c.id)
+        row["sold"] = c.id in invoiced
         out.append(row)
 
     filter_options = {
@@ -3775,6 +3789,7 @@ def delivery_challan_print(challan_id):
 
     dealer = Dealer.query.get(dc.dealer_id) if dc.dealer_id else None
     product = Product.query.filter_by(name=dc.product_name).first() if dc.product_name else None
+    production = ProductionVoucher.query.filter_by(chassis_no=dc.chassis_no).first() if dc.chassis_no else None
 
     # Build the payload directly from the challan columns instead of calling
     # ser_dc(), which dereferences c.dealer and can trigger a separate lazy
@@ -3787,7 +3802,8 @@ def delivery_challan_print(challan_id):
         "dealer_mobile": dealer.mobile if dealer else None,
         "dealer_gst_no": dealer.gst_no if dealer else None,
         "vehicle_id": dc.vehicle_id, "destination": dc.destination,
-        "product_name": dc.product_name, "chassis_no": dc.chassis_no,
+        "product_name": dc.product_name, "formula_name": production.formula_name if production else None,
+        "chassis_no": dc.chassis_no,
         "motor_no": dc.motor_no, "controller_no": dc.controller_no,
         "differential_no": dc.differential_no, "colour": dc.colour,
         "other": dc.other, "battery_maker": dc.battery_maker,
