@@ -70,8 +70,8 @@ const CUSTOM_PAGES = {
   'hr-attendance': () => <HRAttendancePage />,
 };
 
-function PageRouter({ active, setActive, optionUserId, setOptionUserId }) {
-  if (active === 'dashboard') return <Dashboard setActive={setActive} />;
+function PageRouter({ active, setActive, optionUserId, setOptionUserId, user }) {
+  if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
   if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} />;
   const render = CUSTOM_PAGES[active];
   if (render) return render({ setActive, optionUserId, setOptionUserId });
