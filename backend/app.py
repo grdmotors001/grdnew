@@ -2585,7 +2585,7 @@ def purchase_register():
                          "item_name": it.item_name, "hsn": it.hsn_code, "taxable_amt": it.taxable_amt,
                          "gst_rate": it.gst_rate, "is_inter_state": it.is_inter_state,
                          "cgst_amt": it.cgst_amt, "sgst_amt": it.sgst_amt, "igst_amt": it.igst_amt})
-    if request.args.get("export") == "csv":
+    if is_export:
         headers = ["Date", "Bill No.", "Party Name", "Item Name", "HSN", "Taxable Amt", "CGST Amt", "SGST Amt", "IGST Amt"]
         return _csv_response("Purchase_Register.csv", headers,
                               [[r["date"], r["bill_no"], r["party_name"], r["item_name"], r["hsn"] or "",
@@ -2660,9 +2660,13 @@ def delivery_challan_register():
         if value and value != "ALL":
             query = query.filter(column == value)
 
+    is_export = request.args.get("export") == "csv"
     total = query.count()
-    challans = (query.order_by(DeliveryChallan.date.desc(), DeliveryChallan.id.desc())
-                .offset((page - 1) * per_page).limit(per_page).all())
+    if is_export:
+        challans = query.order_by(DeliveryChallan.date.desc(), DeliveryChallan.id.desc()).all()
+    else:
+        challans = (query.order_by(DeliveryChallan.date.desc(), DeliveryChallan.id.desc())
+                    .offset((page - 1) * per_page).limit(per_page).all())
 
     page_ids = [c.id for c in challans]
     invoiced = {}
@@ -2701,12 +2705,19 @@ def delivery_challan_register():
         row["item_amount"] = item_amount_by_challan.get(c.id)
         out.append(row)
 
+    filter_options = {
+        "product": [x[0] for x in db.session.query(DeliveryChallan.product_name).filter(DeliveryChallan.product_name.isnot(None)).distinct().order_by(DeliveryChallan.product_name).all()],
+        "dealer": [x[0] for x in db.session.query(Dealer.name).filter(Dealer.name.isnot(None)).distinct().order_by(Dealer.name).all()],
+        "salesman": [x[0] for x in db.session.query(DeliveryChallan.salesman).filter(DeliveryChallan.salesman.isnot(None)).distinct().order_by(DeliveryChallan.salesman).all()],
+        "battery": [x[0] for x in db.session.query(DeliveryChallan.battery_maker).filter(DeliveryChallan.battery_maker.isnot(None)).distinct().order_by(DeliveryChallan.battery_maker).all()],
+    }
     return jsonify({
         "rows": out,
         "page": page,
         "per_page": per_page,
         "total": total,
         "total_pages": (total + per_page - 1) // per_page if total else 1,
+        "filters": filter_options,
     })
 
 
