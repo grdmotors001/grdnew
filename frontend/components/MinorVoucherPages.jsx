@@ -132,6 +132,7 @@ export function BatterySwapVoucherPage() {
     return {value:r.id,label:`${r.reg_no||r.chassis_no} — ${r.model_name||''} — ${battery}`};
   });
   const save=async e=>{e.preventDefault();if(!form.dealer_id){setError('Please select a dealer from the dealer suggestions.');return;}setBusy(true);setError('');try{await post('/battery-swap-vouchers',form);setForm({...form,from_id:'',to_id:'',remarks:''});await load();await loadStock(form.dealer_id);}catch(e){setError(e.message)}finally{setBusy(false)}};
+  const remove=async id=>{if(!window.confirm('Delete this Battery Swap voucher? The battery positions will be restored.'))return;setBusy(true);setError('');try{await del('/battery-swap-vouchers?id='+id);await load();await loadStock(form.dealer_id);}catch(e){setError(e.message)}finally{setBusy(false)}};
   return <div className="page"><div className="card"><h2>Battery Swap / Exchange Voucher</h2><p className="muted">Dealer type karein; suggestion se select kar sakte hain. Rickshaw select karte waqt current battery maker aur numbers bhi dikhenge.</p><ErrorBanner message={error}/>
     <form onSubmit={save}><div className="formgrid">
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
@@ -142,7 +143,7 @@ export function BatterySwapVoucherPage() {
       <Field label="To Rickshaw" type="select" value={form.to_id} options={opts(form.to_type)} onChange={v=>setForm({...form,to_id:Number(v)})} required/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
     </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Battery Swap / Exchange'}</button></div></form>
-  </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From</th><th>To</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{dealers.find(d=>d.id===r.dealer_id)?.name||r.dealer_id}</td><td>{r.mode}</td><td>{r.from_type} #{r.from_id}</td><td>{r.to_type} #{r.to_id}</td></tr>)}</tbody></table></div></div></div>;
+  </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From</th><th>To</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{dealers.find(d=>d.id===r.dealer_id)?.name||r.dealer_id}</td><td>{r.mode}</td><td>{r.from_type} #{r.from_id}</td><td>{r.to_type} #{r.to_id}</td><td><button className="btn danger" onClick={()=>remove(r.id)} disabled={busy}>Delete</button></td></tr>)}</tbody></table></div></div></div>;
 }
 
 export function BatteryWithdrawalPage() {
