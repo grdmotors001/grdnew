@@ -3254,11 +3254,12 @@ def journal_stock():
         q=q.filter(db.or_(JournalStock.item_name.ilike(like),JournalStock.vou_no.ilike(like),
                           JournalStock.reason.ilike(like),JournalStock.model_name.ilike(like)))
     if item_type in {"R","F"}: q=q.filter(JournalStock.item_type==item_type)
-    total=q.count()
-    rows=q.offset((page-1)*per_page).limit(per_page).all()
+    rows=q.offset((page-1)*per_page).limit(per_page+1).all()
+    has_next=len(rows)>per_page
+    rows=rows[:per_page]
     next_no=(db.session.query(db.func.max(JournalStock.id)).scalar() or 0)+1
-    return jsonify({"records":[ser_journal(r) for r in rows],"total":total,"page":page,
-                    "per_page":per_page,"total_pages":(total+per_page-1)//per_page if total else 1,
+    return jsonify({"records":[ser_journal(r) for r in rows],"page":page,
+                    "per_page":per_page,"has_next":has_next,
                     "suggested_vou_no":f"J-{next_no + 100}"})
 
 @app.post("/api/journal-stock/work")
@@ -3313,14 +3314,23 @@ def journal_stock_delete(record_id):
 @app.route("/api/stock/closing-premises")
 @require_auth
 def closing_stock_premises():
-    vehicles = Vehicle.query.filter_by(stage="Manufacturing").order_by(Vehicle.model_name, Vehicle.colour).all()
-    pv_models = {p.chassis_no: p.product_name for p in
-                 ProductionVoucher.query.with_entities(ProductionVoucher.chassis_no, ProductionVoucher.product_name).all()
-                 if p.chassis_no}
-    summary = {}
+    vehicles = (db.session.query(Vehicle)
+                .outerjoin(ProductionVoucher, ProductionVoucher.chassis_no == Vehicle.chassis_no)
+                .filter(Vehicle.stage == "Manufacturing")
+                .order_by(db.func.coalesce(db.func.nullif(Vehicle.model_name, ""), ProductionVoucher.product_name),
+                          Vehicle.colour, Vehicle.id)
+                .all())
+    # Older Vehicle rows may not have model_name; resolve it from ProductionVoucher
+    # by chassis number so factory stock always shows the model.
     for v in vehicles:
-        if not v.model_name and v.chassis_no in pv_models:
-            v.model_name = pv_models[v.chassis_no]
+        if not (v.model_name or "").strip():
+            pv = (ProductionVoucher.query
+                  .filter(ProductionVoucher.chassis_no == v.chassis_no)
+                  .with_entities(ProductionVoucher.product_name)
+                  .first())
+            if pv and pv.product_name:
+                v.model_name = pv.product_name
+    summary = {}
         key = f"{v.model_name or '—'}::{v.colour or '—'}"
         summary[key] = summary.get(key, 0) + 1
     return jsonify({"vehicles": [ser_vehicle(v) for v in vehicles],
@@ -3456,7 +3466,8 @@ def stock_ledger_raw():
                         "particulars":f"Production — {product_name}", "qty":qty or 0, "_sort":d or date.min})
     for j in j:
         events.append({"date":_iso(j.date), "type":"IN" if j.qty >= 0 else "OUT", "doc_no":j.vou_no,
-                        "party_name":"","particulars":j.reason or "Journal Stock adjustment",
+                        "party_name":"", "model_name":j.model_name,
+                        "particulars":j.reason or "Journal Stock adjustment",
                         "qty":abs(j.qty or 0), "_sort":j.date or date.min})
     events.sort(key=lambda e:e["_sort"])
     balance = opening
