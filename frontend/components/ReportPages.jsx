@@ -59,9 +59,10 @@ function groupLedgerEvents(events) {
 }
 
 export function PurchaseRegisterPage() {
-  const r = useReport('/reports/purchase-register');
+  const r = useReport('/reports/purchase-register', { page: 1, per_page: 50 });
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
+  const goPage = (page) => r.setExtra({ ...r.extra, page });
   return (
     <>
       <FilterBar r={r}>
@@ -80,8 +81,15 @@ export function PurchaseRegisterPage() {
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td colSpan={5}><b>Totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.cgst} /></td><td><Money value={r.data.totals.sgst} /></td><td><Money value={r.data.totals.igst} /></td></tr></tfoot>
+            <tfoot><tr><td colSpan={5}><b>Current Page Totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.cgst} /></td><td><Money value={r.data.totals.sgst} /></td><td><Money value={r.data.totals.igst} /></td></tr></tfoot>
           </table>
+        </div>
+      )}
+      {(r.data.total_pages || 1) > 1 && (
+        <div className="actions" style={{ marginTop: 12, justifyContent: 'center', gap: 8 }}>
+          <button className="btn" disabled={r.data.page <= 1} onClick={() => goPage(r.data.page - 1)}>← Previous</button>
+          <span className="muted">Page {r.data.page} of {r.data.total_pages} · {r.data.total.toLocaleString('en-IN')} lines</span>
+          <button className="btn" disabled={r.data.page >= r.data.total_pages} onClick={() => goPage(r.data.page + 1)}>Next →</button>
         </div>
       )}
     </>
@@ -103,7 +111,8 @@ export function ProductionRegisterPage() {
   if (!r.data) return <div className="card">Loading…</div>;
 
   const rows = r.data.rows || [];
-  const setStatus = (status) => r.setExtra({ ...r.extra, status });
+  const setStatus = (status) => r.setExtra({ ...r.extra, status, page: 1 });
+  const goPage = (page) => r.setExtra({ ...r.extra, page });
 
   const openEdit = (v) => { setEditError(''); setEditRow({ ...v }); };
   const setE = (field) => (value) => setEditRow({ ...editRow, [field]: value });
@@ -139,7 +148,7 @@ export function ProductionRegisterPage() {
           <table className="table">
             <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th><th>Status</th><th></th></tr></thead>
             <tbody>{rows.map((v) => {
-              const status = v.stage === 'Manufacturing' ? 'In Factory Stock' : 'Delivered';
+              const status = v.stage || 'In Factory Stock';
               return <tr key={v.id}>
                 <td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.quantity}</td>
                 <td>{v.chassis_no}</td><td>{v.motor_no}</td><td>{status}</td>
