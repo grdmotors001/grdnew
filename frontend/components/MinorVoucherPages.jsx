@@ -117,18 +117,25 @@ export function OldRickshawPage() {
 
 export function BatterySwapVoucherPage() {
   const [dealers,setDealers]=useState([]),[rows,setRows]=useState([]),[rickshaws,setRickshaws]=useState({new:[],old:[]});
-  const [form,setForm]=useState({date:today(),dealer_id:'',from_type:'new',from_id:'',to_type:'new',to_id:'',remarks:''});
+  const [form,setForm]=useState({date:today(),dealer_id:'',dealer_name:'',from_type:'new',from_id:'',to_type:'new',to_id:'',remarks:''});
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-swap-vouchers')]);setDealers(d.dealers||[]);setRows(v.records||[]);}catch(e){setError(e.message)}};
   const loadStock=async dealerId=>{if(!dealerId){setRickshaws({new:[],old:[]});return;}try{const [n,o]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=new'),get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=old')]);setRickshaws({new:n.rickshaws||[],old:o.rickshaws||[]});}catch(e){setError(e.message)}};
   useEffect(()=>{load()},[]);
   useEffect(()=>{loadStock(form.dealer_id)},[form.dealer_id]);
-  const opts=type=>(rickshaws[type]||[]).map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')+(r.has_battery?' — Battery':' — No Battery')}));
-  const save=async e=>{e.preventDefault();setBusy(true);setError('');try{await post('/battery-swap-vouchers',form);setForm({...form,from_id:'',to_id:'',remarks:''});await load();await loadStock(form.dealer_id);}catch(e){setError(e.message)}finally{setBusy(false)}};
-  return <div className="page"><div className="card"><h2>Battery Swap / Exchange Voucher</h2><p className="muted">Same dealer ke 2 rickshaw select karo. Ek me battery nahi hai to battery move hogi; dono me battery hai to exchange hoga.</p><ErrorBanner message={error}/>
+  const dealerOptions=dealers.map(d=>({value:d.name,label:(d.code?d.code+' — ':'')+d.name}));
+  const findDealer=v=>dealers.find(d=>String(d.name||'').trim().toLowerCase()===String(v||'').trim().toLowerCase());
+  const setDealer=v=>{const d=findDealer(v);setForm({...form,dealer_name:v,dealer_id:d?Number(d.id):'',from_id:'',to_id:''});};
+  const opts=type=>(rickshaws[type]||[]).map(r=>{
+    const nums=r.battery_numbers||[];
+    const battery=r.has_battery ? `Battery: ${r.battery_maker||'—'} | ${nums.join(', ')}` : 'NO BATTERY';
+    return {value:r.id,label:`${r.reg_no||r.chassis_no} — ${r.model_name||''} — ${battery}`};
+  });
+  const save=async e=>{e.preventDefault();if(!form.dealer_id){setError('Please select a dealer from the dealer suggestions.');return;}setBusy(true);setError('');try{await post('/battery-swap-vouchers',form);setForm({...form,from_id:'',to_id:'',remarks:''});await load();await loadStock(form.dealer_id);}catch(e){setError(e.message)}finally{setBusy(false)}};
+  return <div className="page"><div className="card"><h2>Battery Swap / Exchange Voucher</h2><p className="muted">Dealer type karein; suggestion se select kar sakte hain. Rickshaw select karte waqt current battery maker aur numbers bhi dikhenge.</p><ErrorBanner message={error}/>
     <form onSubmit={save}><div className="formgrid">
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Dealer" type="select" value={form.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setForm({...form,dealer_id:Number(v),from_id:'',to_id:''})} required/>
+      <Field label="Dealer" type="combo" value={form.dealer_name} options={dealerOptions} onChange={setDealer} required/>
       <Field label="From Rickshaw Type" type="select" value={form.from_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,from_type:v,from_id:''})}/>
       <Field label="From Rickshaw" type="select" value={form.from_id} options={opts(form.from_type)} onChange={v=>setForm({...form,from_id:Number(v)})} required/>
       <Field label="To Rickshaw Type" type="select" value={form.to_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,to_type:v,to_id:''})}/>
