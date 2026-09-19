@@ -1238,6 +1238,15 @@ def dashboard():
         "localTaxable": round(float(local_taxable or 0), 2),
     } for month, interstate_count, local_count, interstate_taxable, local_taxable in billed_rows]
 
+    # Current cash physically held at dealers = cash receipts - dealer expenses
+    # - cash handed over to HO. Keep this as scalar SQL sums so Dashboard stays fast.
+    cash_received = db.session.query(db.func.coalesce(db.func.sum(DealerCashReceipt.amount),0)).filter(
+        DealerCashReceipt.payment_mode=="cash").scalar() or 0
+    cash_expenses = db.session.query(db.func.coalesce(db.func.sum(DealerCashExpense.amount),0)).scalar() or 0
+    cash_handover = db.session.query(db.func.coalesce(db.func.sum(DealerCashHandover.amount),0)).filter(
+        DealerCashHandover.status!="rejected").scalar() or 0
+    cash_at_dealer = round(float(cash_received)-float(cash_expenses)-float(cash_handover),2)
+
     return jsonify({
         "manufacturing": [ser_vehicle(v) for v in vehicles if v.stage == "Manufacturing"],
         "delivery_challan": [ser_vehicle(v) for v in vehicles if v.stage == "Delivery Challan"],
@@ -1245,6 +1254,7 @@ def dashboard():
         "stage_counts": stage_counts,
         "monthly": monthly,
         "billed_monthly": billed_monthly,
+        "cash_at_dealer": cash_at_dealer,
     })
 
 
