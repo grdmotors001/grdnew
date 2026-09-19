@@ -660,17 +660,27 @@ def ser_daybook(r):
 # Auth
 # ---------------------------------------------------------------------------
 def _ensure_auth_columns():
-    """Keep the login endpoint compatible with databases created before the
-    staff mobile field was added. This is intentionally idempotent."""
+    """Idempotently add the staff mobile column before any User ORM query.
+    Use a dedicated engine transaction so a failed/concurrent migration does
+    not poison the session used by the login request."""
     try:
-        inspector = inspect(db.engine)
-        if inspector.has_table("user"):
+        with db.engine.begin() as conn:
+            inspector = inspect(conn)
+            if not inspector.has_table("user"):
+                return
             columns = {c["name"] for c in inspector.get_columns("user")}
             if "mobile" not in columns:
-                db.session.execute(text('ALTER TABLE "user" ADD COLUMN mobile VARCHAR(30)'))
-                db.session.commit()
-    except Exception:
+                if db.engine.dialect.name == "postgresql":
+                    conn.execute(text('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS mobile VARCHAR(30)'))
+                else:
+                    conn.execute(text('ALTER TABLE "user" ADD COLUMN mobile VARCHAR(30)'))
+    except Exception as exc:
+        # Do not leave a broken SQLAlchemy session behind. The next query will
+        # still surface the real DB problem instead of a misleading 500 caused
+        # by a failed migration transaction.
         db.session.rollback()
+        return str(exc)
+    return None
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
