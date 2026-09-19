@@ -338,6 +338,8 @@ class DeliveryChallan(db.Model):
     salesman = db.Column(db.String(100))
     sale_bill_no = db.Column(db.String(30))
     sale_value = db.Column(db.Float, default=0)
+    # Dealer's own register page sequence shared by new and old rickshaws.
+    dealer_page_no = db.Column(db.String(40))
 
     remarks1 = db.Column(db.String(300))
     remarks2 = db.Column(db.String(300))
