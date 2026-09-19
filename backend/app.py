@@ -724,8 +724,13 @@ def ser_old_rickshaw(r):
             "purchase_ref_no": r.purchase_ref_no, "purchase_amount": r.purchase_amount,
             "file_charge": r.file_charge, "vehicle_reg_no": r.vehicle_reg_no,
             "model_name": r.model_name, "owner_name": r.owner_name, "salesman": r.salesman,
+            "chassis_no": r.chassis_no, "ledger_date": _iso(r.ledger_date), "challan_no": r.challan_no,
+            "sale_type": r.sale_type, "do_number": r.do_number,
             "battery_maker": r.battery_maker, "battery_no1": r.battery_no1, "battery_no2": r.battery_no2,
             "battery_no3": r.battery_no3, "battery_no4": r.battery_no4,
+            "charger": r.charger, "mat": r.mat, "jack": r.jack, "center_lock": r.center_lock,
+            "big_mirror": r.big_mirror, "colour": r.colour, "toolkit": r.toolkit, "stepney": r.stepney,
+            "out_name": r.out_name,
             "has_battery": any(getattr(r, f"battery_no{i}", None) for i in range(1,5)),
             "status": r.status, "dealer_id": r.dealer_id, "dealer_name": r.dealer.name if r.dealer else None,
             "sale_date": _iso(r.sale_date), "sale_dealer_id": r.sale_dealer_id,
@@ -2471,6 +2476,9 @@ def _old_sale_to_dealer(rec, data):
     rec.sale_dealer_id=dealer.id
     rec.dealer_id=dealer.id
     rec.sale_ref_no=(data.get("sale_ref_no") or "").strip() or None
+    rec.sale_type=(data.get("sale_type") or "").strip().lower() or rec.sale_type
+    rec.do_number=(data.get("do_number") or "").strip() or rec.do_number
+    rec.out_name=(data.get("out_name") or "").strip() or rec.out_name
     rec.sale_amount=_f(data.get("sale_amount"),0)
     rec.file_charge=_f(data.get("file_charge"),0)
     rec.loan_amount=_f(data.get("loan_amount"),0)
@@ -2479,6 +2487,16 @@ def _old_sale_to_dealer(rec, data):
     rec.dealer_page_no=(data.get("dealer_page_no") or "").strip() or rec.dealer_page_no
     rec.sp_no=(data.get("sp_no") or "").strip() or rec.sp_no
     rec.sold_amount=rec.sale_amount
+    if "receipt_amount" in data:
+        rec.receipt_amount=_f(data.get("receipt_amount"),0)
+    if "receipt_no" in data:
+        rec.receipt_no=(data.get("receipt_no") or "").strip() or None
+    if "ledger" in data:
+        rec.ledger=(data.get("ledger") or "").strip() or None
+    if "resale_date" in data:
+        rec.resale_date=_parse_date(data.get("resale_date"))
+    if "resale_ledger" in data:
+        rec.resale_ledger=(data.get("resale_ledger") or "").strip() or None
     return dealer
 
 
@@ -2505,9 +2523,19 @@ def old_rickshaws():
             purchase_amount=_f(data.get("purchase_amount"),0),file_charge=_f(data.get("file_charge"),0),
             vehicle_reg_no=vehicle_reg_no,model_name=data.get("model_name"),
             owner_name=data.get("owner_name"),salesman=data.get("salesman"),
+            chassis_no=data.get("chassis_no"),ledger_date=_parse_date(data.get("ledger_date")),
+            challan_no=(data.get("challan_no") or "").strip() or None,
+            sale_type=(data.get("sale_type") or "").strip().lower() or None,
+            do_number=(data.get("do_number") or "").strip() or None,
             battery_maker=data.get("battery_maker"),battery_no1=data.get("battery_no1"),
             battery_no2=data.get("battery_no2"),battery_no3=data.get("battery_no3"),
-            battery_no4=data.get("battery_no4"),status="available",
+            battery_no4=data.get("battery_no4"),
+            charger=data.get("charger"),mat=data.get("mat"),jack=data.get("jack"),
+            center_lock=data.get("centre_lock") or data.get("center_lock"),
+            big_mirror=data.get("big_mirror"),colour=data.get("colour"),
+            toolkit=data.get("toolkit"),stepney=data.get("stepney"),
+            out_name=(data.get("out_name") or "").strip() or None,
+            status="available",
             dealer_id=None,sp_no=(data.get("sp_no") or "").strip() or None,
             dealer_page_no=(data.get("dealer_page_no") or "").strip() or None,
             remarks1=data.get("remarks1"),remarks2=data.get("remarks2"))
