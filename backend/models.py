@@ -613,12 +613,30 @@ class OldRickshaw(db.Model):
     owner_name = db.Column(db.String(200))
     salesman = db.Column(db.String(100))
 
+    # Excel/legacy register identity + vehicle details
+    chassis_no = db.Column(db.String(60))
+    ledger_date = db.Column(db.Date)
+    challan_no = db.Column(db.String(60))
+    sale_type = db.Column(db.String(20))       # cash / finance
+    do_number = db.Column(db.String(60))
+
     # Battery fitted on the old rickshaw
     battery_maker = db.Column(db.String(120))
     battery_no1 = db.Column(db.String(60))
     battery_no2 = db.Column(db.String(60))
     battery_no3 = db.Column(db.String(60))
     battery_no4 = db.Column(db.String(60))
+    charger = db.Column(db.String(100))
+    mat = db.Column(db.String(100))
+    jack = db.Column(db.String(100))
+    center_lock = db.Column(db.String(100))
+    big_mirror = db.Column(db.String(100))
+    colour = db.Column(db.String(60))
+    toolkit = db.Column(db.String(100))
+    stepney = db.Column(db.String(100))
+
+    # Excel/legacy outbound reference
+    out_name = db.Column(db.String(200))
 
     # Old-rickshaw sale: no Tax Invoice is created for this sale.
     status = db.Column(db.String(20), default="available")  # available / sold / cancelled
