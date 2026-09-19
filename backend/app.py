@@ -2615,35 +2615,74 @@ def production_register():
 @app.route("/api/reports/delivery-challan-register")
 @require_auth
 def delivery_challan_register():
-    # Was loading ALL delivery challans (17k+) with .all() and filtering
-    # dates in Python, then triggering a lazy .dealer load per row (up to
-    # ~17k extra queries the first time each challan's dealer is touched)
-    # via ser_dc()/the search filter/the CSV export. joinedload() fetches
-    # dealer in the same query (one JOIN, no N+1), and the date range is
-    # now a SQL WHERE clause instead of a Python filter after loading
-    # everything.
+    # Keep this report scalable: filter/search/pagination happen in SQL.
+    # The old implementation loaded every challan (17k+) plus every invoice
+    # into Python before returning the page, which made the initial render slow.
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
     status = request.args.get("status", "all")
-    challans = [c for c in DeliveryChallan.query.options(joinedload(DeliveryChallan.dealer))
-                .filter(*_date_filter(DeliveryChallan.date, from_date, to_date))
-                .order_by(DeliveryChallan.date).all()
-                if _matches(search, c.dealer.name if c.dealer else None, c.chassis_no, c.challan_no)]
-    invoiced = {
-        row.delivery_challan_id: (row.bill_no, row.sale_amount)
-        for row in db.session.query(TaxInvoice.delivery_challan_id, TaxInvoice.bill_no, TaxInvoice.sale_amount)
-        .filter(TaxInvoice.delivery_challan_id.isnot(None)).all()
-    }
-    invoiced_bill_no = {cid: bill_no for cid, (bill_no, _amt) in invoiced.items()}
-    # "Item Amount" is only meaningful once a challan has actually been
-    # billed — it's the Sale Amount entered on that Tax Invoice, not the
-    # Delivery Challan's own (separate, earlier) estimated Sale Value.
-    item_amount_by_challan = {cid: amt for cid, (_bn, amt) in invoiced.items()}
-    bill_no_by_challan = {c.id: (invoiced_bill_no.get(c.id) or c.sale_bill_no or None) for c in challans}
+    page = max(1, _i(request.args.get("page"), 1))
+    per_page = min(200, max(25, _i(request.args.get("per_page"), 100)))
+
+    query = (DeliveryChallan.query
+             .join(Dealer, DeliveryChallan.dealer_id == Dealer.id)
+             .options(joinedload(DeliveryChallan.dealer))
+             .filter(*_date_filter(DeliveryChallan.date, from_date, to_date)))
+
+    if search:
+        like = f"%{search}%"
+        query = query.filter(db.or_(
+            Dealer.name.ilike(like),
+            DeliveryChallan.chassis_no.ilike(like),
+            DeliveryChallan.challan_no.ilike(like),
+            DeliveryChallan.product_name.ilike(like),
+            DeliveryChallan.salesman.ilike(like),
+            DeliveryChallan.battery_maker.ilike(like),
+        ))
+
+    invoice_ids = db.session.query(TaxInvoice.delivery_challan_id).filter(
+        TaxInvoice.delivery_challan_id.isnot(None)
+    )
     if status == "sold":
-        challans = [c for c in challans if bill_no_by_challan.get(c.id)]
+        query = query.filter(DeliveryChallan.id.in_(invoice_ids))
     elif status == "unsold":
-        challans = [c for c in challans if not bill_no_by_challan.get(c.id)]
+        query = query.filter(~DeliveryChallan.id.in_(invoice_ids))
+
+    # Optional report filters are also applied in SQL, so they don't require
+    # loading the entire register into the browser.
+    for param, column in (
+        ("product", DeliveryChallan.product_name),
+        ("dealer", Dealer.name),
+        ("salesman", DeliveryChallan.salesman),
+        ("battery", DeliveryChallan.battery_maker),
+    ):
+        value = request.args.get(param, "").strip()
+        if value and value != "ALL":
+            query = query.filter(column == value)
+
+    total = query.count()
+    challans = (query.order_by(DeliveryChallan.date.desc(), DeliveryChallan.id.desc())
+                .offset((page - 1) * per_page).limit(per_page).all())
+
+    page_ids = [c.id for c in challans]
+    invoiced = {}
+    if page_ids:
+        invoiced = {
+            row.delivery_challan_id: (row.bill_no, row.sale_amount)
+            for row in db.session.query(
+                TaxInvoice.delivery_challan_id, TaxInvoice.bill_no, TaxInvoice.sale_amount
+            ).filter(TaxInvoice.delivery_challan_id.in_(page_ids)).all()
+        }
+
+    bill_no_by_challan = {
+        c.id: (invoiced.get(c.id, (None, None))[0] or c.sale_bill_no or None)
+        for c in challans
+    }
+    item_amount_by_challan = {
+        c.id: invoiced.get(c.id, (None, None))[1]
+        for c in challans
+    }
+
     if request.args.get("export") == "csv":
         headers = ["Date", "Challan No.", "Party Name", "Item Amount", "Chassis No.", "Colour",
                    "Other", "Sale Bill No.", "Sale Value", "Salesman", "Battery Make",
@@ -2654,13 +2693,21 @@ def delivery_challan_register():
                                 c.chassis_no, c.colour, c.other, bill_no_by_challan.get(c.id) or "",
                                 c.sale_value or 0, c.salesman, c.battery_maker,
                                 c.remarks1, c.remarks2] for c in challans])
+
     out = []
     for c in challans:
         row = ser_dc(c)
         row["bill_no"] = bill_no_by_challan.get(c.id)
         row["item_amount"] = item_amount_by_challan.get(c.id)
         out.append(row)
-    return jsonify(out)
+
+    return jsonify({
+        "rows": out,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": (total + per_page - 1) // per_page if total else 1,
+    })
 
 
 @app.route("/api/reports/sale-register")
