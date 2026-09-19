@@ -16,6 +16,7 @@ import { PurchaseBillPage } from '../components/PurchaseBillPage';
 import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, BatteryDeliveryChallanPage, JournalStockPage } from '../components/MinorVoucherPages';
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
+import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import {
   ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage,
   StockLedgerPremisesPage, StockLedgerDealersPage,
@@ -40,6 +41,7 @@ const CUSTOM_PAGES = {
   'option-setting': (ctx) => <OptionSettingPage userId={ctx.optionUserId} />,
   password: () => <PasswordPage />,
   'purchase-bills': () => <PurchaseBillPage />,
+  'billing-pending-sales': () => <BillingPendingSalesPage />,
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
   'tax-invoice': () => <TaxInvoicePage />,
