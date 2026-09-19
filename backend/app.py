@@ -3049,8 +3049,22 @@ def purchase_register():
 def production_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
-    vouchers = [v for v in ProductionVoucher.query.filter(*_date_filter(ProductionVoucher.date, from_date, to_date)).order_by(ProductionVoucher.date).all()
-                if _matches(search, v.product_name, v.chassis_no)]
+    status = (request.args.get("status") or "all").lower()
+    query = (ProductionVoucher.query
+             .outerjoin(Vehicle, ProductionVoucher.chassis_no == Vehicle.chassis_no)
+             .filter(*_date_filter(ProductionVoucher.date, from_date, to_date)))
+    if search:
+        like = f"%{search}%"
+        query = query.filter(db.or_(
+            ProductionVoucher.product_name.ilike(like),
+            ProductionVoucher.chassis_no.ilike(like),
+            ProductionVoucher.vou_no.ilike(like),
+        ))
+    if status == "factory":
+        query = query.filter(db.or_(Vehicle.stage == "Manufacturing", Vehicle.id.is_(None)))
+    elif status == "delivered":
+        query = query.filter(Vehicle.stage.in_([ "Delivery Challan", "Tax Invoice" ]))
+    vouchers = query.order_by(ProductionVoucher.date.asc(), ProductionVoucher.id.asc()).all()
     if request.args.get("export") == "csv":
         headers = ["Date", "Vou. No.", "Product Name", "Quantity", "Chassis No.", "Motor No.", "Controller No."]
         return _csv_response("Production_Register.csv", headers,
