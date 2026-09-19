@@ -129,5 +129,5 @@ export const SIMPLE_MASTERS = {
   mechanic: { label: 'Mechanic Master', fields: [['name', 'Mechanic Name', 'text']] },
   fabricator: { label: 'Fabricator Master', fields: [['name', 'Fabricator Name', 'text']] },
   bank: { label: 'Bank Details', fields: [['name', 'Bank Name', 'text'], ['account_no', 'Account No.', 'text'], ['ifsc', 'IFSC', 'text'], ['is_default', 'Default (auto-fills on new Invoices)', 'checkbox']] },
-  colour: { label: 'Colour Master', fields: [['name', 'Colour', 'text'], ['code', 'Colour Code', 'text']] },
+  colour: { label: 'Colour Master', fields: [['name', 'Colour', 'text'], ['code', 'Colour Code', 'text'], ['color_hex', 'RGB / HEX', 'color'], ['color_hex2', 'Second Tone RGB / HEX', 'color'], ['is_double_tone', 'Double Tone', 'checkbox']] },
 };
