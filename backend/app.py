@@ -65,11 +65,38 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 300}
 
 db.init_app(app)
-from dealer_cashbook import dealer_cashbook_bp
+from dealer_cashbook import dealer_cashbook_bp, DealerCashReceipt, DealerCashExpense, DealerCashHandover
 app.register_blueprint(dealer_cashbook_bp, url_prefix="/api/dealer")
 app.register_blueprint(hr_bp, url_prefix="/api/hr")
 CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*")}})
 
+
+@app.get("/api/reports/cash-at-dealer")
+@require_auth
+def cash_at_dealer_report():
+    start=_parse_date(request.args.get("from")) or date(dt.utcnow().year,1,1)
+    end=_parse_date(request.args.get("to")) or dt.utcnow().date()
+    if start>end:return _err("From date cannot be after To date")
+    dealer_id=request.args.get("dealer_id",type=int)
+    dealers_q=Dealer.query.order_by(Dealer.name.asc())
+    if dealer_id:dealers_q=dealers_q.filter(Dealer.id==dealer_id)
+    dealers=dealers_q.all()
+    result=[]; total=0
+    for d in dealers:
+        receipts=sum(float(x.amount or 0) for x in DealerCashReceipt.query.filter(
+            DealerCashReceipt.dealer_id==d.id,DealerCashReceipt.receipt_date.between(start,end),
+            DealerCashReceipt.payment_mode=="cash").all())
+        expenses=sum(float(x.amount or 0) for x in DealerCashExpense.query.filter(
+            DealerCashExpense.dealer_id==d.id,DealerCashExpense.expense_date.between(start,end)).all())
+        handover=sum(float(x.amount or 0) for x in DealerCashHandover.query.filter(
+            DealerCashHandover.dealer_id==d.id,DealerCashHandover.handover_date.between(start,end),
+            DealerCashHandover.status!="rejected").all())
+        balance=round(receipts-expenses-handover,2); total+=balance
+        result.append({"dealer_id":d.id,"dealer_code":d.code,"dealer_name":d.name,
+                       "cash_received":round(receipts,2),"expenses":round(expenses,2),
+                       "ho_handover":round(handover,2),"cash_at_dealer":balance})
+    return jsonify({"from":start.isoformat(),"to":end.isoformat(),"rows":result,
+                    "total_cash_at_dealer":round(total,2)})
 
 # ---------------------------------------------------------------------------
 # CHFPL master-data bridge
