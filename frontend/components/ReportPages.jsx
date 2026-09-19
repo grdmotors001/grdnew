@@ -123,7 +123,6 @@ export function DeliveryChallanRegisterPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' });
   const [draftFilters, setDraftFilters] = useState(filters);
-  const activeFilterCount = Object.values(filters).filter((v) => v !== 'ALL').length;
 
   const openEdit = (c) => { setEditError(''); setEditRow({ ...c }); };
   const setE = (f) => (v) => setEditRow({ ...editRow, [f]: v });
@@ -131,12 +130,16 @@ export function DeliveryChallanRegisterPage() {
   const saveEdit = async (ev) => {
     ev.preventDefault();
     setSaving(true);
+    setEditError('');
     try {
       await put(`/delivery-challans/${editRow.id}`, editRow);
       setEditRow(null);
       r.setExtra({ ...r.extra });
-    } catch (err) { setEditError(err.message); }
-    setSaving(false);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (r.error) return <ErrorBanner message={r.error} />;
@@ -144,7 +147,9 @@ export function DeliveryChallanRegisterPage() {
 
   const rows = r.data.rows || [];
   const filterOptions = r.data.filters || { product: [], dealer: [], salesman: [], battery: [] };
+  const activeFilterCount = Object.values(filters).filter((v) => v !== 'ALL').length;
 
+  const setStatus = (status) => r.setExtra({ ...r.extra, status, page: 1 });
   const openFilter = () => { setDraftFilters(filters); setFilterOpen(true); };
   const applyFilter = () => {
     setFilters(draftFilters);
@@ -155,21 +160,26 @@ export function DeliveryChallanRegisterPage() {
     const cleared = { product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' };
     setDraftFilters(cleared);
     setFilters(cleared);
-    r.setExtra({ status: r.extra.status || 'all', page: 1, per_page: 100 });
+    r.setExtra({ status: 'all', page: 1, per_page: 100 });
     setFilterOpen(false);
   };
   const goPage = (page) => r.setExtra({ ...r.extra, page });
 
-  const totalPages = r.data.total_pages || 1;
-
   return (
     <>
       <FilterBar r={r}>
-        <Field label="Status" type="select" value={r.extra.status} options={[{ value: 'all', label: 'All' }, { value: 'sold', label: 'Sold (invoiced)' }, { value: 'unsold', label: 'Unsold' }]} onChange={(v) => r.setExtra({ ...r.extra, status: v, page: 1 })} />
+        <div className="actions" style={{ alignSelf: 'flex-end', gap: 6 }}>
+          <button className={`btn ${r.extra.status === 'all' ? 'primary' : ''}`} onClick={() => setStatus('all')}>All</button>
+          <button className={`btn ${r.extra.status === 'sold' ? 'primary' : ''}`} onClick={() => setStatus('sold')}>Sold</button>
+          <button className={`btn ${r.extra.status === 'unsold' ? 'primary' : ''}`} onClick={() => setStatus('unsold')}>Unsold</button>
+        </div>
         <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={openFilter}>
           Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
         </button>
-        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/delivery-challan-register' + qs(r) + `&status=${r.extra.status}&export=csv`, 'Delivery_Challan_Register.xlsx')}>Export Excel</button>
+        <button className="btn" style={{ alignSelf: 'flex-end' }}
+                onClick={() => downloadExcel('/reports/delivery-challan-register' + qs(r) + `&status=${r.extra.status}&export=csv`, 'Delivery_Challan_Register.xlsx')}>
+          Export Excel
+        </button>
       </FilterBar>
 
       {rows.length === 0 ? <EmptyState /> : (
@@ -178,21 +188,31 @@ export function DeliveryChallanRegisterPage() {
             <thead>
               <tr>
                 <th>Date</th><th>Challan No.</th><th>Party Name</th>
-                <th title="From the Tax Invoice, once this challan is billed">Item Amount</th>
-                <th>Chassis No.</th><th>Colour</th><th>Other</th><th>Sale Bill No.</th>
-                <th>Sale Value</th><th>Salesman</th><th>Battery Make</th><th>Battery No. 1</th><th>Battery No. 2</th><th>Battery No. 3</th><th>Battery No. 4</th>
+                <th>Item Amount</th><th>Chassis No.</th><th>Colour</th><th>Other</th>
+                <th>Sale Bill No.</th><th>Sale Value</th><th>Salesman</th>
+                <th>Battery Make</th><th>Battery No. 1</th><th>Battery No. 2</th><th>Battery No. 3</th><th>Battery No. 4</th>
                 <th>Remarks (1)</th><th>Remarks (2)</th><th></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((c) => (
                 <tr key={c.id} onDoubleClick={() => openEdit(c)} style={{ cursor: 'pointer' }} title="Double-click to edit">
-                  <td>{formatDate(c.date)}</td><td>{c.challan_no}</td><td>{c.dealer_name}</td>
+                  <td>{formatDate(c.date)}</td>
+                  <td>{c.challan_no}</td>
+                  <td>{c.dealer_name}</td>
                   <td>{c.item_amount ? <Money value={c.item_amount} /> : ''}</td>
-                  <td>{c.chassis_no}</td><td>{c.colour}</td><td>{c.other}</td>
-                  <td>{c.bill_no || '—'}</td><td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
-                  <td>{c.salesman}</td><td>{c.battery_maker}</td><td>{c.battery_no1}</td><td>{c.battery_no2}</td><td>{c.battery_no3}</td><td>{c.battery_no4}</td><td>{c.remarks1}</td><td>{c.remarks2}</td>
-                  <td><button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Print</button></td>
+                  <td>{c.chassis_no}</td>
+                  <td>{c.colour}</td>
+                  <td>{c.other}</td>
+                  <td>{c.bill_no || '—'}</td>
+                  <td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
+                  <td>{c.salesman}</td>
+                  <td>{c.battery_maker}</td><td>{c.battery_no1}</td><td>{c.battery_no2}</td><td>{c.battery_no3}</td><td>{c.battery_no4}</td>
+                  <td>{c.remarks1}</td><td>{c.remarks2}</td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn" onClick={(e) => { e.stopPropagation(); openEdit(c); }}>Edit</button>
+                    <button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Preview</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -200,11 +220,11 @@ export function DeliveryChallanRegisterPage() {
         </div>
       )}
 
-      {totalPages > 1 && (
+      {(r.data.total_pages || 1) > 1 && (
         <div className="actions" style={{ marginTop: 12, justifyContent: 'center', gap: 8 }}>
           <button className="btn" disabled={r.data.page <= 1} onClick={() => goPage(r.data.page - 1)}>← Previous</button>
-          <span className="muted">Page {r.data.page} of {totalPages} · {r.data.total.toLocaleString('en-IN')} rows</span>
-          <button className="btn" disabled={r.data.page >= totalPages} onClick={() => goPage(r.data.page + 1)}>Next →</button>
+          <span className="muted">Page {r.data.page} of {r.data.total_pages} · {r.data.total.toLocaleString('en-IN')} rows</span>
+          <button className="btn" disabled={r.data.page >= r.data.total_pages} onClick={() => goPage(r.data.page + 1)}>Next →</button>
         </div>
       )}
 
@@ -239,32 +259,40 @@ export function DeliveryChallanRegisterPage() {
 
       {editRow && (
         <div className="modal">
-          <form className="modalbox" onSubmit={saveEdit} style={{ maxWidth: 720 }}>
+          <form className="modalbox" onSubmit={saveEdit} style={{ maxWidth: 760 }}>
             <h2>Edit Delivery Challan — {editRow.challan_no}</h2>
             <ErrorBanner message={editError} />
             <p className="muted" style={{ marginTop: -6 }}>
-              Chassis/Dealer/Colour aren't editable here — they're snapshotted from the assigned
-              chassis. Cancel and re-create the Delivery Challan if the wrong chassis was picked.
+              Chassis/Dealer/vehicle details are preserved. Sale Value and Dealer Page No. are not entered here;
+              Sale Value appears in the register after the Tax Invoice is created.
             </p>
             <div className="formgrid">
               <Field label="Challan No." value={editRow.challan_no} onChange={setE('challan_no')} />
               <Field label="Date" type="date" value={editRow.date} onChange={setE('date')} />
+              <Field label="Dealer" value={editRow.dealer_name} readOnly />
               <Field label="Destination" value={editRow.destination} onChange={setE('destination')} />
               <Field label="Salesman" value={editRow.salesman} onChange={setE('salesman')} />
-              <Field label="Sale Bill No." value={editRow.sale_bill_no} onChange={setE('sale_bill_no')} />
-              <Field label="Sale Value" type="number" value={editRow.sale_value} onChange={setE('sale_value')} />
+              <Field label="Chassis No." value={editRow.chassis_no} readOnly />
+              <Field label="Model Name" value={editRow.product_name} readOnly />
+              <Field label="Colour" value={editRow.colour} readOnly />
+              <Field label="Motor No." value={editRow.motor_no} readOnly />
               <Field label="Battery Maker" value={editRow.battery_maker} onChange={setE('battery_maker')} />
               <Field label="Battery No. 1" value={editRow.battery_no1} onChange={setE('battery_no1')} />
               <Field label="Battery No. 2" value={editRow.battery_no2} onChange={setE('battery_no2')} />
               <Field label="Battery No. 3" value={editRow.battery_no3} onChange={setE('battery_no3')} />
               <Field label="Battery No. 4" value={editRow.battery_no4} onChange={setE('battery_no4')} />
-              <Field label="Remarks (1)" value={editRow.remarks1} onChange={setE('remarks1')} />
-              <Field label="Remarks (2)" value={editRow.remarks2} onChange={setE('remarks2')} />
+              {[
+                ['toolkit', 'Toolkit'], ['jack', 'Jack'], ['charger', 'Charger'], ['center_lock', 'Center Lock'],
+                ['mat', 'Mat'], ['stapney', 'Stapney'], ['front_glass', 'Front Glass'], ['h_lock', 'H Lock'],
+              ].map(([key, label]) => (
+                <Field key={key} label={label} type="checkbox" value={!!editRow[key]} onChange={setE(key)} />
+              ))}
+              <Field label="Remarks" value={editRow.remarks1} onChange={setE('remarks1')} />
             </div>
             <div className="actions" style={{ marginTop: 18 }}>
               <button type="button" className="btn" onClick={() => setEditRow(null)}>Cancel</button>
-              <button type="button" className="btn" onClick={() => { setPrintId(editRow.id); }}>Print / Preview</button>
-              <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+              <button type="button" className="btn" onClick={() => setPrintId(editRow.id)}>Print / Preview</button>
+              <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
             </div>
           </form>
         </div>
