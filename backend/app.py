@@ -2660,7 +2660,10 @@ def chfpl_old_rickshaw_available_for_sale():
         party_name=data.get("party_name") or "CHFPL",purchase_ref_no=data.get("purchase_ref_no") or ref,
         purchase_amount=_f(data.get("purchase_amount"),0),file_charge=_f(data.get("file_charge"),0),
         vehicle_reg_no=vehicle_reg_no,model_name=data.get("model_name"),owner_name=data.get("owner_name"),
-        salesman=data.get("salesman"),battery_maker=data.get("battery_maker"),
+        salesman=data.get("salesman") or ((Dealer.query.get(data.get("dealer_id")).salesman) if data.get("dealer_id") and Dealer.query.get(data.get("dealer_id")) else None),
+        dealer_id=data.get("dealer_id"), chfpl_dealer_id=data.get("dealer_id"),
+        chfpl_available_date=_parse_date(data.get("available_for_sale_date")) or date.today(),
+        battery_maker=data.get("battery_maker"),
         battery_no1=data.get("battery_no1"),battery_no2=data.get("battery_no2"),
         battery_no3=data.get("battery_no3"),battery_no4=data.get("battery_no4"),status="available")
     db.session.add(rec);db.session.commit()
