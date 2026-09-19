@@ -347,10 +347,14 @@ def expense_incentive_pending():
 def expense_payment_voucher_masters():
     dealers=Dealer.query.filter(Dealer.blocked.is_(False)).order_by(Dealer.name.asc()).all()
     staff=sorted({(d.salesman or "").strip() for d in dealers if (d.salesman or "").strip()},key=str.lower)
+    mechanics=SimpleMaster.query.filter_by(kind="mechanic").order_by(SimpleMaster.name.asc()).all()
+    fabricators=SimpleMaster.query.filter_by(kind="fabricator").order_by(SimpleMaster.name.asc()).all()
     return jsonify({"expense_types":EXPENSE_TYPES,
         "pay_to_types":[{"id":"dealer","name":"Dealer"},{"id":"staff","name":"Staff / Salesman"},{"id":"other","name":"Other"}],
         "dealers":[{"id":d.id,"code":d.code,"name":d.name,"salesman":d.salesman} for d in dealers],
-        "staff":[{"name":n} for n in staff]})
+        "staff":[{"name":n} for n in staff],
+        "mechanics":[{"id":m.id,"name":m.name} for m in mechanics],
+        "fabricators":[{"id":f.id,"name":f.name} for f in fabricators]})
 
 @app.get("/api/expense-payment-voucher/rickshaws")
 @require_auth
