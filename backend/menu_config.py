@@ -43,6 +43,8 @@ MENU = {
         {"key": "delivery-challan",       "label": "E. E-Rickshaw Delivery Challan",     "kind": "custom"},
         {"key": "tax-invoice",            "label": "F. Tax Invoice",                     "kind": "custom"},
         {"key": "old-rickshaw",           "label": "G. Old Rickshaw",                    "kind": "custom"},
+        {"key": "battery-swap",            "label": "G1. Battery Swap / Exchange Voucher", "kind": "custom"},
+        {"key": "battery-withdrawal",      "label": "G2. Battery Withdrawal",             "kind": "custom"},
         {"key": "battery-delivery-challan","label": "H. Battery Delivery Challan",       "kind": "custom"},
         {"key": "journal-stock",          "label": "I. Journal Stock",                   "kind": "custom"},
         {"key": "expense-payment-voucher","label": "J. Expense Payment Voucher",           "kind": "custom"},
