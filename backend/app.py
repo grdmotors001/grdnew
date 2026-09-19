@@ -625,6 +625,12 @@ def ser_vehicle(v):
             "chassis_no": v.chassis_no, "motor_no": v.motor_no,
             "controller_no": v.controller_no, "differential_no": v.differential_no,
             "colour": v.colour, "colour_code": v.colour_code, "other": v.other,
+            "battery_maker": getattr(v, "battery_maker", None),
+            "battery_no1": getattr(v, "battery_no1", None),
+            "battery_no2": getattr(v, "battery_no2", None),
+            "battery_no3": getattr(v, "battery_no3", None),
+            "battery_no4": getattr(v, "battery_no4", None),
+            "has_battery": any(getattr(v, f"battery_no{i}", None) for i in range(1,5)),
             "stage": v.stage, "dealer_name": v.dealer_name}
 
 
@@ -713,10 +719,21 @@ def ser_pb(b):
 
 
 def ser_old_rickshaw(r):
-    return {"id": r.id, "vou_no": r.vou_no, "date": _iso(r.date), "party_name": r.party_name,
-            "vehicle_reg_no": r.vehicle_reg_no, "model_name": r.model_name,
-            "owner_name": r.owner_name, "salesman": r.salesman, "sold_amount": r.sold_amount,
-            "loan_amount": r.loan_amount, "receipt_amount": r.receipt_amount,
+    return {"id": r.id, "record_no": r.record_no, "vou_no": r.vou_no, "date": _iso(r.date),
+            "source": r.source, "chfpl_ref_no": r.chfpl_ref_no, "party_name": r.party_name,
+            "purchase_ref_no": r.purchase_ref_no, "purchase_amount": r.purchase_amount,
+            "file_charge": r.file_charge, "vehicle_reg_no": r.vehicle_reg_no,
+            "model_name": r.model_name, "owner_name": r.owner_name, "salesman": r.salesman,
+            "battery_maker": r.battery_maker, "battery_no1": r.battery_no1, "battery_no2": r.battery_no2,
+            "battery_no3": r.battery_no3, "battery_no4": r.battery_no4,
+            "has_battery": any(getattr(r, f"battery_no{i}", None) for i in range(1,5)),
+            "status": r.status, "dealer_id": r.dealer_id, "dealer_name": r.dealer.name if r.dealer else None,
+            "sale_date": _iso(r.sale_date), "sale_dealer_id": r.sale_dealer_id,
+            "sale_dealer_name": r.sale_dealer.name if r.sale_dealer else None,
+            "sale_ref_no": r.sale_ref_no, "sale_amount": r.sale_amount,
+            "loan_amount": r.loan_amount, "down_payment": r.down_payment, "sold_to": r.sold_to,
+            "dealer_page_no": r.dealer_page_no, "sp_no": r.sp_no,
+            "sold_amount": r.sold_amount, "receipt_amount": r.receipt_amount,
             "receipt_no": r.receipt_no, "ledger": r.ledger, "resale_date": _iso(r.resale_date),
             "resale_ledger": r.resale_ledger, "remarks1": r.remarks1, "remarks2": r.remarks2,
             "balance_amount": r.balance_amount}
