@@ -669,6 +669,12 @@ def _ensure_auth_columns():
                 return
             columns = {c["name"] for c in inspector.get_columns("user")}
             additions = {
+                # These columns were added after the first GRD staff database
+                # was created. User ORM queries select the complete row, so a
+                # missing one causes PostgreSQL to return a 500 before the
+                # username/password check can even run.
+                "department": 'VARCHAR(30)',
+                "assigned_dealer_ids": 'TEXT',
                 "mobile": 'VARCHAR(30)',
             }
             for name, sql_type in additions.items():
