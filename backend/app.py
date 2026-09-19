@@ -699,13 +699,26 @@ def _ensure_dealer_login_columns():
             if not inspector.has_table("dealer"):
                 return
             columns = {c["name"] for c in inspector.get_columns("dealer")}
+            # Dealer ORM queries select the complete row. Keep every
+            # mapped Dealer column present so older Supabase schemas cannot
+            # turn a login into a PostgreSQL "column does not exist" 500.
             additions = {
+                "address1": ("VARCHAR(200)", "NULL"),
+                "address2": ("VARCHAR(200)", "NULL"),
+                "mobile": ("VARCHAR(30)", "NULL"),
+                "gst_no": ("VARCHAR(30)", "NULL"),
                 "registration_type": ("VARCHAR(20)", "'registered'"),
+                "state": ("VARCHAR(100)", "NULL"),
+                "state_code": ("VARCHAR(10)", "NULL"),
+                "pan": ("VARCHAR(20)", "NULL"),
                 "bank_name": ("VARCHAR(120)", "NULL"),
                 "bank_account_no": ("VARCHAR(50)", "NULL"),
                 "bank_ifsc": ("VARCHAR(50)", "NULL"),
+                "salesman": ("VARCHAR(100)", "NULL"),
+                "blocked": ("BOOLEAN", "FALSE"),
                 "login_id": ("VARCHAR(50)", "NULL"),
                 "password_hash": ("VARCHAR(255)", "NULL"),
+                "created_at": ("TIMESTAMP", "NULL"),
             }
             for name, (sql_type, default_sql) in additions.items():
                 if name in columns:
