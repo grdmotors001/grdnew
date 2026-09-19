@@ -3095,6 +3095,7 @@ def stock_ledger_dealers():
 def purchase_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
+    is_export = request.args.get("export") == "csv"
     # Read purchase lines directly with one SQL join instead of loading every
     # PurchaseBill and every item into Python. This keeps the report safe for
     # large registers on Vercel/Supabase.
