@@ -2075,20 +2075,7 @@ def delivery_challans():
     # available_vehicles is inherently small (only vehicles still in the
     # Manufacturing stage, not the whole history) -- fine to send in full.
     available_vehicles = Vehicle.query.filter_by(stage="Manufacturing").order_by(Vehicle.chassis_no).all()
-    # Formula name is stored on the Production Voucher, not Vehicle.
-    available_chassis = [v.chassis_no for v in available_vehicles if v.chassis_no]
-    formula_by_chassis = {}
-    if available_chassis:
-        formula_by_chassis = {
-            pv.chassis_no: pv.formula_name
-            for pv in ProductionVoucher.query.filter(ProductionVoucher.chassis_no.in_(available_chassis)).all()
-            if pv.formula_name
-        }
-    available_payload = []
-    for v in available_vehicles:
-        row = ser_vehicle(v)
-        row["formula_name"] = formula_by_chassis.get(v.chassis_no)
-        available_payload.append(row)
+    available_payload = [ser_vehicle(v) for v in available_vehicles]
 
     next_no = (db.session.query(db.func.max(DeliveryChallan.id)).scalar() or 0) + 1
     return jsonify({
