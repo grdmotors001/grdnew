@@ -10,7 +10,8 @@ export function ProductionVoucherPage() {
   const [data, setData] = useState(null);
   const [products, setProducts] = useState([]);
   const [formulas, setFormulas] = useState([]);
-  const [open, setOpen] = useState(false);\n  const [editingId, setEditingId] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ date: today(), quantity: 1 });
   const [bomPreview, setBomPreview] = useState(null);
   const [page, setPage] = useState(1);
