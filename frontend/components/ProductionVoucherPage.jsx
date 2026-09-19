@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, post, del } from '../lib/api';
+import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 
@@ -79,7 +79,12 @@ export function ProductionVoucherPage() {
 
   const save = (e) => {
     e.preventDefault();
-    run(async () => { await post('/production-vouchers', form); setOpen(false); load(); });
+    run(async () => {
+      if (editingId) await put(`/production-vouchers/${editingId}`, form);
+      else await post('/production-vouchers', form);
+      setOpen(false);
+      load();
+    });
   };
 
   const remove = (id) => {
