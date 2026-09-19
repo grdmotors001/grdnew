@@ -79,9 +79,10 @@ export const NAV_GROUPS = {
   ],
   'Sales & Billing': [
     ['purchase-bills', 'Purchase Bills'], ['tax-invoice', 'Tax Invoice'],
-    ['old-rickshaw', 'Old Rickshaw'], ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['old-rickshaw', 'Old Rickshaw'],
   ],
   Accounts: [
+    ['journal-stock', 'Journal Stock'], ['expense-payment-voucher', 'Expense Payment Voucher'],
     ['ledger', 'Ledger'], ['day-book', 'Day Book'], ['ledger-v', 'Ledger V'],
     ['payment-receivable-report', 'Payment Receivable'], ['gst-register', 'GST Register'],
     ['hypothecation-register', 'Hypothecation Register'], ['incentive-register', 'Incentive Register'],
