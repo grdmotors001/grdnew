@@ -743,6 +743,9 @@ class JournalStock(db.Model):
     item_type = db.Column(db.String(10), default="R")   # R=Raw Material, F=Finished Good
     qty = db.Column(db.Float, default=0)                   # +in / -out
     reason = db.Column(db.String(300))
+    model_name = db.Column(db.String(200))
+    work_type = db.Column(db.String(30))                     # fabrication / assembly / adjustment
+    batch_ref = db.Column(db.String(40), index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
