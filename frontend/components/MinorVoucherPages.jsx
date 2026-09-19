@@ -77,6 +77,55 @@ export function OldRickshawPage() {
   </>;
 }
 
+
+export function BatterySwapVoucherPage() {
+  const [dealers,setDealers]=useState([]),[rows,setRows]=useState([]),[rickshaws,setRickshaws]=useState({new:[],old:[]});
+  const [form,setForm]=useState({date:today(),dealer_id:'',from_type:'new',from_id:'',to_type:'new',to_id:'',remarks:''});
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-swap-vouchers')]);setDealers(d.dealers||[]);setRows(v.records||[]);}catch(e){setError(e.message)}};
+  const loadStock=async dealerId=>{if(!dealerId){setRickshaws({new:[],old:[]});return;}try{const [n,o]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=new'),get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=old')]);setRickshaws({new:n.rickshaws||[],old:o.rickshaws||[]});}catch(e){setError(e.message)}};
+  useEffect(()=>{load()},[]);
+  useEffect(()=>{loadStock(form.dealer_id)},[form.dealer_id]);
+  const opts=type=>(rickshaws[type]||[]).map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')+(r.has_battery?' — Battery':' — No Battery')}));
+  const save=async e=>{e.preventDefault();setBusy(true);setError('');try{await post('/battery-swap-vouchers',form);setForm({...form,from_id:'',to_id:'',remarks:''});await load();await loadStock(form.dealer_id);}catch(e){setError(e.message)}finally{setBusy(false)}};
+  return <div className="page"><div className="card"><h2>Battery Swap / Exchange Voucher</h2><p className="muted">Same dealer ke 2 rickshaw select karo. Ek me battery nahi hai to battery move hogi; dono me battery hai to exchange hoga.</p><ErrorBanner message={error}/>
+    <form onSubmit={save}><div className="formgrid">
+      <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+      <Field label="Dealer" type="select" value={form.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setForm({...form,dealer_id:Number(v),from_id:'',to_id:''})} required/>
+      <Field label="From Rickshaw Type" type="select" value={form.from_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,from_type:v,from_id:''})}/>
+      <Field label="From Rickshaw" type="select" value={form.from_id} options={opts(form.from_type)} onChange={v=>setForm({...form,from_id:Number(v)})} required/>
+      <Field label="To Rickshaw Type" type="select" value={form.to_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,to_type:v,to_id:''})}/>
+      <Field label="To Rickshaw" type="select" value={form.to_id} options={opts(form.to_type)} onChange={v=>setForm({...form,to_id:Number(v)})} required/>
+      <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
+    </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Battery Swap / Exchange'}</button></div></form>
+  </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From</th><th>To</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{dealers.find(d=>d.id===r.dealer_id)?.name||r.dealer_id}</td><td>{r.mode}</td><td>{r.from_type} #{r.from_id}</td><td>{r.to_type} #{r.to_id}</td></tr>)}</tbody></table></div></div></div>;
+}
+
+export function BatteryWithdrawalPage() {
+  const [dealers,setDealers]=useState([]),[rickshaws,setRickshaws]=useState([]),[rows,setRows]=useState([]);
+  const [form,setForm]=useState({date:today(),dealer_id:'',rickshaw_type:'new',rickshaw_id:'',battery_no:'',reference_no:'',remarks:''});
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-withdrawal')]);setDealers(d.dealers||[]);setRows(v.records||[]);}catch(e){setError(e.message)}};
+  const loadR=async()=>{if(!form.dealer_id){setRickshaws([]);return;}const x=await get('/dealer/rickshaw-battery-options?dealer_id='+form.dealer_id+'&type='+form.rickshaw_type);setRickshaws(x.rickshaws||[]);};
+  useEffect(()=>{load()},[]);
+  useEffect(()=>{loadR()},[form.dealer_id,form.rickshaw_type]);
+  const current=rickshaws.find(x=>String(x.id)===String(form.rickshaw_id));
+  const save=async e=>{e.preventDefault();setBusy(true);setError('');try{await post('/battery-withdrawal',form);setForm({...form,rickshaw_id:'',battery_no:'',reference_no:'',remarks:''});await load();await loadR();}catch(e){setError(e.message)}finally{setBusy(false)}};
+  return <div className="page"><div className="card"><h2>Battery Withdrawal</h2><p className="muted">Rickshaw se battery nikaal kar dealer ke battery stock me aa jayegi.</p><ErrorBanner message={error}/>
+    <form onSubmit={save}><div className="formgrid">
+      <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+      <Field label="Dealer" type="select" value={form.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setForm({...form,dealer_id:Number(v),rickshaw_id:'',battery_no:''})} required/>
+      <Field label="Rickshaw Type" type="select" value={form.rickshaw_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,rickshaw_type:v,rickshaw_id:'',battery_no:''})}/>
+      <Field label="Rickshaw" type="select" value={form.rickshaw_id} options={rickshaws.map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')}))} onChange={v=>setForm({...form,rickshaw_id:Number(v),battery_no:''})} required/>
+      <Field label="Battery No." type="select" value={form.battery_no} options={(current?.battery_numbers||[]).map(n=>({value:n,label:n}))} onChange={v=>setForm({...form,battery_no:v})} required/>
+      <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
+      <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
+    </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Withdraw Battery'}</button></div></form></div>
+    <div className="card"><h2>Dealer Battery Withdrawal History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Dealer</th><th>Battery Maker</th><th>Battery No.</th><th>Reference</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.dealer_name}</td><td>{r.battery_maker}</td><td>{r.battery_no}</td><td>{r.reference_no||'—'}</td></tr>)}</tbody></table></div></div>
+  </div>;
+}
+
+
 export function BatteryDeliveryChallanPage() {
   const [data, setData] = useState(null);
   const [dealers, setDealers] = useState([]);
