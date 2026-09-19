@@ -467,7 +467,7 @@ def ser_dealer(d):
             "state": d.state, "state_code": d.state_code, "pan": d.pan,
             "bank_name": d.bank_name, "bank_account_no": d.bank_account_no, "bank_ifsc": d.bank_ifsc,
             "registration_type": d.registration_type or "registered",
-            "salesman": d.salesman, "blocked": d.blocked, "login_id": d.login_id}
+            "salesman": d.salesman, "blocked": d.blocked, "purchase_access": bool(d.purchase_access), "login_id": d.login_id}
 
 
 def ser_product(p):
@@ -716,6 +716,7 @@ def _ensure_dealer_login_columns():
                 "bank_ifsc": ("VARCHAR(50)", "NULL"),
                 "salesman": ("VARCHAR(100)", "NULL"),
                 "blocked": ("BOOLEAN", "FALSE"),
+                "purchase_access": ("BOOLEAN", "FALSE"),
                 "login_id": ("VARCHAR(50)", "NULL"),
                 "password_hash": ("VARCHAR(255)", "NULL"),
                 "created_at": ("TIMESTAMP", "NULL"),
@@ -786,6 +787,7 @@ def dealer_login():
         "dealer": {
             "id": dealer.id, "code": dealer.code, "name": dealer.name,
             "login_id": dealer.login_id,
+            "purchase_access": bool(dealer.purchase_access),
         },
     })
 
@@ -1280,6 +1282,7 @@ def dealers():
         d.salesman = data.get("salesman")
         d.code = data.get("code") or None
         d.blocked = bool(data.get("blocked"))
+        d.purchase_access = bool(data.get("purchase_access"))
         d.login_id = data.get("login_id")
         if data.get("password"):
             d.set_password(data.get("password"))
@@ -1321,7 +1324,8 @@ def _dealer_payment_json(p):
 def dealer_purchases():
     d=_dealer_current()
     if not d: return _err("Dealer not found",404)
-    if (d.registration_type or "registered") != "registered": return jsonify({"registered":False,"purchases":[]})
+    if not d.purchase_access: return jsonify({"registered":False,"purchase_access":False,"purchases":[]})
+    if (d.registration_type or "registered") != "registered": return jsonify({"registered":False,"purchase_access":True,"purchases":[]})
     rows=(DeliveryChallan.query.filter_by(dealer_id=d.id,cancelled=False)
           .order_by(DeliveryChallan.date.desc(),DeliveryChallan.id.desc()).limit(500).all())
     return jsonify({"registered":True,"purchases":[ser_dc(x) for x in rows]})
@@ -1331,6 +1335,7 @@ def dealer_purchases():
 def dealer_customer_invoice():
     d=_dealer_current()
     if not d: return _err("Dealer not found",404)
+    if not d.purchase_access: return _err("Purchase access is not enabled for this dealer.",403)
     if (d.registration_type or "registered") != "registered": return _err("Customer invoice is available only for registered dealers.",403)
     data=request.get_json(silent=True) or {}; challan_id=data.get("challan_id")
     challan=DeliveryChallan.query.filter_by(id=challan_id,dealer_id=d.id,cancelled=False).first()
