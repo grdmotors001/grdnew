@@ -375,6 +375,30 @@ def expense_payment_voucher_rickshaws():
         "dealer_name":r.dealer.name if r.dealer else None,"date":_iso(r.date)}
         for r in rows if r.vehicle_id]})
 
+@app.get("/api/expense-payment-voucher/work-pending")
+@require_auth
+def expense_work_pending():
+    work_type=(request.args.get("work_type") or "assembly").strip().lower()
+    if work_type not in {"assembly"}:
+        return _err("Unsupported work type")
+    paid_or_pending=db.session.query(ExpensePaymentVoucher.vehicle_id).filter(
+        ExpensePaymentVoucher.expense_type=="assembly",
+        ExpensePaymentVoucher.vehicle_id.isnot(None),
+        ExpensePaymentVoucher.status!="rejected"
+    ).subquery()
+    q=(DeliveryChallan.query.options(joinedload(DeliveryChallan.dealer))
+       .filter(DeliveryChallan.cancelled.is_(False),DeliveryChallan.vehicle_id.isnot(None),
+               ~DeliveryChallan.vehicle_id.in_(paid_or_pending))
+       .order_by(DeliveryChallan.date.desc(),DeliveryChallan.id.desc()))
+    dealer_id=request.args.get("dealer_id",type=int)
+    if dealer_id:q=q.filter(DeliveryChallan.dealer_id==dealer_id)
+    rows=q.limit(1000).all()
+    return jsonify({"rickshaws":[
+        {"vehicle_id":r.vehicle_id,"chassis_no":r.chassis_no,"model_name":r.product_name,
+         "dealer_id":r.dealer_id,"dealer_name":r.dealer.name if r.dealer else None,"date":_iso(r.date)}
+        for r in rows
+    ]})
+
 @app.route("/api/expense-payment-voucher",methods=["GET","POST"])
 @require_auth
 def expense_payment_voucher():
@@ -506,6 +530,17 @@ def expense_payment_voucher():
         remarks=common_remarks,status="pending",created_by=created_by)
     db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";db.session.commit()
     return jsonify({"success":True,"voucher":_expense_voucher_dict(voucher)}),201
+
+@app.post("/api/expense-payment-voucher/<int:voucher_id>/mark-paid")
+@require_auth
+@require_super_user
+def expense_payment_voucher_mark_paid(voucher_id):
+    voucher=ExpensePaymentVoucher.query.get(voucher_id)
+    if not voucher:return _err("Voucher not found",404)
+    if voucher.status!="approved":return _err("Only approved vouchers can be marked Paid")
+    voucher.paid_at=dt.utcnow()
+    db.session.commit()
+    return jsonify({"success":True,"voucher":_expense_voucher_dict(voucher)})
 
 @app.route("/api/expense-payment-voucher/<int:voucher_id>/approval",methods=["POST"])
 @require_auth
