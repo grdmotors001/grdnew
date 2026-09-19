@@ -9,6 +9,7 @@ import { DealerPaymentPage } from './DealerPaymentPage';
 import { DealerCustomerInvoicePage } from './DealerCustomerInvoicePage';
 import { DealerLedgerPage } from './DealerLedgerPage';
 import { DealerPendingSalesPage } from './DealerPendingSalesPage';
+import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 
 const nav = [
   ['dashboard', '⌂', 'Dashboard'],
@@ -20,6 +21,7 @@ const nav = [
   ['cashbook', '₹', 'Cash Book'],
   ['payments', '↔', 'Online Payment'],
   ['ledger', '▤', 'Ledger'],
+  ['pending-sales', '▤', 'Pending Sales'],
   ['pending-sales', '▤', 'Pending Sales'],
 ];
 
@@ -98,6 +100,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='purchases' && canPurchase && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
+        {tab==='pending-sales' && <DealerPendingSalesPage/>}
         {tab==='pending-sales' && <DealerPendingSalesPage/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
         {tab==='old-stock' && <DealerTable headers={['Sale Date','Record No.','Reg. No.','Model','Owner','Sale Amount','Loan','Down Payment','SP No.']} rows={filteredOldStock} row={v=><><td data-label="Sale Date">{formatDate(v.sale_date)}</td><td data-label="Record No.">{v.record_no}</td><td data-label="Reg. No."><b>{v.vehicle_reg_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Owner">{v.owner_name||'—'}</td><td data-label="Sale Amount">{v.sale_amount}</td><td data-label="Loan">{v.loan_amount}</td><td data-label="Down Payment">{v.down_payment}</td><td data-label="SP No.">{v.sp_no||'—'}</td></>}/>}
