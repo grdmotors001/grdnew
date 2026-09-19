@@ -109,11 +109,19 @@ export function DeliveryChallanPage() {
     setOpen(true);
   };
 
-  const selectVehicle = (value, baseForm = form) => {
+  const selectVehicle = async (value, baseForm = form) => {
     const vehicle = (data?.available_vehicles || []).find((v) => String(v.id) === String(value));
+    if (!vehicle) return;
+    let formulaName = '';
+    try {
+      const q = new URLSearchParams({ search: vehicle.chassis_no || '', page: 1, per_page: 1 });
+      const pv = await get(`/production-vouchers?${q}`);
+      formulaName = pv?.vouchers?.[0]?.formula_name || '';
+    } catch (_) {}
     setForm({
       ...baseForm,
       vehicle_id: Number(value),
+      formula_name: formulaName,
       battery_maker: vehicle?.battery_maker || '',
       battery_no1: vehicle?.battery_no1 || '',
       battery_no2: vehicle?.battery_no2 || '',
