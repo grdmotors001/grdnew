@@ -660,6 +660,8 @@ class OldRickshaw(db.Model):
     loan_amount = db.Column(db.Float, default=0)
     down_payment = db.Column(db.Float, default=0)
     sold_to = db.Column(db.String(200))
+    # Salesman handling the final dealer/customer sale; auto-copied from Dealer Master.
+    sale_salesman = db.Column(db.String(100))
 
     # Dealer's own register/page reference. Same sequence is used for new and old.
     dealer_page_no = db.Column(db.String(40))
