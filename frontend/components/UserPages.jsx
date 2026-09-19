@@ -8,7 +8,7 @@ const DEPARTMENT_DEFAULT_MODULES = {
   Admin: MENU.Setup.flatMap(([k]) => [k]),
   Factory: ['production-voucher', 'production-register', 'closing-stock-premises', 'closing-stock-raw', 'stock-ledger-premises'],
   Dealer: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
-  Billing: ['delivery-challan', 'tax-invoice', 'sale-register', 'gst-register', 'hypothecation-register', 'payment-receivable-report', 'ledger', 'ledger-v'],
+  Billing: ['delivery-challan', 'billing-pending-sales', 'tax-invoice', 'sale-register', 'gst-register', 'hypothecation-register', 'payment-receivable-report', 'cash-at-dealer', 'ledger', 'ledger-v'],
   Cashier: ['expense-payment-voucher', 'day-book', 'ledger', 'ledger-v', 'payment-receivable-report'],
   Salesman: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
   HR: ['hr-attendance'],
