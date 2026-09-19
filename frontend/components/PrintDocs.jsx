@@ -405,9 +405,10 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
               <tbody>
                 <tr><th>SRN</th><th>PARTICULARS</th><th>DETAILS</th></tr>
                 <tr><td className="center">1</td><td>Chassis No.</td><td className="highlight">{c.chassis_no}</td></tr>
-                <tr><td className="center">2</td><td>Motor No.</td><td>{c.motor_no}</td></tr>
-                <tr><td className="center">3</td><td>Controller No.</td><td>{c.controller_no}</td></tr>
-                <tr><td className="center">4</td><td>Colour</td><td>{c.colour}</td></tr>
+                <tr><td className="center">2</td><td>Model Name</td><td>{c.product_name}</td></tr>
+                <tr><td className="center">3</td><td>Formula Name</td><td>{c.formula_name || '—'}</td></tr>
+                <tr><td className="center">4</td><td>Motor No.</td><td>{c.motor_no}</td></tr>
+                <tr><td className="center">5</td><td>Colour</td><td>{c.colour}</td></tr>
               </tbody>
             </table>
           </div>
