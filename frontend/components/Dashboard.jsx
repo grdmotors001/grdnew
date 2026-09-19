@@ -197,6 +197,11 @@ export function Dashboard({ setActive, user }) {
           <span className="muted">Total Vehicles</span>
           <div className="metric">{all.length}</div>
         </div>
+        <button className="card" style={{textAlign:'left',cursor:'pointer',border:'1px solid var(--border)'}} onClick={() => setActive('cash-at-dealer')}>
+          <span className="muted">Cash at Dealer</span>
+          <div className="metric"><Money value={d.cash_at_dealer} /></div>
+          <span className="muted">Open Cash at Dealer report →</span>
+        </button>
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
