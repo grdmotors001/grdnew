@@ -1491,6 +1491,9 @@ def product_delete(product_id):
 @require_auth
 @require_super_user
 def users():
+    # Older production databases may not yet have the newer User columns.
+    # Ensure them before any User ORM query so User Master / Add User cannot 500.
+    _ensure_auth_columns()
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         row_id = data.get("id")
