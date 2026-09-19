@@ -29,7 +29,7 @@ const ICONS = {
   dealer: Building2, party: Users, product: Package, 'chassis-master': Car, 'battery-maker': BatteryCharging,
   rto: Landmark, financer: HandCoins, 'production-formula': FlaskConical, mechanic: Wrench,
   user: UserCog, 'option-setting': Sliders, bank: Banknote, colour: Palette,
-  'purchase-bills': ShoppingCart, 'production-voucher': Factory, 'delivery-challan': Truck,
+  'purchase-bills': ShoppingCart, 'billing-pending-sales': Wallet, 'production-voucher': Factory, 'delivery-challan': Truck,
   'tax-invoice': Receipt, 'old-rickshaw': Car, 'battery-delivery-challan': BatteryCharging,
   'journal-stock': BookOpen,
   'closing-stock-premises': Warehouse, 'closing-stock-dealers': Store, 'closing-stock-raw': Boxes,
