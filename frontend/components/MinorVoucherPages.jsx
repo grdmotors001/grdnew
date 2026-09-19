@@ -267,64 +267,39 @@ export function BatteryDeliveryChallanPage() {
 }
 
 export function JournalStockPage() {
-  const [data, setData] = useState(null);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ date: today(), item_type: 'R' });
-  const { busy, error, setError, run } = useAsyncAction();
-
-  const load = () => get('/journal-stock').then(setData).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
-
-  const openNew = () => { setForm({ date: today(), item_type: 'R', vou_no: data?.suggested_vou_no || '' }); setOpen(true); };
-  const save = (e) => { e.preventDefault(); run(async () => { await post('/journal-stock', form); setOpen(false); load(); }); };
-  const remove = (id) => { if (!confirm('Delete this record?')) return; run(async () => { await del(`/journal-stock/${id}`); load(); }); };
-
-  if (!data) return <div className="card">Loading…</div>;
-  return (
-    <>
-      <div className="actions" style={{ marginBottom: 14 }}>
-        <button className="btn primary" onClick={openNew}>+ New Stock Correction</button>
-      </div>
-      <ErrorBanner message={!open ? error : ''} />
-      {data.records.length === 0 ? <EmptyState /> : (
-        <div className="tablewrap">
-          <table className="table">
-            <thead><tr><th>Date</th><th>Vou. No.</th><th>Item</th><th>Type</th><th>Qty (+/-)</th><th>Reason</th><th></th></tr></thead>
-            <tbody>
-              {data.records.map((r) => (
-                <tr key={r.id}>
-                  <td>{formatDate(r.date)}</td><td>{r.vou_no}</td><td>{r.item_name}</td>
-                  <td>{r.item_type === 'R' ? 'Raw Material' : 'Finished'}</td><td>{r.qty}</td><td>{r.reason}</td>
-                  <td><button className="btn danger" onClick={() => remove(r.id)}>Delete</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {open && (
-        <div className="modal">
-          <form className="modalbox" onSubmit={save}>
-            <h2>New Stock Correction</h2>
-            <ErrorBanner message={error} />
-            <p className="muted" style={{ fontSize: 12 }}>Use a positive Qty to add stock, negative to remove it — for anything not covered by Purchase / Production / Delivery.</p>
-            <div className="formgrid">
-              <Field label="Vou. No." value={form.vou_no} onChange={(v) => setForm({ ...form, vou_no: v })} />
-              <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
-              <Field label="Item Name" value={form.item_name} onChange={(v) => setForm({ ...form, item_name: v })} required />
-              <Field label="Item Type" type="select" value={form.item_type}
-                     options={[{ value: 'R', label: 'Raw Material' }, { value: 'F', label: 'Finished' }]}
-                     onChange={(v) => setForm({ ...form, item_type: v })} />
-              <Field label="Qty (+/-)" type="number" value={form.qty} onChange={(v) => setForm({ ...form, qty: v })} required />
-              <Field label="Reason" value={form.reason} onChange={(v) => setForm({ ...form, reason: v })} />
-            </div>
-            <div className="actions" style={{ marginTop: 18 }}>
-              <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
-              <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-            </div>
-          </form>
-        </div>
-      )}
-    </>
-  );
+  const [data,setData]=useState(null),[open,setOpen]=useState(false),[workOpen,setWorkOpen]=useState(false);
+  const [search,setSearch]=useState(''),[type,setType]=useState(''),[page,setPage]=useState(1);
+  const [form,setForm]=useState({date:today(),item_type:'R'}),[work,setWork]=useState({date:today(),work_type:'assembly',model_name:'',output_item:'Complete Wheel',output_qty:1,inputs:[{item_name:'Tyre',qty_per_unit:1},{item_name:'Tube',qty_per_unit:1},{item_name:'Rim',qty_per_unit:1}],reason:''});
+  const {busy,error,setError,run}=useAsyncAction();
+  const load=()=>get('/journal-stock?'+new URLSearchParams({page,per_page:50,...(search?{search}:{}),...(type?{item_type:type}:{})})).then(setData).catch(e=>setError(e.message));
+  useEffect(()=>{load();},[page,search,type]);
+  const openNew=()=>{setForm({date:today(),item_type:'R',vou_no:data?.suggested_vou_no||''});setOpen(true);};
+  const save=e=>{e.preventDefault();run(async()=>{await post('/journal-stock',form);setOpen(false);load();});};
+  const saveWork=e=>{e.preventDefault();run(async()=>{await post('/journal-stock/work',work);setWorkOpen(false);load();});};
+  const remove=id=>{if(!confirm('Delete this record?'))return;run(async()=>{await del('/journal-stock/'+id);load();});};
+  const setWorkType=v=>setWork(x=>({...x,work_type:v,output_item:v==='assembly'?'Complete Wheel':'Fabricated Chassis',inputs:v==='assembly'?[{item_name:'Tyre',qty_per_unit:1},{item_name:'Tube',qty_per_unit:1},{item_name:'Rim',qty_per_unit:1}]:[{item_name:'Iron Sheet',qty_per_unit:1},{item_name:'Pipe',qty_per_unit:1},{item_name:'Welding Material',qty_per_unit:1}]}));
+  const addInput=()=>setWork(x=>({...x,inputs:[...x.inputs,{item_name:'',qty_per_unit:1}]}));
+  const updateInput=(i,k,v)=>setWork(x=>({...x,inputs:x.inputs.map((a,n)=>n===i?{...a,[k]:v}:a)}));
+  if(!data)return <div className="card">Loading…</div>;
+  return <>
+    <div className="actions" style={{marginBottom:14,flexWrap:'wrap'}}>
+      <button className="btn primary" onClick={openNew}>+ Stock Correction</button><button className="btn" onClick={()=>setWorkOpen(true)}>+ Fabrication / Assembly</button>
+      <input className="input" placeholder="Search item, model, voucher…" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} style={{maxWidth:260}}/>
+      <select className="input" value={type} onChange={e=>{setType(e.target.value);setPage(1)}} style={{maxWidth:160}}><option value="">All Types</option><option value="R">Raw Material</option><option value="F">Finished</option></select>
+    </div>
+    <ErrorBanner message={!open&&!workOpen?error:''}/>
+    {!data.records.length?<EmptyState/>:<>
+      <div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Vou. No.</th><th>Item</th><th>Model</th><th>Type</th><th>Qty</th><th>Work</th><th>Reason</th><th></th></tr></thead>
+      <tbody>{data.records.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.vou_no}</td><td>{r.item_name}</td><td>{r.model_name||'—'}</td><td>{r.item_type==='R'?'Raw Material':'Finished'}</td><td>{r.qty}</td><td>{r.work_type||'Adjustment'}</td><td>{r.reason||'—'}</td><td><button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td></tr>)}</tbody></table></div>
+      <div className="actions" style={{justifyContent:'space-between',marginTop:10}}><span className="muted">Page {data.page} of {data.total_pages} · {data.total} records</span><div><button className="btn" disabled={data.page<=1} onClick={()=>setPage(p=>p-1)}>← Prev</button> <button className="btn" disabled={data.page>=data.total_pages} onClick={()=>setPage(p=>p+1)}>Next →</button></div></div>
+    </>}
+    {open&&<div className="modal"><form className="modalbox" onSubmit={save}><h2>New Stock Correction</h2><ErrorBanner message={error}/><div className="formgrid">
+      <Field label="Vou. No." value={form.vou_no} onChange={v=>setForm({...form,vou_no:v})}/><Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/><Field label="Item Name" value={form.item_name} onChange={v=>setForm({...form,item_name:v})} required/><Field label="Model (optional)" value={form.model_name} onChange={v=>setForm({...form,model_name:v})}/><Field label="Item Type" type="select" value={form.item_type} options={[{value:'R',label:'Raw Material'},{value:'F',label:'Finished'}]} onChange={v=>setForm({...form,item_type:v})}/><Field label="Qty (+/-)" type="number" value={form.qty} onChange={v=>setForm({...form,qty:v})} required/><Field label="Reason" value={form.reason} onChange={v=>setForm({...form,reason:v})}/></div>
+      <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>Save</button></div></form></div>}
+    {workOpen&&<div className="modal"><form className="modalbox" onSubmit={saveWork}><h2>Fabrication / Assembly Stock</h2><ErrorBanner message={error}/><p className="muted">Example: 1 Complete Wheel = 1 Tyre + 1 Tube + 1 Rim. For fabrication, enter sheet/pipe/welding consumption and the finished chassis quantity.</p>
+      <div className="formgrid"><Field label="Work Type" type="select" value={work.work_type} options={[{value:'fabrication',label:'Fabrication — Chassis / Frame'},{value:'assembly',label:'Assembly — Wheel / Part'}]} onChange={setWorkType}/><Field label="Date" type="date" value={work.date} onChange={v=>setWork({...work,date:v})}/><Field label="Model (optional)" value={work.model_name} onChange={v=>setWork({...work,model_name:v})}/><Field label="Output Item" value={work.output_item} onChange={v=>setWork({...work,output_item:v})} required/><Field label="Output Qty" type="number" value={work.output_qty} onChange={v=>setWork({...work,output_qty:v})} required/><Field label="Voucher No. (optional)" value={work.vou_no||''} onChange={v=>setWork({...work,vou_no:v})}/><Field label="Reason / Remark" value={work.reason} onChange={v=>setWork({...work,reason:v})}/></div>
+      <div className="card" style={{marginTop:14}}><div className="actions" style={{justifyContent:'space-between'}}><b>Input Materials per Output Unit</b><button type="button" className="btn" onClick={addInput}>+ Add Material</button></div>
+      {work.inputs.map((x,i)=><div key={i} className="formgrid" style={{marginTop:8}}><Field label="Material" value={x.item_name} onChange={v=>updateInput(i,'item_name',v)}/><Field label="Qty / Unit" type="number" value={x.qty_per_unit} onChange={v=>updateInput(i,'qty_per_unit',v)}/></div>)}</div>
+      <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setWorkOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>Save Work Entry</button></div></form></div>}
+  </>;
 }
