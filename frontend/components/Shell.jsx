@@ -8,7 +8,7 @@ import {
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
   Truck, Receipt, Car, BookOpen, Warehouse, Store, Boxes, ClipboardList, FileText,
   BarChart3, Wallet, Gift, Calendar, Key, Database, LogOut, ChevronLeft, ChevronRight,
-  Sun, Moon, Palette, CreditCard, ClipboardCheck, Settings2,
+  Sun, Moon, Palette, CreditCard, Settings2,
 } from 'lucide-react';
 
 // Icon per menu key — mirrors MENU's grouping in lib/menu.js so the sidebar
