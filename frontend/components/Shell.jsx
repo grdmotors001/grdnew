@@ -31,7 +31,7 @@ const ICONS = {
   user: UserCog, 'option-setting': Sliders, bank: Banknote, colour: Palette,
   'purchase-bills': ShoppingCart, 'billing-pending-sales': Wallet, 'production-voucher': Factory, 'delivery-challan': Truck,
   'tax-invoice': Receipt, 'old-rickshaw': Car, 'battery-delivery-challan': BatteryCharging,
-  'journal-stock': BookOpen,
+  'journal-stock': BookOpen, 'cash-at-dealer': Wallet,
   'closing-stock-premises': Warehouse, 'closing-stock-dealers': Store, 'closing-stock-raw': Boxes,
   'stock-ledger-premises': ClipboardList, 'stock-ledger-dealers': ClipboardList,
   'purchase-register': FileText, 'production-register': FileText, 'delivery-challan-register': FileText,
