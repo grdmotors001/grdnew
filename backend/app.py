@@ -2674,9 +2674,31 @@ def battery_swap_vouchers():
         return jsonify({"deleted":True})
     if request.method=="GET":
         rows=BatterySwapVoucher.query.order_by(BatterySwapVoucher.date.desc(),BatterySwapVoucher.id.desc()).limit(300).all()
-        return jsonify({"records":[{"id":x.id,"voucher_no":x.voucher_no,"date":_iso(x.date),"dealer_id":x.dealer_id,
-            "mode":x.mode,"from_type":x.from_type,"from_id":x.from_id,"to_type":x.to_type,"to_id":x.to_id,"remarks":x.remarks}
-            for x in rows]})
+        def swap_target(kind, ident):
+            return Vehicle.query.get(ident) if kind == "new" else OldRickshaw.query.get(ident)
+
+        records = []
+        for x in rows:
+            src = swap_target(x.from_type, x.from_id)
+            dst = swap_target(x.to_type, x.to_id)
+            records.append({
+                "id": x.id, "voucher_no": x.voucher_no, "date": _iso(x.date),
+                "dealer_id": x.dealer_id, "mode": x.mode,
+                "from_type": x.from_type, "from_id": x.from_id,
+                "from_reg_no": getattr(src, "vehicle_reg_no", None) if x.from_type == "old" else getattr(src, "reg_no", None),
+                "from_chassis_no": getattr(src, "chassis_no", None),
+                "from_model_name": getattr(src, "model_name", None),
+                "from_battery_maker": getattr(src, "battery_maker", None),
+                "from_battery_numbers": _battery_fields(src) if src else [],
+                "to_type": x.to_type, "to_id": x.to_id,
+                "to_reg_no": getattr(dst, "vehicle_reg_no", None) if x.to_type == "old" else getattr(dst, "reg_no", None),
+                "to_chassis_no": getattr(dst, "chassis_no", None),
+                "to_model_name": getattr(dst, "model_name", None),
+                "to_battery_maker": getattr(dst, "battery_maker", None),
+                "to_battery_numbers": _battery_fields(dst) if dst else [],
+                "remarks": x.remarks,
+            })
+        return jsonify({"records": records})
     d=request.get_json(silent=True) or {}
     dealer_id=d.get("dealer_id")
     if not dealer_id:return _err("Dealer is required.")
@@ -3073,26 +3095,48 @@ def stock_ledger_dealers():
 def purchase_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
-    rows = []
-    purchase_query = PurchaseBill.query.filter(*_date_filter(PurchaseBill.date, from_date, to_date)).order_by(PurchaseBill.date)
-    for b in purchase_query.all():
-        if not _matches(search, b.party_name, b.bill_no):
-            continue
-        for it in b.items:
-            rows.append({"date": _iso(b.date), "bill_no": b.bill_no or ".", "party_name": b.party_name,
-                         "item_name": it.item_name, "hsn": it.hsn_code, "taxable_amt": it.taxable_amt,
-                         "gst_rate": it.gst_rate, "is_inter_state": it.is_inter_state,
-                         "cgst_amt": it.cgst_amt, "sgst_amt": it.sgst_amt, "igst_amt": it.igst_amt})
+    # Read purchase lines directly with one SQL join instead of loading every
+    # PurchaseBill and every item into Python. This keeps the report safe for
+    # large registers on Vercel/Supabase.
+    q = (db.session.query(PurchaseBill, PurchaseBillItem)
+         .join(PurchaseBillItem, PurchaseBillItem.bill_id == PurchaseBill.id)
+         .filter(*_date_filter(PurchaseBill.date, from_date, to_date)))
+    if search:
+        like = f"%{search}%"
+        q = q.filter(db.or_(PurchaseBill.party_name.ilike(like),
+                            PurchaseBill.bill_no.ilike(like),
+                            PurchaseBillItem.item_name.ilike(like),
+                            PurchaseBillItem.hsn_code.ilike(like)))
+    q = q.order_by(PurchaseBill.date.desc(), PurchaseBill.id.desc(), PurchaseBillItem.id.asc())
+
+    def line_row(b, it):
+        taxable = round((it.qty or 0) * (it.rate or 0), 2)
+        inter = bool(b.party_state_code) and b.party_state_code != "07"
+        igst = round(taxable * (it.gst_rate or 0) / 100, 2) if inter else 0
+        cgst = round(taxable * (it.gst_rate or 0) / 200, 2) if not inter else 0
+        sgst = cgst if not inter else 0
+        return {"date": _iso(b.date), "bill_no": b.bill_no or ".", "party_name": b.party_name,
+                "item_name": it.item_name, "hsn": it.hsn_code, "taxable_amt": taxable,
+                "gst_rate": it.gst_rate, "is_inter_state": inter,
+                "cgst_amt": cgst, "sgst_amt": sgst, "igst_amt": igst}
+
     if is_export:
+        rows = [line_row(b, it) for b, it in q.all()]
         headers = ["Date", "Bill No.", "Party Name", "Item Name", "HSN", "Taxable Amt", "CGST Amt", "SGST Amt", "IGST Amt"]
         return _csv_response("Purchase_Register.csv", headers,
                               [[r["date"], r["bill_no"], r["party_name"], r["item_name"], r["hsn"] or "",
                                 r["taxable_amt"], r["cgst_amt"], r["sgst_amt"], r["igst_amt"]] for r in rows])
+
+    page = max(1, _i(request.args.get("page"), 1))
+    per_page = min(100, max(25, _i(request.args.get("per_page"), 50)))
+    total = q.count()
+    rows = [line_row(b, it) for b, it in q.offset((page - 1) * per_page).limit(per_page).all()]
     totals = {"taxable": round(sum(r["taxable_amt"] for r in rows), 2),
               "cgst": round(sum(r["cgst_amt"] for r in rows), 2),
               "sgst": round(sum(r["sgst_amt"] for r in rows), 2),
               "igst": round(sum(r["igst_amt"] for r in rows), 2)}
-    return jsonify({"rows": rows, "totals": totals})
+    return jsonify({"rows": rows, "totals": totals, "page": page, "per_page": per_page,
+                    "total": total, "total_pages": (total + per_page - 1) // per_page if total else 1})
 
 
 @app.route("/api/reports/production-register")
@@ -3907,7 +3951,7 @@ def delivery_challan_print(challan_id):
         "dealer_mobile": dealer.mobile if dealer else None,
         "dealer_gst_no": dealer.gst_no if dealer else None,
         "vehicle_id": dc.vehicle_id, "destination": dc.destination,
-        "product_name": dc.product_name, "formula_name": production.formula_name if production else None,
+        "product_name": dc.product_name, "formula_name": None,
         "chassis_no": dc.chassis_no,
         "motor_no": dc.motor_no, "controller_no": dc.controller_no,
         "differential_no": dc.differential_no, "colour": dc.colour,
