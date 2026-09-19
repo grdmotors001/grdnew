@@ -1421,6 +1421,51 @@ def loan_workflow_list():
     return jsonify({"success": True, "applications": result})
 
 
+@app.get("/api/dealer/pending-sales")
+@require_dealer_auth
+def dealer_pending_sales():
+    _ensure_loan_workflow_tables()
+    did=getattr(g,"current_dealer_id",None)
+    rows=(LoanWorkflow.query.filter_by(dealer_id=did)
+          .filter(LoanWorkflow.status=="DO_APPROVED")
+          .order_by(LoanWorkflow.id.desc()).limit(200).all())
+    # Dealer can only attach one of its Delivery Challans to a pending sale.
+    challans=(DeliveryChallan.query.filter_by(dealer_id=did,cancelled=False)
+              .order_by(DeliveryChallan.date.desc(),DeliveryChallan.id.desc()).limit(500).all())
+    return jsonify({"applications":[_ser_workflow(x) for x in rows],
+                    "vehicles":[{"vehicle_id":x.vehicle_id,"chassis_no":x.chassis_no,
+                                 "model_name":x.product_name,"challan_no":x.challan_no,
+                                 "sale_value":x.sale_value or 0,"date":_iso(x.date)}
+                                for x in challans if x.vehicle_id]})
+
+@app.post("/api/dealer/pending-sales/<int:row_id>")
+@require_dealer_auth
+def dealer_pending_sale_create(row_id):
+    _ensure_loan_workflow_tables()
+    row=LoanWorkflow.query.get_or_404(row_id)
+    if row.dealer_id!=getattr(g,"current_dealer_id",None): return _err("Not allowed",403)
+    if row.status!="DO_APPROVED": return _err("Only approved CHFPL/DO loans can be moved to Pending Sales",409)
+    data=request.get_json(silent=True) or {}
+    description=(data.get("dealer_description") or "").strip()
+    vehicle_id=data.get("vehicle_id")
+    sale_amount=_f(data.get("sale_amount"),0)
+    if not description:return _err("Dealer description is required")
+    if not vehicle_id:return _err("Select the rickshaw / Delivery Challan")
+    challan=DeliveryChallan.query.filter_by(id=vehicle_id,dealer_id=row.dealer_id,cancelled=False).first()
+    if not challan:return _err("Selected Delivery Challan is not available for this dealer",404)
+    if row.billing_status in {"PENDING_SALE","BILL_APPROVED","BILLED"}: return _err("This loan is already in the billing workflow",409)
+    row.dealer_description=description
+    row.billing_vehicle_id=challan.vehicle_id
+    row.billing_chassis_no=challan.chassis_no
+    row.billing_sale_amount=round(sale_amount or challan.sale_value or 0,2)
+    row.billing_requested_at=dt.utcnow()
+    row.billing_status="PENDING_SALE"
+    db.session.add(LoanWorkflowLog(application_id=row.id,action="PENDING_SALE_CREATED",
+        from_status=row.status,to_status=row.status,user_id=None,remark=description,
+        details=f"Dealer attached chassis {challan.chassis_no} for billing"))
+    db.session.commit()
+    return jsonify({"success":True,"application":_ser_workflow(row)})
+
 @app.get("/api/loan-workflow/field-executives")
 @require_auth
 def loan_workflow_fe_list():
@@ -1430,6 +1475,77 @@ def loan_workflow_fe_list():
         {"id": u.id, "username": u.username, "department": u.department} for u in rows
     ]})
 
+
+def _billing_user_allowed():
+    u=_workflow_user()
+    if not u:return False
+    if u.is_super_user:return True
+    dept=(u.department or "").strip().lower()
+    return dept in {"billing","accounts","admin","head office","head-office"}
+
+@app.get("/api/billing/pending-sales")
+@require_auth
+def billing_pending_sales():
+    _ensure_loan_workflow_tables()
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    rows=(LoanWorkflow.query.filter(LoanWorkflow.status=="DO_APPROVED",
+                                     LoanWorkflow.billing_status.in_(["PENDING_SALE","BILL_APPROVED"]))
+          .order_by(LoanWorkflow.billing_requested_at.desc(),LoanWorkflow.id.desc()).limit(500).all())
+    return jsonify({"applications":[_ser_workflow(x) for x in rows]})
+
+@app.post("/api/billing/pending-sales/<int:row_id>/approve")
+@require_auth
+def billing_pending_sale_approve(row_id):
+    _ensure_loan_workflow_tables()
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    row=LoanWorkflow.query.get_or_404(row_id)
+    if row.status!="DO_APPROVED" or row.billing_status!="PENDING_SALE":
+        return _err("Only Pending Sales can be approved",409)
+    row.billing_status="BILL_APPROVED"
+    row.billing_approved_by=getattr(g,"current_user_payload",{}).get("username") or str(getattr(g,"current_user_id",""))
+    row.billing_approved_at=dt.utcnow()
+    db.session.add(LoanWorkflowLog(application_id=row.id,action="BILLING_APPROVED",
+        from_status=row.status,to_status=row.status,user_id=getattr(g,"current_user_id",None),
+        details="Billing approval granted"))
+    db.session.commit()
+    return jsonify({"success":True,"application":_ser_workflow(row)})
+
+@app.post("/api/billing/pending-sales/<int:row_id>/generate-bill")
+@require_auth
+def billing_pending_sale_generate_bill(row_id):
+    _ensure_loan_workflow_tables()
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    row=LoanWorkflow.query.get_or_404(row_id)
+    if row.billing_status!="BILL_APPROVED": return _err("Billing approval is required before Bill generation",403)
+    if row.billing_invoice_id:
+        inv=TaxInvoice.query.get(row.billing_invoice_id)
+        return jsonify({"success":True,"invoice":ser_ti(inv),"application":_ser_workflow(row)}) if inv else _err("Linked invoice not found",404)
+    if not row.billing_vehicle_id:return _err("No chassis is attached to this Pending Sale")
+    challan=DeliveryChallan.query.filter_by(vehicle_id=row.billing_vehicle_id,dealer_id=row.dealer_id,cancelled=False).order_by(DeliveryChallan.id.desc()).first()
+    if not challan:return _err("Delivery Challan for selected chassis is required before billing",409)
+    if TaxInvoice.query.filter_by(delivery_challan_id=challan.id).first():return _err("This Delivery Challan already has a Tax Invoice",409)
+    customer=row.customer
+    product=Product.query.filter_by(name=challan.product_name).first()
+    sale=round(row.billing_sale_amount or challan.sale_value or 0,2)
+    ti=TaxInvoice(bill_no=f"GRD/{TaxInvoice.query.count()+1001}",date=date.today(),
+        delivery_challan_id=challan.id,vehicle_id=challan.vehicle_id,
+        buyer_name=customer.full_name if customer else None,buyer_mobile=customer.phone if customer else None,
+        buyer_address=customer.address if customer else None,buyer_state=customer.state if customer else None,
+        dealer_name=challan.dealer.name if challan.dealer else None,product_name=challan.product_name,
+        chassis_no=challan.chassis_no,motor_no=challan.motor_no,controller_no=challan.controller_no,
+        other_desc=challan.other,colour=challan.colour,sale_amount=sale,gst_sale_amount=sale,
+        gst_rate=product.gst_rate if product else 5,amount_received=0,mode_term="CHFPL",
+        remarks=row.dealer_description)
+    db.session.add(ti)
+    if challan.vehicle:challan.vehicle.stage="Tax Invoice"
+    db.session.flush()
+    row.billing_invoice_id=ti.id
+    row.billing_status="BILLED"
+    db.session.add(LoanWorkflowLog(application_id=row.id,action="BILL_GENERATED",
+        from_status=row.status,to_status=row.status,user_id=getattr(g,"current_user_id",None),
+        details=f"Tax Invoice {ti.bill_no} generated"))
+    db.session.commit()
+    return jsonify({"success":True,"invoice":ser_ti(ti),"application":_ser_workflow(row)})
 
 @app.post("/api/loan-workflow/create")
 @require_auth
