@@ -211,7 +211,7 @@ export function DeliveryChallanPage() {
       {data.challans.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Colour</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {data.challans.map((c) => (
                 <tr key={c.id}>
@@ -220,6 +220,7 @@ export function DeliveryChallanPage() {
                   <td>{c.dealer_name}</td>
                   <td>{c.product_name}</td>
                   <td><b>{c.chassis_no}</b></td>
+                  <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)?.background||'transparent'}} />{c.colour||'—'}</span></td>
                   <td>
                     {c.cancelled ? <Pill text="Cancelled" /> : c.invoiced ? <Pill text={`Sold (${c.bill_no})`} kind="t" /> : <Pill text="Unsold" kind="d" />}
                   </td>
