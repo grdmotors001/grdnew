@@ -306,6 +306,7 @@ def expense_incentive_pending():
        .outerjoin(TaxInvoice,TaxInvoice.id==latest_invoice.c.invoice_id)
        .filter(DeliveryChallan.cancelled.is_(False),
                DeliveryChallan.vehicle_id.isnot(None),
+               TaxInvoice.id.isnot(None),
                ~DeliveryChallan.vehicle_id.in_(paid_vehicle_ids)))
     if dealer_id:q=q.filter(DeliveryChallan.dealer_id==dealer_id)
     if search:
