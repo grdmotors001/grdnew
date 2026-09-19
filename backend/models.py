@@ -151,6 +151,7 @@ class Dealer(db.Model):
     bank_ifsc = db.Column(db.String(50))
     salesman = db.Column(db.String(100))
     blocked = db.Column(db.Boolean, default=False)         # Block (Y/N)
+    purchase_access = db.Column(db.Boolean, default=False)       # Dealer Portal: allow Purchases / customer invoicing
     login_id = db.Column(db.String(50))
     password_hash = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
