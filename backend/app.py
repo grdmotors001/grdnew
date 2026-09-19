@@ -1551,7 +1551,8 @@ def _billing_user_allowed():
     if not u:return False
     if u.is_super_user:return True
     dept=(u.department or "").strip().lower()
-    return dept in {"billing","accounts","admin","head office","head-office"}
+    if dept in {"billing","accounts","admin","head office","head-office"}: return True
+    return u.has_module_access("billing-pending-sales")
 
 @app.get("/api/billing/pending-sales")
 @require_auth
@@ -1559,8 +1560,9 @@ def billing_pending_sales():
     _ensure_loan_workflow_tables()
     if not _billing_user_allowed(): return _err("Billing approval rights required",403)
     rows=(LoanWorkflow.query.filter(LoanWorkflow.status=="DO_APPROVED",
-                                     LoanWorkflow.billing_status.in_(["PENDING_SALE","BILL_APPROVED"]))
-          .order_by(LoanWorkflow.billing_requested_at.desc(),LoanWorkflow.id.desc()).limit(500).all())
+                                     LoanWorkflow.billing_status.in_(["NOT_REQUESTED","PENDING_SALE","BILL_APPROVED"]))
+          .order_by(db.func.coalesce(LoanWorkflow.billing_requested_at, LoanWorkflow.approved_at).desc(),
+                    LoanWorkflow.id.desc()).limit(500).all())
     return jsonify({"applications":[_ser_workflow(x) for x in rows]})
 
 @app.post("/api/billing/pending-sales/<int:row_id>/approve")
@@ -3765,21 +3767,53 @@ def delivery_challan_register():
 def sale_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
-    invoices = [i for i in TaxInvoice.query.filter(*_date_filter(TaxInvoice.date, from_date, to_date)).order_by(TaxInvoice.date).all()
-                if _matches(search, i.buyer_name, i.dealer_name, i.product_name, i.chassis_no, i.bill_no)]
+    q = TaxInvoice.query.filter(*_date_filter(TaxInvoice.date, from_date, to_date))
+    if search:
+        like=f"%{search}%"
+        q=q.filter(db.or_(TaxInvoice.buyer_name.ilike(like), TaxInvoice.dealer_name.ilike(like),
+                          TaxInvoice.product_name.ilike(like), TaxInvoice.chassis_no.ilike(like),
+                          TaxInvoice.bill_no.ilike(like)))
+    q=q.order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc())
     if request.args.get("export") == "csv":
         headers = ["Date", "Bill No.", "Buyer Name", "Product Name", "Chassis No.", "Taxable Value",
                    "Tax Amount", "Insurance", "Registration", "Bill Total"]
+        invoices=q.all()
         return _csv_response("Sale_Register.csv", headers,
                               [[_iso(i.date), i.bill_no, i.buyer_name, i.product_name, i.chassis_no,
                                 i.taxable_value, i.tax_amount, i.insurance_amount or 0,
                                 i.registration_amount or 0, i.bill_total] for i in invoices])
-    totals = {"taxable": round(sum(i.taxable_value for i in invoices), 2),
-              "tax": round(sum(i.tax_amount for i in invoices), 2),
-              "insurance": round(sum(i.insurance_amount or 0 for i in invoices), 2),
-              "registration": round(sum(i.registration_amount or 0 for i in invoices), 2),
-              "total": round(sum(i.bill_total for i in invoices), 2)}
-    return jsonify({"invoices": [ser_ti(i) for i in invoices], "totals": totals})
+    page=max(1,_i(request.args.get("page"),1))
+    per_page=min(200,max(25,_i(request.args.get("per_page"),50)))
+    total=q.count()
+    invoices=q.offset((page-1)*per_page).limit(per_page).all()
+
+    taxable_expr=(db.func.coalesce(TaxInvoice.gst_sale_amount,TaxInvoice.sale_amount,0)
+                  -db.func.coalesce(TaxInvoice.discount,0))
+    interstate=db.or_(TaxInvoice.state_type=="O",
+                      db.and_(TaxInvoice.state_type.is_(None),
+                              TaxInvoice.buyer_state_code.isnot(None),
+                              TaxInvoice.buyer_state_code!="07"))
+    tax_expr=db.case((interstate,
+                      taxable_expr*db.func.coalesce(TaxInvoice.gst_rate,0)/100),
+                     else_=taxable_expr*db.func.coalesce(TaxInvoice.gst_rate,0)/100)
+    insurance_expr=db.func.coalesce(TaxInvoice.insurance_amount,0)
+    registration_expr=db.func.coalesce(TaxInvoice.registration_amount,0)
+    # Total = taxable + total GST + insurance + registration.
+    totals_row=q.session.query(
+        db.func.coalesce(db.func.sum(taxable_expr),0),
+        db.func.coalesce(db.func.sum(tax_expr),0),
+        db.func.coalesce(db.func.sum(insurance_expr),0),
+        db.func.coalesce(db.func.sum(registration_expr),0),
+        db.func.coalesce(db.func.sum(taxable_expr+tax_expr+insurance_expr+registration_expr),0)
+    ).one()
+    totals={"taxable":round(float(totals_row[0] or 0),2),
+            "tax":round(float(totals_row[1] or 0),2),
+            "insurance":round(float(totals_row[2] or 0),2),
+            "registration":round(float(totals_row[3] or 0),2),
+            "total":round(float(totals_row[4] or 0),2)}
+    return jsonify({"invoices":[ser_ti(i) for i in invoices],"totals":totals,
+                    "total":total,"page":page,"per_page":per_page,
+                    "total_pages":(total+per_page-1)//per_page if total else 1})
 
 
 @app.route("/api/reports/gst-register")
