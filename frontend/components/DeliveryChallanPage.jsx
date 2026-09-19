@@ -90,13 +90,16 @@ export function DeliveryChallanPage() {
   const dealerById = (id) => dealers.find((d) => String(d.id) === String(id));
 
   const applyDealer = (value, baseForm = form) => {
-    const dealer = dealerById(value);
+    const dealer = dealers.find((d) =>
+      String(d.name || '').trim().toLowerCase() === String(value || '').trim().toLowerCase()
+    );
     const destination = [dealer?.address1, dealer?.address2].filter(Boolean).join(', ');
     return {
       ...baseForm,
-      dealer_id: Number(value),
-      destination,
-      salesman: dealer?.salesman || '',
+      dealer_name: value,
+      dealer_id: dealer ? Number(dealer.id) : '',
+      destination: dealer ? destination : (baseForm.destination || ''),
+      salesman: dealer ? (dealer.salesman || '') : (baseForm.salesman || ''),
     };
   };
 
@@ -234,13 +237,18 @@ export function DeliveryChallanPage() {
               <Field label="Challan No." value={form.challan_no} onChange={(v) => setForm({ ...form, challan_no: v })} />
               <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
 
-              <Field label="Dealer" type="select" value={form.dealer_id}
-                     options={dealers.map((d) => ({ value: d.id, label: d.name }))}
+              <Field label="Dealer" type="combo" value={form.dealer_name || dealerById(form.dealer_id)?.name || ''}
+                     options={dealers.map((d) => ({ value: d.name, label: d.name }))}
                      onChange={(v) => setForm(applyDealer(v))} required />
 
-              <Field label="Chassis to Dispatch" type="select" value={form.vehicle_id}
-                     options={data.available_vehicles.map((v) => ({ value: v.id, label: v.chassis_no }))}
-                     onChange={(v) => selectVehicle(v)} required />
+              <Field label="Chassis to Dispatch" type="combo"
+                     value={selectedVehicle?.chassis_no || ''}
+                     options={data.available_vehicles.map((v) => ({ value: v.chassis_no, label: v.chassis_no }))}
+                     onChange={(v) => {
+                       const vehicle = data.available_vehicles.find((x) => String(x.chassis_no).toLowerCase() === String(v).toLowerCase());
+                       if (vehicle) selectVehicle(vehicle.id);
+                       else setForm({ ...form, vehicle_id: '', chassis_no: v });
+                     }} required />
 
               <Field label="Destination" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} />
               <Field label="Salesman" value={form.salesman} readOnly />
@@ -249,7 +257,7 @@ export function DeliveryChallanPage() {
                 <VehicleDetails vehicle={selectedVehicle} />
               </div>
 
-              <Field label="Battery Maker" type="select" value={form.battery_maker}
+              <Field label="Battery Maker" type="combo" value={form.battery_maker || ''}
                      options={batteryMakers.map((b) => ({ value: b.name, label: b.name }))}
                      onChange={(v) => setForm({ ...form, battery_maker: v })} />
               <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
