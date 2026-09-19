@@ -180,7 +180,7 @@ export function DeliveryChallanRegisterPage() {
                 <th>Date</th><th>Challan No.</th><th>Party Name</th>
                 <th title="From the Tax Invoice, once this challan is billed">Item Amount</th>
                 <th>Chassis No.</th><th>Colour</th><th>Other</th><th>Sale Bill No.</th>
-                <th>Sale Value</th><th>Salesman</th><th>Battery Make</th>
+                <th>Sale Value</th><th>Salesman</th><th>Battery Make</th><th>Battery No. 1</th><th>Battery No. 2</th><th>Battery No. 3</th><th>Battery No. 4</th>
                 <th>Remarks (1)</th><th>Remarks (2)</th><th></th>
               </tr>
             </thead>
@@ -191,7 +191,7 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.item_amount ? <Money value={c.item_amount} /> : ''}</td>
                   <td>{c.chassis_no}</td><td>{c.colour}</td><td>{c.other}</td>
                   <td>{c.bill_no || '—'}</td><td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
-                  <td>{c.salesman}</td><td>{c.battery_maker}</td><td>{c.remarks1}</td><td>{c.remarks2}</td>
+                  <td>{c.salesman}</td><td>{c.battery_maker}</td><td>{c.battery_no1}</td><td>{c.battery_no2}</td><td>{c.battery_no3}</td><td>{c.battery_no4}</td><td>{c.remarks1}</td><td>{c.remarks2}</td>
                   <td><button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Print</button></td>
                 </tr>
               ))}
@@ -254,6 +254,10 @@ export function DeliveryChallanRegisterPage() {
               <Field label="Sale Bill No." value={editRow.sale_bill_no} onChange={setE('sale_bill_no')} />
               <Field label="Sale Value" type="number" value={editRow.sale_value} onChange={setE('sale_value')} />
               <Field label="Battery Maker" value={editRow.battery_maker} onChange={setE('battery_maker')} />
+              <Field label="Battery No. 1" value={editRow.battery_no1} onChange={setE('battery_no1')} />
+              <Field label="Battery No. 2" value={editRow.battery_no2} onChange={setE('battery_no2')} />
+              <Field label="Battery No. 3" value={editRow.battery_no3} onChange={setE('battery_no3')} />
+              <Field label="Battery No. 4" value={editRow.battery_no4} onChange={setE('battery_no4')} />
               <Field label="Remarks (1)" value={editRow.remarks1} onChange={setE('remarks1')} />
               <Field label="Remarks (2)" value={editRow.remarks2} onChange={setE('remarks2')} />
             </div>
