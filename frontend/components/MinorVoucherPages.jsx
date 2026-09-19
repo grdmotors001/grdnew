@@ -14,7 +14,7 @@ export function OldRickshawPage() {
     battery_maker:'',battery_no1:'',battery_no2:'',battery_no3:'',battery_no4:'',sp_no:'',dealer_page_no:'',
     challan_no:'',ledger_date:'',sale_type:'',do_number:'',chassis_no:'',charger:'',mat:'',jack:'',
     centre_lock:'',big_mirror:'',colour:'',toolkit:'',stepney:'',out_name:'',remarks1:'',remarks2:''};
-  const emptySale={sale_date:today(),dealer_id:'',sold_to:'',sale_amount:'',file_charge:'',loan_amount:'',down_payment:'',
+  const emptySale={sale_date:today(),dealer_id:'',sale_salesman:'',sold_to:'',sale_amount:'',file_charge:'',loan_amount:'',down_payment:'',
     dealer_page_no:'',sp_no:'',sale_ref_no:'',sale_type:'',do_number:'',out_name:'',receipt_amount:'',
     receipt_no:'',ledger:'',resale_date:'',resale_ledger:''};
   const [form,setForm]=useState(emptyForm),[sale,setSale]=useState(emptySale);
@@ -97,7 +97,8 @@ export function OldRickshawPage() {
       <p className="muted">This sale updates dealer stock. No Tax Invoice is generated.</p>
       <div className="formgrid">
         <Field label="Sale Date" type="date" value={sale.sale_date} onChange={v=>setSale({...sale,sale_date:v})}/>
-        <Field label="Dealer" type="select" value={sale.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setSale({...sale,dealer_id:Number(v)})} required/>
+        <Field label="Dealer" type="select" value={sale.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>{const d=dealers.find(x=>String(x.id)===String(v));setSale({...sale,dealer_id:Number(v),sale_salesman:d?.salesman||''})}} required/>
+        <Field label="Salesman" value={sale.sale_salesman||''} onChange={()=>{}}/>
         <Field label="Sale Amount" type="number" value={sale.sale_amount} onChange={v=>setSale({...sale,sale_amount:v})}/>
         <Field label="Sale Type" type="select" value={sale.sale_type} options={[{value:'cash',label:'Cash'},{value:'finance',label:'Finance'}]} onChange={v=>setSale({...sale,sale_type:v})}/>
         <Field label="Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSale({...sale,loan_amount:v})}/>
