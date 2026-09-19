@@ -317,7 +317,6 @@ def expense_incentive_pending():
                           TaxInvoice.buyer_mobile.ilike(like)))
     q=q.order_by(DeliveryChallan.date.desc(),DeliveryChallan.id.desc())
     total=q.count()
-    rows=q.offset((page-1)*per_page).limit(per_page).all()
     def row_dict(dc,ti):
         return {"vehicle_id":dc.vehicle_id,"date":_iso(ti.date if ti and ti.date else dc.date),
                 "dealer_id":dc.dealer_id,"dealer_name":dc.dealer.name if dc.dealer else None,
@@ -326,6 +325,15 @@ def expense_incentive_pending():
                 "bill_no":(ti.bill_no if ti else None) or dc.sale_bill_no,
                 "value_amt":(ti.sale_amount if ti and ti.sale_amount is not None else dc.sale_value) or 0,
                 "vehicle_no":ti.vehicle_reg_no if ti else None}
+    if request.args.get("export")=="csv":
+        export_rows=q.all()
+        headers=["Date","Dealer","Model","Chassis No.","Customer","Mobile No.","Bill No.","Value Amount"]
+        return _csv_response("Incentive_Pending_Register.csv",headers,[
+            [row_dict(dc,ti)["date"],row_dict(dc,ti)["dealer_name"],row_dict(dc,ti)["model"],
+             row_dict(dc,ti)["chassis_no"],row_dict(dc,ti)["customer"],row_dict(dc,ti)["mobile_no"],
+             row_dict(dc,ti)["bill_no"],row_dict(dc,ti)["value_amt"]]
+            for dc,ti in export_rows])
+    rows=q.offset((page-1)*per_page).limit(per_page).all()
     return jsonify({"rows":[row_dict(dc,ti) for dc,ti in rows],"total":total,"page":page,
                     "per_page":per_page,"total_pages":(total+per_page-1)//per_page if total else 1})
 
