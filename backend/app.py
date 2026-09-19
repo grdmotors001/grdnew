@@ -1826,7 +1826,10 @@ def production_vouchers():
         vehicle = Vehicle(date=pv.date, model_name=product_name, chassis_no=chassis_no,
                            motor_no=pv.motor_no, controller_no=pv.controller_no,
                            differential_no=pv.differential_no, colour=pv.colour,
-                           colour_code=pv.colour_code, other=pv.other, stage="Manufacturing")
+                           colour_code=pv.colour_code, other=pv.other,
+                           battery_maker=pv.battery_maker, battery_no1=pv.battery_no1,
+                           battery_no2=pv.battery_no2, battery_no3=pv.battery_no3,
+                           battery_no4=pv.battery_no4, stage="Manufacturing")
         db.session.add(vehicle)
         db.session.commit()
         return jsonify(ser_pv(pv)), 201
@@ -1906,6 +1909,13 @@ def production_voucher_detail(voucher_id):
             vehicle.colour = pv.colour
             vehicle.colour_code = pv.colour_code
             vehicle.other = pv.other
+        vehicle = Vehicle.query.filter_by(chassis_no=pv.chassis_no).first()
+        if vehicle:
+            vehicle.battery_maker=pv.battery_maker
+            vehicle.battery_no1=pv.battery_no1
+            vehicle.battery_no2=pv.battery_no2
+            vehicle.battery_no3=pv.battery_no3
+            vehicle.battery_no4=pv.battery_no4
         db.session.commit()
         return jsonify(ser_pv(pv))
     # DELETE
