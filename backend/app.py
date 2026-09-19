@@ -2517,6 +2517,7 @@ def _old_sale_to_dealer(rec, data):
     rec.sale_date=_parse_date(data.get("sale_date")) or date.today()
     rec.sale_dealer_id=dealer.id
     rec.dealer_id=dealer.id
+    rec.salesman=dealer.salesman
     rec.sale_ref_no=(data.get("sale_ref_no") or "").strip() or None
     rec.sale_type=(data.get("sale_type") or "").strip().lower() or rec.sale_type
     rec.do_number=(data.get("do_number") or "").strip() or rec.do_number
@@ -2612,12 +2613,10 @@ def old_rickshaw_delivery_challans():
               .order_by(OldRickshaw.factory_challan_date.desc(),OldRickshaw.id.desc()).limit(500).all())
         return jsonify({"records":[ser_old_rickshaw(r) for r in rows]})
     data=request.get_json(silent=True) or {}
-    rid=data.get("old_rickshaw_id")
-    rec=OldRickshaw.query.get(rid)
+    rec=OldRickshaw.query.get(data.get("old_rickshaw_id"))
     if not rec:return _err("Old Rickshaw not found.")
     if rec.status=="sold":return _err("Sold Old Rickshaw cannot be dispatched.")
-    dealer_id=data.get("dealer_id")
-    dealer=Dealer.query.get(dealer_id) if dealer_id else None
+    dealer=Dealer.query.get(data.get("dealer_id"))
     if not dealer:return _err("Dealer is required.")
     challan_no=(data.get("challan_no") or "").strip()
     if not challan_no:
@@ -2645,16 +2644,23 @@ def chfpl_old_rickshaw_available_for_sale():
     if not ref:return _err("CHFPL reference no. is required.")
     if not vehicle_reg_no:return _err("Vehicle Reg. No. is required.")
     existing=OldRickshaw.query.filter_by(chfpl_ref_no=ref).first()
-    if existing:return jsonify(ser_old_rickshaw(existing))
+    if existing:
+        if data.get("dealer_id"):
+            d=Dealer.query.get(data.get("dealer_id"))
+            if d:
+                existing.dealer_id=d.id
+                existing.chfpl_dealer_id=d.id
+                existing.salesman=d.salesman
+        existing.chfpl_available_date=_parse_date(data.get("available_for_sale_date")) or date.today()
+        existing.status="available"
+        db.session.commit()
+        return jsonify(ser_old_rickshaw(existing))
     rec=OldRickshaw(record_no=_old_rickshaw_record_next(),vou_no=data.get("vou_no"),
         date=_parse_date(data.get("date")) or date.today(),source="chfpl",chfpl_ref_no=ref,
         party_name=data.get("party_name") or "CHFPL",purchase_ref_no=data.get("purchase_ref_no") or ref,
         purchase_amount=_f(data.get("purchase_amount"),0),file_charge=_f(data.get("file_charge"),0),
         vehicle_reg_no=vehicle_reg_no,model_name=data.get("model_name"),owner_name=data.get("owner_name"),
-        salesman=data.get("salesman") or ((Dealer.query.get(data.get("dealer_id")).salesman) if data.get("dealer_id") and Dealer.query.get(data.get("dealer_id")) else None),
-        dealer_id=data.get("dealer_id"), chfpl_dealer_id=data.get("dealer_id"),
-        chfpl_available_date=_parse_date(data.get("available_for_sale_date")) or date.today(),
-        battery_maker=data.get("battery_maker"),
+        salesman=data.get("salesman"),battery_maker=data.get("battery_maker"),
         battery_no1=data.get("battery_no1"),battery_no2=data.get("battery_no2"),
         battery_no3=data.get("battery_no3"),battery_no4=data.get("battery_no4"),status="available")
     db.session.add(rec);db.session.commit()
