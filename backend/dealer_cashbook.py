@@ -113,11 +113,33 @@ def cash_book():
     cash = sum(r.amount for r in rs if r.payment_mode == "cash")
     expenses = sum(e.amount for e in es)
     handover = sum(h.amount for h in hs)
+
+    # Opening cash is the previous closing cash: all cash receipts minus
+    # expenses and HO handovers strictly before the selected start date.
+    prior_receipts = db.session.query(db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0)).filter(
+        DealerCashReceipt.dealer_id == did,
+        DealerCashReceipt.receipt_date < start,
+        DealerCashReceipt.payment_mode == "cash",
+    ).scalar() or 0
+    prior_expenses = db.session.query(db.func.coalesce(db.func.sum(DealerCashExpense.amount), 0)).filter(
+        DealerCashExpense.dealer_id == did,
+        DealerCashExpense.expense_date < start,
+    ).scalar() or 0
+    prior_handover = db.session.query(db.func.coalesce(db.func.sum(DealerCashHandover.amount), 0)).filter(
+        DealerCashHandover.dealer_id == did,
+        DealerCashHandover.handover_date < start,
+        DealerCashHandover.status != "rejected",
+    ).scalar() or 0
+    opening_balance = round(float(prior_receipts) - float(prior_expenses) - float(prior_handover), 2)
+    net_movement = round(float(cash) - float(expenses) - float(handover), 2)
+    closing_balance = round(opening_balance + net_movement, 2)
+
     return jsonify({"success":True,"from":start.isoformat(),"to":end.isoformat(),
         "receipts":[_receipt(r) for r in rs],"expenses":[_expense(e) for e in es],"handovers":[_handover(h) for h in hs],
         "summary":{"total_receipts":round(sum(r.amount for r in rs),2),"cash_received":round(cash,2),
                     "expenses":round(expenses,2),"ho_handover":round(handover,2),
-                    "net_movement":round(cash-expenses-handover,2)},
+                    "opening_balance":opening_balance,"net_movement":net_movement,
+                    "closing_balance":closing_balance},
         "expense_categories":EXPENSE_CATEGORIES,"payment_modes":PAYMENT_MODES})
 
 @dealer_cashbook_bp.route("/cash-book/receipt", methods=["POST"])
