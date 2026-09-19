@@ -15,7 +15,6 @@ const nav = [
   ['challans', '▤', 'Delivery Challans'],
   ['invoices', '▥', 'Tax Invoices'],
   ['cashbook', '₹', 'Cash Book'],
-  ['purchases', '▣', 'Purchases'],
   ['payments', '↔', 'Online Payment'],
   ['ledger', '▤', 'Ledger'],
 ];
@@ -30,6 +29,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const [mobileNav, setMobileNav] = useState(false);
   const [dark, toggleDark] = useDarkMode();
   const [selectedPurchase, setSelectedPurchase] = useState(null);
+  const canPurchase = dealer.purchase_access === true;
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -51,13 +51,13 @@ export function DealerPortal({ dealer, onLogout }) {
   const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
 
   if (tab === 'newloan') return <DealerNewLoanForm onBack={() => setTab('dashboard')} />;
-  if (tab === 'customer-invoice') return <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} />;
+  if (tab === 'customer-invoice' && canPurchase) return <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} />;
 
   return <div className="dealerShell">
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
-      <nav className="dealerSideNav">{nav.map(([key,icon,label]) =>
+      <nav className="dealerSideNav">{nav.filter(([key]) => key !== 'purchases' || canPurchase).map(([key,icon,label]) =>
         <button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>setTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
       <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
@@ -70,11 +70,11 @@ export function DealerPortal({ dealer, onLogout }) {
         <div className="dealerTopActions"><div className="dealerWelcome">Welcome, <b>{dealerName}</b></div><button className="dealerThemeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
       </header>
 
-      {mobileNav && <div className="dealerMobileNav">{nav.map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
+      {mobileNav && <div className="dealerMobileNav">{nav.filter(([key]) => key !== 'purchases' || canPurchase).map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
       {error && <div className="error dealerError">{error}</div>}
 
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
-        {nav.filter(x=>['dashboard','stock','purchases','payments','ledger'].includes(x[0])).map(([key,icon,label])=>
+        {nav.filter(x=>['dashboard','stock','purchases','payments','ledger'].includes(x[0]) && (x[0] !== 'purchases' || canPurchase)).map(([key,icon,label])=>
           <button type="button" key={key} className={tab===key?'active':''} onClick={()=>{setTab(key);setMobileNav(false)}}>
             <span>{icon}</span><small>{label}</small>
           </button>
@@ -87,7 +87,7 @@ export function DealerPortal({ dealer, onLogout }) {
           {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
         </div>
         {tab==='cashbook' && <DealerCashBook/>}
-        {tab==='purchases' && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
+        {tab==='purchases' && canPurchase && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
