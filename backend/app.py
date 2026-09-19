@@ -2404,8 +2404,7 @@ def purchase_bills():
         db.session.commit()
         return jsonify(ser_pb(pb)), 201
 
-    rows = PurchaseBill.query.order_by(PurchaseBill.date.desc(), PurchaseBill.id.desc()).all()
-    return jsonify([ser_pb(b) for b in rows])
+    # Keep the register fast in the serverless API: load only the latest 500 bills\n    # and eager-load their item rows to avoid an N+1 query pattern.\n    try:\n        limit = min(max(int(request.args.get("limit", 500)), 1), 500)\n    except (TypeError, ValueError):\n        limit = 500\n    rows = (PurchaseBill.query\n            .options(joinedload(PurchaseBill.items))\n            .order_by(PurchaseBill.date.desc(), PurchaseBill.id.desc())\n            .limit(limit)\n            .all())\n    return jsonify([ser_pb(b) for b in rows])
 
 
 @app.route("/api/purchase-bills/<int:bill_id>", methods=["PUT", "DELETE"])
