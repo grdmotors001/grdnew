@@ -3234,7 +3234,7 @@ def stock_ledger_premises():
     for d, vou_no, chassis_no, product_name, qty in pv_rows:
         events.append({"date":_iso(d),"type":"IN","doc_no":vou_no,"chassis_no":chassis_no,"model_name":product_name,
                        "particulars":f"Production — {product_name}","qty":qty or 1,"_sort":d or date.min})
-    dc_rows = db.session.query(DeliveryChallan.date, DeliveryChallan.challan_no, DeliveryChallan.chassis_no, Dealer.name)\
+    dc_rows = db.session.query(DeliveryChallan.date, DeliveryChallan.challan_no, DeliveryChallan.chassis_no, DeliveryChallan.product_name, Dealer.name)\
         .outerjoin(Dealer, DeliveryChallan.dealer_id == Dealer.id)\
         .filter(DeliveryChallan.cancelled.is_(False), *_date_filter(DeliveryChallan.date, from_date, to_date)).all()
     for d, challan_no, chassis_no, product_name, dealer_name in dc_rows:
