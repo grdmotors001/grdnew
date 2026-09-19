@@ -94,20 +94,98 @@ function qs(r) {
 }
 
 export function ProductionRegisterPage() {
-  const r = useReport('/reports/production-register');
+  const r = useReport('/reports/production-register', { status: 'all' });
+  const [editRow, setEditRow] = useState(null);
+  const [editError, setEditError] = useState('');
+  const [saving, setSaving] = useState(false);
+
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
+
+  const rows = r.data || [];
+  const setStatus = (status) => r.setExtra({ ...r.extra, status });
+
+  const openEdit = (v) => { setEditError(''); setEditRow({ ...v }); };
+  const setE = (field) => (value) => setEditRow({ ...editRow, [field]: value });
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    setSaving(true); setEditError('');
+    try {
+      await put(`/production-vouchers/${editRow.id}`, editRow);
+      setEditRow(null);
+      r.setExtra({ ...r.extra });
+    } catch (err) {
+      setEditError(err.message);
+    } finally { setSaving(false); }
+  };
+
   return (
     <>
       <FilterBar r={r}>
-        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/production-register' + qs(r), 'Production_Register.xlsx')}>Export Excel</button>
+        <div className="actions" style={{ alignSelf: 'flex-end', gap: 6 }}>
+          <button className={`btn ${r.extra.status === 'all' ? 'primary' : ''}`} onClick={() => setStatus('all')}>All</button>
+          <button className={`btn ${r.extra.status === 'delivered' ? 'primary' : ''}`} onClick={() => setStatus('delivered')}>Delivered</button>
+          <button className={`btn ${r.extra.status === 'factory' ? 'primary' : ''}`} onClick={() => setStatus('factory')}>In Factory Stock</button>
+        </div>
+        <button className="btn" style={{ alignSelf: 'flex-end' }}
+                onClick={() => downloadExcel('/reports/production-register' + qs(r) + `&status=${r.extra.status}&export=csv`, 'Production_Register.xlsx')}>
+          Export Excel
+        </button>
       </FilterBar>
-      {r.data.length === 0 ? <EmptyState /> : (
+
+      {rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th></tr></thead>
-            <tbody>{r.data.map((v) => <tr key={v.id}><td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.quantity}</td><td>{v.chassis_no}</td><td>{v.motor_no}</td></tr>)}</tbody>
+            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th><th>Status</th><th></th></tr></thead>
+            <tbody>{rows.map((v) => {
+              const status = v.stage === 'Manufacturing' ? 'In Factory Stock' : 'Delivered';
+              return <tr key={v.id}>
+                <td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.quantity}</td>
+                <td>{v.chassis_no}</td><td>{v.motor_no}</td><td>{status}</td>
+                <td><button className="btn" onClick={() => openEdit(v)}>Edit</button></td>
+              </tr>;
+            })}</tbody>
           </table>
+        </div>
+      )}
+
+      {editRow && (
+        <div className="modal">
+          <form className="modalbox" onSubmit={saveEdit} style={{ maxWidth: 780 }}>
+            <h2>Edit Production Voucher — {editRow.vou_no}</h2>
+            <ErrorBanner message={editError} />
+            <div className="formgrid">
+              <Field label="Vou. No." value={editRow.vou_no} onChange={setE('vou_no')} />
+              <Field label="Date" type="date" value={editRow.date} onChange={setE('date')} />
+              <Field label="Product Name" value={editRow.product_name} onChange={setE('product_name')} />
+              <Field label="Quantity" type="number" value={editRow.quantity} onChange={setE('quantity')} />
+              <Field label="Chassis No." value={editRow.chassis_no} onChange={setE('chassis_no')} />
+              <Field label="Motor No." value={editRow.motor_no} onChange={setE('motor_no')} />
+              <Field label="Controller No." value={editRow.controller_no} onChange={setE('controller_no')} />
+              <Field label="Differential No." value={editRow.differential_no} onChange={setE('differential_no')} />
+              <Field label="Colour" value={editRow.colour} onChange={setE('colour')} />
+              <Field label="Colour Code" value={editRow.colour_code} onChange={setE('colour_code')} />
+              <Field label="Battery Maker" value={editRow.battery_maker} onChange={setE('battery_maker')} />
+              <Field label="Battery No. 1" value={editRow.battery_no1} onChange={setE('battery_no1')} />
+              <Field label="Battery No. 2" value={editRow.battery_no2} onChange={setE('battery_no2')} />
+              <Field label="Battery No. 3" value={editRow.battery_no3} onChange={setE('battery_no3')} />
+              <Field label="Battery No. 4" value={editRow.battery_no4} onChange={setE('battery_no4')} />
+              <Field label="Mechanic" value={editRow.machnic} onChange={setE('machnic')} />
+              <Field label="Other" value={editRow.other} onChange={setE('other')} />
+              <Field label="Remarks" value={editRow.remarks} onChange={setE('remarks')} />
+              {[
+                ['toolkit','Toolkit'],['jack','Jack'],['charger','Charger'],['mat','Mat'],
+                ['stapney','Stapney'],['front_glass','Front Glass'],['h_lock','H Lock'],['center_lock','Center Lock']
+              ].map(([key,label]) => (
+                <Field key={key} label={label} type="checkbox" value={!!editRow[key]} onChange={setE(key)} />
+              ))}
+            </div>
+            <div className="actions" style={{ marginTop: 18 }}>
+              <button type="button" className="btn" onClick={() => setEditRow(null)}>Cancel</button>
+              <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
+            </div>
+          </form>
         </div>
       )}
     </>
