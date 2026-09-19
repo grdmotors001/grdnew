@@ -731,6 +731,14 @@ def ser_old_rickshaw(r):
             "charger": r.charger, "mat": r.mat, "jack": r.jack, "center_lock": r.center_lock,
             "big_mirror": r.big_mirror, "colour": r.colour, "toolkit": r.toolkit, "stepney": r.stepney,
             "out_name": r.out_name,
+            "factory_challan_no": r.factory_challan_no, "factory_challan_date": _iso(r.factory_challan_date),
+            "factory_dealer_id": r.factory_dealer_id,
+            "factory_dealer_name": (Dealer.query.get(r.factory_dealer_id).name if r.factory_dealer_id else None),
+            "factory_salesman": r.factory_salesman,
+            "chfpl_available_date": _iso(r.chfpl_available_date),
+            "chfpl_dealer_id": r.chfpl_dealer_id,
+            "chfpl_dealer_name": (Dealer.query.get(r.chfpl_dealer_id).name if r.chfpl_dealer_id else None),
+            "dealer_salesman": (r.dealer.salesman if r.dealer else None),
             "has_battery": any(getattr(r, f"battery_no{i}", None) for i in range(1,5)),
             "status": r.status, "dealer_id": r.dealer_id, "dealer_name": r.dealer.name if r.dealer else None,
             "sale_date": _iso(r.sale_date), "sale_dealer_id": r.sale_dealer_id,
@@ -2596,6 +2604,35 @@ def old_rickshaws():
                     "suggested_vou_no":str(next_no+90)})
 
 
+@app.route("/api/old-rickshaw-delivery-challans", methods=["GET","POST"])
+@require_auth
+def old_rickshaw_delivery_challans():
+    if request.method == "GET":
+        rows=(OldRickshaw.query.filter(OldRickshaw.factory_challan_no.isnot(None))
+              .order_by(OldRickshaw.factory_challan_date.desc(),OldRickshaw.id.desc()).limit(500).all())
+        return jsonify({"records":[ser_old_rickshaw(r) for r in rows]})
+    data=request.get_json(silent=True) or {}
+    rid=data.get("old_rickshaw_id")
+    rec=OldRickshaw.query.get(rid)
+    if not rec:return _err("Old Rickshaw not found.")
+    if rec.status=="sold":return _err("Sold Old Rickshaw cannot be dispatched.")
+    dealer_id=data.get("dealer_id")
+    dealer=Dealer.query.get(dealer_id) if dealer_id else None
+    if not dealer:return _err("Dealer is required.")
+    challan_no=(data.get("challan_no") or "").strip()
+    if not challan_no:
+        n=(db.session.query(db.func.count(OldRickshaw.id)).filter(OldRickshaw.factory_challan_no.isnot(None)).scalar() or 0)+1
+        challan_no=f"OLD-DC{n:05d}"
+    rec.factory_challan_no=challan_no
+    rec.factory_challan_date=_parse_date(data.get("date")) or date.today()
+    rec.factory_dealer_id=dealer.id
+    rec.factory_salesman=dealer.salesman
+    rec.dealer_id=dealer.id
+    rec.status="dispatched"
+    db.session.commit()
+    return jsonify(ser_old_rickshaw(rec)),201
+
+
 @app.post("/api/integration/old-rickshaw/available-for-sale")
 def chfpl_old_rickshaw_available_for_sale():
     supplied=request.headers.get("X-GRD-BRIDGE-SECRET") or ""
@@ -2614,7 +2651,10 @@ def chfpl_old_rickshaw_available_for_sale():
         party_name=data.get("party_name") or "CHFPL",purchase_ref_no=data.get("purchase_ref_no") or ref,
         purchase_amount=_f(data.get("purchase_amount"),0),file_charge=_f(data.get("file_charge"),0),
         vehicle_reg_no=vehicle_reg_no,model_name=data.get("model_name"),owner_name=data.get("owner_name"),
-        salesman=data.get("salesman"),battery_maker=data.get("battery_maker"),
+        salesman=data.get("salesman") or ((Dealer.query.get(data.get("dealer_id")).salesman) if data.get("dealer_id") and Dealer.query.get(data.get("dealer_id")) else None),
+        dealer_id=data.get("dealer_id"), chfpl_dealer_id=data.get("dealer_id"),
+        chfpl_available_date=_parse_date(data.get("available_for_sale_date")) or date.today(),
+        battery_maker=data.get("battery_maker"),
         battery_no1=data.get("battery_no1"),battery_no2=data.get("battery_no2"),
         battery_no3=data.get("battery_no3"),battery_no4=data.get("battery_no4"),status="available")
     db.session.add(rec);db.session.commit()
