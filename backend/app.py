@@ -1458,6 +1458,37 @@ def loan_workflow_list():
     return jsonify({"success": True, "applications": result})
 
 
+@app.post("/api/integration/loan-status")
+def integration_loan_status():
+    supplied=request.headers.get("X-GRD-BRIDGE-SECRET") or ""
+    expected=os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
+    if not expected or not supplied or not hmac.compare_digest(supplied,expected):
+        return _err("Invalid integration secret",401)
+    _ensure_loan_workflow_tables()
+    data=request.get_json(silent=True) or {}
+    application_no=(data.get("application_no") or "").strip()
+    status=(data.get("status") or "").strip().upper()
+    if not application_no:return _err("application_no is required")
+    row=LoanWorkflow.query.filter_by(application_no=application_no).first()
+    if not row:return _err("Loan application not found",404)
+    ref=(data.get("chfpl_reference") or "").strip()
+    if ref:row.chfpl_reference=ref
+    old=row.status
+    if status in {"APPROVED","LOAN_APPROVED","SANCTIONED"}:
+        row.status="DO_APPROVED"
+        row.approved_at=row.approved_at or dt.utcnow()
+        row.do_expiry_at=row.do_expiry_at or (dt.utcnow()+timedelta(days=30))
+        row.do_no=row.do_no or f"DO-{dt.utcnow().strftime('%Y%m%d')}-{row.id:06d}"
+    elif status in {"REJECTED","DECLINED"}:
+        row.status="DO_REJECTED"
+    elif status in {"HOLD","PENDING"}:
+        row.status="DO_HOLD"
+    db.session.add(LoanWorkflowLog(application_id=row.id,action=f"CHFPL_{status or 'STATUS'}",
+        from_status=old,to_status=row.status,remark=data.get("remark"),
+        details="CHFPL loan status received through GRD bridge"))
+    db.session.commit()
+    return jsonify({"success":True,"application":_ser_workflow(row)})
+
 @app.get("/api/dealer/pending-sales")
 @require_dealer_auth
 def dealer_pending_sales():
