@@ -2861,10 +2861,11 @@ def _ledger_balances_summary(dealers_, from_date, to_date):
         net_debit = (ti.sale_amount or 0) - (ti.hypothecation_amount or 0)
         balances[dealer_id] -= net_debit
 
-    for vr_no, dealer_name, credit_received, debit_paid, d in \
-            db.session.query(DayBook.vr_no, DayBook.dealer_name, DayBook.credit_received,
-                              DayBook.debit_paid, DayBook.date)
-            .filter(*_date_filter(DayBook.date, from_date, to_date)).all():
+    daybook_rows = (db.session.query(
+        DayBook.vr_no, DayBook.dealer_name, DayBook.credit_received,
+        DayBook.debit_paid, DayBook.date
+    ).filter(*_date_filter(DayBook.date, from_date, to_date)).all())
+    for vr_no, dealer_name, credit_received, debit_paid, d in daybook_rows:
         dealer_id = name_to_id.get(_norm_name(dealer_name))
         if dealer_id is None:
             continue
@@ -3039,9 +3040,10 @@ def _ledger_v_summary(dealers_, from_date, to_date):
     for d in dealers_:
         if d.name:
             name_to_id.setdefault(_norm_name(d.name), d.id)
-    for dealer_name, credit_received, d in \
-            db.session.query(DayBook.dealer_name, DayBook.credit_received, DayBook.date)
-            .filter(*_date_filter(DayBook.date, from_date, to_date)).all():
+    daybook_rows = (db.session.query(
+        DayBook.dealer_name, DayBook.credit_received, DayBook.date
+    ).filter(*_date_filter(DayBook.date, from_date, to_date)).all())
+    for dealer_name, credit_received, d in daybook_rows:
         dealer_id = name_to_id.get(_norm_name(dealer_name))
         if dealer_id is None:
             continue
