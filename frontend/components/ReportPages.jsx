@@ -734,6 +734,7 @@ export function DayBookPage() {
   const [matching, setMatching] = useState(false);
 
   const load = () => get(`/day-book?${new URLSearchParams(search ? { search } : {})}`).then(setData).catch((e) => setError(e.message));
+  const exportDayBook = () => downloadExcel(`/day-book?${new URLSearchParams(search ? { search } : {})}`, 'Day_Book.xlsx');
   useEffect(() => { load(); }, [search]);
   useEffect(() => { get('/dealers').then((d) => setDealers(d.dealers || [])).catch(() => {}); get('/masters/bank').then((d) => setBanks(d || [])).catch(() => {}); }, []);
 
@@ -772,6 +773,7 @@ export function DayBookPage() {
     <>
       <div className="toolbar">
         <Field label="Search Dealer" value={search} onChange={setSearch} />
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={exportDayBook}>Export Excel</button>
         <button className="btn primary" style={{ alignSelf: 'flex-end' }} onClick={openNew}>+ New Entry</button>
         <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={runAutoMatch} disabled={matching}>
           {matching ? 'Fixing…' : 'Fix Old Entries for Ledger'}
