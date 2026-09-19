@@ -125,6 +125,7 @@ export function DeliveryChallanPage() {
                      onChange={(v) => setForm({ ...form, vehicle_id: Number(v) })} required />
               <Field label="Destination" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} />
               <Field label="Salesman" value={form.salesman} onChange={(v) => setForm({ ...form, salesman: v })} />
+              <Field label="Dealer Page No." value={form.dealer_page_no} onChange={(v) => setForm({ ...form, dealer_page_no: v })} />
               <Field label="Sale Value" type="number" value={form.sale_value} onChange={(v) => setForm({ ...form, sale_value: v })} />
               <Field label="Battery Maker" value={form.battery_maker} onChange={(v) => setForm({ ...form, battery_maker: v })} />
               <Field label="Remarks" value={form.remarks1} onChange={(v) => setForm({ ...form, remarks1: v })} />
