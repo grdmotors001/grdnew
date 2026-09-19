@@ -136,11 +136,11 @@ export function BatterySwapVoucherPage() {
   return <div className="page"><div className="card"><h2>Battery Swap / Exchange Voucher</h2><p className="muted">Dealer type karein; suggestion se select kar sakte hain. Rickshaw select karte waqt current battery maker aur numbers bhi dikhenge.</p><ErrorBanner message={error}/>
     <form onSubmit={save}><div className="formgrid">
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Dealer" type="combo" value={form.dealer_name} options={dealerOptions} onChange={setDealer} required/>
-      <Field label="From Rickshaw Type" type="select" value={form.from_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,from_type:v,from_id:''})}/>
-      <Field label="From Rickshaw" type="select" value={form.from_id} options={opts(form.from_type)} onChange={v=>setForm({...form,from_id:Number(v)})} required/>
-      <Field label="To Rickshaw Type" type="select" value={form.to_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,to_type:v,to_id:''})}/>
-      <Field label="To Rickshaw" type="select" value={form.to_id} options={opts(form.to_type)} onChange={v=>setForm({...form,to_id:Number(v)})} required/>
+      <Field label="Dealer" type="combo" value={form.dealer_name} options={dealerOptions} onChange={v=>{setError('');setDealer(v)}} required/>
+      <Field label="From Rickshaw Type" type="select" value={form.from_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>{setError('');setForm({...form,from_type:v,from_id:''})}}/>
+      <Field label="From Rickshaw" type="select" value={form.from_id} options={opts(form.from_type)} onChange={v=>{setError('');setForm({...form,from_id:Number(v)})}} required/>
+      <Field label="To Rickshaw Type" type="select" value={form.to_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>{setError('');setForm({...form,to_type:v,to_id:''})}}/>
+      <Field label="To Rickshaw" type="select" value={form.to_id} options={opts(form.to_type)} onChange={v=>{setError('');setForm({...form,to_id:Number(v)})}} required/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
     </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Battery Swap / Exchange'}</button></div></form>
   </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From</th><th>To</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{dealers.find(d=>d.id===r.dealer_id)?.name||r.dealer_id}</td><td>{r.mode}</td><td>{r.from_type} #{r.from_id}</td><td>{r.to_type} #{r.to_id}</td><td><button className="btn danger" onClick={()=>remove(r.id)} disabled={busy}>Delete</button></td></tr>)}</tbody></table></div></div></div>;
