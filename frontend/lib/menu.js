@@ -74,7 +74,7 @@ export const NAV_GROUPS = {
   ],
   Factory: [
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
-    ['battery-delivery-challan', 'Battery Delivery Challan'], ['journal-stock', 'Journal Stock'],
+    ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'],
   ],
   'Sales & Billing': [
