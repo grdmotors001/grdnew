@@ -118,18 +118,41 @@ export function OldRickshawPage() {
       <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setSaleOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Sale'}</button></div>
     </form></div>}
     {dispatchOpen&&<div className="modal"><form className="modalbox" onSubmit={saveDispatch}>
-<h2>Old Rickshaw Factory Delivery Challan</h2><ErrorBanner message={error}/>
+      <h2>Old Rickshaw Factory Delivery Challan</h2><ErrorBanner message={error}/>
       <p className="muted">Separate challan for dispatching an old rickshaw from GRD factory to a dealer. Salesman is fetched automatically from Dealer Master.</p>
       <div className="formgrid">
-        <Field label="Challan No." value={dispatch.challan_no} onChange={v=>setDispatch({...dispatch,challan_no:v})} />
+        <Field label="Challan No." value={dispatch.challan_no} onChange={v=>setDispatch({...dispatch,challan_no:v})}/>
         <Field label="Date" type="date" value={dispatch.date} onChange={v=>setDispatch({...dispatch,date:v})}/>
         <Field label="Old Rickshaw" type="select" value={dispatch.old_rickshaw_id} options={data.records.filter(r=>r.status!=='sold').map(r=>({value:r.id,label:(r.vehicle_reg_no||r.chassis_no||r.record_no)+' — '+(r.model_name||'')}))} onChange={v=>setDispatch({...dispatch,old_rickshaw_id:Number(v)})} required/>
         <Field label="Dealer" type="select" value={dispatch.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setDispatch({...dispatch,dealer_id:Number(v)})} required/>
-        <Field label="Salesman" value={dealers.find(d=>String(d.id)===String(dispatch.dealer_id))?.salesman||''} onChange={()=>{}} />
+        <Field label="Salesman" value={dealers.find(d=>String(d.id)===String(dispatch.dealer_id))?.salesman||''} onChange={()=>{}}/>
       </div>
       <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setDispatchOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Create Old Rickshaw Challan'}</button></div>
     </form></div>
   </>;
+}
+
+export function OldRickshawDeliveryChallanPage() {
+  const [data,setData]=useState(null),[dealers,setDealers]=useState([]),[oldRows,setOldRows]=useState([]);
+  const [form,setForm]=useState({date:today(),old_rickshaw_id:'',dealer_id:'',challan_no:''});
+  const {busy,error,setError,run}=useAsyncAction();
+  const load=()=>Promise.all([get('/old-rickshaw-delivery-challans'),get('/old-rickshaws')]).then(([c,o])=>{setData(c);setOldRows(o.records||[])}).catch(e=>setError(e.message));
+  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});},[]);
+  const save=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaw-delivery-challans',form);setForm({date:today(),old_rickshaw_id:'',dealer_id:'',challan_no:''});load();});};
+  if(!data)return <div className="card">Loading…</div>;
+  const available=oldRows.filter(r=>r.status!=='sold');
+  return <div className="page">
+    <div className="card"><h2>Old Rickshaw Factory Delivery Challan</h2><p className="muted">Separate factory challan for sending an old rickshaw to a dealer. Dealer salesman is auto-fetched from Dealer Master.</p><ErrorBanner message={error}/>
+      <form onSubmit={save}><div className="formgrid">
+        <Field label="Challan No." value={form.challan_no} onChange={v=>setForm({...form,challan_no:v})}/>
+        <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+        <Field label="Old Rickshaw" type="select" value={form.old_rickshaw_id} options={available.map(r=>({value:r.id,label:(r.vehicle_reg_no||r.chassis_no||r.record_no)+' — '+(r.model_name||'')}))} onChange={v=>setForm({...form,old_rickshaw_id:Number(v)})} required/>
+        <Field label="Dealer" type="select" value={form.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setForm({...form,dealer_id:Number(v)})} required/>
+        <Field label="Salesman" value={dealers.find(d=>String(d.id)===String(form.dealer_id))?.salesman||''} onChange={()=>{}}/>
+      </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Create Challan'}</button></div></form>
+    </div>
+    <div className="card"><h2>Old Rickshaw Delivery Challan Register</h2>{data.records.length===0?<EmptyState/>:<div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Salesman</th><th>Reg. No.</th><th>Model</th><th>Status</th></tr></thead><tbody>{data.records.map(r=><tr key={r.id}><td>{formatDate(r.factory_challan_date)}</td><td>{r.factory_challan_no}</td><td>{r.factory_dealer_name||r.dealer_name||'—'}</td><td>{r.factory_salesman||r.dealer_salesman||'—'}</td><td>{r.vehicle_reg_no||'—'}</td><td>{r.model_name||'—'}</td><td>{r.status}</td></tr>)}</tbody></table></div>}</div>
+  </div>;
 }
 
 export function BatterySwapVoucherPage() {
