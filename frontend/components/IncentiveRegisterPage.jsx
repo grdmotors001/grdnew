@@ -93,6 +93,7 @@ export function IncentiveRegisterPage() {
     const params = new URLSearchParams();
     if (dealerId) params.set('dealer_id', dealerId);
     if (search) params.set('search', search);
+    params.set('export','csv');
     downloadExcel('/expense-payment-voucher/incentive-pending?' + params.toString(), 'Incentive_Pending_Register.xlsx');
   };
 
