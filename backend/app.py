@@ -3014,8 +3014,13 @@ def journal_stock_delete(record_id):
 @require_auth
 def closing_stock_premises():
     vehicles = Vehicle.query.filter_by(stage="Manufacturing").order_by(Vehicle.model_name, Vehicle.colour).all()
+    pv_models = {p.chassis_no: p.product_name for p in
+                 ProductionVoucher.query.with_entities(ProductionVoucher.chassis_no, ProductionVoucher.product_name).all()
+                 if p.chassis_no}
     summary = {}
     for v in vehicles:
+        if not v.model_name and v.chassis_no in pv_models:
+            v.model_name = pv_models[v.chassis_no]
         key = f"{v.model_name or '—'}::{v.colour or '—'}"
         summary[key] = summary.get(key, 0) + 1
     return jsonify({"vehicles": [ser_vehicle(v) for v in vehicles],
@@ -3147,6 +3152,7 @@ def stock_ledger_raw():
                         "particulars":f"Purchase Bill — {item_name}", "qty":qty or 0, "_sort":d or date.min})
     for qty, d, vou_no, chassis_no, product_name in prod:
         events.append({"date": _iso(d), "type":"OUT", "doc_no":vou_no, "party_name":chassis_no,
+                        "chassis_no":chassis_no, "model_name":product_name,
                         "particulars":f"Production — {product_name}", "qty":qty or 0, "_sort":d or date.min})
     for j in j:
         events.append({"date":_iso(j.date), "type":"IN" if j.qty >= 0 else "OUT", "doc_no":j.vou_no,
@@ -3174,13 +3180,13 @@ def stock_ledger_premises():
                                ProductionVoucher.product_name, ProductionVoucher.quantity)\
         .filter(*_date_filter(ProductionVoucher.date, from_date, to_date)).all()
     for d, vou_no, chassis_no, product_name, qty in pv_rows:
-        events.append({"date":_iso(d),"type":"IN","doc_no":vou_no,"chassis_no":chassis_no,
+        events.append({"date":_iso(d),"type":"IN","doc_no":vou_no,"chassis_no":chassis_no,"model_name":product_name,
                        "particulars":f"Production — {product_name}","qty":qty or 1,"_sort":d or date.min})
     dc_rows = db.session.query(DeliveryChallan.date, DeliveryChallan.challan_no, DeliveryChallan.chassis_no, Dealer.name)\
         .outerjoin(Dealer, DeliveryChallan.dealer_id == Dealer.id)\
         .filter(DeliveryChallan.cancelled.is_(False), *_date_filter(DeliveryChallan.date, from_date, to_date)).all()
     for d, challan_no, chassis_no, dealer_name in dc_rows:
-        events.append({"date":_iso(d),"type":"OUT","doc_no":challan_no,"chassis_no":chassis_no,
+        events.append({"date":_iso(d),"type":"OUT","doc_no":challan_no,"chassis_no":chassis_no,"model_name":dc_model,
                        "particulars":f"Delivery Challan to {dealer_name or ''}","qty":1,"_sort":d or date.min})
     events.sort(key=lambda e:e["_sort"])
     balance=opening
