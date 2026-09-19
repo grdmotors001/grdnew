@@ -242,6 +242,16 @@ export function DeliveryChallanRegisterPage() {
   if (!r.data) return <div className="card">Loading…</div>;
 
   const rows = r.data.rows || [];
+  const [colourMasters, setColourMasters] = useState([]);
+  useEffect(() => { get('/masters/colour').then((x) => setColourMasters(x || [])).catch(() => {}); }, []);
+  const colourMeta = (name) => colourMasters.find((x) => String(x.name||'').trim().toLowerCase() === String(name||'').trim().toLowerCase());
+  const colourPreview = (name) => {
+    const x=colourMeta(name);
+    if (!x?.color_hex) return null;
+    return x.is_double_tone && x.color_hex2
+      ? `linear-gradient(90deg,${x.color_hex} 0 50%,${x.color_hex2} 50% 100%)`
+      : x.color_hex;
+  };
   const filterOptions = r.data.filters || { product: [], dealer: [], salesman: [], battery: [] };
   const activeFilterCount = Object.values(filters).filter((v) => v !== 'ALL').length;
 
@@ -298,7 +308,10 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.dealer_name}</td>
                   <td>{c.item_amount ? <Money value={c.item_amount} /> : ''}</td>
                   <td>{c.chassis_no}</td>
-                  <td>{c.colour}</td>
+                  <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                    <span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)||'transparent'}} />
+                    {c.colour||'—'}
+                  </span></td>
                   <td>{c.other}</td>
                   <td>{c.bill_no || '—'}</td>
                   <td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
@@ -435,9 +448,10 @@ export function DeliveryChallanRegisterPage() {
 }
 
 export function SaleRegisterPage() {
-  const r = useReport('/reports/sale-register');
+  const r = useReport('/reports/sale-register', { page: 1, per_page: 50 });
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
+  const goPage = (page) => r.setExtra({ ...r.extra, page });
   return (
     <>
       <FilterBar r={r}>
@@ -450,10 +464,15 @@ export function SaleRegisterPage() {
             <tbody>
               {r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td>{i.product_name}</td><td><Money value={i.taxable_value} /></td><td><Money value={i.tax_amount} /></td><td><Money value={i.bill_total} /></td></tr>)}
             </tbody>
-            <tfoot><tr><td colSpan={4}><b>Totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.tax} /></td><td><Money value={r.data.totals.total} /></td></tr></tfoot>
+            <tfoot><tr><td colSpan={4}><b>All matching totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.tax} /></td><td><Money value={r.data.totals.total} /></td></tr></tfoot>
           </table>
         </div>
       )}
+      {(r.data.total_pages || 1) > 1 && <div className="actions" style={{marginTop:12,justifyContent:'center',gap:8}}>
+        <button className="btn" disabled={r.data.page<=1} onClick={()=>goPage(r.data.page-1)}>← Previous</button>
+        <span className="muted">Page {r.data.page} of {r.data.total_pages} · {r.data.total.toLocaleString('en-IN')} bills</span>
+        <button className="btn" disabled={r.data.page>=r.data.total_pages} onClick={()=>goPage(r.data.page+1)}>Next →</button>
+      </div>}
     </>
   );
 }
