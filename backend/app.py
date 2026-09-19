@@ -857,7 +857,9 @@ def ser_battery_dc(r):
 
 def ser_journal(r):
     return {"id": r.id, "vou_no": r.vou_no, "date": _iso(r.date), "item_name": r.item_name,
-            "item_type": r.item_type, "qty": r.qty, "reason": r.reason}
+            "item_type": r.item_type, "qty": r.qty, "reason": r.reason,
+            "model_name": getattr(r, "model_name", None), "work_type": getattr(r, "work_type", None),
+            "batch_ref": getattr(r, "batch_ref", None)}
 
 
 def ser_daybook(r):
@@ -2987,16 +2989,66 @@ def journal_stock():
             return _err("Item Name is required.")
         rec = JournalStock(vou_no=data.get("vou_no"), date=_parse_date(data.get("date")) or date.today(),
                             item_name=item_name, item_type=data.get("item_type") or "R",
-                            qty=_f(data.get("qty")), reason=data.get("reason"))
+                            qty=_f(data.get("qty")), reason=data.get("reason"),
+                            model_name=(data.get("model_name") or "").strip() or None,
+                            work_type=(data.get("work_type") or "adjustment").strip() or "adjustment")
         db.session.add(rec)
         db.session.commit()
         return jsonify(ser_journal(rec)), 201
 
-    rows = JournalStock.query.order_by(JournalStock.date.desc(), JournalStock.id.desc()).all()
-    next_no = (db.session.query(db.func.max(JournalStock.id)).scalar() or 0) + 1
-    return jsonify({"records": [ser_journal(r) for r in rows],
-                     "suggested_vou_no": f"J-{next_no + 100}"})
+    search=(request.args.get("search") or "").strip()
+    item_type=(request.args.get("item_type") or "").strip()
+    page=max(1,_i(request.args.get("page"),1))
+    per_page=min(100,max(25,_i(request.args.get("per_page"),50)))
+    q=JournalStock.query.order_by(JournalStock.date.desc(),JournalStock.id.desc())
+    if search:
+        like=f"%{search}%"
+        q=q.filter(db.or_(JournalStock.item_name.ilike(like),JournalStock.vou_no.ilike(like),
+                          JournalStock.reason.ilike(like),JournalStock.model_name.ilike(like)))
+    if item_type in {"R","F"}: q=q.filter(JournalStock.item_type==item_type)
+    total=q.count()
+    rows=q.offset((page-1)*per_page).limit(per_page).all()
+    next_no=(db.session.query(db.func.max(JournalStock.id)).scalar() or 0)+1
+    return jsonify({"records":[ser_journal(r) for r in rows],"total":total,"page":page,
+                    "per_page":per_page,"total_pages":(total+per_page-1)//per_page if total else 1,
+                    "suggested_vou_no":f"J-{next_no + 100}"})
 
+@app.post("/api/journal-stock/work")
+@require_auth
+def journal_stock_work():
+    data=request.get_json(silent=True) or {}
+    work_type=(data.get("work_type") or "").strip().lower()
+    if work_type not in {"fabrication","assembly"}: return _err("Work Type must be Fabrication or Assembly")
+    output_item=(data.get("output_item") or "").strip()
+    model_name=(data.get("model_name") or "").strip() or None
+    output_qty=_f(data.get("output_qty"),0)
+    inputs=data.get("inputs") if isinstance(data.get("inputs"),list) else []
+    if not output_item:return _err("Output item is required")
+    if output_qty<=0:return _err("Output Qty must be greater than zero")
+    if not inputs:return _err("At least one input material is required")
+    clean=[]
+    for row in inputs:
+        name=(row.get("item_name") or "").strip()
+        per=_f(row.get("qty_per_unit"),0)
+        if name and per>0: clean.append((name,per))
+    if not clean:return _err("Enter valid input material quantities")
+    base_no=(data.get("vou_no") or "").strip()
+    if not base_no:
+        base_no=f"J-{(db.session.query(db.func.max(JournalStock.id)).scalar() or 0)+101}"
+    batch=f"{base_no}-{uuid.uuid4().hex[:8].upper()}"
+    reason=(data.get("reason") or "").strip() or (f"{work_type.title()} — {model_name}" if model_name else work_type.title())
+    created=[]
+    for name,per in clean:
+        rec=JournalStock(vou_no=base_no,date=_parse_date(data.get("date")) or date.today(),
+                         item_name=name,item_type="R",qty=-round(per*output_qty,4),
+                         reason=reason,model_name=model_name,work_type=work_type,batch_ref=batch)
+        db.session.add(rec);created.append(rec)
+    out=JournalStock(vou_no=base_no,date=_parse_date(data.get("date")) or date.today(),
+                    item_name=output_item,item_type="F",qty=output_qty,reason=reason,
+                    model_name=model_name,work_type=work_type,batch_ref=batch)
+    db.session.add(out);created.append(out)
+    db.session.commit()
+    return jsonify({"success":True,"batch_ref":batch,"records":[ser_journal(x) for x in created]}),201
 
 @app.route("/api/journal-stock/<int:record_id>", methods=["DELETE"])
 @require_auth
