@@ -17,6 +17,7 @@ import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, Battery
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
+import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import {
   ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage,
   StockLedgerPremisesPage, StockLedgerDealersPage,
@@ -42,6 +43,7 @@ const CUSTOM_PAGES = {
   password: () => <PasswordPage />,
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
+  'cash-at-dealer': () => <CashAtDealerPage />,
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
   'tax-invoice': () => <TaxInvoicePage />,
