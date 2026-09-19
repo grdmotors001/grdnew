@@ -1,4 +1,5 @@
 'use client';
+// Production build-safe voucher page.
 import { useEffect, useState } from 'react';
 import { get, post } from '../lib/api';
 
