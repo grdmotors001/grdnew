@@ -115,18 +115,11 @@ export function ProductionRegisterPage() {
 }
 
 export function DeliveryChallanRegisterPage() {
-  const r = useReport('/reports/delivery-challan-register', { status: 'all' });
+  const r = useReport('/reports/delivery-challan-register', { status: 'all', page: 1, per_page: 100 });
   const [editRow, setEditRow] = useState(null);
   const [printId, setPrintId] = useState(null);
   const [editError, setEditError] = useState('');
   const [saving, setSaving] = useState(false);
-
-  // "Filter" (F3 in the legacy app) — Product/Dealer/Salesman/Battery Make
-  // dropdowns applied on top of the already-loaded rows (this report isn't
-  // paginated, so the full date-range result set is already on the page —
-  // no need to round-trip to the server for these). Raw Material, Mechanic
-  // and Subsidy from the legacy filter dialog aren't included here since a
-  // Delivery Challan doesn't carry any of those three values.
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' });
   const [draftFilters, setDraftFilters] = useState(filters);
@@ -141,7 +134,7 @@ export function DeliveryChallanRegisterPage() {
     try {
       await put(`/delivery-challans/${editRow.id}`, editRow);
       setEditRow(null);
-      r.setExtra({ ...r.extra }); // re-triggers the report fetch
+      r.setExtra({ ...r.extra });
     } catch (err) { setEditError(err.message); }
     setSaving(false);
   };
@@ -149,28 +142,37 @@ export function DeliveryChallanRegisterPage() {
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
 
-  const uniqueSorted = (key) => [...new Set(r.data.map((c) => c[key]).filter(Boolean))].sort();
-  const filteredData = r.data.filter((c) =>
-    (filters.product === 'ALL' || c.product_name === filters.product) &&
-    (filters.dealer === 'ALL' || c.dealer_name === filters.dealer) &&
-    (filters.salesman === 'ALL' || c.salesman === filters.salesman) &&
-    (filters.battery === 'ALL' || c.battery_maker === filters.battery)
-  );
+  const rows = r.data.rows || [];
+  const filterOptions = r.data.filters || { product: [], dealer: [], salesman: [], battery: [] };
 
   const openFilter = () => { setDraftFilters(filters); setFilterOpen(true); };
-  const applyFilter = () => { setFilters(draftFilters); setFilterOpen(false); };
-  const resetFilter = () => { const cleared = { product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' }; setDraftFilters(cleared); setFilters(cleared); setFilterOpen(false); };
+  const applyFilter = () => {
+    setFilters(draftFilters);
+    r.setExtra({ ...r.extra, ...draftFilters, page: 1 });
+    setFilterOpen(false);
+  };
+  const resetFilter = () => {
+    const cleared = { product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' };
+    setDraftFilters(cleared);
+    setFilters(cleared);
+    r.setExtra({ status: r.extra.status || 'all', page: 1, per_page: 100 });
+    setFilterOpen(false);
+  };
+  const goPage = (page) => r.setExtra({ ...r.extra, page });
+
+  const totalPages = r.data.total_pages || 1;
 
   return (
     <>
       <FilterBar r={r}>
-        <Field label="Status" type="select" value={r.extra.status} options={[{ value: 'all', label: 'All' }, { value: 'sold', label: 'Sold (invoiced)' }, { value: 'unsold', label: 'Unsold' }]} onChange={(v) => r.setExtra({ status: v })} />
+        <Field label="Status" type="select" value={r.extra.status} options={[{ value: 'all', label: 'All' }, { value: 'sold', label: 'Sold (invoiced)' }, { value: 'unsold', label: 'Unsold' }]} onChange={(v) => r.setExtra({ ...r.extra, status: v, page: 1 })} />
         <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={openFilter}>
           Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
         </button>
-        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/delivery-challan-register' + qs(r) + `&status=${r.extra.status}`, 'Delivery_Challan_Register.xlsx')}>Export Excel</button>
+        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/delivery-challan-register' + qs(r) + `&status=${r.extra.status}&export=csv`, 'Delivery_Challan_Register.xlsx')}>Export Excel</button>
       </FilterBar>
-      {filteredData.length === 0 ? <EmptyState /> : (
+
+      {rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
             <thead>
@@ -183,20 +185,26 @@ export function DeliveryChallanRegisterPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredData.map((c) => (
+              {rows.map((c) => (
                 <tr key={c.id} onDoubleClick={() => openEdit(c)} style={{ cursor: 'pointer' }} title="Double-click to edit">
                   <td>{formatDate(c.date)}</td><td>{c.challan_no}</td><td>{c.dealer_name}</td>
                   <td>{c.item_amount ? <Money value={c.item_amount} /> : ''}</td>
                   <td>{c.chassis_no}</td><td>{c.colour}</td><td>{c.other}</td>
-                  <td>{c.bill_no || '—'}</td>
-                  <td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
-                  <td>{c.salesman}</td><td>{c.battery_maker}</td>
-                  <td>{c.remarks1}</td><td>{c.remarks2}</td>
+                  <td>{c.bill_no || '—'}</td><td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
+                  <td>{c.salesman}</td><td>{c.battery_maker}</td><td>{c.remarks1}</td><td>{c.remarks2}</td>
                   <td><button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Print</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="actions" style={{ marginTop: 12, justifyContent: 'center', gap: 8 }}>
+          <button className="btn" disabled={r.data.page <= 1} onClick={() => goPage(r.data.page - 1)}>← Previous</button>
+          <span className="muted">Page {r.data.page} of {totalPages} · {r.data.total.toLocaleString('en-IN')} rows</span>
+          <button className="btn" disabled={r.data.page >= totalPages} onClick={() => goPage(r.data.page + 1)}>Next →</button>
         </div>
       )}
 
@@ -206,16 +214,16 @@ export function DeliveryChallanRegisterPage() {
             <h2>Filter</h2>
             <div className="formgrid" style={{ gridTemplateColumns: '1fr' }}>
               <Field label="E-Rickshaw" type="select" value={draftFilters.product}
-                     options={['ALL', ...uniqueSorted('product_name')]}
+                     options={['ALL', ...(filterOptions.product || [])]}
                      onChange={(v) => setDraftFilters({ ...draftFilters, product: v })} />
               <Field label="Dealer" type="select" value={draftFilters.dealer}
-                     options={['ALL', ...uniqueSorted('dealer_name')]}
+                     options={['ALL', ...(filterOptions.dealer || [])]}
                      onChange={(v) => setDraftFilters({ ...draftFilters, dealer: v })} />
               <Field label="Salesman" type="select" value={draftFilters.salesman}
-                     options={['ALL', ...uniqueSorted('salesman')]}
+                     options={['ALL', ...(filterOptions.salesman || [])]}
                      onChange={(v) => setDraftFilters({ ...draftFilters, salesman: v })} />
               <Field label="Battery Make" type="select" value={draftFilters.battery}
-                     options={['ALL', ...uniqueSorted('battery_maker')]}
+                     options={['ALL', ...(filterOptions.battery || [])]}
                      onChange={(v) => setDraftFilters({ ...draftFilters, battery: v })} />
             </div>
             <div className="actions" style={{ marginTop: 18, justifyContent: 'space-between' }}>
