@@ -86,7 +86,7 @@ const CUSTOM_PAGES = {
 
 function PageRouter({ active, setActive, optionUserId, setOptionUserId, user }) {
   if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
-  if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} />;
+  if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} />;
   const render = CUSTOM_PAGES[active];
   if (render) return render({ setActive, optionUserId, setOptionUserId });
   return <PlaceholderPage label={active} />;
