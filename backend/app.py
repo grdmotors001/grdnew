@@ -3556,47 +3556,78 @@ def purchase_register():
     from_date, to_date = _date_bounds()
     search = request.args.get("search", "").strip()
     is_export = request.args.get("export") == "csv"
-    # Read purchase lines directly with one SQL join instead of loading every
-    # PurchaseBill and every item into Python. This keeps the report safe for
-    # large registers on Vercel/Supabase.
-    q = (db.session.query(PurchaseBill, PurchaseBillItem)
-         .join(PurchaseBillItem, PurchaseBillItem.bill_id == PurchaseBill.id)
-         .filter(*_date_filter(PurchaseBill.date, from_date, to_date)))
-    if search:
-        like = f"%{search}%"
-        q = q.filter(db.or_(PurchaseBill.party_name.ilike(like),
-                            PurchaseBill.bill_no.ilike(like),
-                            PurchaseBillItem.item_name.ilike(like),
-                            PurchaseBillItem.hsn_code.ilike(like)))
-    q = q.order_by(PurchaseBill.date.desc(), PurchaseBill.id.desc(), PurchaseBillItem.id.asc())
 
-    def line_row(b, it):
+    def line_values(b, it):
         taxable = round((it.qty or 0) * (it.rate or 0), 2)
         inter = bool(b.party_state_code) and b.party_state_code != "07"
         igst = round(taxable * (it.gst_rate or 0) / 100, 2) if inter else 0
         cgst = round(taxable * (it.gst_rate or 0) / 200, 2) if not inter else 0
         sgst = cgst if not inter else 0
-        return {"date": _iso(b.date), "bill_no": b.bill_no or ".", "party_name": b.party_name,
-                "item_name": it.item_name, "hsn": it.hsn_code, "taxable_amt": taxable,
-                "gst_rate": it.gst_rate, "is_inter_state": inter,
-                "cgst_amt": cgst, "sgst_amt": sgst, "igst_amt": igst}
+        return {
+            "item_name": it.item_name, "hsn": it.hsn_code, "qty": it.qty, "rate": it.rate,
+            "gst_rate": it.gst_rate, "taxable_amt": taxable,
+            "cgst_amt": cgst, "sgst_amt": sgst, "igst_amt": igst,
+            "tax_amt": round(cgst + sgst + igst, 2),
+            "total_amt": round(taxable + cgst + sgst + igst, 2),
+        }
+
+    # One register row per purchase bill. Item lines are kept inside the row
+    # for the View dialog, so a bill with 5 items is not repeated 5 times.
+    query = (PurchaseBill.query
+             .options(joinedload(PurchaseBill.items))
+             .filter(*_date_filter(PurchaseBill.date, from_date, to_date)))
+
+    if search:
+        like = f"%{search}%"
+        query = (query.outerjoin(PurchaseBillItem, PurchaseBillItem.bill_id == PurchaseBill.id)
+                 .filter(db.or_(PurchaseBill.party_name.ilike(like),
+                                PurchaseBill.bill_no.ilike(like),
+                                PurchaseBillItem.item_name.ilike(like),
+                                PurchaseBillItem.hsn_code.ilike(like)))
+                 .distinct())
+
+    query = query.order_by(PurchaseBill.date.desc(), PurchaseBill.id.desc())
 
     if is_export:
-        rows = [line_row(b, it) for b, it in q.all()]
+        bills = query.all()
+        rows = []
+        for b in bills:
+            for it in b.items:
+                x = line_values(b, it)
+                rows.append([_iso(b.date), b.bill_no or ".", b.party_name, x["item_name"], x["hsn"] or "",
+                             x["taxable_amt"], x["cgst_amt"], x["sgst_amt"], x["igst_amt"]])
         headers = ["Date", "Bill No.", "Party Name", "Item Name", "HSN", "Taxable Amt", "CGST Amt", "SGST Amt", "IGST Amt"]
-        return _csv_response("Purchase_Register.csv", headers,
-                              [[r["date"], r["bill_no"], r["party_name"], r["item_name"], r["hsn"] or "",
-                                r["taxable_amt"], r["cgst_amt"], r["sgst_amt"], r["igst_amt"]] for r in rows])
+        return _csv_response("Purchase_Register.csv", headers, rows)
 
     page = max(1, _i(request.args.get("page"), 1))
     per_page = min(100, max(25, _i(request.args.get("per_page"), 50)))
-    total = q.count()
-    rows = [line_row(b, it) for b, it in q.offset((page - 1) * per_page).limit(per_page).all()]
-    totals = {"taxable": round(sum(r["taxable_amt"] for r in rows), 2),
-              "cgst": round(sum(r["cgst_amt"] for r in rows), 2),
-              "sgst": round(sum(r["sgst_amt"] for r in rows), 2),
-              "igst": round(sum(r["igst_amt"] for r in rows), 2)}
-    return jsonify({"rows": rows, "totals": totals, "page": page, "per_page": per_page,
+    total = query.with_entities(PurchaseBill.id).count()
+    bills = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    out = []
+    for b in bills:
+        items = [line_values(b, it) for it in b.items]
+        taxable = round(sum(x["taxable_amt"] for x in items), 2)
+        cgst = round(sum(x["cgst_amt"] for x in items), 2)
+        sgst = round(sum(x["sgst_amt"] for x in items), 2)
+        igst = round(sum(x["igst_amt"] for x in items), 2)
+        out.append({
+            "id": b.id, "date": _iso(b.date), "bill_no": b.bill_no or ".", "party_name": b.party_name,
+            "party_gst_no": b.party_gst_no, "party_state_code": b.party_state_code,
+            "remarks": b.remarks, "item_count": len(items),
+            "taxable_amt": taxable, "cgst_amt": cgst, "sgst_amt": sgst, "igst_amt": igst,
+            "tax_amt": round(cgst + sgst + igst, 2),
+            "total_amt": round(taxable + cgst + sgst + igst, 2),
+            "items": items,
+        })
+
+    totals = {
+        "taxable": round(sum(r["taxable_amt"] for r in out), 2),
+        "cgst": round(sum(r["cgst_amt"] for r in out), 2),
+        "sgst": round(sum(r["sgst_amt"] for r in out), 2),
+        "igst": round(sum(r["igst_amt"] for r in out), 2),
+    }
+    return jsonify({"rows": out, "totals": totals, "page": page, "per_page": per_page,
                     "total": total, "total_pages": (total + per_page - 1) // per_page if total else 1})
 
 
