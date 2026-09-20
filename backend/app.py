@@ -329,11 +329,18 @@ def dealer_submit_loan():
         if chfpl_url.lower() in ("https://www.chfpl.com", "https://chfpl.com"):
             chfpl_url = "https://login.chfpl.com"
         selected_model_id = _i(vehicle_loan.get("vehicle_model_id"), 0)
+        # The dealer dropdown is already populated from Product Master with
+        # fro="F". At submit time, resolve by the immutable Product ID only;
+        # do not re-apply the fro filter because legacy Product rows can have
+        # inconsistent/null fro values even though they are exposed by the
+        # dealer master endpoint.
         grd_model = (Product.query
-                     .filter(Product.id == selected_model_id, Product.fro == "F")
+                     .filter(Product.id == selected_model_id)
                      .first()) if selected_model_id else None
         if not grd_model:
-            raise RuntimeError("Selected GRD vehicle model was not found in Product Master")
+            raise RuntimeError(
+                f"Selected GRD vehicle model ID {selected_model_id} was not found in Product Master"
+            )
 
         secret = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
         if not chfpl_url or not secret:
