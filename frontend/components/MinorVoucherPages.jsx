@@ -174,7 +174,7 @@ export function BatterySwapVoucherPage() {
         </div>
       </div>
     </div> : null}
-  </div>;
+  </div></div>;
 }
 
 export function BatteryWithdrawalPage() {
