@@ -91,7 +91,7 @@ export function DealerNewLoanForm({ onBack }) {
     setSaving(true);
     try{
       const d=await post('/dealer/submit-loan',{
-        customer_id:customerId||null,borrower,guarantor,co_borrower,vehicle_loan:vehicleLoan,
+        customer_id:customerId||null,borrower,guarantor,co_borrower:coBorrower,vehicle_loan:vehicleLoan,
         loan_type:loanType,
         dealer_register_page_no:sale.register_page_no,
         customer_photo:customerPhoto ? {name:customerPhoto.name,type:customerPhoto.type,data_url:await fileToDataUrl(customerPhoto)} : null,
