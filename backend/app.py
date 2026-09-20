@@ -342,7 +342,7 @@ def dealer_submit_loan():
             "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
         }
         body = _json.dumps(payload).encode("utf-8")
-        target_url = f"{chfpl_url}/api/dealer/grd-submit-loan"
+        target_url = f"{chfpl_url}/api/grd-submit-loan"
         print(f"[CHFPL bridge] POST {target_url}")
         req = urllib.request.Request(
             target_url, data=body,
