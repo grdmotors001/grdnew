@@ -21,6 +21,7 @@ const nav = [
   ['payments', '↔', 'Online Payment'],
   ['ledger', '▤', 'Ledger'],
   ['pending-sales', '▤', 'Pending Sales'],
+  ['loan-status', '✓', 'Loan Status'],
 ];
 
 export function DealerPortal({ dealer, onLogout }) {
@@ -29,6 +30,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const [batteryStock, setBatteryStock] = useState(null);
   const [challans, setChallans] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [loans, setLoans] = useState([]);
   const [tab, setTab] = useState('dashboard');
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -39,8 +41,8 @@ export function DealerPortal({ dealer, onLogout }) {
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
 
   useEffect(() => {
-    Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
-      .then(([s, o, b, c, i]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); })
+    Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices'), get('/dealer/loan-status')])
+      .then(([s, o, b, c, i, l]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); setLoans(l.applications || []); })
       .catch((e) => setError(e.message));
   }, []);
 
@@ -105,17 +107,18 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
+        {tab==='loan-status' && <DealerLoanStatusTable rows={loans}/>}
       </>}
     </main>
   </div>;
 }
 
-function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,latest,onNewLoan,onOpen}) {
+function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen}) {
   const cards=[
     ['Current Stock',stockCount??'—','Vehicles currently assigned','stock','▣'],
+    ['Loan Applications',loanCount??0,'CHFPL loan status','loan-status','✓'],
     ['Delivery Challans',challanCount,'Recent challan records','challans','▤'],
     ['Tax Invoices',invoiceCount,'Invoice records','invoices','▥'],
-    ['Cash Book','₹','Receipts, expenses & handover','cashbook','₹']
   ];
   return <div className="dealerDashboard">
     <section className="dealerHero"><div><span className="dealerHeroKicker">G.R.D. MOTORS</span><h2>Welcome back, {dealerName}</h2><p>Manage stock, documents, cash book and loan applications from one place.</p></div><button className="dealerPrimaryAction" onClick={onNewLoan}><span>＋</span> New Loan Application</button></section>
@@ -144,4 +147,31 @@ function DealerPurchases({onInvoice}) {
   const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);
   useEffect(()=>{get('/dealer/purchases').then(d=>setRows(d.purchases||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false))},[]);
   return <div><div className="dealerContentToolbar"><div className="dealerPageIntro"><span className="dealerSectionIcon">▣</span><div><strong>Purchases</strong><small>Delivery Challans received from G.R.D. Motors</small></div></div></div>{error&&<div className="error">{error}</div>}{loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Challan</th><th>Chassis</th><th>Model</th><th>Purchase Value</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{formatDate(x.date)}</td><td>{x.challan_no}</td><td>{x.chassis_no}</td><td>{x.product_name}</td><td>{x.sale_value||0}</td></tr>)}{!rows.length&&<tr><td colSpan="5">No purchases available.</td></tr>}</tbody></table></div>}</div>
+}
+
+
+function DealerLoanStatusTable({rows}) {
+  const statusLabel = (s) => String(s || 'submitted').replace(/_/g,' ').replace(/\b\w/g, m => m.toUpperCase());
+  const statusClass = (s) => {
+    const v=String(s||'').toLowerCase();
+    if(v==='approved'||v==='sanctioned'||v==='disbursed') return 'loanStatus approved';
+    if(v==='rejected') return 'loanStatus rejected';
+    if(v==='fi_pending'||v==='fi_done') return 'loanStatus review';
+    return 'loanStatus submitted';
+  };
+  return <div>
+    <div className="dealerPanel" style={{marginBottom:14}}>
+      <div className="dealerPanelHead"><div><h3>My Loan Applications</h3><p>Live status from CHFPL</p></div></div>
+      {!rows.length ? <div className="dealerEmpty">No loan applications found.</div> :
+      <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Application</th><th>Customer</th><th>Vehicle</th><th>Loan Amount</th><th>Status</th><th>Submitted</th></tr></thead>
+      <tbody>{rows.map(r=><tr key={r.id||r.application_no}>
+        <td data-label="Application"><b>{r.application_no}</b></td>
+        <td data-label="Customer">{r.customer_name||'—'}</td>
+        <td data-label="Vehicle">{r.vehicle_model_name||'—'}</td>
+        <td data-label="Loan Amount">₹ {Number(r.loan_amount_requested||0).toLocaleString('en-IN')}</td>
+        <td data-label="Status"><span className={statusClass(r.status)}>{statusLabel(r.status)}</span></td>
+        <td data-label="Submitted">{r.submitted_at ? formatDate(r.submitted_at) : '—'}</td>
+      </tr>)}</tbody></table></div>}
+    </div>
+  </div>;
 }
