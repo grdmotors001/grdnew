@@ -732,6 +732,17 @@ def _staff_dealer_ids():
     payload = getattr(g, "current_user_payload", {}) or {}
     if payload.get("is_super_user"):
         return None
+    # Salesman scope is always derived live from Dealer Master.salesman.
+    # Therefore a newly created/changed dealer is visible without editing
+    # the salesman user again or waiting for a new login token.
+    if (payload.get("department") or "").strip().lower() == "salesman":
+        username = (payload.get("username") or "").strip()
+        if not username:
+            return []
+        return [d.id for d in Dealer.query.filter(
+            Dealer.salesman.ilike(username),
+            Dealer.blocked.is_(False),
+        ).all()]
     return payload.get("dealer_ids") or []
 
 def _assert_dealer_scope(dealer_id):
@@ -1855,8 +1866,12 @@ def dealers():
 
     dealers_ = Dealer.query.order_by(Dealer.name).all()
     next_code_num = Dealer.query.count() + 1
+    salesman_users = User.query.filter(
+        db.func.lower(db.func.trim(User.department)) == "salesman"
+    ).order_by(User.username).all()
     return jsonify({"dealers": [ser_dealer(d) for d in dealers_],
-                     "suggested_code": f"A-{next_code_num:02d}"})
+                     "suggested_code": f"A-{next_code_num:02d}",
+                     "salesmen": [{"id": u.id, "username": u.username} for u in salesman_users]})
 
 
 @app.route("/api/dealers/<int:dealer_id>", methods=["DELETE"])
@@ -2069,7 +2084,9 @@ def users():
         u.is_super_user = bool(data.get("is_super_user"))
         u.permissions = data.get("permissions")
         u.department = (data.get("department") or "Admin").strip()
-        dealer_ids = data.get("assigned_dealer_ids") or []
+        # Salesman dealer scope comes from Dealer Master.salesman. Do not
+        # persist manual dealer assignments for salesman users.
+        dealer_ids = [] if u.department.lower() == "salesman" else (data.get("assigned_dealer_ids") or [])
         u.assigned_dealer_ids = ",".join(str(int(x)) for x in dealer_ids if str(x).isdigit())
         db.session.add(u)
         db.session.commit()
