@@ -1887,7 +1887,7 @@ def _ensure_simple_master_columns():
         return str(exc)
     return None
 
-SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour"}
+SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour", "salesman"}
 
 
 def _save_simple_master(kind, data, row_id=None):
@@ -1932,6 +1932,35 @@ def simple_masters(kind):
         data = request.get_json(silent=True) or {}
         row = _save_simple_master(kind, data)
         return jsonify(ser_simple(row)), 201
+
+    # Salesman Master is seeded/synchronised from both sources already
+    # present in the database: User Master users whose department is Salesman
+    # and Dealer Master salesman values. This preserves all existing data and
+    # means a new Salesman user appears in the master automatically without
+    # having to update every dealer record.
+    if kind == "salesman":
+        existing = {
+            (r.name or "").strip().lower()
+            for r in SimpleMaster.query.filter_by(kind="salesman").all()
+            if (r.name or "").strip()
+        }
+        source_names = set()
+        for u in User.query.filter(
+            db.func.lower(db.func.trim(User.department)) == "salesman"
+        ).all():
+            name = (u.username or "").strip()
+            if name:
+                source_names.add(name)
+        for d in Dealer.query.filter(Dealer.salesman.isnot(None)).all():
+            name = (d.salesman or "").strip()
+            if name:
+                source_names.add(name)
+        for name in sorted(source_names, key=lambda x: x.lower()):
+            if name.lower() in existing:
+                continue
+            db.session.add(SimpleMaster(kind="salesman", name=name))
+        if source_names:
+            db.session.commit()
 
     rows = SimpleMaster.query.filter_by(kind=kind).order_by(SimpleMaster.name).all()
     return jsonify([ser_simple(r) for r in rows])
