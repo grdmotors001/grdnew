@@ -46,7 +46,7 @@ export function ProfitLossPage() {
   const [to,setTo]=useState(today());
   const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
 
-  const load=async()=>{setLoading(true);setError('');try{setData(await loadAccounts(from,to));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
+  const load=async()=>{setLoading(true);setError('');try{setData(await loadAccounts('',to));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
 
   const p=useMemo(()=>{
@@ -81,7 +81,7 @@ export function BalanceSheetPage() {
   const [to,setTo]=useState(today());
   const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
 
-  const load=async()=>{setLoading(true);setError('');try{setData(await loadAccounts(from,to));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
+  const load=async()=>{setLoading(true);setError('');try{setData(await loadAccounts('',to));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
 
   const b=useMemo(()=>{
@@ -96,10 +96,10 @@ export function BalanceSheetPage() {
   if(!b)return <div className="page"><ReportHeader title="Balance Sheet" subtitle="Loading accounting data…" from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/></div>;
 
   return <div className="page">
-    <ReportHeader title="Balance Sheet" subtitle="Current recorded balances from GRD transaction modules. Opening capital, fixed assets, stock valuation and bank/cash opening balances are not yet configured." from={from} setFrom={setFrom} to={setTo} refresh={load} loading={loading}/>
+    <ReportHeader title="Balance Sheet" subtitle="Balances up to the selected To date from GRD transaction modules. Opening capital, fixed assets, stock valuation and bank/cash opening balances are not yet configured." from={from} setFrom={setFrom} to={setTo} refresh={load} loading={loading}/>
     <div className="formgrid" style={{alignItems:'start'}}>
       <div className="card"><h2>Assets</h2><Line label="Trade Receivables" value={b.receivables} bold/><div style={{marginTop:14,padding:12,border:'1px dashed var(--border)',borderRadius:10}}><b>Inventory / Fixed Assets</b><div className="muted" style={{marginTop:6}}>Value is not calculated until opening stock/fixed-asset valuation is configured.</div></div></div>
-      <div className="card"><h2>Liabilities & Capital</h2><Line label="Trade Payables (recorded purchases)" value={b.payables} bold/><div style={{marginTop:14,padding:12,border:'1px dashed var(--border)',borderRadius:10}}><b>Capital / Opening Balances</b><div className="muted" style={{marginTop:6}}>Opening capital, loans and other liabilities need accounting opening balances before this becomes a statutory balance sheet.</div></div></div>
+      <div className="card"><h2>Liabilities & Capital</h2><Line label="Recorded Purchases / Payable Proxy" value={b.payables} bold/><div style={{marginTop:14,padding:12,border:'1px dashed var(--border)',borderRadius:10}}><b>Capital / Opening Balances</b><div className="muted" style={{marginTop:6}}>Opening capital, loans and other liabilities need accounting opening balances before this becomes a statutory balance sheet.</div></div></div>
     </div>
     <div className="card" style={{marginTop:14}}>
       <h2>Accounting Status</h2>
