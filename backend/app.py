@@ -979,6 +979,30 @@ def ser_ti(i):
             "payment_status": i.payment_status}
 
 
+def ser_credit_note(cn):
+    return {
+        "id": cn.id,
+        "credit_note_no": cn.credit_note_no,
+        "date": _iso(cn.date),
+        "original_invoice_id": cn.original_invoice_id,
+        "original_bill_no": cn.original_bill_no,
+        "delivery_challan_id": cn.delivery_challan_id,
+        "vehicle_id": cn.vehicle_id,
+        "dealer_name": cn.dealer_name,
+        "buyer_name": cn.buyer_name,
+        "product_name": cn.product_name,
+        "chassis_no": cn.chassis_no,
+        "reason": cn.reason,
+        "taxable_amount": cn.taxable_amount,
+        "tax_amount": cn.tax_amount,
+        "total_amount": cn.total_amount,
+        "remarks": cn.remarks,
+        "status": cn.status,
+        "created_by": cn.created_by,
+        "created_at": _iso(cn.created_at),
+    }
+
+
 def ser_pb(b):
     return {"id": b.id, "bill_no": b.bill_no, "date": _iso(b.date), "party_name": b.party_name,
             "party_gst_no": b.party_gst_no, "party_state_code": b.party_state_code,
@@ -3085,6 +3109,8 @@ def tax_invoices():
         if not challan_id:
             return _err("Please choose a Delivery Challan to invoice.")
         challan = DeliveryChallan.query.get_or_404(challan_id)
+        if challan.cancelled:
+            return _err("Cancelled Delivery Challan cannot be invoiced. Create a new Delivery Challan.")
         if TaxInvoice.query.filter_by(delivery_challan_id=challan.id).first():
             return _err("That Delivery Challan already has a Tax Invoice.")
 
@@ -3234,14 +3260,20 @@ def generate_e_way_bill(invoice_id):
 @require_auth
 def tax_invoice_detail(invoice_id):
     ti = TaxInvoice.query.get_or_404(invoice_id)
+    active_cn = CreditNote.query.filter_by(original_invoice_id=ti.id, status="ACTIVE").first()
     if request.method == "GET":
         return jsonify(ser_ti(ti))
     if request.method == "DELETE":
+        if active_cn:
+            return _err("This Tax Invoice is linked to an active Credit Note and cannot be deleted.", 400)
         if ti.vehicle:
             ti.vehicle.stage = "Delivery Challan"
         db.session.delete(ti)
         db.session.commit()
         return jsonify({"deleted": True})
+
+    if active_cn:
+        return _err("This Tax Invoice has an active Credit Note and cannot be edited.", 400)
 
     data = request.get_json(silent=True) or {}
     for field in ("bill_no", "buyer_name", "buyer_relation", "buyer_father_name", "buyer_address",
@@ -3266,6 +3298,11 @@ def tax_invoice_detail(invoice_id):
 @require_auth
 def tax_invoice_cancel(invoice_id):
     ti = TaxInvoice.query.get_or_404(invoice_id)
+    active_cn = CreditNote.query.filter_by(original_invoice_id=ti.id, status="ACTIVE").first()
+    if active_cn and ti.cancelled:
+        return _err("This invoice is already cancelled through Credit Note.", 400)
+    if active_cn:
+        return _err("This Tax Invoice has an active Credit Note; use the Credit Note workflow.", 400)
     ti.cancelled = not ti.cancelled
     if ti.vehicle:
         ti.vehicle.stage = "Delivery Challan" if ti.cancelled else "Tax Invoice"
@@ -3291,6 +3328,195 @@ def tax_invoice_update_payment(invoice_id):
     ti.vehicle_reg_no = data.get("vehicle_reg_no")
     db.session.commit()
     return jsonify(ser_ti(ti))
+
+
+# ---------------------------------------------------------------------------
+# Vouchers > Credit Note — formal reversal of a Tax Invoice
+# ---------------------------------------------------------------------------
+@app.route("/api/credit-notes", methods=["GET", "POST"])
+@require_auth
+def credit_notes():
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        invoice_id = _i(data.get("invoice_id"), 0)
+        if not invoice_id:
+            return _err("Please choose the original Tax Invoice.")
+        ti = TaxInvoice.query.get_or_404(invoice_id)
+        if ti.cancelled:
+            return _err("This Tax Invoice is already cancelled.")
+        existing = CreditNote.query.filter_by(
+            original_invoice_id=ti.id, status="ACTIVE"
+        ).first()
+        if existing:
+            return _err(f"Credit Note {existing.credit_note_no} already exists for this invoice.")
+
+        reason = (data.get("reason") or "").strip()
+        if not reason:
+            return _err("Credit Note reason is required.")
+
+        cn = CreditNote(
+            credit_note_no="TEMP",
+            date=_parse_date(data.get("date")) or date.today(),
+            original_invoice_id=ti.id,
+            original_bill_no=ti.bill_no,
+            delivery_challan_id=ti.delivery_challan_id,
+            vehicle_id=ti.vehicle_id,
+            dealer_name=ti.dealer_name,
+            buyer_name=ti.buyer_name,
+            product_name=ti.product_name,
+            chassis_no=ti.chassis_no,
+            reason=reason,
+            taxable_amount=ti.taxable_value,
+            tax_amount=ti.tax_amount,
+            total_amount=ti.bill_total,
+            remarks=data.get("remarks"),
+            status="ACTIVE",
+            created_by=str(getattr(g, "current_user_payload", {}).get("username") or
+                           getattr(g, "current_user_payload", {}).get("user_id") or "user"),
+        )
+        db.session.add(cn)
+        db.session.flush()
+        cn.credit_note_no = f"CN/{cn.date.strftime('%Y')}/{cn.id:06d}"
+
+        # Keep the original invoice as an immutable historical document.
+        # The actual stock movement is deliberately NOT changed here; the
+        # operator cancels the Delivery Challan next, then raises a new DC.
+        ti.cancelled = True
+        db.session.commit()
+        return jsonify(ser_credit_note(cn)), 201
+
+    page = max(1, _i(request.args.get("page"), 1))
+    per_page = min(200, max(1, _i(request.args.get("per_page"), 50)))
+    search = (request.args.get("search") or "").strip()
+    q = CreditNote.query.order_by(CreditNote.date.desc(), CreditNote.id.desc())
+    if search:
+        like = f"%{search}%"
+        q = q.filter(db.or_(
+            CreditNote.credit_note_no.ilike(like),
+            CreditNote.original_bill_no.ilike(like),
+            CreditNote.chassis_no.ilike(like),
+            CreditNote.buyer_name.ilike(like),
+        ))
+    total = q.count()
+    rows = q.offset((page - 1) * per_page).limit(per_page).all()
+    return jsonify({
+        "credit_notes": [ser_credit_note(x) for x in rows],
+        "page": page, "per_page": per_page, "total": total,
+        "total_pages": max(1, (total + per_page - 1) // per_page),
+    })
+
+
+@app.route("/api/credit-notes/legacy-scan")
+@require_auth
+def credit_notes_legacy_scan():
+    """Find imported historical invoices that used the old ...CN convention.
+
+    This is intentionally read-only. It does not rewrite historical invoice
+    numbers/chassis values automatically.
+    """
+    rows = (TaxInvoice.query
+            .filter(db.or_(
+                TaxInvoice.chassis_no.ilike("%CN"),
+                TaxInvoice.bill_no.ilike("%CN"),
+            ))
+            .order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc())
+            .limit(1000).all())
+    out = []
+    for ti in rows:
+        existing = CreditNote.query.filter_by(original_invoice_id=ti.id, status="ACTIVE").first()
+        out.append({
+            **ser_ti(ti),
+            "legacy_cn_detected": True,
+            "formal_credit_note_no": existing.credit_note_no if existing else None,
+            "legacy_repaired": bool(ti.cancelled or existing),
+        })
+    return jsonify({"invoices": out, "count": len(out)})
+
+
+@app.route("/api/credit-notes/legacy-repair/<int:invoice_id>", methods=["POST"])
+@require_auth
+def credit_note_legacy_repair(invoice_id):
+    """Convert one imported ...CN invoice into a clearly-marked legacy reversal.
+
+    We preserve the imported bill/chassis text exactly. If a matching vehicle
+    exists and no other active Delivery Challan/Tax Invoice uses it, the
+    vehicle is returned to Manufacturing so it can be re-issued correctly.
+    """
+    ti = TaxInvoice.query.get_or_404(invoice_id)
+    if not (str(ti.chassis_no or "").upper().endswith("CN") or
+            str(ti.bill_no or "").upper().endswith("CN")):
+        return _err("This invoice does not match the legacy CN pattern.")
+
+    existing = CreditNote.query.filter_by(original_invoice_id=ti.id, status="ACTIVE").first()
+    if existing:
+        return jsonify(ser_credit_note(existing))
+
+    base_chassis = str(ti.chassis_no or "")
+    if base_chassis.upper().endswith("CN"):
+        base_chassis = base_chassis[:-2].rstrip(" -/")
+    vehicle = ti.vehicle
+    if not vehicle and base_chassis:
+        vehicle = Vehicle.query.filter_by(chassis_no=base_chassis).first()
+
+    # Do not guess the new production/chassis history. Preserve the imported
+    # invoice exactly and only repair stock state when there is an unambiguous
+    # vehicle match with no later active transaction.
+    if vehicle:
+        active_dc = DeliveryChallan.query.filter_by(vehicle_id=vehicle.id, cancelled=False).first()
+        active_ti = TaxInvoice.query.filter(
+            TaxInvoice.vehicle_id == vehicle.id,
+            TaxInvoice.id != ti.id,
+            TaxInvoice.cancelled == False
+        ).first()
+        if not active_dc and not active_ti:
+            vehicle.stage = "Manufacturing"
+            vehicle.dealer_name = None
+
+    cn = CreditNote(
+        credit_note_no="TEMP",
+        date=ti.date or date.today(),
+        original_invoice_id=ti.id,
+        original_bill_no=ti.bill_no,
+        delivery_challan_id=ti.delivery_challan_id,
+        vehicle_id=vehicle.id if vehicle else ti.vehicle_id,
+        dealer_name=ti.dealer_name,
+        buyer_name=ti.buyer_name,
+        product_name=ti.product_name,
+        chassis_no=ti.chassis_no,
+        reason="Legacy imported CN record — converted from old CN suffix convention",
+        taxable_amount=ti.taxable_value,
+        tax_amount=ti.tax_amount,
+        total_amount=ti.bill_total,
+        remarks="Historical import repair. Original bill/chassis text preserved.",
+        status="ACTIVE",
+        created_by="legacy-import-repair",
+    )
+    db.session.add(cn)
+    db.session.flush()
+    cn.credit_note_no = f"CN/LEGACY/{cn.id:06d}"
+    ti.cancelled = True
+    ti.billing_remarks = ((ti.billing_remarks or "").strip() +
+                          " | Legacy CN repaired into formal Credit Note").strip(" |")
+    db.session.commit()
+    return jsonify(ser_credit_note(cn)), 201
+
+
+@app.route("/api/credit-notes/<int:credit_note_id>/cancel-challan", methods=["POST"])
+@require_auth
+def credit_note_cancel_challan(credit_note_id):
+    cn = CreditNote.query.get_or_404(credit_note_id)
+    if cn.status != "ACTIVE":
+        return _err("Only an active Credit Note can cancel its Delivery Challan.")
+    if not cn.delivery_challan_id:
+        return _err("No Delivery Challan is linked to this Credit Note.")
+    dc = DeliveryChallan.query.get_or_404(cn.delivery_challan_id)
+    if not dc.cancelled:
+        dc.cancelled = True
+        if dc.vehicle:
+            dc.vehicle.stage = "Manufacturing"
+            dc.vehicle.dealer_name = None
+        db.session.commit()
+    return jsonify(ser_dc(dc))
 
 
 # ---------------------------------------------------------------------------
