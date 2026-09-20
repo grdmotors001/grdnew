@@ -29,6 +29,8 @@ MENU = {
         {"key": "production-formula","label": "7. Production Formula",                   "kind": "custom"},
         {"key": "mechanic",          "label": "8. Machnic Master",                       "kind": "simple",
          "fields": [("name", "Mechanic Name", "text")]},
+        {"key": "salesman",          "label": "8A. Salesman Master",                   "kind": "simple",
+         "fields": [("name", "Salesman Name", "text")]},
         {"key": "user",              "label": "9. User Master",                          "kind": "custom"},
         {"key": "option-setting",    "label": "A. User wise Option Setting",             "kind": "custom"},
         {"key": "bank",              "label": "B. Bank Details",                         "kind": "simple",
