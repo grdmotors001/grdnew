@@ -47,7 +47,7 @@ export const MENU = {
     ['gst-register', 'GST Register'],
     ['hypothecation-register', 'Hypothecation Register'],
     ['payment-receivable-report', "Payment Rec'able Report"],
-    ['incentive-register', 'Incentive Register'],
+    ['incentive-register', 'Incentive Register'], ['insurance-rto', 'Insurance / RTO Expense'],
     ['subsidy-report', 'Subsidy Report'],
     ['ledger', 'Ledger'],
     ['day-book', 'Day Book Entry'],
