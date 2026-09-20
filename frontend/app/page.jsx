@@ -18,6 +18,7 @@ import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPa
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
+import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
 import {
   ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage,
   StockLedgerPremisesPage, StockLedgerDealersPage,
@@ -45,6 +46,7 @@ const CUSTOM_PAGES = {
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
   'cash-at-dealer': () => <CashAtDealerPage />,
+  'dealer-cash-receipt': () => <DealerCashReceiptPage />,
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
   'tax-invoice': () => <TaxInvoicePage />,
