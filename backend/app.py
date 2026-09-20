@@ -340,6 +340,7 @@ def dealer_submit_loan():
             "vehicle_loan": vehicle_loan,
             "loan_type": str(data.get("loan_type") or "").strip().upper() or None,
             "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
+            "sale_details": data.get("sale_details") or {},
         }
         body = _json.dumps(payload).encode("utf-8")
         # CHFPL has existed with both route shapes during the integration rollout.
