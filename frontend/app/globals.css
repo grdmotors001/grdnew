@@ -257,7 +257,8 @@
 /* Mobile admin refresh */
 @media(max-width:700px){
   .app{display:block;background:var(--bg)}
-  .sidebar,.sidebar.collapsed{position:fixed;top:0;left:0;bottom:0;margin:0;width:min(300px,88vw);height:100dvh;max-height:none;border-radius:0 22px 22px 0;padding:16px 12px;transform:translateX(0);z-index:100;box-shadow:18px 0 45px #0005}
+  .sidebar,.sidebar.collapsed{position:fixed;top:0;left:0;bottom:0;margin:0;width:min(300px,88vw);height:100dvh;max-height:none;border-radius:0 22px 22px 0;padding:16px 12px;transform:translateX(-105%);z-index:100;box-shadow:18px 0 45px #0005}
+  .sidebar.mobile-open{transform:translateX(0);width:min(300px,88vw)}
   .sidebar.collapsed{transform:translateX(-105%);width:min(300px,88vw)}
   .sidebar.collapsed .brand{display:flex;justify-content:flex-start;border-bottom:1px solid #ffffff26;margin-bottom:14px;padding-bottom:16px}
   .sidebar.collapsed .brandText,.sidebar.collapsed .brandActions{display:flex}
