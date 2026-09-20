@@ -342,17 +342,35 @@ def dealer_submit_loan():
             "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
         }
         body = _json.dumps(payload).encode("utf-8")
-        target_url = f"{chfpl_url}/api/grd-submit-loan"
-        print(f"[CHFPL bridge] POST {target_url}")
-        req = urllib.request.Request(
-            target_url, data=body,
-            headers={"Content-Type":"application/json", "X-GRD-BRIDGE-SECRET":secret}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                result = _json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"CHFPL rejected the loan: {detail[:500]}")
+        # CHFPL has existed with both route shapes during the integration rollout.
+        # Try the current top-level route first, then the older dealer-prefixed
+        # route only when the first route is genuinely missing (HTTP 404).
+        route_candidates = [
+            f"{chfpl_url}/api/grd-submit-loan",
+            f"{chfpl_url}/api/dealer/grd-submit-loan",
+        ]
+        result = None
+        last_404_detail = None
+        for target_url in route_candidates:
+            print(f"[CHFPL bridge] POST {target_url}")
+            req = urllib.request.Request(
+                target_url, data=body,
+                headers={"Content-Type":"application/json", "X-GRD-BRIDGE-SECRET":secret}, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    result = _json.loads(resp.read().decode("utf-8"))
+                    break
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                if exc.code == 404:
+                    last_404_detail = detail[:500]
+                    continue
+                raise RuntimeError(f"CHFPL rejected the loan: {detail[:500]}")
+        if result is None:
+            raise RuntimeError(
+                "CHFPL GRD loan API route was not found. "
+                f"Tried both bridge routes. Last response: {last_404_detail or '404 NOT_FOUND'}"
+            )
 
         _ensure_loan_workflow_tables()
         application_no = str(result.get("application_no") or result.get("application", {}).get("application_no") or "").strip()
