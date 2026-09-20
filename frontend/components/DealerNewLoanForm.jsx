@@ -66,7 +66,7 @@ export function DealerNewLoanForm({ onBack }) {
   const [customerId,setCustomerId]=useState('');
   const [customerSearch,setCustomerSearch]=useState('');
   const [customers,setCustomers]=useState([]);
-  const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',vehicle_price:'95000',down_payment:'15000',loan_amount_requested:'80000',tenure_months:'36',financer_id:''});
+  const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',vehicle_price:'0',down_payment:'0',loan_amount_requested:'80000',tenure_months:'36',financer_id:''});
   const [loanType,setLoanType]=useState('NEW');
   const [loanMasters,setLoanMasters]=useState({models:[],financers:[],loan_types:[]});
   const [sale,setSale]=useState({sale_amount:'150000',file_charge:'3000',booking_amount:'10000',register_page_no:'DEMO-001'});
@@ -193,7 +193,7 @@ export function DealerNewLoanForm({ onBack }) {
         <div className="dealerSideCard"><span className="dealerFormEyebrow">APPLICATION SUMMARY</span><h3>At a glance</h3>
           <div className="dealerSummaryRow"><span>Customer</span><b>{borrower.full_name||'Not entered'}</b></div>
           <div className="dealerSummaryRow"><span>Phone</span><b>{borrower.phone||'—'}</b></div>
-          <div className="dealerSummaryRow"><span>Vehicle Price</span><b>₹ {(Number(vehicleLoan.vehicle_price)||0).toLocaleString('en-IN')}</b></div>
+          
           <div className="dealerSummaryRow"><span>Loan Amount</span><b>₹ {(Number(vehicleLoan.loan_amount_requested)||0).toLocaleString('en-IN')}</b></div>
           <div className="dealerSummaryRow"><span>Total Deal</span><b>₹ {totalDeal.toLocaleString('en-IN')}</b></div>
           <div className="dealerSummaryRow"><span>Booking</span><b>₹ {(Number(sale.booking_amount)||0).toLocaleString('en-IN')}</b></div>
