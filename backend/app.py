@@ -328,22 +328,31 @@ def dealer_submit_loan():
             chfpl_url = chfpl_url[:-len("/login")].rstrip("/")
         if chfpl_url.lower() in ("https://www.chfpl.com", "https://chfpl.com"):
             chfpl_url = "https://login.chfpl.com"
+        selected_model_id = _i(vehicle_loan.get("vehicle_model_id"), 0)
+        grd_model = (Product.query
+                     .filter(Product.id == selected_model_id, Product.fro == "F")
+                     .first()) if selected_model_id else None
+        if not grd_model:
+            raise RuntimeError("Selected GRD vehicle model was not found in Product Master")
+
         secret = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
         if not chfpl_url or not secret:
             raise RuntimeError("CHFPL_API_URL / CHFPL_GRD_BRIDGE_SECRET is not configured")
         payload = {
             "grd_customer_id": customer.id,
             "grd_submission_ref": f"GRD-{dealer.id}-{uuid.uuid4().hex}",
-            "dealer": {"code": dealer.code, "name": dealer.name, "mobile": dealer.mobile, "login_id": dealer.login_id},
+            "dealer": {"grd_dealer_id": dealer.id, "code": dealer.code, "name": dealer.name, "mobile": dealer.mobile, "login_id": dealer.login_id},
             "borrower": borrower,
             "guarantor": guarantor,
             "co_borrower": co_borrower,
             "vehicle_loan": {
                 **vehicle_loan,
                 # GRD Product Master is the source of truth for model identity.
-                "grd_model_id": vehicle_loan.get("vehicle_model_id"),
-                "grd_model_code": vehicle_loan.get("vehicle_model_code") or vehicle_loan.get("model_code"),
-                "grd_model_name": vehicle_loan.get("vehicle_model_name") or vehicle_loan.get("model_name"),
+                # Resolve by the selected Product ID on the server; do not trust
+                # client-supplied model name/code for master identity.
+                "grd_model_id": grd_model.id,
+                "grd_model_code": grd_model.code,
+                "grd_model_name": grd_model.name,
             },
             "loan_type": str(data.get("loan_type") or "").strip().upper() or None,
             "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
