@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, setToken, getToken } from '../lib/api';
+import { get, setToken, getToken, getPortalKind, setPortalKind } from '../lib/api';
 import { Shell } from '../components/Shell';
 import { GRDLogin } from '../components/GRDLogin';
 import { Dashboard } from '../components/Dashboard';
@@ -95,18 +95,35 @@ export default function App() {
   const [optionUserId, setOptionUserId] = useState(null);
 
   useEffect(() => {
-    if (!getToken()) { setCheckedAuth(true); return; }
-    get('/auth/me', { preserveAuthOn401: true })
-      .then(setUser)
-      .catch(() => get('/dealer/me')
-        .then((dealer) => setUser({ ...dealer, is_dealer: true }))
-        .catch(() => setToken(null)))
+    const token = getToken();
+    if (!token) { setCheckedAuth(true); return; }
+
+    // Keep the portal type beside the token so a browser refresh can restore
+    // the correct dashboard directly instead of probing the other auth system.
+    const portal = getPortalKind();
+    const restore = portal === 'dealer'
+      ? get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => setUser({ ...dealer, is_dealer: true }))
+      : portal === 'staff'
+        ? get('/auth/me', { preserveAuthOn401: true }).then(setUser)
+        : get('/auth/me', { preserveAuthOn401: true })
+            .then(setUser)
+            .catch(() => get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => {
+              setPortalKind('dealer');
+              setUser({ ...dealer, is_dealer: true });
+            }));
+
+    restore
+      .catch(() => {
+        setToken(null);
+        setPortalKind(null);
+        setUser(null);
+      })
       .finally(() => setCheckedAuth(true));
   }, []);
 
-  if (!checkedAuth) return null;
+  if (!checkedAuth) return <div className="appLoadingScreen"><div className="appLoadingCard"><div className="appLoadingMark">G</div><b>G.R.D. MOTORS</b><span>Restoring your session…</span></div></div>;
   if (!user) return <GRDLogin onLogin={setUser} />;
-  if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setToken(null); setUser(null); }} />;
+  if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setPortalKind(null); setToken(null); setUser(null); }} />;
 
   return (
     <Shell active={active} setActive={setActive} user={user} onLogout={() => { setToken(null); setUser(null); }}>
