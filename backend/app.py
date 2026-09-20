@@ -424,7 +424,7 @@ EXPENSE_TYPES = [
     {"id":"office_exp","name":"Office Expense"},{"id":"misc_exp","name":"Misc Expense"},
     {"id":"stationery","name":"Stationery"},{"id":"printer","name":"Printer"},
     {"id":"computer_repair","name":"Computer Repair"},{"id":"cleaning","name":"Cleaning"},
-    {"id":"passing_exp","name":"Passing Expense"},{"id":"incentive","name":"Incentive"},
+    {"id":"passing_exp","name":"Passing Expense"},{"id":"incentive","name":"Incentive"},{"id":"insurance","name":"Insurance"},{"id":"rto_expense","name":"RTO Expense"},
     {"id":"fabrication","name":"Fabrication Work"},{"id":"assembly","name":"Assembly Work"},
     {"id":"other","name":"Other"},
 ]
@@ -495,6 +495,42 @@ def expense_incentive_pending():
     rows=q.offset((page-1)*per_page).limit(per_page).all()
     return jsonify({"rows":[row_dict(dc,ti) for dc,ti in rows],"total":total,"page":page,
                     "per_page":per_page,"total_pages":(total+per_page-1)//per_page if total else 1})
+
+@app.get("/api/expense-payment-voucher/party-pending")
+@require_auth
+def expense_party_pending():
+    expense_type=(request.args.get("expense_type") or "").strip().lower()
+    party_name=(request.args.get("party_name") or "").strip()
+    status=(request.args.get("status") or "unpaid").strip().lower()
+    if expense_type not in {"insurance","rto_expense"}: return _err("Unsupported expense type")
+    q=ExpensePaymentVoucher.query.filter(ExpensePaymentVoucher.expense_type==expense_type)
+    if party_name:q=q.filter(ExpensePaymentVoucher.pay_to_name==party_name)
+    if status=="paid":q=q.filter(ExpensePaymentVoucher.paid_at.isnot(None))
+    elif status=="unpaid":q=q.filter(ExpensePaymentVoucher.paid_at.is_(None),ExpensePaymentVoucher.status!="rejected")
+    rows=q.order_by(ExpensePaymentVoucher.date.desc(),ExpensePaymentVoucher.id.desc()).limit(1000).all()
+    return jsonify({"vouchers":[_expense_voucher_dict(v) for v in rows],
+                    "total":round(sum(float(v.amount or 0) for v in rows),2)})
+
+@app.get("/api/expense-payment-voucher/party-rickshaws")
+@require_auth
+def expense_party_rickshaws():
+    expense_type=(request.args.get("expense_type") or "").strip().lower()
+    party_name=(request.args.get("party_name") or "").strip()
+    if expense_type not in {"insurance","rto_expense"}: return _err("Unsupported expense type")
+    if not party_name:return jsonify({"rickshaws":[]})
+    used=db.session.query(ExpensePaymentVoucher.vehicle_id).filter(
+        ExpensePaymentVoucher.expense_type==expense_type,
+        ExpensePaymentVoucher.vehicle_id.isnot(None),
+        ExpensePaymentVoucher.pay_to_name==party_name,
+        ExpensePaymentVoucher.status!="rejected").subquery()
+    q=(DeliveryChallan.query.options(joinedload(DeliveryChallan.dealer))
+       .filter(DeliveryChallan.cancelled.is_(False),DeliveryChallan.vehicle_id.isnot(None),
+               ~DeliveryChallan.vehicle_id.in_(used))
+       .order_by(DeliveryChallan.date.desc(),DeliveryChallan.id.desc()))
+    rows=q.limit(1000).all()
+    return jsonify({"rickshaws":[{"vehicle_id":r.vehicle_id,"chassis_no":r.chassis_no,
+        "model_name":r.product_name,"dealer_id":r.dealer_id,
+        "dealer_name":r.dealer.name if r.dealer else None,"date":_iso(r.date)} for r in rows]})
 
 @app.get("/api/expense-payment-voucher/masters")
 @require_auth
@@ -632,6 +668,38 @@ def expense_payment_voucher():
                 attachment_url=(d.get("attachment_url") or "").strip() or None,
                 remarks=common_remarks,status="pending",created_by=created_by,
                 work_type="assembly",work_model_name=dc.product_name,work_qty=1,rate_per_unit=rate)
+            db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";created.append(voucher)
+        db.session.commit()
+        return jsonify({"success":True,"count":len(created),"vouchers":[_expense_voucher_dict(v) for v in created]}),201
+
+    if et in {"insurance","rto_expense"}:
+        party=(pn or "").strip()
+        if not party:return _err("Select Insurance Provider / RTO Passing Person")
+        raw_ids=d.get("vehicle_ids") if isinstance(d.get("vehicle_ids"),list) else []
+        if not raw_ids and d.get("vehicle_id"):raw_ids=[d.get("vehicle_id")]
+        if not raw_ids:return _err("Select at least one rickshaw")
+        amount=_f(d.get("amount"),0)
+        if amount<=0:return _err("Enter amount per rickshaw")
+        clean=[]
+        for raw_id in raw_ids:
+            try:vid=int(raw_id)
+            except (TypeError,ValueError):return _err("Invalid rickshaw selection")
+            if vid not in clean:clean.append(vid)
+        existing={x[0] for x in db.session.query(ExpensePaymentVoucher.vehicle_id).filter(
+            ExpensePaymentVoucher.expense_type==et,
+            ExpensePaymentVoucher.vehicle_id.in_(clean),
+            ExpensePaymentVoucher.pay_to_name==party,
+            ExpensePaymentVoucher.status!="rejected").all()}
+        if existing:return _err("Some selected rickshaws already have a voucher for this provider/person.")
+        created=[]
+        for vid in clean:
+            dc=DeliveryChallan.query.filter_by(vehicle_id=vid,cancelled=False).order_by(DeliveryChallan.id.desc()).first()
+            if not dc:return _err(f"Selected rickshaw {vid} was not found")
+            voucher=ExpensePaymentVoucher(date=date_value,pay_to_type="other",pay_to_name=party,
+                dealer_id=dc.dealer_id,expense_type=et,vehicle_id=vid,chassis_no=dc.chassis_no,
+                payment_mode=pm,amount=round(amount,2),bill_no=(d.get("bill_no") or "").strip() or None,
+                attachment_url=(d.get("attachment_url") or "").strip() or None,
+                remarks=common_remarks,status="pending",created_by=created_by)
             db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";created.append(voucher)
         db.session.commit()
         return jsonify({"success":True,"count":len(created),"vouchers":[_expense_voucher_dict(v) for v in created]}),201
