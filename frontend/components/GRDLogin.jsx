@@ -98,8 +98,8 @@ export function GRDLogin({ onLogin }) {
         .grdError{color:#b42318;background:#fff1f2;border:1px solid #fecdd3;padding:10px;border-radius:9px;margin:10px 0;font-size:12px}
         .grdOtpNote{text-align:center;font-size:12px;color:#74666a;margin:12px 0}
 
-        .grdSocials{position:relative;z-index:2;display:flex;align-items:center;gap:10px;margin-top:28px;flex-wrap:wrap}
-        .grdSocialLink{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid #cfe3ee;border-radius:12px;background:#ffffffd9;color:#0b4ea2;text-decoration:none;font-size:11px;font-weight:800;box-shadow:0 5px 16px #0b5ed70d;transition:.18s}
+        .grdSocials{position:absolute;left:7vw;bottom:92px;z-index:2;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+        .grdSocialLink{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid #cfe3ee;border-radius:12px;background:#ffffffd9;color:#0b4ea2;text-decoration:none;font-size:11px;font-weight:800;box-shadow:0 5px 16px #0b5ed70d;transition:.18s}
         .grdSocialLink:hover{transform:translateY(-2px);border-color:#8cc8e8;box-shadow:0 8px 20px #0b5ed71a}
         .grdSocialIcon{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:14px;color:#fff;font-weight:900}
         .grdSocialIcon.insta{background:linear-gradient(135deg,#f58529,#dd2a7b,#8134af)}
@@ -107,7 +107,7 @@ export function GRDLogin({ onLogin }) {
         .grdSocialIcon.web{background:linear-gradient(135deg,#0b5ed7,#159447)}
         .grdSocialIcon.map{background:#fff;color:#4285f4;border:1px solid #dbe7f2}
 
-        @media(max-width:850px){.grdLoginPage{grid-template-columns:1fr}.grdLoginHero{min-height:330px;padding:28px 28px 30px}.grdHeroCopy{margin-top:35px}.grdHeroCopy h1{font-size:38px}.grdHeroFeatures{padding-top:35px;gap:22px}.grdLoginPanel{padding:38px 24px 50px}}
+        @media(max-width:850px){.grdSocials{position:relative;left:auto;bottom:auto;margin-top:22px}.grdLoginPage{grid-template-columns:1fr}.grdLoginHero{min-height:330px;padding:28px 28px 30px}.grdHeroCopy{margin-top:35px}.grdHeroCopy h1{font-size:38px}.grdHeroFeatures{padding-top:35px;gap:22px}.grdLoginPanel{padding:38px 24px 50px}}
         @media(max-width:520px){.grdLoginHero{min-height:300px}.grdHeroFeatures{display:none}.grdLoginPanel{padding:30px 18px 40px}.grdLoginTitle{font-size:27px}}
       `}</style>
 
@@ -135,6 +135,12 @@ export function GRDLogin({ onLogin }) {
           <div className="grdFeature"><div className="grdFeatureIcon">🌿</div><strong>Secure</strong><span>Your Data</span></div>
           <div className="grdFeature"><div className="grdFeatureIcon">⚡</div><strong>Trusted</strong><span>By Thousands</span></div>
           <div className="grdFeature"><div className="grdFeatureIcon">🔋</div><strong>Growth</strong><span>With Us</span></div>
+        </div>
+        <div className="grdSocials" aria-label="G.R.D. Motors links">
+          <a className="grdSocialLink" href={'https://' + 'www.instagram.com/grdmotorsofficial/'} target="_blank" rel="noreferrer"><span className="grdSocialIcon insta">◎</span><span>Instagram</span></a>
+          <a className="grdSocialLink" href={'https://' + 'www.facebook.com/davratherickshaw/'} target="_blank" rel="noreferrer"><span className="grdSocialIcon fb">f</span><span>Facebook</span></a>
+          <a className="grdSocialLink" href={'https://' + 'davrath.com/'} target="_blank" rel="noreferrer"><span className="grdSocialIcon web">⌂</span><span>Website</span></a>
+          <a className="grdSocialLink" href={'https://' + 'maps.app.goo.gl/6zKJLUG7Yyf28dKT8'} target="_blank" rel="noreferrer"><span className="grdSocialIcon map">●</span><span>Google Maps</span></a>
         </div>
       </section>
 
