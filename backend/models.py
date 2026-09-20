@@ -157,6 +157,7 @@ class Dealer(db.Model):
     mobile = db.Column(db.String(30))
     gst_no = db.Column(db.String(30))
     registration_type = db.Column(db.String(20), default="registered", index=True)  # registered / unregistered
+    dealer_category = db.Column(db.String(20), default="dealer", index=True)  # showroom / dealer
     state = db.Column(db.String(100))
     state_code = db.Column(db.String(10))
     pan = db.Column(db.String(20))
@@ -175,6 +176,30 @@ class Dealer(db.Model):
 
     def check_password(self, raw):
         return check_password_hash(self.password_hash, raw) if self.password_hash else False
+
+
+class ManualPendingBill(db.Model):
+    """Manual cash sale entered by Head Office Billing. No customer master is
+    created for these sales; the bill stays pending until Billing processes it."""
+    id = db.Column(db.Integer, primary_key=True)
+    pending_no = db.Column(db.String(40), unique=True, index=True)
+    date = db.Column(db.Date, nullable=False)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), index=True)
+    chassis_no = db.Column(db.String(60))
+    product_name = db.Column(db.String(200))
+    sale_amount = db.Column(db.Float, default=0)
+    payment_mode = db.Column(db.String(30), default="CASH")
+    remarks = db.Column(db.String(500))
+    status = db.Column(db.String(30), default="PENDING_BILL", index=True)
+    created_by = db.Column(db.String(120))
+    approved_by = db.Column(db.String(120))
+    approved_at = db.Column(db.DateTime)
+    invoice_id = db.Column(db.Integer, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    dealer = db.relationship("Dealer")
+    vehicle = db.relationship("Vehicle")
 
 
 class Product(db.Model):
