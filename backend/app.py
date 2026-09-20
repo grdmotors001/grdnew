@@ -321,12 +321,13 @@ def dealer_submit_loan():
         db.session.add(customer)
         db.session.flush()
 
-        chfpl_url = (os.environ.get("CHFPL_API_URL") or "").rstrip("/")
-        # CHFPL_API_URL is the API host, not the browser login page. If the
-        # environment was entered as https://login.chfpl.com/login, normalize
-        # it so the bridge still calls the real API route.
+        chfpl_url = (os.environ.get("CHFPL_API_URL") or "https://login.chfpl.com").rstrip("/")
+        # CHFPL_API_URL is the API host, not the browser login page. Normalize
+        # the legacy public hostname to the live CAPITALHIND production host.
         if chfpl_url.endswith("/login"):
             chfpl_url = chfpl_url[:-len("/login")].rstrip("/")
+        if chfpl_url.lower() in ("https://www.chfpl.com", "https://chfpl.com"):
+            chfpl_url = "https://login.chfpl.com"
         secret = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
         if not chfpl_url or not secret:
             raise RuntimeError("CHFPL_API_URL / CHFPL_GRD_BRIDGE_SECRET is not configured")
