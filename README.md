@@ -64,3 +64,6 @@ before relying on these for RTO/GST submission.
 `backend/models.py` and `backend/menu_config.py` are copied verbatim —
 the database schema and menu structure did not need to change for the
 API conversion, only the routes serving them.
+
+
+<!-- Vercel deployment trigger: 2026-09-20 salesman/colour fixes -->
