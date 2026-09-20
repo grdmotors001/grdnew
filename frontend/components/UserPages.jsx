@@ -7,7 +7,6 @@ import { Field, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 const DEPARTMENT_DEFAULT_MODULES = {
   Admin: MENU.Setup.flatMap(([k]) => [k]),
   Factory: ['production-voucher', 'production-register', 'closing-stock-premises', 'closing-stock-raw', 'stock-ledger-premises'],
-  Dealer: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
   Billing: ['delivery-challan', 'billing-pending-sales', 'tax-invoice', 'sale-register', 'gst-register', 'hypothecation-register', 'payment-receivable-report', 'cash-at-dealer', 'ledger', 'ledger-v'],
   Cashier: ['expense-payment-voucher', 'day-book', 'ledger', 'ledger-v', 'payment-receivable-report'],
   Salesman: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
@@ -76,21 +75,21 @@ export function UserPage({ setActive, setOptionUserId }) {
             <div className="formgrid">
               <Field label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} required />
               <Field label="Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
-              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v, allowed_modules: DEPARTMENT_DEFAULT_MODULES[v] || [] })} options={['Admin','Factory','Dealer','Billing','Cashier','Salesman','HR']} />
+              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v, allowed_modules: DEPARTMENT_DEFAULT_MODULES[v] || [] })} options={['Admin','Factory','Billing','Cashier','Salesman','HR']} />
               <Field label="Super User (unrestricted access)" type="checkbox" value={form.is_super_user}
                      onChange={(v) => setForm({ ...form, is_super_user: v })} />
               <div className="muted" style={{ gridColumn: '1 / -1', fontSize: 12 }}>
-                Department selection gives default module access. Super User always has full access. You can fine-tune modules from Permissions after saving.
+                Department selection gives default module access. Super User always has full access. For Salesman users, dealer access comes automatically from Dealer Master → Salesman.
               </div>
-              <div className="field">
-                <label>Assigned Dealers (Salesman / Dealer staff)</label>
-                <select multiple value={(form.assigned_dealer_ids || []).map(String)}
-                  onChange={(e) => setForm({ ...form, assigned_dealer_ids: Array.from(e.target.selectedOptions).map(o => Number(o.value)) })}
-                  style={{ minHeight: 120 }}>
-                  {dealers.map(d => <option key={d.id} value={d.id}>{d.code ? d.code + ' - ' : ''}{d.name}</option>)}
-                </select>
-                <small className="muted">Ctrl/Cmd + click to select multiple dealers.</small>
-              </div>
+              {form.department === 'Salesman' ? (
+                <div className="card" style={{ gridColumn: '1 / -1', padding: 12 }}>
+                  <b>Salesman Dealer Assignment</b>
+                  <div className="muted" style={{ marginTop: 6 }}>
+                    Dealers are assigned automatically from Dealer Master → Salesman. You do not need to select dealers here.
+                    When a new dealer is created with this salesman, it is automatically included in this login.
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="actions" style={{ marginTop: 18 }}>
               <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
