@@ -61,7 +61,7 @@ export function ProfitLossPage() {
   },[data,from,to]);
 
   if(error)return <div className="page"><div className="error">{error}</div></div>;
-  if(!p)return <div className="page"><ReportHeader title="Profit & Loss Account" subtitle="Loading accounting data…" from={from} setFrom={setFrom} to={to} refresh={load} loading={loading}/></div>;
+  if(!p)return <div className="page"><ReportHeader title="Profit & Loss Account" subtitle="Loading accounting data…" from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/></div>;
 
   return <div className="page">
     <ReportHeader title="Profit & Loss Account" subtitle="Based on recorded sales, purchases and approved/payment expense vouchers. Opening balances and non-recorded adjustments are excluded." from={from} setFrom={setFrom} to={to} refresh={load} loading={loading}/>
@@ -89,9 +89,7 @@ export function BalanceSheetPage() {
     const receivables=num(data.invoices.filter(x=>inRange(x.date,from,to)).reduce((s,x)=>s+Math.max(0,num(x.balance_due ?? (num(x.bill_total)-num(x.amount_received)-num(x.hypothecation_amount)))),0));
     const oldReceivables=num(data.oldRows.filter(x=>x.status==='sold' && inRange(x.sale_date||x.date,from,to)).reduce((s,x)=>s+Math.max(0,num(x.balance_amount ?? (num(x.sold_amount||x.sale_amount)-num(x.receipt_amount)))),0));
     const payables=num(data.purchaseRows.reduce((s,x)=>s+num(x.total_amt),0));
-    const inventoryPurchases=num(data.purchaseRows.reduce((s,x)=>s+num(x.total_amt),0));
-    const dayBookMemo=0;
-    return {receivables:receivables+oldReceivables,payables,inventoryPurchases,dayBookMemo};
+    return {receivables:receivables+oldReceivables,payables};
   },[data,from,to]);
 
   if(error)return <div className="page"><div className="error">{error}</div></div>;
