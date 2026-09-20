@@ -133,7 +133,7 @@ export function DealerNewLoanForm({ onBack }) {
     if(!/^[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}
     if(!customerPhoto){setError('Customer photo mandatory hai.');setStep('borrower');return;}
     if(!documents.length){setError('At least one customer document mandatory hai.');setStep('borrower');return;}
-    if(!vehicleLoan.vehicle_price||!vehicleLoan.loan_amount_requested||!vehicleLoan.tenure_months){setError('Vehicle price, loan amount aur tenure required hai.');setStep('loan');return;}
+    if(!vehicleLoan.loan_amount_requested||!vehicleLoan.tenure_months){setError('Loan amount aur tenure mandatory hai.');setStep('loan');return;}
     setSaving(true);
     try{
       const d=await post('/dealer/submit-loan',{
@@ -213,9 +213,7 @@ function LoanAndSale({vehicleLoan,setVehicle,sale,setSale,totalDeal,balance,loan
       <div className="dealerPersonGrid"><label>Loan Type *<select className="input" value={loanType} onChange={e=>setLoanType(e.target.value)}><option value="NEW">NEW MODEL</option><option value="OLD">OLD MODEL</option></select></label>
       <label>Vehicle Model *<select className="input" value={vehicleLoan.vehicle_model_id} onChange={e=>setV('vehicle_model_id',e.target.value)}><option value="">Select model</option>{(loanMasters.models||[]).map(m=><option key={m.id} value={m.id}>{m.name}{m.code?' · '+m.code:''}</option>)}</select></label>
       <label>Financer *<select className="input" value={vehicleLoan.financer_id} onChange={e=>setV('financer_id',e.target.value)}><option value="">Select financer</option>{(loanMasters.financers||[]).map(f=><option key={f.id} value={f.id}>{f.name}{f.code?' · '+f.code:''}</option>)}</select></label>
-      <label>Vehicle Price *<input className="input" type="number" min="0" placeholder="₹ Vehicle price" value={vehicleLoan.vehicle_price} onChange={e=>setV('vehicle_price',e.target.value)}/></label>
-      <label>Down Payment<input className="input" type="number" min="0" placeholder="₹ Down payment" value={vehicleLoan.down_payment} onChange={e=>setV('down_payment',e.target.value)}/></label>
-      <label>Loan Amount Requested *<input className="input" readOnly value={vehicleLoan.loan_amount_requested} placeholder="Auto calculated"/></label>
+      <label>Loan Amount Requested *<input className="input" type="number" min="1" placeholder="₹ Loan amount" value={vehicleLoan.loan_amount_requested} onChange={e=>setV('loan_amount_requested',e.target.value)}/></label>
       <label>Tenure (Months) *<select className="input" value={vehicleLoan.tenure_months} onChange={e=>setV('tenure_months',e.target.value)}><option value="">Select tenure</option>{[12,18,24,30,36,48].map(x=><option key={x}>{x}</option>)}</select></label>
       </div>
     </div>
