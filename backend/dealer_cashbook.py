@@ -103,6 +103,12 @@ def _handover(h):
 @dealer_cashbook_bp.route("/cash-book", methods=["GET"])
 @require_dealer_auth
 def cash_book():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer: return jsonify({"error":"Dealer not found."}),404
+    # Only company-owned showroom/branch accounts can operate the booking
+    # receipt/cash-book flow. Registered/unregistered external dealers do not.
+    if (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Cash Book / Booking Receipt is not enabled for this dealer."}),403
     start, end = _date(request.args.get("from")), _date(request.args.get("to"))
     if not start or not end: return jsonify({"error":"Invalid date. Use YYYY-MM-DD."}), 400
     if start > end: return jsonify({"error":"From date cannot be after To date."}), 400
@@ -145,6 +151,9 @@ def cash_book():
 @dealer_cashbook_bp.route("/cash-book/receipt", methods=["POST"])
 @require_dealer_auth
 def create_receipt():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Booking Receipt is available only for showroom/branch accounts."}),403
     d=request.get_json(silent=True) or {}; name=str(d.get("customer_name") or "").strip()
     amount=_amt(d.get("amount")); mode=str(d.get("payment_mode") or "cash").lower().strip(); rd=_date(d.get("date"))
     if not name: return jsonify({"error":"Customer name is required."}),400
@@ -164,6 +173,9 @@ def create_receipt():
 @dealer_cashbook_bp.route("/cash-book/expense", methods=["POST"])
 @require_dealer_auth
 def create_expense():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Cash Book is available only for showroom/branch accounts."}),403
     d=request.get_json(silent=True) or {}; cat=str(d.get("category") or "").strip(); amount=_amt(d.get("amount")); ed=_date(d.get("date"))
     if cat not in EXPENSE_CATEGORIES: return jsonify({"error":"Invalid expense category."}),400
     if amount<=0: return jsonify({"error":"Amount must be greater than zero."}),400
@@ -176,6 +188,9 @@ def create_expense():
 @dealer_cashbook_bp.route("/cash-book/handover", methods=["POST"])
 @require_dealer_auth
 def create_handover():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Cash handover is available only for showroom/branch accounts."}),403
     d=request.get_json(silent=True) or {}; amount=_amt(d.get("amount")); hd=_date(d.get("date"))
     if amount<=0: return jsonify({"error":"Amount must be greater than zero."}),400
     if not hd: return jsonify({"error":"Invalid handover date."}),400
