@@ -5,6 +5,7 @@
 
 const base = '/api/backend';
 const TOKEN_KEY = 'ebill_token';
+const PORTAL_KEY = 'ebill_portal';
 const DEFAULT_TIMEOUT_MS = 20000;
 
 // Small client-side GET cache + in-flight request deduplication.
@@ -18,6 +19,17 @@ const getInFlight = new Map();
 export function getToken() {
   if (typeof window === 'undefined') return null;
   return window.localStorage.getItem(TOKEN_KEY);
+}
+
+export function getPortalKind() {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem(PORTAL_KEY);
+}
+
+export function setPortalKind(kind) {
+  if (typeof window === 'undefined') return;
+  if (kind) window.localStorage.setItem(PORTAL_KEY, kind);
+  else window.localStorage.removeItem(PORTAL_KEY);
 }
 
 export function setToken(token) {
