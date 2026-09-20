@@ -10,7 +10,7 @@ export function InsuranceRtoRegisterPage(){
   const [tab,setTab]=useState('insurance'),[party,setParty]=useState(''),[status,setStatus]=useState('unpaid');
   const [parties,setParties]=useState([]),[rows,setRows]=useState([]),[rickshaws,setRickshaws]=useState([]);
   const [selected,setSelected]=useState([]),[amount,setAmount]=useState(''),[date,setDate]=useState(today());
-  const [paymentMode,setPaymentMode]=useState('cash'),[billNo,setBillNo]=useState(''),[remarks,setRemarks]=useState('');
+  const [paymentMode,setPaymentMode]=useState('cash'),[billNo,setBillNo]=useState(''),[billAmount,setBillAmount]=useState(''),[remarks,setRemarks]=useState('');
   const [open,setOpen]=useState(false),[error,setError]=useState(''),[saving,setSaving]=useState(false);
 
   const et=tab==='insurance'?'insurance':'rto_expense';
@@ -47,15 +47,17 @@ export function InsuranceRtoRegisterPage(){
     try{
       await post('/expense-payment-voucher',{
         date,pay_to_type:'other',pay_to_name:party,expense_type:et,
-        vehicle_ids:selected,amount:Number(amount),payment_mode:paymentMode,bill_no:billNo,remarks
+        vehicle_ids:selected,amount:Number(amount),bill_amount:Number(billAmount||amount),payment_mode:paymentMode,bill_no:billNo,remarks
       });
-      setOpen(false);setSelected([]);setAmount('');setBillNo('');setRemarks('');
+      setOpen(false);setSelected([]);setAmount('');setBillAmount('');setBillNo('');setRemarks('');
       setStatus('unpaid');await load();
     }catch(e){setError(e.message||'Could not create voucher')}finally{setSaving(false)}
   };
 
   const paidTotal=rows.filter(x=>x.paid_at).reduce((a,x)=>a+Number(x.amount||0),0);
   const unpaidTotal=rows.filter(x=>!x.paid_at).reduce((a,x)=>a+Number(x.amount||0),0);
+  const billTotal=rows.reduce((a,x)=>a+Number(x.bill_amount||x.amount||0),0);
+  const runningBalance=unpaidTotal;
 
   return <div className="page">
     <div className="pageHeader"><div><h1>{tab==='insurance'?'Insurance':'RTO Expense'}</h1>
@@ -79,13 +81,13 @@ export function InsuranceRtoRegisterPage(){
       <div className="actions" style={{marginTop:10}}>
         <span>Paid: <b><Money value={paidTotal}/></b></span>
         <span>Unpaid / On Account: <b><Money value={unpaidTotal}/></b></span>
-        <span>Running Balance: <b><Money value={paidTotal+unpaidTotal}/></b></span>
+        <span>Bill/Charge Total: <b><Money value={billTotal}/></b> · Running Balance: <b><Money value={runningBalance}/></b></span>
       </div>
     </div>
 
     {!rows.length?<EmptyState text={party?'No entries for this party.':'Select a party to view the running account.'}/>:<div className="tablewrap">
-      <table className="table"><thead><tr><th>Voucher No.</th><th>Date</th><th>Rickshaw / Chassis</th><th>{tab==='insurance'?'Insurance From':'Passing By'}</th><th>Per Rickshaw Amount</th><th>Status</th></tr></thead>
-      <tbody>{rows.map(r=><tr key={r.id}><td><b>{r.voucher_no}</b></td><td>{formatDate(r.date)}</td><td>{r.chassis_no||'—'}</td><td>{r.pay_to_name}</td><td><Money value={r.amount}/></td><td>{r.paid_at?'Paid':'Unpaid / On Account'}</td></tr>)}</tbody></table>
+      <table className="table"><thead><tr><th>Voucher No.</th><th>Date</th><th>Rickshaw / Chassis</th><th>{tab==='insurance'?'Insurance From':'Passing By'}</th><th>Bill Amount</th><th>Charge / Per Rickshaw</th><th>Status</th></tr></thead>
+      <tbody>{rows.map(r=><tr key={r.id}><td><b>{r.voucher_no}</b></td><td>{formatDate(r.date)}</td><td>{r.chassis_no||'—'}</td><td>{r.pay_to_name}</td><td><Money value={r.bill_amount||r.amount}/></td><td><Money value={r.amount}/></td><td>{r.paid_at?'Paid':'Unpaid / On Account'}</td></tr>)}</tbody></table>
     </div>}
 
     {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
@@ -93,7 +95,8 @@ export function InsuranceRtoRegisterPage(){
       <div className="formgrid">
         <Field label={tab==='insurance'?'Insurance Provider / Agent':'Passing By / RTO Person'} value={party} onChange={setParty} required/>
         <Field label="Date" type="date" value={date} onChange={setDate} required/>
-        <Field label="Amount Per Rickshaw" type="number" value={amount} onChange={setAmount} required/>
+        <Field label="Charge / Payable Per Rickshaw" type="number" value={amount} onChange={setAmount} required/>
+        {tab==='insurance'&&<Field label="Original Insurance Bill Amount" type="number" value={billAmount} onChange={setBillAmount}/>}
         <Field label="Payment Mode" type="select" value={paymentMode} options={['cash','bank','upi','cheque'].map(x=>({value:x,label:x.toUpperCase()}))} onChange={setPaymentMode}/>
         <Field label="Bill / Receipt No." value={billNo} onChange={setBillNo}/>
         <Field label="Remarks" value={remarks} onChange={setRemarks}/>
