@@ -1,184 +1,94 @@
 'use client';
+import {useEffect,useState} from 'react';
+import {get,post} from '../lib/api';
+import {Field,ErrorBanner,Money,EmptyState} from './ui';
+import {formatDate} from '../lib/date';
 
-import { useEffect, useMemo, useState } from 'react';
-import { get, post, downloadExcel } from '../lib/api';
-import { EmptyState, ErrorBanner, Field, Money } from './ui';
-import { formatDate } from '../lib/date';
+const today=()=>new Date().toISOString().slice(0,10);
 
-export function IncentiveRegisterPage() {
-  const [dealers, setDealers] = useState([]);
-  const [dealerId, setDealerId] = useState('');
-  const [search, setSearch] = useState('');
-  const [data, setData] = useState(null);
-  const [selected, setSelected] = useState([]);
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [paymentMode, setPaymentMode] = useState('cash');
-  const [remarks, setRemarks] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [msg, setMsg] = useState('');
+export function IncentiveRegisterPage(){
+  const [dealers,setDealers]=useState([]),[dealerId,setDealerId]=useState('');
+  const [status,setStatus]=useState('unpaid'),[rows,setRows]=useState([]),[pending,setPending]=useState([]);
+  const [selected,setSelected]=useState([]),[open,setOpen]=useState(false);
+  const [amount,setAmount]=useState(''),[date,setDate]=useState(today()),[paymentMode,setPaymentMode]=useState('cash'),[remarks,setRemarks]=useState('');
+  const [error,setError]=useState(''),[saving,setSaving]=useState(false);
 
-  const load = async (resetSelection = true) => {
-    setLoading(true);
+  useEffect(()=>{get('/dealers').then(x=>setDealers(x.dealers||[])).catch(e=>setError(e.message))},[]);
+  const load=async()=>{
     setError('');
-    try {
-      const params = new URLSearchParams({ page: 1, per_page: 100 });
-      if (dealerId) params.set('dealer_id', dealerId);
-      if (search) params.set('search', search);
-      const [d, rows] = await Promise.all([
-        dealers.length ? Promise.resolve(dealers) : get('/dealers').then(x => x.dealers || []),
-        get('/expense-payment-voucher/incentive-pending?' + params.toString()),
-      ]);
-      if (!dealers.length) setDealers(d);
-      setData(rows);
-      if (resetSelection) setSelected([]);
-    } catch (e) {
-      setError(e.message || 'Could not load incentive register');
-    } finally {
-      setLoading(false);
-    }
+    if(!dealerId){setRows([]);return}
+    try{
+      const x=await get('/expense-payment-voucher/incentive-register?dealer_id='+dealerId+'&status='+status);
+      setRows(x.rows||[]);
+    }catch(e){setError(e.message||'Could not load incentive register')}
   };
+  useEffect(()=>{load()},[dealerId,status]);
 
-  useEffect(() => { load(); }, [dealerId, search]);
-
-  const selectedRows = useMemo(
-    () => (data?.rows || []).filter(r => selected.includes(r.vehicle_id)),
-    [data, selected]
-  );
-
-  const allVisibleSelected = (data?.rows || []).length > 0 &&
-    (data?.rows || []).every(r => selected.includes(r.vehicle_id));
-
-  const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-
-  const toggleAll = () => {
-    const ids = (data?.rows || []).map(r => r.vehicle_id);
-    setSelected(allVisibleSelected ? [] : ids);
-  };
-
-  const save = async () => {
+  const openNew=async()=>{
+    if(!dealerId)return setError('Select a dealer first.');
     setError('');
-    setMsg('');
-    if (!selected.length) return setError('Select at least one rickshaw.');
-    if (!amount || Number(amount) <= 0) return setError('Enter incentive amount per rickshaw.');
-    const dealer = dealers.find(d => String(d.id) === String(dealerId));
-    if (!dealer) return setError('Select a dealer first.');
-
-    setSaving(true);
-    try {
-      const res = await post('/expense-payment-voucher', {
-        date,
-        pay_to_type: 'dealer',
-        pay_to_name: dealer.name,
-        dealer_id: Number(dealer.id),
-        expense_type: 'incentive',
-        vehicle_ids: selected,
-        payment_mode: paymentMode,
-        amount: Number(amount),
-        remarks,
+    try{
+      const x=await get('/expense-payment-voucher/incentive-pending?dealer_id='+dealerId+'&page=1&per_page=200');
+      setPending(x.rows||[]);setSelected([]);setAmount('');setDate(today());setRemarks('');setOpen(true);
+    }catch(e){setError(e.message||'Could not load unpaid rickshaws')}
+  };
+  const toggle=id=>setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
+  const all=pending.length>0&&pending.every(r=>selected.includes(r.vehicle_id));
+  const toggleAll=()=>setSelected(all?[]:pending.map(r=>r.vehicle_id));
+  const save=async e=>{
+    e.preventDefault();
+    if(!selected.length)return setError('Select at least one rickshaw.');
+    if(Number(amount)<=0)return setError('Enter incentive amount per rickshaw.');
+    setSaving(true);setError('');
+    try{
+      await post('/expense-payment-voucher',{
+        date,pay_to_type:'dealer',pay_to_name:dealers.find(d=>String(d.id)===String(dealerId))?.name||'',
+        dealer_id:Number(dealerId),expense_type:'incentive',vehicle_ids:selected,
+        payment_mode:paymentMode,amount:Number(amount),remarks
       });
-      setMsg(`${res.count || res.vouchers?.length || selected.length} incentive voucher(s) created. Each rickshaw has its own voucher number.`);
-      setSelected([]);
-      await load(false);
-    } catch (e) {
-      setError(e.message || 'Could not create incentive vouchers');
-    } finally {
-      setSaving(false);
-    }
+      setOpen(false);setSelected([]);await load();
+    }catch(e){setError(e.message||'Could not create incentive vouchers')}finally{setSaving(false)}
   };
 
-  const exportRows = () => {
-    const params = new URLSearchParams();
-    if (dealerId) params.set('dealer_id', dealerId);
-    if (search) params.set('search', search);
-    params.set('export','csv');
-    downloadExcel('/expense-payment-voucher/incentive-pending?' + params.toString(), 'Incentive_Pending_Register.xlsx');
-  };
+  const dealer=dealers.find(d=>String(d.id)===String(dealerId));
+  const total=rows.reduce((a,r)=>a+Number(r.amount||0),0);
 
-  return (
-    <div className="page">
-      <div className="pageHeader">
-        <div>
-          <h1>Incentive Register</h1>
-          <p className="muted">Only unpaid / pending incentive rickshaws are shown here.</p>
+  return <div className="page">
+    <div className="pageHeader"><div><h1>Incentive Register</h1><p className="muted">Dealer select karne ke baad Paid / Unpaid incentive running list.</p></div></div>
+    <ErrorBanner message={error}/>
+    <div className="card">
+      <div className="toolbar">
+        <Field label="Dealer" type="select" value={dealerId} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]} onChange={setDealerId}/>
+        <div className="actions" style={{alignSelf:'end'}}>
+          <button className={'btn '+(status==='all'?'primary':'')} onClick={()=>setStatus('all')}>All</button>
+          <button className={'btn '+(status==='paid'?'primary':'')} onClick={()=>setStatus('paid')}>Paid</button>
+          <button className={'btn '+(status==='unpaid'?'primary':'')} onClick={()=>setStatus('unpaid')}>Unpaid</button>
         </div>
+        <button className="btn primary" style={{alignSelf:'end'}} disabled={!dealerId} onClick={openNew}>+ New Incentive Voucher</button>
       </div>
-
-      <div className="card">
-        <div className="toolbar">
-          <Field label="Dealer" type="select" value={dealerId}
-            options={[{ value: '', label: 'All Dealers' }, ...dealers.map(d => ({ value: d.id, label: `${d.code ? d.code + ' — ' : ''}${d.name}` }))]}
-            onChange={v => setDealerId(v)} />
-          <Field label="Search" value={search} onChange={setSearch}
-            placeholder="Chassis / Customer / Bill No." />
-          <Field label="Payment Date" type="date" value={date} onChange={setDate} />
-          <Field label="Payment Mode" type="select" value={paymentMode}
-            options={['cash','bank','upi','cheque'].map(v => ({ value: v, label: v.toUpperCase() }))} onChange={setPaymentMode} />
-          <Field label="Incentive / Rickshaw" type="number" value={amount} onChange={setAmount}
-            placeholder="Amount per rickshaw" />
-          <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={exportRows}>Export Excel</button>
-        </div>
-        <div className="actions" style={{ marginTop: 10 }}>
-          <button className="btn" onClick={toggleAll} disabled={!data?.rows?.length}>
-            {allVisibleSelected ? 'Unselect All' : 'Select All'}
-          </button>
-          <span className="muted" style={{ alignSelf: 'center' }}>
-            Selected: <b>{selected.length}</b> | Total incentive: <b><Money value={(Number(amount) || 0) * selected.length} /></b>
-          </span>
-          <button className="btn primary" onClick={save} disabled={saving || !selected.length}>
-            {saving ? 'Saving…' : `Create Incentive Voucher${selected.length ? ` (${selected.length})` : ''}`}
-          </button>
-        </div>
-      </div>
-
-      <ErrorBanner message={error} />
-      {msg && <div className="card" style={{ marginBottom: 12 }}>{msg}</div>}
-
-      {loading && !data ? <div className="card">Loading…</div> : !data || data.rows.length === 0 ? (
-        <EmptyState text={dealerId ? 'No unpaid incentive found for this dealer.' : 'No unpaid incentive found.'} />
-      ) : (
-        <>
-          <div className="tablewrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th><input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} /></th>
-                  <th>Date</th><th>Dealer</th><th>Model</th><th>Chassis No.</th>
-                  <th>Customer</th><th>Mobile No.</th><th>Bill No.</th><th>Value Amt.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map(r => (
-                  <tr key={r.vehicle_id} onClick={() => toggle(r.vehicle_id)} style={{ cursor: 'pointer' }}>
-                    <td onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={() => toggle(r.vehicle_id)} />
-                    </td>
-                    <td>{formatDate(r.date)}</td><td>{r.dealer_name}</td><td>{r.model}</td>
-                    <td><b>{r.chassis_no}</b></td><td>{r.customer || '—'}</td><td>{r.mobile_no || '—'}</td>
-                    <td>{r.bill_no || '—'}</td><td><Money value={r.value_amt} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {data.total_pages > 1 && (
-            <div className="actions" style={{ marginTop: 12, justifyContent: 'center' }}>
-              <span className="muted">Page {data.page} of {data.total_pages} ({data.total.toLocaleString()} unpaid)</span>
-            </div>
-          )}
-        </>
-      )}
-
-      {selectedRows.length > 0 && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <b>Selected Rickshaws</b>
-          <div className="muted" style={{ marginTop: 6 }}>
-            {selectedRows.map(r => r.chassis_no).join(', ')}
-          </div>
-        </div>
-      )}
+      {dealerId&&<div className="actions" style={{marginTop:10}}>Dealer: <b>{dealer?.name}</b> · Showing: <b>{status.toUpperCase()}</b> · Total: <b><Money value={total}/></b></div>}
     </div>
-  );
+    {!dealerId?<EmptyState text="Select a dealer to open the incentive account."/>:!rows.length?<EmptyState text={'No '+status+' incentive vouchers for this dealer.'}/>:<div className="tablewrap">
+      <table className="table"><thead><tr><th>Payment Voucher No.</th><th>Date</th><th>Chassis</th><th>Customer / Dealer</th><th>Per Rickshaw Amount</th><th>Status</th></tr></thead>
+      <tbody>{rows.map(r=><tr key={r.id}><td><b>{r.voucher_no}</b></td><td>{formatDate(r.date)}</td><td>{r.chassis_no||'—'}</td><td>{r.pay_to_name}</td><td><Money value={r.amount}/></td><td>{r.paid_at?'Paid':'Unpaid'}</td></tr>)}</tbody></table>
+    </div>}
+
+    {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
+      <h2>New Incentive — {dealer?.name}</h2><ErrorBanner message={error}/>
+      <div className="formgrid">
+        <Field label="Payment Date" type="date" value={date} onChange={setDate} required/>
+        <Field label="Incentive Per Rickshaw" type="number" value={amount} onChange={setAmount} required/>
+        <Field label="Payment Mode" type="select" value={paymentMode} options={['cash','bank','upi','cheque'].map(x=>({value:x,label:x.toUpperCase()}))} onChange={setPaymentMode}/>
+        <Field label="Remarks" value={remarks} onChange={setRemarks}/>
+      </div>
+      <div className="card" style={{marginTop:12}}>
+        <div className="actions" style={{justifyContent:'space-between'}}><b>Select Rickshaws for New Voucher</b><button type="button" className="btn" onClick={toggleAll}>{all?'Unselect All':'Select All'}</button></div>
+        <div className="tablewrap"><table className="table"><thead><tr><th></th><th>Date</th><th>Chassis</th><th>Customer</th><th>Bill No.</th><th>Value</th></tr></thead><tbody>
+        {pending.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}><td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td><td>{formatDate(r.date)}</td><td><b>{r.chassis_no}</b></td><td>{r.customer||'—'}</td><td>{r.bill_no||'—'}</td><td><Money value={r.value_amt}/></td></tr>)}
+        {!pending.length&&<tr><td colSpan="6" className="muted">No unpaid rickshaw available.</td></tr>}</tbody></table></div>
+        <div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total incentive: <b><Money value={selected.length*Number(amount||0)}/></b></div>
+      </div>
+      <div className="actions" style={{justifyContent:'flex-end',marginTop:14}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Close</button><button className="btn primary" disabled={saving}>{saving?'Saving…':'Create Voucher'}</button></div>
+    </form></div>}
+  </div>
 }
