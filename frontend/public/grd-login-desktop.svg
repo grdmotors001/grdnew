@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#dff5ff"/><stop offset=".62" stop-color="#f7fdff"/><stop offset="1" stop-color="#e7f7ed"/></linearGradient>
+ <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#087ce8"/><stop offset="1" stop-color="#16ad63"/></linearGradient>
+ <linearGradient id="foot" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#07509a"/><stop offset="1" stop-color="#063d78"/></linearGradient>
+ <filter id="shadow"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#0b4d7a" flood-opacity=".18"/></filter>
+ <style>text{font-family:Arial,Helvetica,sans-serif} .label{font-size:19px;font-weight:800;fill:#193553}</style>
+</defs>
+<rect width="1920" height="1080" fill="url(#bg)"/>
+<circle cx="160" cy="210" r="180" fill="#4cc3e820"/><circle cx="1080" cy="170" r="220" fill="#ffffff90"/>
+<g opacity=".22" fill="#2587c9"><path d="M0 680V520h80v160h45V450h70v230h45V560h60v120h45V410h85v270h55V500h75v180h55V390h100v290h55V470h75v210h60V530h75v150h60V430h85v250h55V500h70v180h55V450h90v230h70V520h85v160h65V440h95v240h70V530h80v150h60V470h95v210h70V560h85v120h70V500h90v180h80V540h100v140h80V470h90v210h70v120H0z"/></g>
+<g fill="#5abf55" opacity=".75"><circle cx="80" cy="700" r="95"/><circle cx="180" cy="720" r="120"/><circle cx="310" cy="700" r="100"/><circle cx="420" cy="725" r="120"/><circle cx="980" cy="700" r="110"/><circle cx="1110" cy="720" r="130"/><circle cx="1240" cy="700" r="100"/><circle cx="1390" cy="725" r="130"/><circle cx="1770" cy="700" r="120"/><circle cx="1880" cy="720" r="100"/></g>
+<image href="https://davrath.com/wp-content/uploads/2023/06/logo-grd.png" x="85" y="42" width="520" height="155" preserveAspectRatio="xMidYMid meet"/>
+<text x="90" y="235" font-size="20" font-weight="900" letter-spacing="6" fill="#168b55">CLEAN   •   GREEN   •   FUTURE READY</text>
+<text x="90" y="330" font-size="88" font-weight="900" fill="#102e58">Powering Your</text>
+<text x="90" y="415" font-size="88" font-weight="900"><tspan fill="#087ce8">EV </tspan><tspan fill="#1ca96a">Journey</tspan></text>
+<text x="90" y="455" font-size="20" fill="#294d6d">Reliable electric mobility solutions, trusted service and smart business management</text>
+<text x="90" y="483" font-size="20" fill="#294d6d">— all in one secure G.R.D. Motors system.</text>
+<rect x="90" y="505" width="145" height="6" rx="3" fill="url(#bar)"/>
+<text x="820" y="235" font-size="62" font-style="italic" fill="#0a4c8b">Drive</text><text x="785" y="300" font-size="62" font-style="italic" fill="#0a4c8b">A Cleaner</text><text x="825" y="365" font-size="62" font-style="italic" fill="#24a949">Tomorrow</text>
+<image href="https://davrath.com/wp-content/uploads/slider/cache/8334a677cda0ae574a40331f4d3325f4/21.png" x="80" y="510" width="350" height="300" preserveAspectRatio="xMidYMid meet"/>
+<image href="https://davrath.com/wp-content/uploads/slider/cache/876e3048c8c5833bb08274aa76db12aa/31.png" x="385" y="500" width="350" height="310" preserveAspectRatio="xMidYMid meet"/>
+<image href="https://davrath.com/wp-content/uploads/slider/cache/76183185dbf7c53e2f52170bf120a8c8/davrath-number-one-e-loader-brand-india.jpg" x="665" y="505" width="350" height="300" preserveAspectRatio="xMidYMid meet"/>
+<g fill="#fff" stroke="#24a949" stroke-width="4"><circle cx="220" cy="825" r="42"/><circle cx="455" cy="825" r="42"/><circle cx="690" cy="825" r="42"/><circle cx="925" cy="825" r="42"/></g>
+<g fill="#159e55" font-size="34" font-weight="900" text-anchor="middle"><text x="220" y="838">✓</text><text x="455" y="838">ϟ</text><text x="690" y="838">★</text><text x="925" y="838">▥</text></g>
+<g fill="#163a60" font-size="18" font-weight="800" text-anchor="middle"><text x="220" y="875">Zero Emission</text><text x="455" y="875">Cost Effective</text><text x="690" y="875">Trusted</text><text x="925" y="875">Business Growth</text></g>
+<g filter="url(#shadow)"><rect x="1255" y="180" width="570" height="650" rx="30" fill="#fff"/></g>
+<rect x="1295" y="215" width="290" height="34" rx="17" fill="#e6f3ff"/><text x="1315" y="238" font-size="14" font-weight="900" fill="#0b69ce">ADMIN  •  STAFF  •  DEALER  •  CUSTOMER</text>
+<text x="1295" y="300" font-size="38" font-weight="900" fill="#172f52">Welcome <tspan fill="#147ce3">Back!</tspan></text>
+<text x="1295" y="330" font-size="16" fill="#60758a">Login to access your G.R.D. Motors account —</text><text x="1295" y="353" font-size="16" fill="#60758a">you will land on your own dashboard automatically.</text>
+<line x1="1295" y1="375" x2="1785" y2="375" stroke="#dbe7ef" stroke-width="2"/>
+<rect x="1295" y="395" width="238" height="48" rx="10" fill="url(#bar)"/><text x="1414" y="426" font-size="17" font-weight="900" fill="#fff" text-anchor="middle">🔒 Password Login</text>
+<rect x="1543" y="395" width="242" height="48" rx="10" fill="#fff" stroke="#c8dce9" stroke-width="2"/><text x="1664" y="426" font-size="17" font-weight="900" fill="#28435f" text-anchor="middle">▣ Dealer Login</text>
+<text class="label" x="1295" y="480">Username / Mobile number</text><rect x="1295" y="495" width="490" height="55" rx="11" fill="#fff" stroke="#bdd2e1" stroke-width="2"/><text x="1320" y="531" font-size="18" fill="#8a9aaa">👤  Enter username or mobile number</text>
+<text class="label" x="1295" y="590">Password</text><rect x="1295" y="605" width="490" height="55" rx="11" fill="#fff" stroke="#bdd2e1" stroke-width="2"/><text x="1320" y="641" font-size="18" fill="#8a9aaa">🔐  Enter password</text><text x="1735" y="641" font-size="20" fill="#537089">◉</text>
+<text x="1685" y="690" font-size="15" font-weight="800" fill="#0b6fce">Forgot Password?</text>
+<rect x="1295" y="715" width="490" height="58" rx="11" fill="url(#bar)"/><text x="1540" y="752" font-size="21" font-weight="900" fill="#fff" text-anchor="middle">→ Login</text>
+<text x="1540" y="802" font-size="13" fill="#667b8e" text-anchor="middle">Your data is safe and secure with G.R.D. Motors.</text>
+<rect y="930" width="1920" height="150" fill="url(#foot)"/><rect y="930" width="1920" height="5" fill="#22a760"/>
+<text x="70" y="990" font-size="17" font-weight="900" fill="#fff">◎  Follow Us  Instagram</text><text x="335" y="990" font-size="17" font-weight="900" fill="#fff">f  Like Us  Facebook</text><text x="610" y="990" font-size="17" font-weight="900" fill="#fff">◉  Chat Us  +91-7678171836</text><text x="930" y="990" font-size="17" font-weight="900" fill="#fff">◎  Visit Our  Website</text><text x="1195" y="990" font-size="17" font-weight="900" fill="#fff">●  Find Us  Google Maps</text><text x="1540" y="1015" font-size="19" font-weight="900" fill="#fff">🇮🇳 MADE IN INDIA   |   DRIVE THE CHANGE  🌿</text>
+</svg>
