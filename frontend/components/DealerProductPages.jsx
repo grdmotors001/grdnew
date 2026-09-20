@@ -107,7 +107,11 @@ export function DealerPage() {
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
-  const load = () => get('/dealers').then((d) => { setDealers(d.dealers || []); setSalesmen(d.salesmen || []); setSuggestedCode(d.suggested_code); })
+  const load = () => Promise.all([get('/dealers'), get('/salesmen')]).then(([d, sm]) => {
+    setDealers(d.dealers || []);
+    setSalesmen(sm.salesmen || []);
+    setSuggestedCode(d.suggested_code);
+  })
     .catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
 
