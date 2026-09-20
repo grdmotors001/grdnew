@@ -1751,6 +1751,15 @@ def loan_workflow_fe_list():
 
 
 def _billing_user_allowed():
+    # Prefer the signed auth token for department/admin checks so billing
+    # bridge reads do not depend on a stale or incomplete User lookup.
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if payload.get("is_super_user"):
+        return True
+    token_dept = (payload.get("department") or "").strip().lower()
+    if token_dept in {"billing","accounts","admin","head office","head-office"}:
+        return True
+
     u=_workflow_user()
     if not u:return False
     if u.is_super_user:return True
