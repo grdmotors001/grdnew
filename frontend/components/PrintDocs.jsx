@@ -407,7 +407,7 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
 
         <div className="salesperson-row">
           <div className="sp-box"><span className="sp-icon">👤</span>(Sales Person) Care of : <b>&nbsp;{c.salesman}</b></div>
-          <div className="sp-box2">{c.other}</div>
+          <div className="sp-box2">{c.formula_name || '—'}</div>
         </div>
 
         <div className="two-col">
@@ -417,10 +417,9 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
               <tbody>
                 <tr><th>SRN</th><th>PARTICULARS</th><th>DETAILS</th></tr>
                 <tr><td className="center">1</td><td>Chassis No.</td><td className="highlight">{c.chassis_no}</td></tr>
-                <tr><td className="center">2</td><td>Model Name</td><td>{c.product_name}</td></tr>
-                <tr><td className="center">3</td><td>Formula Name</td><td>{c.formula_name || '—'}</td></tr>
-                <tr><td className="center">4</td><td>Motor No.</td><td>{c.motor_no}</td></tr>
-                <tr><td className="center">5</td><td>Colour</td><td>
+                <tr><td className="center">2</td><td>Model Name</td><td>{c.product_name || '—'}{c.other ? ` (${c.other})` : ''}</td></tr>
+                <tr><td className="center">3</td><td>Motor No.</td><td>{c.motor_no}</td></tr>
+                <tr><td className="center">4</td><td>Colour</td><td>
                   <span style={{ display:'inline-flex', alignItems:'center', gap:8, fontWeight:700 }}>
                     <span style={{ width:42, height:22, borderRadius:4, border:'1px solid #777', background:colourBackground, display:'inline-block', flexShrink:0 }} />
                     {c.colour || '—'}
