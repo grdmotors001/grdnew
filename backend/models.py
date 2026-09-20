@@ -573,6 +573,39 @@ class TaxInvoice(db.Model):
         return "Due"
 
 
+class CreditNote(db.Model):
+    """Formal Credit Note against a Tax Invoice.
+
+    Credit notes reverse an already-issued invoice without modifying the
+    historical chassis number. The linked invoice is retained as cancelled
+    history; the Delivery Challan can then be cancelled and the chassis can
+    be delivered again to another dealer through a new challan/invoice.
+    """
+    id = db.Column(db.Integer, primary_key=True)
+    credit_note_no = db.Column(db.String(40), unique=True, index=True, nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    original_invoice_id = db.Column(db.Integer, db.ForeignKey("tax_invoice.id"), nullable=False, index=True)
+    original_bill_no = db.Column(db.String(30))
+    delivery_challan_id = db.Column(db.Integer, db.ForeignKey("delivery_challan.id"), index=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), index=True)
+    dealer_name = db.Column(db.String(200))
+    buyer_name = db.Column(db.String(200))
+    product_name = db.Column(db.String(200))
+    chassis_no = db.Column(db.String(60))
+    reason = db.Column(db.String(500), nullable=False)
+    taxable_amount = db.Column(db.Float, default=0)
+    tax_amount = db.Column(db.Float, default=0)
+    total_amount = db.Column(db.Float, default=0)
+    remarks = db.Column(db.String(500))
+    status = db.Column(db.String(20), default="ACTIVE", index=True)
+    created_by = db.Column(db.String(120))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    original_invoice = db.relationship("TaxInvoice", foreign_keys=[original_invoice_id])
+    delivery_challan = db.relationship("DeliveryChallan", foreign_keys=[delivery_challan_id])
+    vehicle = db.relationship("Vehicle", foreign_keys=[vehicle_id])
+
+
 class PurchaseBill(db.Model):
     """
     Purchase Bill (Vouchers > C) — recording a raw-material purchase from a
