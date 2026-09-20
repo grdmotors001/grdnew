@@ -36,6 +36,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const [dark, toggleDark] = useDarkMode();
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const canPurchase = dealer.purchase_access === true;
+  const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -65,7 +66,7 @@ export function DealerPortal({ dealer, onLogout }) {
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
-      <nav className="dealerSideNav">{nav.filter(([key]) => key !== 'purchases' || canPurchase).map(([key,icon,label]) =>
+      <nav className="dealerSideNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook)).map(([key,icon,label]) =>
         <button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>setTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
       <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
@@ -82,7 +83,7 @@ export function DealerPortal({ dealer, onLogout }) {
       {error && <div className="error dealerError">{error}</div>}
 
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
-        {nav.filter(x=>['dashboard','stock','purchases','payments','ledger'].includes(x[0]) && (x[0] !== 'purchases' || canPurchase)).map(([key,icon,label])=>
+        {nav.filter(x=>['dashboard','stock','purchases','payments','ledger'].includes(x[0]) && (x[0] !== 'purchases' || canPurchase) && (x[0] !== 'cashbook' || canCashBook)).map(([key,icon,label])=>
           <button type="button" key={key} className={tab===key?'active':''} onClick={()=>{setTab(key);setMobileNav(false)}}>
             <span>{icon}</span><small>{label}</small>
           </button>
@@ -94,7 +95,7 @@ export function DealerPortal({ dealer, onLogout }) {
           <div className="dealerPageIntro"><span className="dealerSectionIcon">{nav.find(x=>x[0]===tab)?.[1]}</span><div><strong>{nav.find(x=>x[0]===tab)?.[2]}</strong><small>Dealer-wise records</small></div></div>
           {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
         </div>
-        {tab==='cashbook' && <DealerCashBook/>}
+        {tab==='cashbook' && canCashBook && <DealerCashBook/>}
         {tab==='purchases' && canPurchase && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
