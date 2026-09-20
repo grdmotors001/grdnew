@@ -178,6 +178,26 @@ class Dealer(db.Model):
         return check_password_hash(self.password_hash, raw) if self.password_hash else False
 
 
+
+class ChfplBillingQueue(db.Model):
+    """One-time GRD billing handoff for an approved CHFPL loan."""
+    id = db.Column(db.Integer, primary_key=True)
+    application_no = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    chfpl_id = db.Column(db.BigInteger, index=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+    dealer_name = db.Column(db.String(200))
+    customer_name = db.Column(db.String(200))
+    customer_phone = db.Column(db.String(40))
+    vehicle_model_name = db.Column(db.String(200))
+    loan_amount = db.Column(db.Float, default=0)
+    tenure_months = db.Column(db.Integer)
+    chfpl_status = db.Column(db.String(30))
+    used_at = db.Column(db.DateTime, default=datetime.utcnow)
+    used_by = db.Column(db.String(120))
+    billing_status = db.Column(db.String(30), default="PENDING_BILL", index=True)
+
+    dealer = db.relationship("Dealer")
+
 class ManualPendingBill(db.Model):
     """Manual cash sale entered by Head Office Billing. No customer master is
     created for these sales; the bill stays pending until Billing processes it."""
