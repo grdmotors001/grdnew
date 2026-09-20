@@ -138,7 +138,7 @@ export function DealerPage() {
       {dealers.length === 0 ? <EmptyState /> : filteredDealers.length === 0 ? <EmptyState text="No dealers match your search." /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Code</th><th>Name</th><th>Mobile</th><th>GSTIN</th><th>Type</th><th>State</th><th>Login ID</th><th>Blocked</th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Mobile</th><th>GSTIN</th><th>Type</th><th>State</th><th>Salesman</th><th>Login ID</th><th>Blocked</th></tr></thead>
             <tbody>
               {filteredDealers.map((d) => (
                 <tr key={d.id}>
@@ -150,6 +150,7 @@ export function DealerPage() {
                   </td>
                   <td>{d.mobile}</td><td>{d.gst_no}</td><td>{d.registration_type === "unregistered" ? "Unregistered" : "Registered"}</td>
                   <td>{d.state} {d.state_code ? `(${d.state_code})` : ''}</td>
+                  <td>{d.salesman || ''}</td>
                   <td>{d.login_id}</td><td>{d.blocked ? 'Yes' : 'No'}</td>
                 </tr>
               ))}
