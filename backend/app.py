@@ -532,6 +532,19 @@ def expense_party_rickshaws():
         "model_name":r.product_name,"dealer_id":r.dealer_id,
         "dealer_name":r.dealer.name if r.dealer else None,"date":_iso(r.date)} for r in rows]})
 
+@app.get("/api/expense-payment-voucher/incentive-register")
+@require_auth
+def expense_incentive_register():
+    dealer_id=request.args.get("dealer_id",type=int)
+    status=(request.args.get("status") or "all").strip().lower()
+    q=ExpensePaymentVoucher.query.filter(ExpensePaymentVoucher.expense_type=="incentive")
+    if dealer_id:q=q.filter(ExpensePaymentVoucher.dealer_id==dealer_id)
+    if status=="paid":q=q.filter(ExpensePaymentVoucher.paid_at.isnot(None))
+    elif status=="unpaid":q=q.filter(ExpensePaymentVoucher.paid_at.is_(None),ExpensePaymentVoucher.status!="rejected")
+    rows=q.order_by(ExpensePaymentVoucher.date.desc(),ExpensePaymentVoucher.id.desc()).limit(1000).all()
+    return jsonify({"rows":[_expense_voucher_dict(v) for v in rows],
+                    "total":round(sum(float(v.amount or 0) for v in rows),2)})
+
 @app.get("/api/expense-payment-voucher/masters")
 @require_auth
 def expense_payment_voucher_masters():
