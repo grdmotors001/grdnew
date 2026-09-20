@@ -157,16 +157,40 @@ export function ProductionRegisterPage() {
   const [editRow, setEditRow] = useState(null);
   const [editError, setEditError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [formulas, setFormulas] = useState([]);
+
+  useEffect(() => {
+    get('/products?fro=F&page=1&per_page=1000').then((d) => setProducts(d.products || [])).catch(() => {});
+    get('/production-formulas').then((d) => setFormulas(d.grouped || [])).catch(() => {});
+  }, []);
 
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
 
   const rows = r.data.rows || [];
+  const finishedProducts = products.filter((p) => p.fro !== 'R');
+  const formulasForProduct = (productName) => formulas.filter((g) => g.product_name === productName);
   const setStatus = (status) => r.setExtra({ ...r.extra, status, page: 1 });
   const goPage = (page) => r.setExtra({ ...r.extra, page });
 
-  const openEdit = (v) => { setEditError(''); setEditRow({ ...v }); };
+  const openEdit = async (v) => {
+    setEditError('');
+    try {
+      // Fetch the full voucher so editing retains all fields/items.
+      const full = await get(`/production-vouchers/${v.id}`);
+      setEditRow({ ...full, formula_name: '' });
+    } catch (e) {
+      setEditError(e.message);
+    }
+  };
   const setE = (field) => (value) => setEditRow({ ...editRow, [field]: value });
+
+  const changeProduct = (value) => {
+    const matches = formulasForProduct(value);
+    const autoFormula = matches.length === 1 ? matches[0].formula_name : '';
+    setEditRow({ ...editRow, product_name: value, formula_name: autoFormula });
+  };
 
   const saveEdit = async (e) => {
     e.preventDefault();
@@ -226,7 +250,12 @@ export function ProductionRegisterPage() {
             <div className="formgrid">
               <Field label="Vou. No." value={editRow.vou_no} onChange={setE('vou_no')} />
               <Field label="Date" type="date" value={editRow.date} onChange={setE('date')} />
-              <Field label="Product Name" value={editRow.product_name} onChange={setE('product_name')} />
+              <Field label="Finished Product" type="select" value={editRow.product_name || ''}
+                     options={finishedProducts.map((p) => p.name)}
+                     onChange={changeProduct} />
+              <Field label="Formula Name" type="select" value={editRow.formula_name || ''}
+                     options={formulasForProduct(editRow.product_name).map((g) => g.formula_name)}
+                     onChange={setE('formula_name')} />
               <Field label="Quantity" type="number" value={editRow.quantity} onChange={setE('quantity')} />
               <Field label="Chassis No." value={editRow.chassis_no} onChange={setE('chassis_no')} />
               <Field label="Motor No." value={editRow.motor_no} onChange={setE('motor_no')} />
