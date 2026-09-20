@@ -4,12 +4,15 @@ import { get, post, put, del } from '../lib/api';
 import { SIMPLE_MASTERS } from '../lib/menu';
 import { Field, Card, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
-export function SimpleMasterPage({ kind }) {
+export function SimpleMasterPage({ kind, setActive }) {
   const meta = SIMPLE_MASTERS[kind] || { label: kind, fields: [['name', 'Name', 'text']] };
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [paymentsOpen, setPaymentsOpen] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState('all');
+  const [payments, setPayments] = useState([]);
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
@@ -22,6 +25,21 @@ export function SimpleMasterPage({ kind }) {
     return meta.fields.some(([f]) => String(r[f] ?? '').toLowerCase().includes(q));
   });
 
+  const isPaymentMaster = kind === 'mechanic' || kind === 'fabricator';
+  const paymentExpenseType = kind === 'mechanic' ? 'assembly' : 'fabrication';
+  const openPayments = async (r) => {
+    setEditingId(r.id); setForm({ ...r }); setPaymentsOpen(true); setPaymentStatus('all');
+    try {
+      const x = await get('/expense-payment-voucher?expense_type=' + paymentExpenseType + '&status=all');
+      setPayments((x.vouchers || []).filter(v => String(v.pay_to_name || '').toLowerCase() === String(r.name || '').toLowerCase()));
+    } catch (e) { setError(e.message); }
+  };
+  const refreshPayments = async (r, st) => {
+    try {
+      const x = await get('/expense-payment-voucher?expense_type=' + paymentExpenseType + '&status=' + st);
+      setPayments((x.vouchers || []).filter(v => String(v.pay_to_name || '').toLowerCase() === String(r.name || '').toLowerCase()));
+    } catch (e) { setError(e.message); }
+  };
   const openNew = () => { setEditingId(null); setForm({}); setOpen(true); };
   const openEdit = (r) => { setEditingId(r.id); setForm({ ...r }); setOpen(true); };
 
@@ -66,7 +84,7 @@ export function SimpleMasterPage({ kind }) {
                   {meta.fields.map(([f], i) => (
                     <td key={f}>
                       {i === 0 ? (
-                        <a onClick={() => openEdit(r)} style={{ color: 'var(--accent)', cursor: 'pointer' }}>
+                        <a onClick={() => isPaymentMaster ? openPayments(r) : openEdit(r)} style={{ color: 'var(--accent)', cursor: 'pointer' }}>
                           {String(r[f] ?? '')}
                         </a>
                       ) : f === 'is_default' ? (r[f] ? 'Yes' : '') : f === 'is_double_tone' ? (r[f] ? 'Yes' : 'No') : f === 'color_hex' ? (
@@ -86,6 +104,38 @@ export function SimpleMasterPage({ kind }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {paymentsOpen && (
+        <div className="modal">
+          <div className="modalbox">
+            <h2>{meta.label}: {form.name}</h2>
+            <p className="muted">{kind === 'mechanic' ? 'Assembly payment account' : 'Fabrication payment account'}</p>
+            <div className="actions" style={{marginBottom:12}}>
+              <button className={'btn '+(paymentStatus==='all'?'primary':'')} onClick={()=>{setPaymentStatus('all');refreshPayments(form,'all')}}>All</button>
+              <button className={'btn '+(paymentStatus==='paid'?'primary':'')} onClick={()=>{setPaymentStatus('paid');refreshPayments(form,'paid')}}>Paid</button>
+              <button className={'btn '+(paymentStatus==='unpaid'?'primary':'')} onClick={()=>{setPaymentStatus('unpaid');refreshPayments(form,'unpaid')}}>Unpaid</button>
+              <span style={{flex:1}} />
+              <button className="btn primary" onClick={()=>{setPaymentsOpen(false);setActive?.('expense-payment-voucher')}}>+ New Payment Voucher</button>
+            </div>
+            <div className="tablewrap">
+              <table className="table"><thead><tr>
+                <th>Payment Voucher No.</th><th>Date</th><th>Rickshaw / Chassis</th>
+                <th>Model / Qty</th><th>Per Rickshaw / Rate</th><th>Status</th>
+              </tr></thead><tbody>
+                {payments.map(v=><tr key={v.id}>
+                  <td><b>{v.voucher_no}</b></td><td>{v.date}</td><td>{v.chassis_no||'—'}</td>
+                  <td>{v.work_model_name||'—'}{v.work_qty ? ' / ' + v.work_qty : ''}</td>
+                  <td>₹{Number(v.rate_per_unit||v.amount||0).toLocaleString('en-IN')}</td>
+                  <td>{v.paid_at?'Paid':'Unpaid'}</td>
+                </tr>)}
+                {!payments.length&&<tr><td colSpan="6" className="muted">No payment vouchers found.</td></tr>}
+              </tbody></table>
+            </div>
+            <div className="actions" style={{justifyContent:'flex-end',marginTop:14}}>
+              <button className="btn" onClick={()=>setPaymentsOpen(false)}>Close</button>
+            </div>
+          </div>
         </div>
       )}
       {open && (
