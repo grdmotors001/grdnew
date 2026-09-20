@@ -70,6 +70,7 @@ MENU = {
         {"key": "hypothecation-register",    "label": "T. Hypothecation Register",      "kind": "custom"},
         {"key": "payment-receivable-report", "label": "U. Payment Rec'able Report",     "kind": "custom"},
         {"key": "incentive-register",         "label": "U1. Incentive Register",          "kind": "custom"},
+        {"key": "insurance-rto",            "label": "U2. Insurance / RTO Expense",      "kind": "custom"},
         {"key": "subsidy-report",            "label": "V. Subsidy Report",              "kind": "custom"},
         {"key": "ledger",                    "label": "W. Ledger",                      "kind": "custom"},
         {"key": "ledger-v",                  "label": "W3. Ledger V",                   "kind": "custom"},
