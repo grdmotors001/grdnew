@@ -309,6 +309,10 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [logoFailed, setLogoFailed] = useState(false);
+  const [colourMasters, setColourMasters] = useState([]);
+  useEffect(() => {
+    get('/masters/colour').then((rows) => setColourMasters(rows || [])).catch(() => {});
+  }, []);
   useEffect(() => {
     setData(null); setError('');
     get(`/delivery-challans/${challanId}/print`)
@@ -320,6 +324,14 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
   const { challan: c, company } = data;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
   const logoSrc = logoFailed || !c.umrn_code ? '/UMRN/_default.png' : `/UMRN/${c.umrn_code}.jpg`;
+  const colourMeta = colourMasters.find((x) =>
+    String(x.name || '').trim().toLowerCase() === String(c.colour || '').trim().toLowerCase()
+  );
+  const colourBackground = colourMeta?.color_hex
+    ? (colourMeta.is_double_tone && colourMeta.color_hex2
+        ? `linear-gradient(90deg,${colourMeta.color_hex} 0 50%,${colourMeta.color_hex2} 50% 100%)`
+        : colourMeta.color_hex)
+    : 'transparent';
 
   return (
     <Overlay onClose={onClose}>
@@ -408,7 +420,12 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
                 <tr><td className="center">2</td><td>Model Name</td><td>{c.product_name}</td></tr>
                 <tr><td className="center">3</td><td>Formula Name</td><td>{c.formula_name || '—'}</td></tr>
                 <tr><td className="center">4</td><td>Motor No.</td><td>{c.motor_no}</td></tr>
-                <tr><td className="center">5</td><td>Colour</td><td>{c.colour}</td></tr>
+                <tr><td className="center">5</td><td>Colour</td><td>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:8, fontWeight:700 }}>
+                    <span style={{ width:42, height:22, borderRadius:4, border:'1px solid #777', background:colourBackground, display:'inline-block', flexShrink:0 }} />
+                    {c.colour || '—'}
+                  </span>
+                </td></tr>
               </tbody>
             </table>
           </div>
