@@ -1889,6 +1889,104 @@ def _ensure_simple_master_columns():
 
 SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour", "salesman"}
 
+# Representative colour shades for the Colour Master. These are intentionally
+# editable in the master later; they are only used to fill currently blank
+# HEX values from the colour name so existing manual values are never replaced.
+_COLOUR_HEX = {
+    "black":"#000000","white":"#FFFFFF","blue":"#0000FF","red":"#FF0000",
+    "green":"#008000","yellow":"#FFFF00","orange":"#FFA500","brown":"#8B4513",
+    "grey":"#808080","gray":"#808080","silver":"#C0C0C0","gold":"#FFD700",
+    "pink":"#FFC0CB","purple":"#800080","violet":"#8F00FF","maroon":"#800000",
+    "navy":"#000080","teal":"#008080","aqua":"#00FFFF","cyan":"#00FFFF",
+    "lime":"#00FF00","olive":"#808000","cream":"#FFFDD0","beige":"#F5F5DC",
+    "magenta":"#FF00FF","mustard":"#FFDB58","peach":"#FFE5B4","coral":"#FF7F50",
+    "cherry":"#D2042D","wine":"#722F37","coffee":"#6F4E37","chocolate":"#7B3F00",
+    "khaki":"#C3B091","army":"#4B5320","turquoise":"#40E0D0",
+    "sky":"#87CEEB","royal":"#4169E1","indigo":"#4B0082","lemon":"#FFF44F",
+    "rust":"#B7410E","tan":"#D2B48C","pearl":"#EAE0C8","ivory":"#FFFFF0",
+    "bronze":"#CD7F32","copper":"#B87333","mint":"#98FF98","lavender":"#E6E6FA",
+    "plum":"#8E4585","burgundy":"#800020","emerald":"#50C878",
+    "forest":"#228B22","grass":"#7CFC00","dark":"#333333",
+}
+
+def _guess_colour_hex(name):
+    """Return a representative HEX from a colour name, or None if unknown."""
+    import re
+    raw = (name or "").strip().lower()
+    if not raw:
+        return None, None
+    # Normalize punctuation/spaces but keep words for two-tone detection.
+    words = re.findall(r"[a-z]+", raw)
+    if not words:
+        return None, None
+
+    # More specific combinations first.
+    combos = {
+        ("dark","green"): "#006400", ("dark","orange"): "#FF8C00",
+        ("dark","blue"): "#00008B", ("dark","red"): "#8B0000",
+        ("dark","brown"): "#654321", ("dark","yellow"): "#B8860B",
+        ("light","blue"): "#ADD8E6", ("light","green"): "#90EE90",
+        ("light","brown"): "#A0522D", ("light","pink"): "#FFB6C1",
+        ("light","grey"): "#D3D3D3", ("light","gray"): "#D3D3D3",
+        ("sky","blue"): "#87CEEB", ("royal","blue"): "#4169E1",
+        ("navy","blue"): "#000080", ("forest","green"): "#228B22",
+        ("army","green"): "#4B5320", ("aqua","green"): "#00A86B",
+        ("cornflower","blue"): "#6495ED", ("cherry","red"): "#D2042D",
+        ("cherry","black"): "#3B0A0A", ("blue","white"): "#EAF4FF",
+        ("blue","black"): "#111A3A", ("brown","black"): "#3B2415",
+        ("brown","white"): "#D8C3A5", ("angori","black"): "#3B2F2F",
+    }
+    for n in range(len(words), 1, -1):
+        for start in range(len(words)-n+1):
+            key = tuple(words[start:start+n])
+            if key in combos:
+                primary = combos[key]
+                # If another recognized colour follows, use it as a second tone.
+                for w in words:
+                    if w in _COLOUR_HEX and _COLOUR_HEX[w] != primary:
+                        return primary, _COLOUR_HEX[w]
+                return primary, None
+
+    primary = None
+    second = None
+    for w in words:
+        if w in _COLOUR_HEX:
+            if primary is None:
+                primary = _COLOUR_HEX[w]
+            elif second is None and _COLOUR_HEX[w] != primary:
+                second = _COLOUR_HEX[w]
+    # Automotive shade names with no standard dictionary match get a neutral
+    # representative rather than being left without a preview.
+    if primary is None:
+        if "angori" in words:
+            primary = "#B89B72"
+        elif "aqua" in words:
+            primary = "#00FFFF"
+        elif "cornflower" in words:
+            primary = "#6495ED"
+        else:
+            primary = "#D9D9D9"
+    return primary, second
+
+def _autofill_colour_hexes(rows):
+    changed = False
+    for row in rows:
+        if row.kind != "colour":
+            continue
+        primary, second = _guess_colour_hex(row.name)
+        if primary and not (row.color_hex or "").strip():
+            row.color_hex = primary
+            changed = True
+        # Preserve an existing explicit second tone. Only fill it when the
+        # name clearly contains another recognized colour word.
+        if second and not (row.color_hex2 or "").strip():
+            row.color_hex2 = second
+            changed = True
+    if changed:
+        db.session.commit()
+
+
+
 
 def _save_simple_master(kind, data, row_id=None):
     """Shared create/update logic for POST (id in body) and PUT (id in URL)."""
@@ -1963,6 +2061,8 @@ def simple_masters(kind):
             db.session.commit()
 
     rows = SimpleMaster.query.filter_by(kind=kind).order_by(SimpleMaster.name).all()
+    if kind == "colour":
+        _autofill_colour_hexes(rows)
     return jsonify([ser_simple(r) for r in rows])
 
 
