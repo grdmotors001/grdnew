@@ -183,7 +183,7 @@ export function DealerPage() {
               <Field label="Bank Name" value={form.bank_name} onChange={(v) => setForm({ ...form, bank_name: v })} />
               <Field label="Bank Account No." value={form.bank_account_no} onChange={(v) => setForm({ ...form, bank_account_no: v })} />
               <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
-              <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => ({ value: u.username, label: u.username }))]} />
+              <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => ({ value: u.name, label: u.name }))]} />
               <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />\n              <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access} onChange={(v) => setForm({ ...form, purchase_access: v })} />
               <Field label="Dealer Login ID" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
               <Field label="Dealer Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
