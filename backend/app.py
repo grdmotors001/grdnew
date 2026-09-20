@@ -1947,6 +1947,7 @@ def simple_masters_detail(kind, row_id):
 @app.route("/api/dealers", methods=["GET", "POST"])
 @require_auth
 def dealers():
+    _ensure_dealer_category_column()
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         row_id = data.get("id")
