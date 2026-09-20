@@ -69,7 +69,7 @@ export const NAV_GROUPS = {
     ['company', 'Company Details'], ['dealer', 'Dealer Master'], ['party', 'Party Master'],
     ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
     ['rto', 'RTO Master'], ['financer', 'Financer Master'], ['production-formula', 'Production Formula'],
-    ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
+    ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
     ['user', 'User Master'], ['option-setting', 'User Option Setting'],
   ],
   Factory: [
@@ -129,6 +129,7 @@ export const SIMPLE_MASTERS = {
   rto: { label: 'RTO Master', fields: [['name', 'RTO Name', 'text'], ['code', 'RTO Code', 'text'], ['address', 'Address', 'text']] },
   financer: { label: 'Financer Master', fields: [['name', 'Name', 'text'], ['address', 'Address', 'text']] },
   mechanic: { label: 'Mechanic Master', fields: [['name', 'Mechanic Name', 'text']] },
+  salesman: { label: 'Salesman Master', fields: [['name', 'Salesman Name', 'text']] },
   fabricator: { label: 'Fabricator Master', fields: [['name', 'Fabricator Name', 'text']] },
   bank: { label: 'Bank Details', fields: [['name', 'Bank Name', 'text'], ['account_no', 'Account No.', 'text'], ['ifsc', 'IFSC', 'text'], ['is_default', 'Default (auto-fills on new Invoices)', 'checkbox']] },
   colour: { label: 'Colour Master', fields: [['name', 'Colour', 'text'], ['code', 'Colour Code', 'text'], ['color_hex', 'RGB / HEX', 'color'], ['color_hex2', 'Second Tone RGB / HEX', 'color'], ['is_double_tone', 'Double Tone', 'checkbox']] },
