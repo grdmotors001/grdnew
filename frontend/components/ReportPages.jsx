@@ -60,9 +60,11 @@ function groupLedgerEvents(events) {
 
 export function PurchaseRegisterPage() {
   const r = useReport('/reports/purchase-register', { page: 1, per_page: 50 });
+  const [detailRow, setDetailRow] = useState(null);
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
   const goPage = (page) => r.setExtra({ ...r.extra, page });
+
   return (
     <>
       <FilterBar r={r}>
@@ -71,34 +73,83 @@ export function PurchaseRegisterPage() {
       {r.data.rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Bill No.</th><th>Party</th><th>Item</th><th>HSN</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th></tr></thead>
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Party</th><th>Items</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total</th><th></th></tr></thead>
             <tbody>
-              {r.data.rows.map((row, i) => (
-                <tr key={i}>
-                  <td>{formatDate(row.date)}</td><td>{row.bill_no}</td><td>{row.party_name}</td><td>{row.item_name}</td>
-                  <td>{row.hsn}</td><td><Money value={row.taxable_amt} /></td><td><Money value={row.cgst_amt} /></td>
-                  <td><Money value={row.sgst_amt} /></td><td><Money value={row.igst_amt} /></td>
+              {r.data.rows.map((row) => (
+                <tr key={row.id}>
+                  <td>{formatDate(row.date)}</td>
+                  <td><b>{row.bill_no}</b></td>
+                  <td>{row.party_name}</td>
+                  <td>{row.item_count}</td>
+                  <td><Money value={row.taxable_amt} /></td>
+                  <td><Money value={row.cgst_amt} /></td>
+                  <td><Money value={row.sgst_amt} /></td>
+                  <td><Money value={row.igst_amt} /></td>
+                  <td><b><Money value={row.total_amt} /></b></td>
+                  <td><button className="btn" onClick={() => setDetailRow(row)}>View</button></td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td colSpan={5}><b>Current Page Totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.cgst} /></td><td><Money value={r.data.totals.sgst} /></td><td><Money value={r.data.totals.igst} /></td></tr></tfoot>
+            <tfoot><tr>
+              <td colSpan={4}><b>Current Page Totals</b></td>
+              <td><Money value={r.data.totals.taxable} /></td>
+              <td><Money value={r.data.totals.cgst} /></td>
+              <td><Money value={r.data.totals.sgst} /></td>
+              <td><Money value={r.data.totals.igst} /></td>
+              <td><b><Money value={(r.data.totals.taxable || 0) + (r.data.totals.cgst || 0) + (r.data.totals.sgst || 0) + (r.data.totals.igst || 0)} /></b></td>
+              <td></td>
+            </tr></tfoot>
           </table>
         </div>
       )}
       {(r.data.total_pages || 1) > 1 && (
         <div className="actions" style={{ marginTop: 12, justifyContent: 'center', gap: 8 }}>
           <button className="btn" disabled={r.data.page <= 1} onClick={() => goPage(r.data.page - 1)}>← Previous</button>
-          <span className="muted">Page {r.data.page} of {r.data.total_pages} · {r.data.total.toLocaleString('en-IN')} lines</span>
+          <span className="muted">Page {r.data.page} of {r.data.total_pages} · {r.data.total.toLocaleString('en-IN')} bills</span>
           <button className="btn" disabled={r.data.page >= r.data.total_pages} onClick={() => goPage(r.data.page + 1)}>Next →</button>
+        </div>
+      )}
+
+      {detailRow && (
+        <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) setDetailRow(null); }}>
+          <div className="modalbox" style={{ maxWidth: 980 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+              <div>
+                <h2 style={{ marginBottom:4 }}>Purchase Bill Details — {detailRow.bill_no}</h2>
+                <div className="muted">{formatDate(detailRow.date)} · {detailRow.party_name}</div>
+              </div>
+              <button className="btn" onClick={() => setDetailRow(null)}>Close</button>
+            </div>
+            <div className="formgrid" style={{ marginTop:16 }}>
+              <Field label="Party Name" value={detailRow.party_name || '—'} readOnly />
+              <Field label="Supplier GSTIN" value={detailRow.party_gst_no || '—'} readOnly />
+              <Field label="Bill No." value={detailRow.bill_no || '—'} readOnly />
+              <Field label="Invoice Date" value={formatDate(detailRow.date)} readOnly />
+              <Field label="State Code" value={detailRow.party_state_code || '—'} readOnly />
+              <Field label="Remarks" value={detailRow.remarks || '—'} readOnly />
+            </div>
+            <div className="tablewrap" style={{ marginTop:18 }}>
+              <table className="table">
+                <thead><tr><th>#</th><th>Item</th><th>HSN</th><th>Qty</th><th>Rate</th><th>GST %</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total</th></tr></thead>
+                <tbody>
+                  {(detailRow.items || []).map((it, idx) => (
+                    <tr key={idx}>
+                      <td>{idx + 1}</td><td>{it.item_name}</td><td>{it.hsn || '—'}</td><td>{it.qty}</td><td><Money value={it.rate} /></td><td>{it.gst_rate}%</td>
+                      <td><Money value={it.taxable_amt} /></td><td><Money value={it.cgst_amt} /></td><td><Money value={it.sgst_amt} /></td><td><Money value={it.igst_amt} /></td><td><b><Money value={it.total_amt} /></b></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr>
+                  <td colSpan={6}><b>Grand Total</b></td>
+                  <td><Money value={detailRow.taxable_amt} /></td><td><Money value={detailRow.cgst_amt} /></td><td><Money value={detailRow.sgst_amt} /></td><td><Money value={detailRow.igst_amt} /></td><td><b><Money value={detailRow.total_amt} /></b></td>
+                </tr></tfoot>
+              </table>
+            </div>
+          </div>
         </div>
       )}
     </>
   );
-}
-
-function qs(r) {
-  const p = new URLSearchParams({ ...(r.from ? { from: r.from } : {}), ...(r.to ? { to: r.to } : {}), ...(r.search ? { search: r.search } : {}) });
-  return '?' + p.toString();
 }
 
 export function ProductionRegisterPage() {
