@@ -11,7 +11,7 @@ export function IncentiveRegisterPage(){
   const [status,setStatus]=useState('unpaid'),[rows,setRows]=useState([]),[pending,setPending]=useState([]);
   const [selected,setSelected]=useState([]),[open,setOpen]=useState(false);
   const [amount,setAmount]=useState(''),[date,setDate]=useState(today()),[paymentMode,setPaymentMode]=useState('cash'),[remarks,setRemarks]=useState('');
-  const [error,setError]=useState(''),[saving,setSaving]=useState(false);
+  const [error,setError]=useState(''),[saving,setSaving]=useState(false),[dealerPromptOpen,setDealerPromptOpen]=useState(true);
 
   useEffect(()=>{get('/dealers').then(x=>setDealers(x.dealers||[])).catch(e=>setError(e.message))},[]);
   const load=async()=>{
@@ -58,7 +58,7 @@ export function IncentiveRegisterPage(){
     <ErrorBanner message={error}/>
     <div className="card">
       <div className="toolbar">
-        <Field label="Dealer" type="select" value={dealerId} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]} onChange={setDealerId}/>
+        <Field label="Dealer" type="select" value={dealerId} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]} onChange={v=>{setDealerId(v);setDealerPromptOpen(false)}}/>
         <div className="actions" style={{alignSelf:'end'}}>
           <button className={'btn '+(status==='all'?'primary':'')} onClick={()=>setStatus('all')}>All</button>
           <button className={'btn '+(status==='paid'?'primary':'')} onClick={()=>setStatus('paid')}>Paid</button>
@@ -68,6 +68,16 @@ export function IncentiveRegisterPage(){
       </div>
       {dealerId&&<div className="actions" style={{marginTop:10}}>Dealer: <b>{dealer?.name}</b> · Showing: <b>{status.toUpperCase()}</b> · Total: <b><Money value={total}/></b></div>}
     </div>
+    {dealerPromptOpen&&<div className="modal"><div className="modalbox">
+      <h2>Incentive — Select Dealer</h2>
+      <p className="muted">Pehle dealer select karein. Uske baad us dealer ki Paid / Unpaid incentive list khulegi.</p>
+      <Field label="Dealer" type="select" value={dealerId}
+        options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]}
+        onChange={v=>{setDealerId(v);if(v)setDealerPromptOpen(false)}} required/>
+      <div className="actions" style={{justifyContent:'flex-end',marginTop:14}}>
+        <button className="btn" onClick={()=>setDealerPromptOpen(false)}>Close</button>
+      </div>
+    </div></div>}
     {!dealerId?<EmptyState text="Select a dealer to open the incentive account."/>:!rows.length?<EmptyState text={'No '+status+' incentive vouchers for this dealer.'}/>:<div className="tablewrap">
       <table className="table"><thead><tr><th>Payment Voucher No.</th><th>Date</th><th>Chassis</th><th>Customer / Dealer</th><th>Per Rickshaw Amount</th><th>Status</th></tr></thead>
       <tbody>{rows.map(r=><tr key={r.id}><td><b>{r.voucher_no}</b></td><td>{formatDate(r.date)}</td><td>{r.chassis_no||'—'}</td><td>{r.pay_to_name}</td><td><Money value={r.amount}/></td><td>{r.paid_at?'Paid':'Unpaid'}</td></tr>)}</tbody></table>
