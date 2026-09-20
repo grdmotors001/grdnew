@@ -91,7 +91,7 @@ export function DealerPortal({ dealer, onLogout }) {
           </button>
         )}
       </nav>
-      {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab}/>}
+      {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab}/>} 
       {tab!=='dashboard' && <>
         <div className="dealerContentToolbar">
           <div className="dealerPageIntro"><span className="dealerSectionIcon">{nav.find(x=>x[0]===tab)?.[1]}</span><div><strong>{nav.find(x=>x[0]===tab)?.[2]}</strong><small>Dealer-wise records</small></div></div>
