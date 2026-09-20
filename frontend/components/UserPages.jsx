@@ -16,6 +16,8 @@ const DEPARTMENT_DEFAULT_MODULES = {
 export function UserPage({ setActive, setOptionUserId }) {
   const [rows, setRows] = useState([]);
   const [dealers, setDealers] = useState([]);
+  const [salesmen, setSalesmen] = useState([]);
+  const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({});
@@ -23,7 +25,11 @@ export function UserPage({ setActive, setOptionUserId }) {
 
   const load = () => get('/users').then(setRows).catch((e) => setError(e.message));
   // /dealers returns { dealers: [...] }; keep User Master resilient to either response shape.
-  useEffect(() => { load(); get('/dealers').then((d) => setDealers(Array.isArray(d) ? d : (d.dealers || []))).catch(() => setDealers([])); }, []);
+  useEffect(() => {
+    load();
+    get('/dealers').then((d) => setDealers(Array.isArray(d) ? d : (d.dealers || []))).catch(() => setDealers([]));
+    get('/masters/salesman').then((d) => setSalesmen(Array.isArray(d) ? d : [])).catch(() => setSalesmen([]));
+  }, []);
 
   const filteredRows = rows.filter((u) => {
     const q = search.trim().toLowerCase();
@@ -33,7 +39,14 @@ export function UserPage({ setActive, setOptionUserId }) {
 
   const save = (e) => {
     e.preventDefault();
-    run(async () => { await post('/users', form); setOpen(false); load(); });
+    run(async () => {
+      const payload = { ...form, id: editingId || undefined };
+      if ((payload.department || '').toLowerCase() === 'salesman') {
+        if (!payload.username) throw new Error('Salesman select karke Login ID set karein.');
+      }
+      await post('/users', payload);
+      setOpen(false); setEditingId(null); setForm({}); load();
+    });
   };
 
   const remove = (id) => {
@@ -44,7 +57,7 @@ export function UserPage({ setActive, setOptionUserId }) {
   return (
     <>
       <div className="actions" style={{ marginBottom: 14 }}>
-        <button className="btn primary" onClick={() => { setForm({}); setOpen(true); }}>+ Add User</button>
+        <button className="btn primary" onClick={() => { setEditingId(null); setForm({ department: 'Admin', allowed_modules: DEPARTMENT_DEFAULT_MODULES.Admin }); setOpen(true); }}>+ Add User</button>
         {rows.length > 0 && <><input className="input" placeholder="Search username…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 280 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}</>}
       </div>
       <ErrorBanner message={!open ? error : ''} />
@@ -58,6 +71,7 @@ export function UserPage({ setActive, setOptionUserId }) {
                   <td>{u.username}</td><td>{u.department || 'Admin'}</td><td>{u.is_super_user ? 'All' : (u.assigned_dealer_ids?.length || 0)}</td><td>{u.is_super_user ? 'Yes' : 'No'}</td>
                   <td>{u.is_super_user ? 'All' : (u.allowed_modules.length ? u.allowed_modules.length + ' modules' : 'None set')}</td>
                   <td style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn" onClick={() => { setEditingId(u.id); setForm({ ...u, password: '' }); setOpen(true); }}>Edit</button>
                     <button className="btn" onClick={() => { setOptionUserId(u.id); setActive('option-setting'); }}>Permissions</button>
                     <button className="btn danger" onClick={() => remove(u.id)}>Delete</button>
                   </td>
@@ -70,12 +84,27 @@ export function UserPage({ setActive, setOptionUserId }) {
       {open && (
         <div className="modal">
           <form className="modalbox" onSubmit={save}>
-            <h2>Add User</h2>
+            <h2>{editingId ? 'Edit User' : 'Add User'}</h2>
             <ErrorBanner message={error} />
             <div className="formgrid">
-              <Field label="Username" value={form.username} onChange={(v) => setForm({ ...form, username: v })} required />
-              <Field label="Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
-              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => setForm({ ...form, department: v, allowed_modules: DEPARTMENT_DEFAULT_MODULES[v] || [] })} options={['Admin','Factory','Billing','Cashier','Salesman','HR']} />
+              {form.department === 'Salesman' && (
+                <Field
+                  label="Salesman Master"
+                  type="select"
+                  value={form.salesman_name || form.username || ''}
+                  onChange={(v) => setForm({ ...form, salesman_name: v, username: v })}
+                  options={salesmen.map((s) => ({ value: s.name, label: s.name }))}
+                  required
+                />
+              )}
+              <Field label="Login ID / Username" value={form.username} readOnly={form.department === 'Salesman' && !!form.salesman_name}
+                     onChange={(v) => setForm({ ...form, username: v })} required />
+              <Field label={editingId ? 'Password (blank = keep current)' : 'Password'} type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required={!editingId} />
+              <Field label="Department" type="select" value={form.department || 'Admin'} onChange={(v) => {
+                const next = { ...form, department: v, allowed_modules: DEPARTMENT_DEFAULT_MODULES[v] || [] };
+                if (v !== 'Salesman') { delete next.salesman_name; }
+                setForm(next);
+              }} options={['Admin','Factory','Billing','Cashier','Salesman','HR']} />
               <Field label="Super User (unrestricted access)" type="checkbox" value={form.is_super_user}
                      onChange={(v) => setForm({ ...form, is_super_user: v })} />
               <div className="muted" style={{ gridColumn: '1 / -1', fontSize: 12 }}>
