@@ -87,6 +87,8 @@ export const NAV_GROUPS = {
     ['payment-receivable-report', 'Payment Receivable'], ['gst-register', 'GST Register'],
     ['hypothecation-register', 'Hypothecation Register'], ['incentive-register', 'Incentive Register'],
     ['subsidy-report', 'Subsidy Report'],
+    ['balance-sheet', 'Balance Sheet'],
+    ['profit-loss', 'Profit & Loss A/c'],
   ],
   Inventory: [
     ['closing-stock-premises', 'Closing Stock - Premises'], ['closing-stock-dealers', 'Closing Stock - Dealers'],
