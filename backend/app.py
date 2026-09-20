@@ -71,6 +71,70 @@ app.register_blueprint(hr_bp, url_prefix="/api/hr")
 CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*")}})
 
 
+@app.route("/api/cashier/dealer-cash-receipts", methods=["GET", "POST"])
+@require_auth
+def cashier_dealer_cash_receipts():
+    """Head Office Cashier: accept dealer cash handovers or record direct
+    cash received at HO. Every accepted/direct receipt creates a Day Book
+    credit against the dealer, so the dealer ledger shows the receipt."""
+    user = User.query.get(getattr(g, "current_user_payload", {}).get("uid"))
+    if not user or user.is_super_user is False and (user.department or "").strip().lower() != "cashier":
+        return _err("Cashier access required.", 403)
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        dealer_id = _i(data.get("dealer_id"), 0)
+        amount = _f(data.get("amount"), 0)
+        receipt_date = _parse_date(data.get("date")) or date.today()
+        if not dealer_id or amount <= 0:
+            return _err("Dealer and valid amount are required.")
+        dealer = Dealer.query.get_or_404(dealer_id)
+        handover_id = _i(data.get("handover_id"), 0)
+        handover = DealerCashHandover.query.get(handover_id) if handover_id else None
+        if handover:
+            if handover.dealer_id != dealer.id:
+                return _err("Handover dealer does not match selected dealer.", 400)
+            if handover.status == "accepted":
+                return _err("This cash handover has already been accepted.", 409)
+            if handover.status == "rejected":
+                return _err("Rejected handover cannot be accepted.", 409)
+            amount = float(handover.amount or 0)
+            receipt_date = handover.handover_date or receipt_date
+            handover.status = "accepted"
+            source = f"Cash handover {handover.handover_no}"
+        else:
+            source = "Direct cash received at Head Office"
+        vr_no = DayBook.next_vr_no()
+        received_by = (data.get("received_by") or user.username or "").strip()
+        narration = (data.get("remarks") or "").strip()
+        narration = f"{source}; Received by {received_by}" + (f"; {narration}" if narration else "")
+        row = DayBook(vr_no=vr_no, date=receipt_date, dealer_name=dealer.name,
+                      credit_received=amount, debit_paid=0,
+                      bank_id=data.get("bank_id") or None, narration=narration)
+        db.session.add(row)
+        db.session.commit()
+        return jsonify({
+            "success": True, "receipt_no": f"GRD-RCPT-{vr_no:05d}",
+            "vr_no": vr_no, "dealer_id": dealer.id, "dealer_name": dealer.name,
+            "date": receipt_date.isoformat(), "amount": amount,
+            "received_by": received_by, "source": source,
+        }), 201
+
+    pending = (DealerCashHandover.query
+               .filter(DealerCashHandover.status == "sent")
+               .order_by(DealerCashHandover.handover_date.desc(), DealerCashHandover.id.desc())
+               .limit(500).all())
+    return jsonify({
+        "pending_handovers": [{
+            "id": h.id, "handover_no": h.handover_no,
+            "dealer_id": h.dealer_id, "dealer_name": Dealer.query.get(h.dealer_id).name if Dealer.query.get(h.dealer_id) else "",
+            "date": _iso(h.handover_date), "amount": h.amount,
+            "sent_to": h.sent_to, "remarks": h.remarks
+        } for h in pending],
+        "dealers": [ser_dealer(d) for d in Dealer.query.filter(Dealer.blocked.is_(False)).order_by(Dealer.name).all()]
+    })
+
+
 @app.get("/api/reports/cash-at-dealer")
 @require_auth
 def cash_at_dealer_report():
