@@ -46,7 +46,7 @@ export function ProfitLossPage() {
   const [to,setTo]=useState(today());
   const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
 
-  const load=async()=>{setLoading(true);setError('');try{setData(await loadAccounts('',to));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
+  const load=async()=>{setLoading(true);setError('');try{setData(await loadAccounts(from,to));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
 
   const p=useMemo(()=>{
