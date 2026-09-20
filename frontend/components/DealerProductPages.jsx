@@ -107,9 +107,9 @@ export function DealerPage() {
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
-  const load = () => Promise.all([get('/dealers'), get('/salesmen')]).then(([d, sm]) => {
+  const load = () => Promise.all([get('/dealers'), get('/masters/salesman')]).then(([d, sm]) => {
     setDealers(d.dealers || []);
-    setSalesmen(sm.salesmen || []);
+    setSalesmen(sm || []);
     setSuggestedCode(d.suggested_code);
   })
     .catch((e) => setError(e.message));
