@@ -41,9 +41,12 @@ export function DealerPortal({ dealer, onLogout }) {
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
 
   useEffect(() => {
-    Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices'), get('/dealer/loan-status')])
-      .then(([s, o, b, c, i, l]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); setLoans(l.applications || []); })
+    Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
+      .then(([s, o, b, c, i]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); })
       .catch((e) => setError(e.message));
+    get('/dealer/loan-status')
+      .then((l) => setLoans(l.applications || []))
+      .catch(() => setLoans([]));
   }, []);
 
   const q = search.trim().toLowerCase();
