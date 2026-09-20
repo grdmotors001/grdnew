@@ -338,7 +338,13 @@ def dealer_submit_loan():
             "borrower": borrower,
             "guarantor": guarantor,
             "co_borrower": co_borrower,
-            "vehicle_loan": vehicle_loan,
+            "vehicle_loan": {
+                **vehicle_loan,
+                # GRD Product Master is the source of truth for model identity.
+                "grd_model_id": vehicle_loan.get("vehicle_model_id"),
+                "grd_model_code": vehicle_loan.get("vehicle_model_code") or vehicle_loan.get("model_code"),
+                "grd_model_name": vehicle_loan.get("vehicle_model_name") or vehicle_loan.get("model_name"),
+            },
             "loan_type": str(data.get("loan_type") or "").strip().upper() or None,
             "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
             "sale_details": data.get("sale_details") or {},
