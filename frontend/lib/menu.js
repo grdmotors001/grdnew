@@ -24,7 +24,7 @@ export const MENU = {
     ['purchase-bills', 'Purchase Bills'],
     ['production-voucher', 'Production Voucher'],
     ['delivery-challan', 'E-Rickshaw Delivery Challan'],
-    ['tax-invoice', 'Tax Invoice'],
+    ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
     ['old-rickshaw', 'Old Rickshaw'],
     ['battery-swap', 'Battery Swap / Exchange Voucher'],
     ['battery-withdrawal', 'Battery Withdrawal'],
