@@ -150,7 +150,7 @@ export function BatterySwapVoucherPage() {
   <button className="btn" onClick={()=>setDetailRow(r)}>View</button>
   <button className="btn danger" onClick={()=>remove(r.id)} disabled={busy}>Delete</button>
 </td></tr>)}</tbody></table></div>
-    {detailRow&&<div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setDetailRow(null)}}>
+    {detailRow ? <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setDetailRow(null)}}>
       <div className="modalbox" style={{maxWidth:760}}>
         <h2>Battery Swap / Exchange — {detailRow.voucher_no}</h2>
         <div className="formgrid">
@@ -173,7 +173,7 @@ export function BatterySwapVoucherPage() {
           <button className="btn" onClick={()=>setDetailRow(null)}>Close</button>
         </div>
       </div>
-    </div>}
+    </div> : null}
   </div>;
 }
 
