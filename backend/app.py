@@ -76,6 +76,11 @@ def _ensure_live_schema_additions():
             if "dealer_category" not in cols:
                 with db.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE dealer ADD COLUMN dealer_category VARCHAR(20) DEFAULT 'dealer'"))
+            # Existing deployments: add the insurance bill-vs-charge field without requiring a manual migration.
+            ep_cols={c["name"] for c in inspect(db.engine).get_columns("expense_payment_voucher")}
+            if "bill_amount" not in ep_cols:
+                with db.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE expense_payment_voucher ADD COLUMN bill_amount FLOAT DEFAULT 0"))
     except Exception as exc:
         print(f"[schema] dealer category check failed: {exc}")
 
@@ -435,7 +440,7 @@ def _expense_voucher_dict(v):
             "staff_name":v.staff_name,"expense_type":v.expense_type,
             "expense_type_name":next((x["name"] for x in EXPENSE_TYPES if x["id"]==v.expense_type),v.expense_type),
             "vehicle_id":v.vehicle_id,"chassis_no":v.chassis_no,"payment_mode":v.payment_mode,
-            "amount":v.amount,"bill_no":v.bill_no,"attachment_url":v.attachment_url,
+            "amount":v.amount,"bill_amount":getattr(v,"bill_amount",0) or 0,"bill_no":v.bill_no,"attachment_url":v.attachment_url,
             "remarks":v.remarks,"status":v.status,"created_by":v.created_by,
             "approved_by":v.approved_by,"approved_at":_iso(v.approved_at.date()) if v.approved_at else None,
             "rejection_reason":v.rejection_reason,"paid_at":_iso(v.paid_at.date()) if v.paid_at else None,
@@ -710,7 +715,7 @@ def expense_payment_voucher():
             if not dc:return _err(f"Selected rickshaw {vid} was not found")
             voucher=ExpensePaymentVoucher(date=date_value,pay_to_type="other",pay_to_name=party,
                 dealer_id=dc.dealer_id,expense_type=et,vehicle_id=vid,chassis_no=dc.chassis_no,
-                payment_mode=pm,amount=round(amount,2),bill_no=(d.get("bill_no") or "").strip() or None,
+                payment_mode=pm,amount=round(amount,2),bill_amount=round(_f(d.get("bill_amount"),amount),2),bill_no=(d.get("bill_no") or "").strip() or None,
                 attachment_url=(d.get("attachment_url") or "").strip() or None,
                 remarks=common_remarks,status="pending",created_by=created_by)
             db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";created.append(voucher)
