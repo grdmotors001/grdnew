@@ -1236,7 +1236,7 @@ def dealer_loan_status():
 @app.get("/api/billing/approved-loans")
 @require_auth
 def billing_approved_loans():
-    _ensure_loan_workflow_tables()
+    _ensure_chfpl_billing_queue_table()
     if not _billing_user_allowed():
         return _err("Billing approval rights required", 403)
     try:
@@ -1247,7 +1247,62 @@ def billing_approved_loans():
     if status >= 400:
         detail = payload.get("error") if isinstance(payload, dict) else None
         return _err(detail or "Could not load approved loans from CHFPL", 502)
-    return jsonify(payload if isinstance(payload, dict) else {"applications": []})
+    applications = payload.get("applications", []) if isinstance(payload, dict) else []
+    consumed = {r.application_no for r in ChfplBillingQueue.query.with_entities(ChfplBillingQueue.application_no).all()}
+    return jsonify({"success": True, "applications": [r for r in applications if r.get("application_no") not in consumed]})
+
+@app.post("/api/billing/approved-loans/<application_no>/use")
+@require_auth
+def use_chfpl_approved_loan(application_no):
+    _ensure_chfpl_billing_queue_table()
+    if not _billing_user_allowed():
+        return _err("Billing approval rights required", 403)
+    application_no = (application_no or "").strip()
+    if not application_no:
+        return _err("Application number is required")
+    if ChfplBillingQueue.query.filter_by(application_no=application_no).first():
+        return _err("This CHFPL loan has already been used in GRD billing.", 409)
+    try:
+        status, payload = _chfpl_bridge_get(
+            f"/api/grd-dealer-loans?status=approved,sanctioned,disbursed"
+        )
+    except Exception as exc:
+        print(f"[CHFPL use loan] {exc}")
+        return _err("CHFPL approved loan service is temporarily unavailable", 502)
+    if status >= 400:
+        detail = payload.get("error") if isinstance(payload, dict) else None
+        return _err(detail or "Could not verify approved loan in CHFPL", 502)
+    row = next((r for r in (payload.get("applications", []) if isinstance(payload, dict) else [])
+                if r.get("application_no") == application_no), None)
+    if not row:
+        return _err("Approved CHFPL loan not found", 404)
+    dealer_id = _i(row.get("grd_dealer_id"), 0)
+    dealer = Dealer.query.get(dealer_id) if dealer_id else None
+    entry = ChfplBillingQueue(
+        application_no=application_no,
+        chfpl_id=_i(row.get("id"), 0) or None,
+        dealer_id=dealer.id if dealer else None,
+        dealer_name=row.get("dealer_name"),
+        customer_name=row.get("customer_name"),
+        customer_phone=row.get("customer_phone"),
+        vehicle_model_name=row.get("vehicle_model_name"),
+        loan_amount=_f(row.get("loan_amount_requested"), 0),
+        tenure_months=_i(row.get("tenure_months"), 0) or None,
+        chfpl_status=row.get("status"),
+        used_at=dt.utcnow(),
+        used_by=(getattr(g, "current_user_payload", {}) or {}).get("username"),
+        billing_status="PENDING_BILL",
+    )
+    db.session.add(entry)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return _err("This CHFPL loan was already used in GRD billing.", 409)
+    return jsonify({"success": True, "billing": {
+        "id": entry.id, "application_no": entry.application_no,
+        "billing_status": entry.billing_status
+    }}), 201
 
 
 @app.route("/api/dealer/old-rickshaws")
@@ -1577,6 +1632,9 @@ def chassis_rule_update():
 # ---------------------------------------------------------------------------
 # Loan workflow: DO -> FE -> DO decision
 # ---------------------------------------------------------------------------
+def _ensure_chfpl_billing_queue_table():
+    ChfplBillingQueue.__table__.create(db.engine, checkfirst=True)
+
 def _ensure_loan_workflow_tables():
     LoanWorkflow.__table__.create(db.engine, checkfirst=True)
     LoanWorkflowLog.__table__.create(db.engine, checkfirst=True)
