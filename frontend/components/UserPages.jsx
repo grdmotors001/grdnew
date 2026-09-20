@@ -23,6 +23,7 @@ export function UserPage({ setActive, setOptionUserId }) {
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => get('/users').then(setRows).catch((e) => setError(e.message));
+  // /dealers returns { dealers: [...] }; keep User Master resilient to either response shape.
   useEffect(() => { load(); get('/dealers').then((d) => setDealers(Array.isArray(d) ? d : (d.dealers || []))).catch(() => setDealers([])); }, []);
 
   const filteredRows = rows.filter((u) => {
