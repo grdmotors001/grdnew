@@ -3455,7 +3455,7 @@ def old_rickshaws():
             toolkit=data.get("toolkit"),stepney=data.get("stepney"),
             out_name=(data.get("out_name") or "").strip() or None,
             status="available",
-            dealer_id=None,sp_no=(data.get("sp_no") or "").strip() or None,
+            dealer_id=_i(data.get("dealer_id"),0) or None,sp_no=(data.get("sp_no") or "").strip() or None,
             dealer_page_no=(data.get("dealer_page_no") or "").strip() or None,
             remarks1=data.get("remarks1"),remarks2=data.get("remarks2"))
         db.session.add(rec)
