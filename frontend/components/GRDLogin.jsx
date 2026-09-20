@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { post, setToken } from '../lib/api';
+import { post, setToken, setPortalKind } from '../lib/api';
 
 export function GRDLogin({ onLogin }) {
   const [mode, setMode] = useState('staff');
@@ -21,6 +21,7 @@ export function GRDLogin({ onLogin }) {
       const data = await post(mode === 'dealer' ? '/auth/dealer-login' : '/auth/login', { userid, password });
       if (mode === 'dealer') {
         setToken(data.token);
+        setPortalKind('dealer');
         onLogin({ ...data.dealer, is_dealer: true });
       } else {
         setOtpToken(data.otp_token);
@@ -39,6 +40,7 @@ export function GRDLogin({ onLogin }) {
     try {
       const data = await post('/auth/verify-otp', { otp_token: otpToken, otp });
       setToken(data.token);
+      setPortalKind('staff');
       onLogin(data.user);
     } catch (e) {
       setError(e.message || 'OTP verification failed');
@@ -74,7 +76,24 @@ export function GRDLogin({ onLogin }) {
         .footer{position:absolute;left:0;right:0;bottom:0;height:132px;background:#07509a;border-top:4px solid #22a760;z-index:20;display:flex;align-items:center;padding:0 5%;box-sizing:border-box;gap:32px}.social{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-size:11px;font-weight:900;min-width:135px}.socialIcon{width:30px;height:30px;border-radius:8px;background:#1687e8;display:grid;place-items:center;font-size:17px}.social:nth-child(3) .socialIcon{background:#19b66b}
         @media(max-width:1050px){.hero h1{font-size:60px}.tomorrow{left:40%;font-size:38px}.vehicles{transform:scale(.85);transform-origin:left bottom}.loginCard{right:3%;width:40vw;min-width:390px}}
         @media(max-width:800px){.brand{left:5%;top:14px}.brandLogo{width:300px}.mobilityBadge{display:none}.tag{top:95px;font-size:9px;letter-spacing:2px}.hero{top:120px;left:6%}.hero h1{font-size:46px}.hero p{display:none}.tomorrow{display:none}.vehicles{bottom:650px;left:5%;transform:scale(.62);transform-origin:left bottom}.road{display:none}.loginCard{left:50%;right:auto;top:54%;transform:translate(-50%,-50%);width:calc(100vw - 28px);min-width:0;max-width:480px;padding:22px}.footer{height:70px;padding:0 5px;gap:0;justify-content:space-around}.social{min-width:0;width:20%;justify-content:center}.social span{display:none}.socialIcon{width:31px;height:31px}.grdCleanLogin:after{display:none}}
-        @media(max-width:520px){.brand{left:5%;top:10px}.brandLogo{width:245px}.hero h1{font-size:39px}.vehicles{display:none}.loginCard{top:52%;padding:17px;border-radius:20px}.title{font-size:25px}}
+        @media(max-width:520px){
+          .grdCleanLogin{position:relative;min-height:100dvh;height:auto;overflow:auto;padding-bottom:76px}
+          .brand{left:5%;top:10px}.brandLogo{width:245px}
+          .hero h1{font-size:39px}.vehicles{display:none}
+          .loginCard{position:relative;left:auto;right:auto;top:auto;transform:none;width:calc(100vw - 24px);min-width:0;max-width:none;margin:180px 12px 20px;padding:18px;border-radius:20px}
+          .tabs{gap:7px}.tab{height:46px;font-size:10px}
+          .field{margin-top:14px}.field label{font-size:11px}
+          .wrap{width:100%}.input{height:52px;padding-left:52px;padding-right:48px;font-size:14px}
+          .icon{left:17px;width:22px;text-align:center;z-index:2;pointer-events:none}
+          .eye{right:8px;z-index:3}
+          .loginBtn{height:52px;margin-top:15px}
+          .forgot{margin-top:8px}.secure{margin-top:13px}
+          .footer{position:fixed;height:62px;bottom:0;z-index:30}
+        }
+        @media(max-width:380px){
+          .brandLogo{width:220px}.loginCard{margin-top:165px;padding:15px}.title{font-size:23px}
+          .input{padding-left:49px;padding-right:45px}
+        }
       `}</style>
 
       <div className="brand" aria-label="G.R.D. Motors"><svg className="brandLogo" viewBox="0 0 760 190" role="img" aria-label="G.R.D. Motors Manufacturer of E-Rickshaw and E-Cart">
