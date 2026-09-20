@@ -2361,6 +2361,19 @@ def production_voucher_detail(voucher_id):
                 pv.__setattr__(field, value)
         if pv.vou_no and ProductionVoucher.query.filter(ProductionVoucher.vou_no == pv.vou_no, ProductionVoucher.id != pv.id).first():
             return _err(f"Vou. No. '{pv.vou_no}' is already in use.")
+        # If a formula was selected in Edit, refresh the voucher's raw-material
+        # lines from that finished product's Production Formula.
+        formula_name = (data.get("formula_name") or "").strip()
+        if formula_name:
+            pv.items.clear()
+            for fl in ProductionFormula.query.filter_by(
+                product_name=pv.product_name, formula_name=formula_name
+            ).all():
+                pv.items.append(ProductionVoucherItem(
+                    item_code=fl.raw_item_code, item_name=fl.raw_item_name,
+                    qty=fl.qty, unit=fl.unit
+                ))
+
         vehicle = Vehicle.query.filter_by(chassis_no=pv.chassis_no).first()
         if vehicle:
             vehicle.model_name = pv.product_name
