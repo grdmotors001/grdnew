@@ -322,6 +322,11 @@ def dealer_submit_loan():
         db.session.flush()
 
         chfpl_url = (os.environ.get("CHFPL_API_URL") or "").rstrip("/")
+        # CHFPL_API_URL is the API host, not the browser login page. If the
+        # environment was entered as https://login.chfpl.com/login, normalize
+        # it so the bridge still calls the real API route.
+        if chfpl_url.endswith("/login"):
+            chfpl_url = chfpl_url[:-len("/login")].rstrip("/")
         secret = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
         if not chfpl_url or not secret:
             raise RuntimeError("CHFPL_API_URL / CHFPL_GRD_BRIDGE_SECRET is not configured")
@@ -337,11 +342,13 @@ def dealer_submit_loan():
             "dealer_register_page_no": str(data.get("dealer_register_page_no") or "").strip() or None,
         }
         body = _json.dumps(payload).encode("utf-8")
+        target_url = f"{chfpl_url}/api/dealer/grd-submit-loan"
+        print(f"[CHFPL bridge] POST {target_url}")
         req = urllib.request.Request(
-            f"{chfpl_url}/api/dealer/grd-submit-loan", data=body,
+            target_url, data=body,
             headers={"Content-Type":"application/json", "X-GRD-BRIDGE-SECRET":secret}, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 result = _json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
