@@ -1185,6 +1185,71 @@ def dealer_me():
     })
 
 
+def _chfpl_bridge_base():
+    chfpl_url = (os.environ.get("CHFPL_API_URL") or "https://login.chfpl.com").rstrip("/")
+    if chfpl_url.endswith("/login"):
+        chfpl_url = chfpl_url[:-len("/login")].rstrip("/")
+    if chfpl_url.lower() in ("https://www.chfpl.com", "https://chfpl.com"):
+        chfpl_url = "https://login.chfpl.com"
+    return chfpl_url
+
+
+def _chfpl_bridge_get(path):
+    secret = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
+    if not secret:
+        raise RuntimeError("CHFPL_GRD_BRIDGE_SECRET is not configured")
+    target = f"{_chfpl_bridge_base()}{path}"
+    req = urllib.request.Request(
+        target,
+        headers={"X-GRD-BRIDGE-SECRET": secret, "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            return int(response.status or 200), _json.loads(response.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            detail = _json.loads(raw)
+        except Exception:
+            detail = {"error": raw or f"CHFPL HTTP {exc.code}"}
+        return int(exc.code), detail
+
+
+@app.get("/api/dealer/loan-status")
+@require_dealer_auth
+def dealer_loan_status():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer:
+        return _err("Dealer not found", 404)
+    try:
+        status, payload = _chfpl_bridge_get(f"/api/grd-dealer-loans?grd_dealer_id={dealer.id}")
+    except Exception as exc:
+        print(f"[CHFPL loan status] {exc}")
+        return _err("Loan status service is temporarily unavailable", 502)
+    if status >= 400:
+        detail = payload.get("error") if isinstance(payload, dict) else None
+        return _err(detail or "Could not load loan status from CHFPL", 502)
+    return jsonify(payload if isinstance(payload, dict) else {"applications": []})
+
+
+@app.get("/api/billing/approved-loans")
+@require_auth
+def billing_approved_loans():
+    _ensure_loan_workflow_tables()
+    if not _billing_user_allowed():
+        return _err("Billing approval rights required", 403)
+    try:
+        status, payload = _chfpl_bridge_get("/api/grd-dealer-loans?status=approved,sanctioned,disbursed")
+    except Exception as exc:
+        print(f"[CHFPL approved loans] {exc}")
+        return _err("CHFPL approved loan service is temporarily unavailable", 502)
+    if status >= 400:
+        detail = payload.get("error") if isinstance(payload, dict) else None
+        return _err(detail or "Could not load approved loans from CHFPL", 502)
+    return jsonify(payload if isinstance(payload, dict) else {"applications": []})
+
+
 @app.route("/api/dealer/old-rickshaws")
 @require_dealer_auth
 def dealer_old_rickshaws():
