@@ -24,13 +24,26 @@ def issue_pending_token(user):
 
 
 def issue_token(user):
+    # Salesman dealer scope is derived from Dealer Master.salesman, not a
+    # manually maintained assignment list. This also means newly created
+    # dealers become visible to the salesman automatically on next request.
+    dealer_ids = user.get_assigned_dealer_ids()
+    if (user.department or "").strip().lower() == "salesman":
+        try:
+            from models import Dealer
+            dealer_ids = [d.id for d in Dealer.query.filter(
+                Dealer.salesman.ilike(user.username.strip()),
+                Dealer.blocked.is_(False),
+            ).all()]
+        except Exception:
+            dealer_ids = []
     return _serializer.dumps({
         "uid": user.id,
         "username": user.username,
         "is_super_user": bool(user.is_super_user),
         "scope": "staff",
         "department": user.department or "Admin",
-        "dealer_ids": user.get_assigned_dealer_ids(),
+        "dealer_ids": dealer_ids,
     })
 
 
