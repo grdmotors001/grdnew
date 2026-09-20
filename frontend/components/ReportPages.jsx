@@ -291,6 +291,8 @@ export function ProductionRegisterPage() {
 
 export function DeliveryChallanRegisterPage() {
   const r = useReport('/reports/delivery-challan-register', { status: 'all', page: 1, per_page: 100 });
+  const [colourMasters, setColourMasters] = useState([]);
+  useEffect(() => { get('/masters/colour').then((x) => setColourMasters(x || [])).catch(() => {}); }, []);
   const [editRow, setEditRow] = useState(null);
   const [detailRow, setDetailRow] = useState(null);
   const [printId, setPrintId] = useState(null);
@@ -322,8 +324,6 @@ export function DeliveryChallanRegisterPage() {
   if (!r.data) return <div className="card">Loading…</div>;
 
   const rows = r.data.rows || [];
-  const [colourMasters, setColourMasters] = useState([]);
-  useEffect(() => { get('/masters/colour').then((x) => setColourMasters(x || [])).catch(() => {}); }, []);
   const colourMeta = (name) => colourMasters.find((x) => String(x.name||'').trim().toLowerCase() === String(name||'').trim().toLowerCase());
   const colourPreview = (name) => {
     const x=colourMeta(name);
