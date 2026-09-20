@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, setToken, getToken } from '../lib/api';
-import { Login, Shell } from '../components/Shell';
+import { Shell } from '../components/Shell';
+import { GRDLogin } from '../components/GRDLogin';
 import { Dashboard } from '../components/Dashboard';
 import { SimpleMasterPage } from '../components/SimpleMasterPage';
 import { DealerPage, ProductPage } from '../components/DealerProductPages';
@@ -104,7 +105,7 @@ export default function App() {
   }, []);
 
   if (!checkedAuth) return null;
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) return <GRDLogin onLogin={setUser} />;
   if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setToken(null); setUser(null); }} />;
 
   return (
