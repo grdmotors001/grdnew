@@ -4,15 +4,15 @@ import { get, post } from '../lib/api';
 import { Money, Field, ErrorBanner } from './ui';
 
 export function BillingPendingSalesPage(){
-  const [rows,setRows]=useState([]),[manual,setManual]=useState([]),[dealers,setDealers]=useState([]);
+  const [rows,setRows]=useState([]),[manual,setManual]=useState([]),[dealers,setDealers]=useState([]),[approvedLoans,setApprovedLoans]=useState([]);
   const [form,setForm]=useState({dealer_id:'',date:new Date().toISOString().slice(0,10),chassis_no:'',sale_amount:'',remarks:''});
   const [loading,setLoading]=useState(true),[error,setError]=useState(''),[saving,setSaving]=useState(false);
 
   const load=async()=>{
     setLoading(true);setError('');
     try{
-      const [a,m,d]=await Promise.all([get('/billing/pending-sales'),get('/billing/manual-pending-bills'),get('/dealers')]);
-      setRows(a.applications||[]);setManual(m.bills||[]);setDealers(d.dealers||[]);
+      const [a,m,d,l]=await Promise.all([get('/billing/pending-sales'),get('/billing/manual-pending-bills'),get('/dealers'),get('/billing/approved-loans')]);
+      setRows(a.applications||[]);setManual(m.bills||[]);setDealers(d.dealers||[]);setApprovedLoans(l.applications||[]);
     }catch(e){setError(e.message)}finally{setLoading(false)}
   };
   useEffect(()=>{load()},[]);
@@ -47,6 +47,13 @@ export function BillingPendingSalesPage(){
       <h3 style={{marginTop:0}}>Manual Cash Pending Bills</h3>
       <div className="tablewrap"><table className="table"><thead><tr><th>Pending No.</th><th>Date</th><th>Dealer</th><th>Chassis</th><th>Model</th><th>Cash Amount</th><th>Status</th><th>Action</th></tr></thead>
       <tbody>{manual.map(r=><tr key={r.id}><td><b>{r.pending_no}</b></td><td>{r.date}</td><td>{r.dealer_name}</td><td>{r.chassis_no}</td><td>{r.product_name||'—'}</td><td><Money value={r.sale_amount}/></td><td>{r.status}</td><td>{r.status==='PENDING_BILL'&&<button className="btn primary" onClick={()=>approveManual(r.id)}>Approve</button>}</td></tr>)}{!loading&&!manual.length&&<tr><td colSpan="8" className="muted">No manual cash pending bills.</td></tr>}</tbody></table></div>
+    </div>
+
+    <div className="card" style={{marginBottom:14}}>
+      <h3 style={{marginTop:0}}>Approved CHFPL Loans → Billing</h3>
+      <p className="muted">CHFPL se approved/sanctioned loans yahan live dikhte hain. Inhi loans ko billing staff sale process me select karega.</p>
+      <div className="tablewrap"><table className="table"><thead><tr><th>Application</th><th>Dealer</th><th>Customer</th><th>Vehicle</th><th>Loan Amount</th><th>Status</th><th>Tenure</th></tr></thead>
+      <tbody>{approvedLoans.map(r=><tr key={r.id}><td><b>{r.application_no}</b></td><td>{r.dealer_name||'—'}</td><td>{r.customer_name||'—'}<br/><small className="muted">{r.customer_phone||''}</small></td><td>{r.vehicle_model_name||'—'}</td><td><Money value={r.loan_amount_requested}/></td><td><span className="loanStatus approved">{String(r.status||'').replace(/_/g,' ')}</span></td><td>{r.tenure_months||'—'} months</td></tr>)}{!loading&&!approvedLoans.length&&<tr><td colSpan="7" className="muted">No approved CHFPL loans available for billing.</td></tr>}</tbody></table></div>
     </div>
 
     <div className="card"><h3 style={{marginTop:0}}>Loan / CHFPL Pending Sales</h3><div className="tablewrap"><table className="table"><thead><tr><th>Application</th><th>Dealer</th><th>Customer</th><th>DO Status</th><th>Chassis</th><th>Sale Amount</th><th>Description</th><th>Billing Status</th><th>Action</th></tr></thead>
