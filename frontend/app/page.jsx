@@ -18,6 +18,7 @@ import { PurchaseBillPage } from '../components/PurchaseBillPage';
 import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, BatteryDeliveryChallanPage, JournalStockPage } from '../components/MinorVoucherPages';
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
+import { InsuranceRtoRegisterPage } from '../components/InsuranceRtoRegisterPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
@@ -72,6 +73,7 @@ const CUSTOM_PAGES = {
   'hypothecation-register': () => <HypothecationRegisterPage />,
   'payment-receivable-report': () => <PaymentReceivablePage />,
   'incentive-register': () => <IncentiveRegisterPage />,
+  'insurance-rto': () => <InsuranceRtoRegisterPage />,
   'subsidy-report': () => <SubsidyReportPage />,
   'balance-sheet': () => <BalanceSheetPage />,
   'profit-loss': () => <ProfitLossPage />,
