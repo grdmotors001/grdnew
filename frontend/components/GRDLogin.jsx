@@ -97,6 +97,16 @@ export function GRDLogin({ onLogin }) {
         .grdSecure{display:flex;justify-content:center;align-items:center;gap:7px;margin-top:22px;color:#8b7a7f;font-size:11px}
         .grdError{color:#b42318;background:#fff1f2;border:1px solid #fecdd3;padding:10px;border-radius:9px;margin:10px 0;font-size:12px}
         .grdOtpNote{text-align:center;font-size:12px;color:#74666a;margin:12px 0}
+
+        .grdSocials{position:relative;z-index:2;display:flex;align-items:center;gap:10px;margin-top:28px;flex-wrap:wrap}
+        .grdSocialLink{display:inline-flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid #cfe3ee;border-radius:12px;background:#ffffffd9;color:#0b4ea2;text-decoration:none;font-size:11px;font-weight:800;box-shadow:0 5px 16px #0b5ed70d;transition:.18s}
+        .grdSocialLink:hover{transform:translateY(-2px);border-color:#8cc8e8;box-shadow:0 8px 20px #0b5ed71a}
+        .grdSocialIcon{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:14px;color:#fff;font-weight:900}
+        .grdSocialIcon.insta{background:linear-gradient(135deg,#f58529,#dd2a7b,#8134af)}
+        .grdSocialIcon.fb{background:#1877f2}
+        .grdSocialIcon.web{background:linear-gradient(135deg,#0b5ed7,#159447)}
+        .grdSocialIcon.map{background:#fff;color:#4285f4;border:1px solid #dbe7f2}
+
         @media(max-width:850px){.grdLoginPage{grid-template-columns:1fr}.grdLoginHero{min-height:330px;padding:28px 28px 30px}.grdHeroCopy{margin-top:35px}.grdHeroCopy h1{font-size:38px}.grdHeroFeatures{padding-top:35px;gap:22px}.grdLoginPanel{padding:38px 24px 50px}}
         @media(max-width:520px){.grdLoginHero{min-height:300px}.grdHeroFeatures{display:none}.grdLoginPanel{padding:30px 18px 40px}.grdLoginTitle{font-size:27px}}
       `}</style>
