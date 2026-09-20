@@ -911,6 +911,8 @@ class ExpensePaymentVoucher(db.Model):
     chassis_no = db.Column(db.String(60))
     payment_mode = db.Column(db.String(20), nullable=False, default="cash")  # cash / bank / upi / cheque
     amount = db.Column(db.Float, nullable=False, default=0)
+    # Insurance: original policy/bill amount can differ from the actual charge payable to the provider.
+    bill_amount = db.Column(db.Float, default=0)
     bill_no = db.Column(db.String(80))
     attachment_url = db.Column(db.String(500))
     remarks = db.Column(db.String(500))
