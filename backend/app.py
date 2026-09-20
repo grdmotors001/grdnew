@@ -1958,6 +1958,16 @@ def simple_masters_detail(kind, row_id):
 # ---------------------------------------------------------------------------
 # Setup > Dealer Master
 # ---------------------------------------------------------------------------
+@app.get("/api/salesmen")
+@require_auth
+def salesmen():
+    _ensure_auth_columns()
+    rows = User.query.filter(
+        db.func.lower(db.func.trim(User.department)) == "salesman"
+    ).order_by(User.username).all()
+    return jsonify({"salesmen": [{"id": u.id, "username": u.username} for u in rows]})
+
+
 @app.route("/api/dealers", methods=["GET", "POST"])
 @require_auth
 def dealers():
