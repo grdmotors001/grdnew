@@ -30,6 +30,7 @@ import {
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
+import { BalanceSheetPage, ProfitLossPage } from '../components/FinancialReportsPage';
 import { SIMPLE_MASTERS } from '../lib/menu';
 
 const CUSTOM_PAGES = {
@@ -67,6 +68,8 @@ const CUSTOM_PAGES = {
   'payment-receivable-report': () => <PaymentReceivablePage />,
   'incentive-register': () => <IncentiveRegisterPage />,
   'subsidy-report': () => <SubsidyReportPage />,
+  'balance-sheet': () => <BalanceSheetPage />,
+  'profit-loss': () => <ProfitLossPage />,
   ledger: () => <LedgerPage />,
   'day-book': () => <DayBookPage />,
   'ledger-v': () => <LedgerVPage />,
