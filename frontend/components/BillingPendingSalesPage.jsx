@@ -6,7 +6,7 @@ import { Money, Field, ErrorBanner } from './ui';
 export function BillingPendingSalesPage(){
   const [rows,setRows]=useState([]),[manual,setManual]=useState([]),[dealers,setDealers]=useState([]),[approvedLoans,setApprovedLoans]=useState([]);
   const [form,setForm]=useState({dealer_id:'',date:new Date().toISOString().slice(0,10),chassis_no:'',sale_amount:'',remarks:''});
-  const [loading,setLoading]=useState(true),[error,setError]=useState(''),[saving,setSaving]=useState(false);
+  const [loading,setLoading]=useState(true),[error,setError]=useState(''),[saving,setSaving]=useState(false),[usingLoan,setUsingLoan]=useState('');
 
   const load=async()=>{
     setLoading(true);setError('');
@@ -17,6 +17,13 @@ export function BillingPendingSalesPage(){
   };
   useEffect(()=>{load()},[]);
 
+  const useApprovedLoan=async applicationNo=>{
+    if(!confirm('Use this approved CHFPL loan for GRD Pending Bill? It will be consumed here and hidden from this list.'))return;
+    setUsingLoan(applicationNo);setError('');
+    try{await post('/billing/approved-loans/'+encodeURIComponent(applicationNo)+'/use',{});await load();}
+    catch(e){setError(e.message)}
+    finally{setUsingLoan('')}
+  };
   const approve=async id=>{if(!confirm('Approve this Pending Sale for Bill generation?'))return;try{await post('/billing/pending-sales/'+id+'/approve',{});load()}catch(e){setError(e.message)}};
   const bill=async id=>{if(!confirm('Generate Tax Bill now?'))return;try{const r=await post('/billing/pending-sales/'+id+'/generate-bill',{});alert('Bill generated: '+(r.invoice?.bill_no||''));load()}catch(e){setError(e.message)}};
   const saveManual=async e=>{
@@ -52,8 +59,8 @@ export function BillingPendingSalesPage(){
     <div className="card" style={{marginBottom:14}}>
       <h3 style={{marginTop:0}}>Approved CHFPL Loans → Billing</h3>
       <p className="muted">CHFPL se approved/sanctioned loans yahan live dikhte hain. Inhi loans ko billing staff sale process me select karega.</p>
-      <div className="tablewrap"><table className="table"><thead><tr><th>Application</th><th>Dealer</th><th>Customer</th><th>Vehicle</th><th>Loan Amount</th><th>Status</th><th>Tenure</th></tr></thead>
-      <tbody>{approvedLoans.map(r=><tr key={r.id}><td><b>{r.application_no}</b></td><td>{r.dealer_name||'—'}</td><td>{r.customer_name||'—'}<br/><small className="muted">{r.customer_phone||''}</small></td><td>{r.vehicle_model_name||'—'}</td><td><Money value={r.loan_amount_requested}/></td><td><span className="loanStatus approved">{String(r.status||'').replace(/_/g,' ')}</span></td><td>{r.tenure_months||'—'} months</td></tr>)}{!loading&&!approvedLoans.length&&<tr><td colSpan="7" className="muted">No approved CHFPL loans available for billing.</td></tr>}</tbody></table></div>
+      <div className="tablewrap"><table className="table"><thead><tr><th>Application</th><th>Dealer</th><th>Customer</th><th>Vehicle</th><th>Loan Amount</th><th>Status</th><th>Tenure</th><th>Action</th></tr></thead>
+      <tbody>{approvedLoans.map(r=><tr key={r.id}><td><b>{r.application_no}</b></td><td>{r.dealer_name||'—'}</td><td>{r.customer_name||'—'}<br/><small className="muted">{r.customer_phone||''}</small></td><td>{r.vehicle_model_name||'—'}</td><td><Money value={r.loan_amount_requested}/></td><td><span className="loanStatus approved">{String(r.status||'').replace(/_/g,' ')}</span></td><td>{r.tenure_months||'—'} months</td><td><button className="btn primary" disabled={usingLoan===r.application_no} onClick={()=>useApprovedLoan(r.application_no)}>{usingLoan===r.application_no?'Using…':'Use for Pending Bill'}</button></td></tr>)}{!loading&&!approvedLoans.length&&<tr><td colSpan="8" className="muted">No approved CHFPL loans available for billing.</td></tr>}</tbody></table></div>
     </div>
 
     <div className="card"><h3 style={{marginTop:0}}>Loan / CHFPL Pending Sales</h3><div className="tablewrap"><table className="table"><thead><tr><th>Application</th><th>Dealer</th><th>Customer</th><th>DO Status</th><th>Chassis</th><th>Sale Amount</th><th>Description</th><th>Billing Status</th><th>Action</th></tr></thead>
