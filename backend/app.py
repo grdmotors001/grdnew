@@ -44,7 +44,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
                      DeliveryChallan, TaxInvoice, PurchaseBill, PurchaseBillItem,
-                     OldRickshaw, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher)
+                     OldRickshaw, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user, _serializer
 from hr_attendance import hr_bp
@@ -747,6 +747,7 @@ def ser_dealer(d):
             "state": d.state, "state_code": d.state_code, "pan": d.pan,
             "bank_name": d.bank_name, "bank_account_no": d.bank_account_no, "bank_ifsc": d.bank_ifsc,
             "registration_type": d.registration_type or "registered",
+            "dealer_category": getattr(d, "dealer_category", "dealer") or "dealer",
             "salesman": d.salesman, "blocked": d.blocked, "purchase_access": bool(d.purchase_access), "login_id": d.login_id}
 
 
@@ -1629,6 +1630,52 @@ def _billing_user_allowed():
     if dept in {"billing","accounts","admin","head office","head-office"}: return True
     return u.has_module_access("billing-pending-sales")
 
+@app.get("/api/billing/manual-pending-bills")
+@require_auth
+def billing_manual_pending_bills():
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    _ensure_manual_pending_bill_table()
+    rows=ManualPendingBill.query.filter(ManualPendingBill.status.in_(["PENDING_BILL","BILL_APPROVED"])).order_by(ManualPendingBill.date.desc(),ManualPendingBill.id.desc()).limit(500).all()
+    return jsonify({"bills":[{
+        "id":r.id,"pending_no":r.pending_no,"date":_iso(r.date),"dealer_id":r.dealer_id,
+        "dealer_name":r.dealer.name if r.dealer else "","chassis_no":r.chassis_no,
+        "product_name":r.product_name,"sale_amount":r.sale_amount,"payment_mode":r.payment_mode,
+        "remarks":r.remarks,"status":r.status
+    } for r in rows]})
+
+@app.post("/api/billing/manual-pending-bills")
+@require_auth
+def billing_manual_pending_bill_create():
+    if not _billing_user_allowed(): return _err("Billing entry rights required",403)
+    _ensure_manual_pending_bill_table()
+    data=request.get_json(silent=True) or {}
+    dealer=Dealer.query.get(_i(data.get("dealer_id"),0))
+    if not dealer:return _err("Dealer is required")
+    chassis=(data.get("chassis_no") or "").strip()
+    if not chassis:return _err("Chassis No. is required")
+    amount=_f(data.get("sale_amount"),0)
+    if amount<=0:return _err("Sale Amount must be greater than zero")
+    vehicle=Vehicle.query.filter_by(chassis_no=chassis).first()
+    if not vehicle:return _err("Chassis not found")
+    row=ManualPendingBill(pending_no=f"PB-{dt.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}",
+        date=_parse_date(data.get("date")) or date.today(),dealer_id=dealer.id,vehicle_id=vehicle.id,
+        chassis_no=chassis,product_name=vehicle.model_name,sale_amount=amount,payment_mode="CASH",
+        remarks=(data.get("remarks") or "").strip() or None,
+        created_by=(getattr(g,"current_user_payload",{}) or {}).get("username"))
+    db.session.add(row);db.session.commit()
+    return jsonify({"success":True,"pending_bill":{"id":row.id,"pending_no":row.pending_no,"status":row.status}}),201
+
+@app.post("/api/billing/manual-pending-bills/<int:row_id>/approve")
+@require_auth
+def billing_manual_pending_bill_approve(row_id):
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    _ensure_manual_pending_bill_table()
+    row=ManualPendingBill.query.get_or_404(row_id)
+    if row.status!="PENDING_BILL":return _err("Only pending bills can be approved",409)
+    row.status="BILL_APPROVED";row.approved_by=(getattr(g,"current_user_payload",{}) or {}).get("username");row.approved_at=dt.utcnow()
+    db.session.commit()
+    return jsonify({"success":True})
+
 @app.get("/api/billing/pending-sales")
 @require_auth
 def billing_pending_sales():
@@ -1911,6 +1958,8 @@ def dealers():
         d.gst_no = data.get("gst_no")
         d.registration_type = (data.get("registration_type") or "registered").strip().lower()
         if d.registration_type not in {"registered", "unregistered"}: d.registration_type = "registered"
+        d.dealer_category = (data.get("dealer_category") or "dealer").strip().lower()
+        if d.dealer_category not in {"showroom", "dealer"}: d.dealer_category = "dealer"
         d.state = data.get("state")
         d.state_code = data.get("state_code")
         d.pan = data.get("pan")
@@ -1937,6 +1986,21 @@ def dealers():
                      "suggested_code": f"A-{next_code_num:02d}",
                      "salesmen": [{"id": u.id, "username": u.username} for u in salesman_users]})
 
+
+def _ensure_dealer_category_column():
+    try:
+        cols={c["name"] for c in inspect(db.engine).get_columns("dealer")}
+        if "dealer_category" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text("ALTER TABLE dealer ADD COLUMN dealer_category VARCHAR(20) DEFAULT 'dealer'"))
+    except Exception as exc:
+        print(f"[dealer-category] schema check failed: {exc}")
+
+def _ensure_manual_pending_bill_table():
+    try:
+        ManualPendingBill.__table__.create(db.engine, checkfirst=True)
+    except Exception as exc:
+        print(f"[manual-pending-bill] schema check failed: {exc}")
 
 @app.route("/api/dealers/<int:dealer_id>", methods=["DELETE"])
 @require_auth
