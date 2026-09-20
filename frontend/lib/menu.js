@@ -78,7 +78,7 @@ export const NAV_GROUPS = {
     ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'],
   ],
   'Sales & Billing': [
-    ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Sales / Billing'], ['tax-invoice', 'Tax Invoice'],
+    ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
     ['old-rickshaw', 'Old Rickshaw'],
   ],
   Accounts: [
