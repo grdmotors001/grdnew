@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { get, post, put } from '../lib/api';
+import { get, post, put, downloadExcel } from '../lib/api';
+import { DayBookPreview } from './DayBookPreview';
 
 const categories = [
   ['tea_customer','Tea for Customer'],['tea_staff','Tea for Staff'],['water','Water Expense'],
@@ -132,6 +133,24 @@ export function DealerCashBook(){
     {tab==='handover'&&<form className="card" onSubmit={e=>{e.preventDefault();save('/dealer/cash-book/handover',handover,d=>`Handover ${d.handover.handover_no} saved`,()=>setHandover({...handover,amount:'',sent_to:'',remarks:''}))}}>
       <h2>Cash Handover to Head Office</h2><div className="grid"><input className="input" type="date" value={handover.date} onChange={e=>setHandover({...handover,date:e.target.value})} required/><input className="input" type="number" min="0.01" step="0.01" placeholder="Amount" value={handover.amount} onChange={e=>setHandover({...handover,amount:e.target.value})} required/><input className="input" placeholder="Sent To / Received By" value={handover.sent_to} onChange={e=>setHandover({...handover,sent_to:e.target.value})}/><input className="input" placeholder="Remarks" value={handover.remarks} onChange={e=>setHandover({...handover,remarks:e.target.value})}/></div><button className="btn primary" disabled={saving}>Record HO Handover</button></form>}
 
-    {tab==='book'&&<div className="card"><h2>Cash Book Entries</h2>{loading?<div className="muted">Loading...</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Type</th><th>No.</th><th>Narration</th><th>Debit</th><th>Credit</th></tr></thead><tbody>{entries.map(e=><tr key={e.type+'-'+e.no}><td>{e.date}</td><td>{e.type}</td><td><b>{e.no}</b></td><td>{e.narration}</td><td>{e.debit?money(e.debit):'—'}</td><td>{e.credit?money(e.credit):'—'}</td></tr>)}{!entries.length&&<tr><td colSpan="6" className="muted">No cash entries for this date range.</td></tr>}</tbody></table></div>}</div>}
+    {tab==='book'&&<DayBookPreview
+      date={from}
+      dealerLabel="Showroom Branch"
+      receipts={(data.receipts||[]).filter(r=>r.payment_mode==='cash').map(r=>({
+        id:r.id,no:r.receipt_no,date:r.date,particulars:r.customer_name||'Customer Receipt',
+        folio:r.dealer_register_page_no||'',amount:r.amount
+      }))}
+      payments={[
+        ...(data.expenses||[]).map(e=>({id:'e'+e.id,no:e.expense_no,date:e.date,particulars:e.category_label||e.category,folio:e.folio||'',amount:e.amount})),
+        ...(data.handovers||[]).map(h=>({id:'h'+h.id,no:h.handover_no,date:h.date,particulars:h.sent_to||'Head Office',folio:h.folio||'',amount:h.amount}))
+      ]}
+      openingBalance={openingBalance}
+      closingBalance={closing}
+      onDateChange={d=>{setFrom(d);setTo(d)}}
+      onPrev={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()-1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
+      onNext={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()+1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
+      onPrint={()=>window.print()}
+      onExport={()=>downloadExcel(`/dealer/cash-book?from=${from}&to=${to}`,`Cash_Day_Book_${from}.xlsx`)}
+    />
   </div>
 }
