@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import inspect, text
-from models import db, Dealer, Vehicle, OldRickshaw
+from models import db, Dealer, Vehicle, OldRickshaw, LoanWorkflow
 from auth import require_dealer_auth
 
 dealer_cashbook_bp = Blueprint("dealer_cashbook", __name__)
@@ -243,6 +243,14 @@ def all_cash_receipts():
         return jsonify({"error":"Receipt Register is available only for showroom/branch accounts."}),403
     rows = DealerCashReceipt.query.filter_by(dealer_id=g.current_dealer_id).order_by(DealerCashReceipt.receipt_date.desc(),DealerCashReceipt.id.desc()).all()
     return jsonify({"success":True,"receipts":[_receipt(x) for x in rows]})
+
+@dealer_cashbook_bp.route("/delivery/do-options", methods=["GET"])
+@require_dealer_auth
+def showroom_delivery_do_options():
+    rows=(LoanWorkflow.query.filter(LoanWorkflow.dealer_id == g.current_dealer_id, LoanWorkflow.do_no.isnot(None))
+          .order_by(LoanWorkflow.id.desc()).limit(500).all())
+    return jsonify({"do_numbers":[{"id":r.id,"do_no":r.do_no,"application_no":r.application_no,
+        "customer_name":r.customer.full_name if r.customer else ""} for r in rows if r.do_no]})
 
 @dealer_cashbook_bp.route("/delivery/options", methods=["GET"])
 @require_dealer_auth
