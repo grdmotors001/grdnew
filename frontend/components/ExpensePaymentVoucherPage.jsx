@@ -152,19 +152,14 @@ export function ExpensePaymentVoucherPage(){
       </div>}
 
       {et==='commission'&&<div className="card" style={{marginTop:14}}>
-        <div className="actions" style={{justifyContent:'space-between'}}>
-          <b>Booking / Customer List for Commission ({bookingRows.length})</b>
-          <button type="button" className="btn" onClick={()=>setSelected(selected.length===bookingRows.length?[]:bookingRows.map(r=>r.vehicle_id))}>
-            {selected.length===bookingRows.length?'Unselect All':'Select All'}
-          </button>
-        </div>
-        <div className="tablewrap"><table className="table"><thead><tr><th></th><th>Date</th><th>Customer</th><th>Mobile</th><th>Bill No.</th><th>Chassis</th><th>Model</th></tr></thead>
-          <tbody>{bookingRows.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}>
-            <td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td>
-            <td>{r.date}</td><td><b>{r.customer||'—'}</b></td><td>{r.mobile_no||'—'}</td><td>{r.bill_no||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.model||'—'}</td>
-          </tr>)}{!bookingRows.length&&<tr><td colSpan="7" className="muted">No eligible bookings found.</td></tr>}</tbody>
-        </table></div>
-        <div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div>
+        <b>Booking / Customer</b>
+        <select className="input" style={{marginTop:8}} value={selected[0]||''} onChange={e=>setSelected(e.target.value?[Number(e.target.value)]:[])} required>
+          <option value="">Select Booking / Customer</option>
+          {bookingRows.map(r=><option key={r.vehicle_id} value={r.vehicle_id}>
+            {r.customer||'Customer'} — {r.mobile_no||'No Mobile'} — {r.bill_no||'No Bill'} — {r.chassis_no||'No Chassis'}
+          </option>)}
+        </select>
+        <div className="muted" style={{marginTop:8}}>Commission is linked to this booking, so it will appear automatically in the customer's future expense report.</div>
       </div>}
 
       {et==='incentive'&&<div className="card" style={{marginTop:14}}><div className="actions" style={{justifyContent:'space-between'}}><b>Unpaid Incentive Rickshaws</b><button type="button" className="btn" onClick={()=>setSelected(selected.length===incentiveRows.length?[]:incentiveRows.map(r=>r.vehicle_id))}>{selected.length===incentiveRows.length?'Unselect All':'Select All'}</button></div>
