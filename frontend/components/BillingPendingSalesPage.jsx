@@ -4,15 +4,15 @@ import { get, post, put } from '../lib/api';
 import { Money, Field, ErrorBanner } from './ui';
 
 export function BillingPendingSalesPage(){
-  const [rows,setRows]=useState([]),[manual,setManual]=useState([]),[dealers,setDealers]=useState([]),[approvedLoans,setApprovedLoans]=useState([]),[oldChallans,setOldChallans]=useState([]),[showroomDeliveries,setShowroomDeliveries]=useState([]),[doOptions,setDoOptions]=useState([]);
+  const [rows,setRows]=useState([]),[manual,setManual]=useState([]),[dealers,setDealers]=useState([]),[approvedLoans,setApprovedLoans]=useState([]),[oldChallans,setOldChallans]=useState([]),[showroomDeliveries,setShowroomDeliveries]=useState([]),[approvedShowroomDeliveries,setApprovedShowroomDeliveries]=useState([]),[doOptions,setDoOptions]=useState([]);
   const [form,setForm]=useState({dealer_id:'',date:new Date().toISOString().slice(0,10),chassis_no:'',sale_amount:'',remarks:''});
   const [loading,setLoading]=useState(true),[error,setError]=useState(''),[saving,setSaving]=useState(false),[usingLoan,setUsingLoan]=useState('');
 
   const load=async()=>{
     setLoading(true);setError('');
     try{
-      const [a,m,d,l,o,s,doData]=await Promise.all([get('/billing/pending-sales'),get('/billing/manual-pending-bills'),get('/dealer-list'),get('/billing/approved-loans'),get('/billing/old-rickshaw-challans'),get('/billing/showroom-deliveries'),get('/billing/showroom-do-options')]);
-      setRows(a.applications||[]);setManual(m.bills||[]);setDealers(d.dealers||[]);setApprovedLoans(l.applications||[]);setOldChallans(o.challans||[]);setShowroomDeliveries(s?.deliveries||[]);setDoOptions(doData?.do_numbers||[]);
+      const [a,m,d,l,o,s,as,doData]=await Promise.all([get('/billing/pending-sales'),get('/billing/manual-pending-bills'),get('/dealer-list'),get('/billing/approved-loans'),get('/billing/old-rickshaw-challans'),get('/billing/showroom-deliveries'),get('/billing/showroom-deliveries-approved'),get('/billing/showroom-do-options')]);
+      setRows(a.applications||[]);setManual(m.bills||[]);setDealers(d.dealers||[]);setApprovedLoans(l.applications||[]);setOldChallans(o.challans||[]);setShowroomDeliveries(s?.deliveries||[]);setApprovedShowroomDeliveries(as?.deliveries||[]);setDoOptions(doData?.do_numbers||[]);
     }catch(e){setError(e.message)}finally{setLoading(false)}
   };
   useEffect(()=>{load()},[]);
@@ -58,7 +58,8 @@ export function BillingPendingSalesPage(){
       <tbody>{manual.map(r=><tr key={r.id}><td><b>{r.pending_no}</b></td><td>{r.date}</td><td>{r.dealer_name}</td><td>{r.chassis_no}</td><td>{r.product_name||'—'}</td><td><Money value={r.sale_amount}/></td><td>{r.status}</td><td>{r.status==='PENDING_BILL'&&<button className="btn primary" onClick={()=>approveManual(r.id)}>Approve</button>}</td></tr>)}{!loading&&!manual.length&&<tr><td colSpan="8" className="muted">No manual cash pending bills.</td></tr>}</tbody></table></div>
     </div>
 
-    <ShowroomDeliveryBillingSection rows={showroomDeliveries} doOptions={doOptions} onSaved={load}/>\n    <OldRickshawBillingSection rows={oldChallans} onSaved={load}/>
+    <ShowroomDeliveryBillingSection rows={showroomDeliveries} doOptions={doOptions} onSaved={load}/>
+    <ApprovedShowroomBillingSection rows={approvedShowroomDeliveries} onSaved={load}/>\n    <OldRickshawBillingSection rows={oldChallans} onSaved={load}/>
     <div className="card" style={{marginBottom:14}}>
       <h3 style={{marginTop:0}}>Pending for Bill — Approved CHFPL Loans</h3>
       <p className="muted">CHFPL me loan approve hone ke baad yahan Pending for Bill me live dikhega. Billing staff isi application ko sale/billing process me use karega.</p>
@@ -94,4 +95,13 @@ function ShowroomDeliveryBillingSection({rows,doOptions,onSaved}){
  {rows.map(r=><tr key={r.id}><td><b>{r.delivery_no}</b></td><td>{r.date}</td><td>{r.dealer_name||"—"}</td><td>{r.customer_name||"—"}<br/><small className="muted">{r.customer_phone||""}</small></td><td>{r.delivery_type}</td><td>{r.chassis_no||r.vehicle_no||"—"}</td><td><Money value={r.sale_amount}/></td><td><Money value={r.loan_amount}/></td><td><Money value={r.down_payment}/></td><td><b>{r.do_no||"—"}</b>{r.do_selected_by&&<small className="muted"> ({r.do_selected_by})</small>}</td><td>{r.billing_status}</td><td style={{display:'flex',gap:6,flexWrap:'wrap'}}><button className="btn" onClick={()=>open(r)}>Check / Edit</button>{r.billing_status==='PENDING_BILL'&&<button className="btn primary" onClick={()=>approve(r)}>Approve</button>}{r.billing_status==='APPROVED'&&r.delivery_type==='new'&&<button className="btn primary" onClick={()=>bill(r)}>Cut Bill</button>}</td></tr>)}
  {!rows.length&&<tr><td colSpan="12" className="muted">No showroom deliveries pending for bill.</td></tr>}</tbody></table></div>
  {edit&&<div className="modal"><div className="modalbox"><h2>Check / Correct — {edit.delivery_no}</h2><p className="muted">{edit.customer_name} · {edit.delivery_type} · {edit.chassis_no||edit.vehicle_no||"—"}</p><div className="formgrid"><Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/><Field label="Sale Amount" type="number" value={form.sale_amount} onChange={v=>setForm({...form,sale_amount:v})}/><Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setForm({...form,loan_amount:v})}/><Field label="Down Payment" type="number" value={form.down_payment} onChange={v=>setForm({...form,down_payment:v})}/><Field label="DO No." type="select" value={form.do_no} options={[{value:"",label:"No DO — leave for later"},...doOptions.map(x=>({value:x.do_no,label:x.do_no+" · "+(x.customer_name||x.application_no)}))]} onChange={v=>setForm({...form,do_no:v})}/><Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/></div><div className="actions" style={{marginTop:16}}><button className="btn" onClick={()=>setEdit(null)}>Cancel</button><button className="btn primary" disabled={saving} onClick={save}>{saving?"Saving…":"Save Corrections"}</button></div></div></div>}</div>
+}
+
+
+function ApprovedShowroomBillingSection({rows,onSaved}){
+ const bill=async r=>{if(!confirm('Generate Bill now?'))return;try{const x=await post('/billing/showroom-deliveries/'+r.id+'/generate-bill',{});alert('Bill generated: '+(x.invoice?.bill_no||''));onSaved()}catch(e){alert(e.message)}};
+ return <div className="card" style={{marginBottom:14}}><h3 style={{marginTop:0}}>Approved Sales → Ready for Bill</h3><p className="muted">Approval ke baad sale Pending se yahan move hoti hai. Billing Staff yahan se Bill cut karega.</p>
+ <div className="tablewrap"><table className="table"><thead><tr><th>Delivery</th><th>Date</th><th>Dealer</th><th>Customer</th><th>Type</th><th>Vehicle / Chassis</th><th>Sale</th><th>Loan</th><th>DO No.</th><th>Status</th><th>Action</th></tr></thead><tbody>
+ {rows.map(r=><tr key={r.id}><td><b>{r.delivery_no}</b></td><td>{r.date}</td><td>{r.dealer_name||'—'}</td><td>{r.customer_name||'—'}<br/><small className="muted">{r.customer_phone||''}</small></td><td>{r.delivery_type}</td><td>{r.chassis_no||r.vehicle_no||'—'}</td><td><Money value={r.sale_amount}/></td><td><Money value={r.loan_amount}/></td><td>{r.do_no||'—'}</td><td><b>{r.billing_status}</b></td><td>{r.delivery_type==='new'?<button className="btn primary" onClick={()=>bill(r)}>Cut Bill</button>:<span className="muted">Verified — no bill</span>}</td></tr>)}
+ {!rows.length&&<tr><td colSpan="11" className="muted">No approved showroom sales ready for bill.</td></tr>}</tbody></table></div></div>
 }
