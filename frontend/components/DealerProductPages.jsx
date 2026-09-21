@@ -185,6 +185,22 @@ export function DealerPage() {
               <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
               <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => ({ value: u.name, label: u.name }))]} />
               <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />\n              <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access} onChange={(v) => setForm({ ...form, purchase_access: v })} />
+              <div className="field" style={{gridColumn:'1/-1'}}>
+                <label>Dealer Portal Permissions</label>
+                <div style={{display:'flex',gap:12,flexWrap:'wrap',padding:'10px 0'}}>
+                  {[
+                    ['battery-withdrawal','Battery Withdrawal'],
+                    ['battery-swap','Battery Swap / Exchange'],
+                    ['purchase-portal','Purchases / Customer Invoice'],
+                    ['cashbook','Cash Book'],
+                    ['loan-status','Loan Status'],
+                  ].map(([key,label])=><label key={key} style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                    <input type="checkbox" checked={(form.portal_modules||[]).includes(key)} onChange={e=>{
+                      const a=new Set(form.portal_modules||[]); e.target.checked?a.add(key):a.delete(key); setForm({...form,portal_modules:[...a]});
+                    }}/> {label}
+                  </label>)}
+                </div>
+              </div>
               <Field label="Dealer Login ID" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
               <Field label="Dealer Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
             </div>
