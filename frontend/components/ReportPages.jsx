@@ -4,6 +4,7 @@ import { get, post, put, del, downloadExcel } from '../lib/api';
 import { EmptyState, ErrorBanner, Field, Money } from './ui';
 import { formatDate } from '../lib/date';
 import { DeliveryChallanPrintView } from './PrintDocs';
+import { DayBookPreview } from './DayBookPreview';
 
 function useReport(path, extraParams = {}) {
   const [from, setFrom] = useState('');
@@ -896,124 +897,94 @@ export function LedgerPage() {
 }
 
 export function DayBookPage() {
-  const [data, setData] = useState(null);
-  const [dealers, setDealers] = useState([]);
-  const [search, setSearch] = useState('');
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({});
-  const [error, setError] = useState('');
-  const [matchResult, setMatchResult] = useState(null);
-  const [matching, setMatching] = useState(false);
+  const [data,setData]=useState(null);
+  const [selectedDate,setSelectedDate]=useState(new Date().toISOString().slice(0,10));
+  const [dealers,setDealers]=useState([]);
+  const [open,setOpen]=useState(false);
+  const [form,setForm]=useState({});
+  const [error,setError]=useState('');
+  const [matchResult,setMatchResult]=useState(null);
+  const [matching,setMatching]=useState(false);
 
-  const load = () => get(`/day-book?${new URLSearchParams(search ? { search } : {})}`).then(setData).catch((e) => setError(e.message));
-  const exportDayBook = () => downloadExcel(`/day-book?${new URLSearchParams(search ? { search } : {})}`, 'Day_Book.xlsx');
-  useEffect(() => { load(); }, [search]);
-  useEffect(() => { get('/dealers').then((d) => setDealers(d.dealers || [])).catch(() => {}); get('/masters/bank').then((d) => setBanks(d || [])).catch(() => {}); }, []);
+  const load=()=>get('/day-book').then(setData).catch(e=>setError(e.message));
+  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});get('/masters/bank').then(d=>setBanks(d||[])).catch(()=>{});},[]);
 
-  const openNew = () => { setForm({ date: new Date().toISOString().slice(0, 10), vr_no: data?.next_vr_no }); setOpen(true); };
-  const openEdit = (r) => { setForm({ ...r }); setOpen(true); };
-  const save = async (e) => {
-    e.preventDefault();
-    try {
-      await post('/day-book', form);
-      setOpen(false);
-      load();
-    } catch (e) { setError(e.message); }
-  };
-  const remove = async () => {
-    if (!form.id) return;
-    if (!window.confirm('Delete this entry?')) return;
-    try {
-      await del(`/day-book/${form.id}`);
-      setOpen(false);
-      load();
-    } catch (e) { setError(e.message); }
-  };
-  const runAutoMatch = async () => {
-    setMatching(true);
-    setMatchResult(null);
-    try {
-      const res = await post('/day-book/auto-match', {});
-      setMatchResult(res);
-      load();
-    } catch (e) { setError(e.message); }
-    setMatching(false);
-  };
+  const entries=data?.entries||[];
+  const dayEntries=entries.filter(r=>String(r.date||'').slice(0,10)===selectedDate);
+  const priorEntries=entries.filter(r=>String(r.date||'').slice(0,10)<selectedDate);
+  const receipts=dayEntries.filter(r=>Number(r.credit_received||0)>0).map(r=>({
+    id:r.id,no:r.vr_no,date:r.date,particulars:[r.dealer_name,r.narration].filter(Boolean).join(' - ')||'Receipt',
+    folio:r.folio||r.page_no||'',amount:r.credit_received
+  }));
+  const payments=dayEntries.filter(r=>Number(r.debit_paid||0)>0).map(r=>({
+    id:r.id,no:r.vr_no,date:r.date,particulars:[r.dealer_name,r.narration].filter(Boolean).join(' - ')||'Payment',
+    folio:r.folio||r.page_no||'',amount:r.debit_paid
+  }));
+  const opening=priorEntries.reduce((s,r)=>s+Number(r.credit_received||0)-Number(r.debit_paid||0),0);
+  const totalReceipts=receipts.reduce((s,r)=>s+Number(r.amount||0),0);
+  const totalPayments=payments.reduce((s,r)=>s+Number(r.amount||0),0);
+  const closing=opening+totalReceipts-totalPayments;
 
-  if (!data) return <div className="card">Loading…</div>;
-  return (
-    <>
-      <div className="toolbar">
-        <Field label="Search Dealer" value={search} onChange={setSearch} />
-        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={exportDayBook}>Export Excel</button>
-        <button className="btn primary" style={{ alignSelf: 'flex-end' }} onClick={openNew}>+ New Entry</button>
-        <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={runAutoMatch} disabled={matching}>
-          {matching ? 'Fixing…' : 'Fix Old Entries for Ledger'}
-        </button>
+  const moveDay=(delta)=>{
+    const x=new Date(selectedDate+'T00:00:00');x.setDate(x.getDate()+delta);setSelectedDate(x.toISOString().slice(0,10));
+  };
+  const openNew=()=>{setForm({date:selectedDate,vr_no:data?.next_vr_no});setOpen(true)};
+  const openEdit=r=>{setForm({...r});setOpen(true)};
+  const save=async e=>{e.preventDefault();try{await post('/day-book',form);setOpen(false);load()}catch(e){setError(e.message)}};
+  const remove=async()=>{if(!form.id)return;if(!window.confirm('Delete this entry?'))return;try{await del('/day-book/'+form.id);setOpen(false);load()}catch(e){setError(e.message)}};
+  const runAutoMatch=async()=>{setMatching(true);setMatchResult(null);try{const res=await post('/day-book/auto-match',{});setMatchResult(res);load()}catch(e){setError(e.message)}finally{setMatching(false)}};
+
+  if(!data)return <div className="card">Loading…</div>;
+  return <div>
+    <div className="actions" style={{marginBottom:12,flexWrap:'wrap'}}>
+      <button className="btn primary" onClick={openNew}>+ New Entry</button>
+      <button className="btn" onClick={runAutoMatch} disabled={matching}>{matching?'Fixing…':'Fix Old Entries for Ledger'}</button>
+    </div>
+    {matchResult&&<div className="card" style={{marginBottom:12}}>
+      <b>Fixed {matchResult.fixed.length} old entr{matchResult.fixed.length===1?'y':'ies'}</b>.
+      {matchResult.unresolved.length>0&&<span className="muted"> {matchResult.unresolved.length} entries still need manual review.</span>}
+    </div>}
+    <ErrorBanner message={!open?error:''}/>
+    <DayBookPreview
+      date={selectedDate}
+      dealerLabel="ADMIN · ALL BRANCHES"
+      receipts={receipts}
+      payments={payments}
+      openingBalance={opening}
+      closingBalance={closing}
+      onDateChange={setSelectedDate}
+      onPrev={()=>moveDay(-1)}
+      onNext={()=>moveDay(1)}
+      onPrint={()=>window.print()}
+      onExport={()=>downloadExcel('/day-book','Day_Book.xlsx')}
+    />
+    <div className="card" style={{marginTop:14}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div><h3 style={{margin:0}}>Day Book Entries</h3><div className="muted">Admin entry register · {selectedDate}</div></div>
+        <button className="btn" onClick={load}>Refresh</button>
       </div>
-      {matchResult && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <b>Fixed {matchResult.fixed.length} old entr{matchResult.fixed.length === 1 ? 'y' : 'ies'}</b> so they now show up in the Ledger.
-          {matchResult.fixed.length > 0 && (
-            <ul style={{ marginTop: 8 }}>
-              {matchResult.fixed.map((f) => (
-                <li key={f.id}>Vr.No. {f.vr_no}: "{f.old_name}" → "{f.new_name}"</li>
-              ))}
-            </ul>
-          )}
-          {matchResult.unresolved.length > 0 && (
-            <>
-              <p style={{ marginTop: 10, color: 'var(--red)' }}>
-                <b>{matchResult.unresolved.length}</b> entr{matchResult.unresolved.length === 1 ? 'y' : 'ies'} could not be auto-matched to any dealer — please open and fix these manually:
-              </p>
-              <ul>
-                {matchResult.unresolved.map((u) => (
-                  <li key={u.id}>Vr.No. {u.vr_no}: "{u.dealer_name}"</li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-      <ErrorBanner message={!open ? error : ''} />
-      {data.entries.length === 0 ? <EmptyState /> : (
-        <div className="tablewrap">
-          <table className="table">
-            <thead><tr><th>Date</th><th>Vr. No.</th><th>Dealer</th><th>Bank</th><th>Credit Received</th><th>Debit Paid</th><th>Narration</th></tr></thead>
-            <tbody>{data.entries.map((r) => (
-              <tr key={r.id} onClick={() => openEdit(r)} style={{ cursor: 'pointer' }} title="Click to edit">
-                <td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td><td>{r.bank_name || '—'}</td>
-                <td><Money value={r.credit_received} /></td><td><Money value={r.debit_paid} /></td><td>{r.narration}</td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-      {open && (
-        <div className="modal">
-          <form className="modalbox" onSubmit={save}>
-            <h2>{form.id ? 'Edit Day Book Entry' : 'New Day Book Entry'}</h2>
-            <ErrorBanner message={error} />
-            <div className="formgrid">
-              <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
-              <Field label="Dealer Name" type="select" value={form.dealer_name} options={dealers.map((d) => ({ value: d.name, label: d.name }))} onChange={(v) => setForm({ ...form, dealer_name: v })} required />
-              <Field label="Bank" type="select" value={form.bank_id || ''} options={[{ value: '', label: 'Select Bank' }, ...banks.map((b) => ({ value: b.id, label: `${b.name}${b.account_no ? ` — ${b.account_no}` : ''}` }))]} onChange={(v) => setForm({ ...form, bank_id: v || null })} />
-              <Field label="Credit Received" type="number" value={form.credit_received} onChange={(v) => setForm({ ...form, credit_received: v })} />
-              <Field label="Debit Paid" type="number" value={form.debit_paid} onChange={(v) => setForm({ ...form, debit_paid: v })} />
-              <Field label="Narration" value={form.narration} onChange={(v) => setForm({ ...form, narration: v })} />
-            </div>
-            <div className="actions" style={{ marginTop: 18, justifyContent: form.id ? 'space-between' : 'flex-end', display: 'flex' }}>
-              {form.id ? <button type="button" className="btn danger" onClick={remove}>Delete</button> : <span />}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
-                <button className="btn primary">Save</button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
-    </>
-  );
+      <div className="tablewrap" style={{marginTop:10}}>
+        <table className="table"><thead><tr><th>Date</th><th>Vr. No.</th><th>Dealer</th><th>Credit</th><th>Debit</th><th>Narration</th></tr></thead>
+          <tbody>{dayEntries.map(r=><tr key={r.id} onClick={()=>openEdit(r)} style={{cursor:'pointer'}}><td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td><td><Money value={r.credit_received}/></td><td><Money value={r.debit_paid}/></td><td>{r.narration||'—'}</td></tr>)}{!dayEntries.length&&<tr><td colSpan={6} className="muted">No entries for this date.</td></tr>}</tbody>
+        </table>
+      </div>
+    </div>
+    {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
+      <h2>{form.id?'Edit Day Book Entry':'New Day Book Entry'}</h2><ErrorBanner message={error}/>
+      <div className="formgrid">
+        <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+        <Field label="Dealer Name" type="select" value={form.dealer_name} options={dealers.map(d=>({value:d.name,label:d.name}))} onChange={v=>setForm({...form,dealer_name:v})} required/>
+        <Field label="Bank" type="select" value={form.bank_id||''} options={[{value:'',label:'Select Bank'},...banks.map(b=>({value:b.id,label:`${b.name}${b.account_no?` — ${b.account_no}`:''}`}))]} onChange={v=>setForm({...form,bank_id:v||null})}/>
+        <Field label="Credit Received" type="number" value={form.credit_received} onChange={v=>setForm({...form,credit_received:v})}/>
+        <Field label="Debit Paid" type="number" value={form.debit_paid} onChange={v=>setForm({...form,debit_paid:v})}/>
+        <Field label="Narration" value={form.narration} onChange={v=>setForm({...form,narration:v})}/>
+      </div>
+      <div className="actions" style={{marginTop:18,justifyContent:form.id?'space-between':'flex-end',display:'flex'}}>
+        {form.id?<button type="button" className="btn danger" onClick={remove}>Delete</button>:<span/>}
+        <div style={{display:'flex',gap:8}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary">Save</button></div>
+      </div>
+    </form></div>}
+  </div>;
 }
 
 export function LedgerVPage() {
