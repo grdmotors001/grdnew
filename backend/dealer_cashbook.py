@@ -70,6 +70,10 @@ class DealerCustomerDelivery(db.Model):
     do_selected_at = db.Column(db.DateTime)
     billing_status = db.Column(db.String(20), default="PENDING_BILL", index=True)
     remarks = db.Column(db.String(300))
+    dealer = db.relationship("Dealer")
+    customer = db.relationship("DealerCashCustomer")
+    vehicle = db.relationship("Vehicle")
+    old_rickshaw = db.relationship("OldRickshaw")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
