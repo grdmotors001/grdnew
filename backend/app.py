@@ -2171,31 +2171,23 @@ def billing_vehicle_inventory_download_txt():
     ids=[_i(x,0) for x in (data.get("invoice_ids") or [])]
     ids=[x for x in ids if x]
     if not ids:return _err("Select at least one vehicle.")
-    rows=TaxInvoice.query.filter(TaxInvoice.id.in_(ids)).all()
+    rows=TaxInvoice.query.filter(TaxInvoice.id.in_(ids)).order_by(TaxInvoice.id.asc()).all()
     if not rows:return _err("Selected vehicles not found.",404)
-    mem=io.BytesIO()
-    used=set()
-    with zipfile.ZipFile(mem,"w",zipfile.ZIP_DEFLATED) as z:
-        for ti in rows:
-            product=Product.query.filter_by(name=ti.product_name).first()
-            vehicle=Vehicle.query.get(ti.vehicle_id) if ti.vehicle_id else None
-            production=(ProductionVoucher.query.filter_by(chassis_no=ti.chassis_no)
-                        .order_by(ProductionVoucher.id.desc()).first()) if ti.chassis_no else None
-            md=(production.date if production and production.date else
-                (vehicle.date if vehicle else None))
-            umrn=(product.umrn_code if product else None) or ""
-            colour_code=(vehicle.colour_code if vehicle else None) or ""
-            txt=f"{umrn}|{ti.chassis_no or ''}|{ti.motor_no or ''}|{md.strftime('%m%Y') if md else ''}|R1|{colour_code}|NA"
-            base=re.sub(r"[^A-Za-z0-9]","",ti.chassis_no or "") or re.sub(r"[^A-Za-z0-9]","",ti.bill_no or "") or f"INVOICE{ti.id}"
-            filename=base+".TXT"; n=2
-            while filename.upper() in used:
-                filename=f"{base}{n}.TXT"; n+=1
-            used.add(filename.upper())
-            z.writestr(filename,txt)
-    mem.seek(0)
+    lines=[]
+    for ti in rows:
+        product=Product.query.filter_by(name=ti.product_name).first()
+        vehicle=Vehicle.query.get(ti.vehicle_id) if ti.vehicle_id else None
+        production=(ProductionVoucher.query.filter_by(chassis_no=ti.chassis_no)
+                    .order_by(ProductionVoucher.id.desc()).first()) if ti.chassis_no else None
+        md=(production.date if production and production.date else
+            (vehicle.date if vehicle else None))
+        umrn=(product.umrn_code if product else None) or ""
+        colour_code=(vehicle.colour_code if vehicle else None) or ""
+        lines.append(f"{umrn}|{ti.chassis_no or ''}|{ti.motor_no or ''}|{md.strftime('%m%Y') if md else ''}|R1|{colour_code}|NA")
     from flask import Response
-    return Response(mem.getvalue(),mimetype="application/zip",
-                    headers={"Content-Disposition":'attachment; filename="VahanInventoryTXT.zip"'})
+    content="\r\n".join(lines)+"\r\n"
+    return Response(content, mimetype="text/plain; charset=utf-8",
+                    headers={"Content-Disposition":'attachment; filename="VahanInventoryTXT.TXT"'})
 
 @app.get("/api/billing/pending-sales")
 @require_auth
