@@ -1511,6 +1511,37 @@ def _chfpl_bridge_post(path, payload):
         except Exception: detail={"error":raw or f"CHFPL HTTP {exc.code}"}
         return int(exc.code),detail
 
+@app.get("/api/dealer/seized-vehicles")
+@require_dealer_auth
+def dealer_seized_vehicles():
+    """Show repossessed vehicles physically parked at this dealer.
+    CHFPL controls the resale status; a dealer can only view HOLD/SEIZED
+    vehicles here and cannot mark them available or sell them.
+    """
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer:
+        return _err("Dealer not found", 404)
+    try:
+        status, payload = _chfpl_bridge_get("/api/grd/repossessed?status=SEIZED")
+    except Exception as exc:
+        print(f"[CHFPL dealer seized] {exc}")
+        return _err("CHFPL repossession service is temporarily unavailable", 502)
+    if status >= 400:
+        detail = payload.get("error") if isinstance(payload, dict) else None
+        return _err(detail or "Could not load seized vehicles", 502)
+    vehicles = payload.get("vehicles", []) if isinstance(payload, dict) else []
+    name = (dealer.name or "").strip().lower()
+    code = (dealer.code or "").strip().lower()
+    rows = []
+    for v in vehicles:
+        parked = v.get("dealer_master") or {}
+        parked_name = str(parked.get("dealer_name") or "").strip().lower()
+        parked_code = str(parked.get("dealer_code") or "").strip().lower()
+        if (name and parked_name == name) or (code and parked_code == code):
+            rows.append(v)
+    return jsonify({"vehicles": rows, "count": len(rows), "status": "HOLD"})
+
+
 @app.get("/api/dealer/loan-status")
 @require_dealer_auth
 def dealer_loan_status():
