@@ -43,7 +43,7 @@ export const MENU = {
     ['stock-ledger-dealers', 'Stock Ledger - with Dealers'],
   ],
   Reports: [
-    ['purchase-register', 'Purchase Register'],
+    ['loan-workflow', 'Loan Workflow / Status'], ['purchase-register', 'Purchase Register'],
     ['production-register', 'Production Register'],
     ['delivery-challan-register', 'Delivery Challan Register'],
     ['sale-register', 'Sale Register'],
@@ -105,7 +105,7 @@ export const NAV_GROUPS = {
     ['company', 'Company Details'], ['user', 'User Master'], ['hr-attendance', 'Attendance & Salary'],
   ],
   Reports: [
-    ['purchase-register', 'Purchase Register'], ['production-register', 'Production Register'],
+    ['loan-workflow', 'Loan Workflow / Status'], ['purchase-register', 'Purchase Register'],
     ['delivery-challan-register', 'Delivery Challan Register'], ['sale-register', 'Sale Register'],
     ['payment-receivable-report', 'Payment Receivable'], ['hypothecation-register', 'Hypothecation Register'],
     ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
