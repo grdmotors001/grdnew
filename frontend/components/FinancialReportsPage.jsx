@@ -105,7 +105,7 @@ export function BalanceSheetPage() {
     const payables=num(data.purchaseRows.reduce((s,x)=>s+num(x.total_amt),0)); return {receivables:receivables+oldReceivables,payables};
   },[data,from,to]);
   if(error)return <div className="page"><div className="error">{error}</div></div>;
-  if(!b)return <div className="page"><ReportHeader title="Balance Sheet" subtitle="Loading…" from={from} setFrom={setFrom} to={to} setTo={load} refresh={load} loading={loading}/></div>;
+  if(!b)return <div className="page"><ReportHeader title="Balance Sheet" subtitle="Loading…" from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/></div>;
   return <div className="page">
     <ReportHeader title="Balance Sheet" subtitle="T-format view. Account heads can be mapped later." from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/>
     <div className="card" style={{padding:0,overflow:'hidden'}}>
