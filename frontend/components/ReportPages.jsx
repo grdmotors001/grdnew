@@ -280,7 +280,12 @@ export function DeliveryChallanRegisterPage() {
             </thead>
             <tbody>
               {rows.map((c) => (
-                <tr key={c.id} >
+                <tr
+                  key={c.id}
+                  onDoubleClick={() => setDetailRow(c)}
+                  style={{ cursor: 'pointer' }}
+                  title="Double-click to view challan details"
+                >
                   <td>{formatDate(c.date)}</td>
                   <td>{c.challan_no}</td>
                   <td>{c.dealer_name}</td>
@@ -296,10 +301,7 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.salesman}</td>
                   <td>{c.battery_maker}</td><td>{c.battery_no1}</td><td>{c.battery_no2}</td><td>{c.battery_no3}</td><td>{c.battery_no4}</td>
                   <td>{c.remarks1}</td><td>{c.remarks2}</td>
-                  <td style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn" onClick={(e) => { e.stopPropagation(); setDetailRow(c); }}>View</button>
-                    <button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Preview</button>
-                  </td>
+                  <td></td>
                 </tr>
               ))}
             </tbody>
@@ -413,8 +415,9 @@ export function DeliveryChallanRegisterPage() {
               <Field label="Remarks 1" value={detailRow.remarks1 || '—'} readOnly />
               <Field label="Remarks 2" value={detailRow.remarks2 || '—'} readOnly />
             </div>
-            <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>
+            <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn" onClick={() => setDetailRow(null)}>Close</button>
+              <button className="btn primary" onClick={() => setPrintId(detailRow.id)}>Preview PDF</button>
             </div>
           </div>
         </div>
