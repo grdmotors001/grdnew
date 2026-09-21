@@ -2443,6 +2443,11 @@ def loan_workflow_create():
 def loan_workflow_assign_fe(row_id):
     _ensure_loan_workflow_tables()
     row = LoanWorkflow.query.get_or_404(row_id)
+    actor = _workflow_user()
+    actor_dept = (getattr(actor, "department", "") or "").strip().lower() if actor else ""
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if not payload.get("is_super_user") and actor_dept != "admin":
+        return _err("Admin access required to assign FE", 403)
     data = request.get_json(silent=True) or {}
     fe_id = data.get("fe_user_id")
     fe = User.query.get(fe_id) if fe_id else None
