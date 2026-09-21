@@ -204,67 +204,31 @@ export function BatteryWithdrawalPage() {
 
 
 export function BatteryDeliveryChallanPage() {
-  const [data, setData] = useState(null);
-  const [dealers, setDealers] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ date: today(), qty: 1 });
-  const { busy, error, setError, run } = useAsyncAction();
-
-  const load = () => get('/battery-delivery-challans').then(setData).catch((e) => setError(e.message));
-  useEffect(() => { load(); get('/dealers').then((d) => setDealers(d.dealers)); }, []);
-
-  const openNew = () => { setForm({ date: today(), qty: 1, challan_no: data?.suggested_challan_no || '' }); setOpen(true); };
-  const save = (e) => { e.preventDefault(); run(async () => { await post('/battery-delivery-challans', form); setOpen(false); load(); }); };
-  const remove = (id) => { if (!confirm('Delete this record?')) return; run(async () => { await del(`/battery-delivery-challans/${id}`); load(); }); };
-
-  if (!data) return <div className="card">Loading…</div>;
-  return (
-    <>
-      <div className="actions" style={{ marginBottom: 14 }}>
-        <button className="btn primary" onClick={openNew}>+ New Battery Delivery Challan</button>
-      </div>
-      <ErrorBanner message={!open ? error : ''} />
-      {data.records.length === 0 ? <EmptyState /> : (
-        <div className="tablewrap">
-          <table className="table">
-            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Battery Maker</th><th>Battery No.</th><th>Qty</th><th></th></tr></thead>
-            <tbody>
-              {data.records.map((r) => (
-                <tr key={r.id}>
-                  <td>{formatDate(r.date)}</td><td>{r.challan_no}</td><td>{r.dealer_name}</td>
-                  <td>{r.battery_maker}</td><td>{r.battery_no}</td><td>{r.qty}</td>
-                  <td><button className="btn danger" onClick={() => remove(r.id)}>Delete</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {open && (
-        <div className="modal">
-          <form className="modalbox" onSubmit={save}>
-            <h2>New Battery Delivery Challan</h2>
-            <ErrorBanner message={error} />
-            <div className="formgrid">
-              <Field label="Challan No." value={form.challan_no} onChange={(v) => setForm({ ...form, challan_no: v })} />
-              <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
-              <Field label="Dealer" type="select" value={form.dealer_id}
-                     options={dealers.map((d) => ({ value: d.id, label: d.name }))}
-                     onChange={(v) => setForm({ ...form, dealer_id: Number(v) })} required />
-              <Field label="Battery Maker" value={form.battery_maker} onChange={(v) => setForm({ ...form, battery_maker: v })} />
-              <Field label="Battery No." value={form.battery_no} onChange={(v) => setForm({ ...form, battery_no: v })} />
-              <Field label="Qty" type="number" value={form.qty} onChange={(v) => setForm({ ...form, qty: v })} />
-              <Field label="Remarks" value={form.remarks} onChange={(v) => setForm({ ...form, remarks: v })} />
-            </div>
-            <div className="actions" style={{ marginTop: 18 }}>
-              <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
-              <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-            </div>
-          </form>
-        </div>
-      )}
-    </>
-  );
+  const [data,setData]=useState(null),[dealers,setDealers]=useState([]),[makers,setMakers]=useState([]),[open,setOpen]=useState(false);
+  const [form,setForm]=useState({date:today(),qty:1,battery_numbers:['']});
+  const {busy,error,setError,run}=useAsyncAction();
+  const load=()=>get('/battery-delivery-challans').then(setData).catch(e=>setError(e.message));
+  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[]));get('/masters/battery-maker').then(d=>setMakers(d||[])).catch(()=>{});},[]);
+  const openNew=()=>{setForm({date:today(),qty:1,challan_no:data?.suggested_challan_no||'',dealer_id:'',battery_maker:'',battery_numbers:[''],remarks:''});setOpen(true)};
+  const setQty=(v)=>{const qty=Math.max(1,Number(v)||1);setForm(f=>({...f,qty,battery_numbers:Array.from({length:qty},(_,i)=>f.battery_numbers?.[i]||'')}))};
+  const setNo=(i,v)=>setForm(f=>({...f,battery_numbers:f.battery_numbers.map((x,n)=>n===i?v:x)}));
+  const save=e=>{e.preventDefault();run(async()=>{await post('/battery-delivery-challans',form);setOpen(false);load()})};
+  const remove=id=>{if(!confirm('Delete this record?'))return;run(async()=>{await del('/battery-delivery-challans/'+id);load()})};
+  if(!data)return <div className="card">Loading…</div>;
+  return <>
+    <div className="actions" style={{marginBottom:14}}><button className="btn primary" onClick={openNew}>+ New Battery Delivery Challan</button></div>
+    <ErrorBanner message={!open?error:''}/>
+    {!data.records.length?<EmptyState/>:<div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Battery Maker</th><th>Battery No.</th><th>Qty</th><th></th></tr></thead><tbody>{data.records.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.challan_no}</td><td>{r.dealer_name}</td><td>{r.battery_maker}</td><td>{r.battery_no}</td><td>{r.qty}</td><td><button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td></tr>)}</tbody></table></div>}
+    {open&&<div className="modal"><form className="modalbox" onSubmit={save} style={{maxWidth:760}}><h2>New Battery Delivery Challan</h2><ErrorBanner message={error}/><div className="formgrid">
+      <Field label="Challan No." value={form.challan_no} onChange={v=>setForm({...form,challan_no:v})}/><Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+      <Field label="Dealer" type="select" value={form.dealer_id} options={dealers.map(d=>({value:d.id,label:d.name}))} onChange={v=>setForm({...form,dealer_id:Number(v)})} required/>
+      <Field label="Battery Maker" type="select" value={form.battery_maker} options={makers.map(m=>({value:m.name,label:m.name}))} onChange={v=>setForm({...form,battery_maker:v})} required/>
+      <Field label="Qty" type="number" value={form.qty} onChange={setQty} required/>
+    </div>
+    <div style={{marginTop:12}}><b>Battery No. ({form.qty})</b><div className="formgrid" style={{marginTop:8}}>{form.battery_numbers.map((n,i)=><Field key={i} label={`Battery No. ${i+1}`} value={n} onChange={v=>setNo(i,v)} required/>)}</div></div>
+    <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
+    <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save'}</button></div></form></div>}
+  </>;
 }
 
 export function JournalStockPage() {
