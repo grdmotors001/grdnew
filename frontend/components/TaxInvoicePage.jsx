@@ -308,10 +308,12 @@ export function TaxInvoicePage() {
 
             <div className="tiStepBody">
               {step === 0 && (
-                <div className="actions" style={{margin:'10px 0'}}>
-          <input className="input" placeholder="Search DO No." value={loanSearch} onChange={e=>searchPendingLoans(e.target.value)} style={{maxWidth:320}} />
-          <span className="muted">Approved / Pending for Bill loans</span>
-        </div><div className="formgrid">
+                <>
+                  <div className="actions" style={{margin:'10px 0'}}>
+                    <input className="input" placeholder="Search DO No." value={loanSearch} onChange={e=>searchPendingLoans(e.target.value)} style={{maxWidth:320}} />
+                    <span className="muted">Approved / Pending for Bill loans</span>
+                  </div>
+                  <div className="formgrid">
                   <Field label="Customer Name" value={form.buyer_name} onChange={(v) => setForm({ ...form, buyer_name: v })} required />
                   <Field label="Buyer Relation" value={form.buyer_relation} onChange={(v) => setForm({ ...form, buyer_relation: v })} />
                   <Field label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={(v) => setForm({ ...form, buyer_father_name: v })} />
@@ -337,7 +339,8 @@ export function TaxInvoicePage() {
                   <Field label="CVR No." value={form.cvr_no} onChange={(v) => setForm({ ...form, cvr_no: v })} />
                   <Field label="Cancelled Cheque No." value={form.cancelled_cheque_no} onChange={(v) => setForm({ ...form, cancelled_cheque_no: v })} />
                   <Field label="Remarks" value={form.remarks} onChange={(v) => setForm({ ...form, remarks: v })} />
-                </div>
+                  </div>
+                </>
               )}
 
               {step === 1 && (
