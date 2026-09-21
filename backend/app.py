@@ -3756,10 +3756,16 @@ def billing_pending_chfpl():
     q = ChfplBillingQueue.query.filter_by(billing_status="PENDING_BILL").order_by(ChfplBillingQueue.id.desc())
     do_no = (request.args.get("do_no") or "").strip().lower()
     rows = q.all()
+    workflow_map = {
+        x.application_no: x.do_no
+        for x in LoanWorkflow.query.filter(LoanWorkflow.application_no.in_([r.application_no for r in rows])).all()
+    } if rows else {}
     if do_no:
-        rows = [r for r in rows if do_no in str(getattr(r, "application_no", "")).lower() or do_no in str(getattr(r, "chfpl_id", "")).lower()]
+        rows = [r for r in rows if do_no in str(workflow_map.get(r.application_no) or "").lower()
+                or do_no in str(r.application_no or "").lower()
+                or do_no in str(r.chfpl_id or "").lower()]
     return jsonify({"loans": [{
-        "id": r.id, "application_no": r.application_no, "do_no": getattr(r, "do_no", None),
+        "id": r.id, "application_no": r.application_no, "do_no": workflow_map.get(r.application_no),
         "dealer_name": r.dealer_name, "customer_name": r.customer_name,
         "customer_phone": r.customer_phone, "vehicle_model_name": r.vehicle_model_name,
         "loan_amount": r.loan_amount or 0, "tenure_months": r.tenure_months,
