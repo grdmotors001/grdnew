@@ -9,6 +9,7 @@ import { DealerNewLoanForm } from './DealerNewLoanForm';
 import { DealerPaymentPage } from './DealerPaymentPage';
 import { DealerCashReceiptPage } from './DealerCashReceiptPage';
 import { CashAtDealerPage } from './CashAtDealerPage';
+import { ExpensePaymentVoucherPage } from './ExpensePaymentVoucherPage';
 import { DealerCustomerInvoicePage } from './DealerCustomerInvoicePage';
 import { DealerLedgerPage } from './DealerLedgerPage';
 import { DealerPendingSalesPage } from './DealerPendingSalesPage';
@@ -16,7 +17,7 @@ import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock']]},
   {label:'Record', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['seized-vehicles','Seized Vehicle']]},
-  {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports']]},
+  {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports'],['all-expenses','All Expenses']]},
   {label:'Daybook', items:[['cashbook','Cashbook'],['receipt-create','Receipt Create'],['expenses-create','Expenses Create'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
   {label:'Battery Adjustment', items:[['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
@@ -164,6 +165,7 @@ export function DealerPortal({ dealer, onLogout }) {
           {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
         </div>
         {tab==='cashbook' && canCashBook && <DealerCashBook/>}
+        {tab==='all-expenses' && canCashBook && <DealerAllExpenses/>}
         {tab==='receipt-create' && canCashBook && <DealerCashReceiptPage dealer={dealer}/>}
         {tab==='cash-handover' && canCashBook && <CashAtDealerPage/>}
         {tab==='delivery' && canDelivery && <DealerDelivery onBack={() => setTab('dashboard')}/>}
@@ -281,4 +283,15 @@ function DealerOldRickshawSales({dealer,onBack}){
  const open=r=>{setEdit(r);setForm({sale_amount:r.sale_amount||'',file_charge:r.file_charge||'',loan_amount:r.loan_amount||'',down_payment:r.down_payment||'',sale_customer:r.sale_customer||'',sale_mobile:r.sale_mobile||'',sold_at:new Date().toISOString().slice(0,10)})};
  const save=async()=>{try{await post('/billing/old-rickshaw-challans/'+edit.id+'/sale',form);setEdit(null);load()}catch(e){setError(e.message)}};
  return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Old Rickshaw Sale</h2><p className="muted">Aapke naam ke Factory Old Rickshaw Challans.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<div className="tablewrap"><table className="table"><thead><tr><th>Challan</th><th>Model</th><th>Vehicle No.</th><th>Colour</th><th>Status</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.challan_no}</td><td>{r.model_name}</td><td>{r.vehicle_no}</td><td>{r.colour||'—'}</td><td>{r.status}</td><td><button className="btn primary" onClick={()=>open(r)}>Enter Sale Data</button></td></tr>)}{!rows.length&&<tr><td colSpan="6">No pending Old Rickshaw challans.</td></tr>}</tbody></table></div></div>{edit&&<div className="modal"><div className="modalbox"><h2>Sale Data — {edit.challan_no}</h2><div className="formgrid"><label>Sale Amount<input type="number" value={form.sale_amount} onChange={e=>setForm({...form,sale_amount:e.target.value})} /></label><label>File Charge<input type="number" value={form.file_charge} onChange={e=>setForm({...form,file_charge:e.target.value})} /></label><label>Loan Amount<input type="number" value={form.loan_amount} onChange={e=>setForm({...form,loan_amount:e.target.value})} /></label><label>Down Payment<input type="number" value={form.down_payment} onChange={e=>setForm({...form,down_payment:e.target.value})} /></label><label>Customer Name<input value={form.sale_customer} onChange={e=>setForm({...form,sale_customer:e.target.value})} /></label><label>Mobile<input value={form.sale_mobile} onChange={e=>setForm({...form,sale_mobile:e.target.value})} /></label></div><div className="actions"><button className="btn" onClick={()=>setEdit(null)}>Cancel</button><button className="btn primary" onClick={save}>Save</button></div></div></div>}</div>
+}
+
+function DealerAllExpenses(){
+  const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[search,setSearch]=useState('');
+  useEffect(()=>{get('/expense-payment-voucher').then(r=>setRows(r.vouchers||[])).catch(e=>setError(e.message||'Could not load expenses')).finally(()=>setLoading(false))},[]);
+  const q=search.trim().toLowerCase();
+  const filtered=rows.filter(r=>[r.date,r.voucher_no,r.expense_type_name,r.pay_to_name,r.chassis_no,r.work_model_name].join(' ').toLowerCase().includes(q));
+  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>All Expenses</h3><p>All expense / work payment vouchers</p></div><input className="input dealerSearch" placeholder="Search expense, voucher, customer/chassis…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+    {error&&<div className="error">{error}</div>}{loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Expense</th><th>Pay To</th><th>Chassis / Booking</th><th>Amount</th><th>Status</th><th>Payment</th></tr></thead><tbody>
+      {filtered.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.voucher_no}</b></td><td>{r.expense_type_name}</td><td>{r.pay_to_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>₹ {Number(r.amount||0).toLocaleString('en-IN')}</td><td>{r.status}</td><td>{r.payment_status}</td></tr>)}{!filtered.length&&<tr><td colSpan="8" className="muted">No expenses found.</td></tr>}</tbody></table></div>}
+  </div></div>
 }
