@@ -79,10 +79,13 @@ def _ensure_cashbook_schema():
     """Keep the dealer receipt table compatible with the live database."""
     try:
         db.create_all()
+        db.create_all()
         cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
-        if "dealer_register_page_no" not in cols:
-            with db.engine.begin() as conn:
+        with db.engine.begin() as conn:
+            if "dealer_register_page_no" not in cols:
                 conn.execute(text("ALTER TABLE dealer_cash_receipt ADD COLUMN dealer_register_page_no VARCHAR(40)"))
+            if "customer_id" not in cols:
+                conn.execute(text("ALTER TABLE dealer_cash_receipt ADD COLUMN customer_id INTEGER"))
     except Exception as exc:
         # Do not hide the real request error if schema repair is unavailable.
         print(f"[cash-book] schema check failed: {exc}")
