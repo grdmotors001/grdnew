@@ -931,6 +931,54 @@ class ExpensePaymentVoucher(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class RepairServiceVoucher(db.Model):
+    """Factory repair/service job voucher. GST is intentionally not applicable."""
+    id = db.Column(db.Integer, primary_key=True)
+    voucher_no = db.Column(db.String(30), unique=True, index=True)
+    date = db.Column(db.Date, nullable=False)
+    customer_name = db.Column(db.String(200), nullable=False)
+    customer_mobile = db.Column(db.String(30))
+    vehicle_no = db.Column(db.String(60))
+    chassis_no = db.Column(db.String(60))
+    subtotal = db.Column(db.Float, default=0)
+    gst_amount = db.Column(db.Float, default=0)
+    total_amount = db.Column(db.Float, default=0)
+    paid_amount = db.Column(db.Float, default=0)
+    payment_status = db.Column(db.String(20), default="unpaid", index=True)
+    status = db.Column(db.String(20), default="open", index=True)
+    remarks = db.Column(db.String(500))
+    created_by = db.Column(db.String(120))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    items = db.relationship("RepairServiceItem", backref="voucher",
+                            cascade="all, delete-orphan", order_by="RepairServiceItem.id")
+
+class RepairServiceItem(db.Model):
+    """Item/part/service line used in a repair/service voucher. No GST."""
+    id = db.Column(db.Integer, primary_key=True)
+    voucher_id = db.Column(db.Integer, db.ForeignKey("repair_service_voucher.id"), nullable=False, index=True)
+    item_name = db.Column(db.String(200), nullable=False)
+    qty = db.Column(db.Float, default=1)
+    rate = db.Column(db.Float, default=0)
+    amount = db.Column(db.Float, default=0)
+    unit = db.Column(db.String(20), default="PCS")
+
+class RepairServicePaymentReceipt(db.Model):
+    """Payment receipt against a repair/service voucher."""
+    id = db.Column(db.Integer, primary_key=True)
+    receipt_no = db.Column(db.String(30), unique=True, index=True)
+    date = db.Column(db.Date, nullable=False)
+    voucher_id = db.Column(db.Integer, db.ForeignKey("repair_service_voucher.id"), index=True)
+    customer_name = db.Column(db.String(200), nullable=False)
+    customer_mobile = db.Column(db.String(30))
+    amount = db.Column(db.Float, nullable=False, default=0)
+    payment_mode = db.Column(db.String(20), default="cash")
+    reference_no = db.Column(db.String(100))
+    remarks = db.Column(db.String(500))
+    created_by = db.Column(db.String(120))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    voucher = db.relationship("RepairServiceVoucher", backref=db.backref("receipts", lazy=True))
+
 class DealerPayment(db.Model):
     """Dealer online payment intent/receipt. allocation_json stores challan/invoice allocations."""
     id = db.Column(db.Integer, primary_key=True)
