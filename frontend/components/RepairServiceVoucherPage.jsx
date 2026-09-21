@@ -10,6 +10,7 @@ export function RepairServiceVoucherPage(){
   const [rows,setRows]=useState([]);
   const [rawItems,setRawItems]=useState([]);
   const [vehicles,setVehicles]=useState([]);
+  const [vehicleSearch,setVehicleSearch]=useState('');
   const [receipts,setReceipts]=useState([]);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
@@ -23,7 +24,7 @@ export function RepairServiceVoucherPage(){
 
   const load=async()=>{
     try{
-      const [v,r]=await Promise.all([
+      const [v,r,m]=await Promise.all([
         get('/repair-service-vouchers'+(filter?'?status='+filter:'')),
         get('/repair-service-receipts'),
         get('/repair-service-masters')
@@ -39,10 +40,21 @@ export function RepairServiceVoucherPage(){
   const addItem=()=>setForm(x=>({...x,items:[...x.items,{item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]}));
   const removeItem=i=>setForm(x=>({...x,items:x.items.length>1?x.items.filter((_,n)=>n!==i):x.items}));
   const total=useMemo(()=>form.items.reduce((s,x)=>s+Number(x.qty||0)*Number(x.rate||0),0),[form.items]);
-  const selectVehicle=(id)=>{
-    if(id==='NEW'){ setForm(x=>({...x,vehicle_id:'',vehicle_no:'',chassis_no:''})); return; }
-    const v=vehicles.find(x=>String(x.vehicle_id)===String(id));
-    if(v)setForm(x=>({...x,vehicle_id:String(v.vehicle_id),vehicle_no:v.vehicle_no||'',chassis_no:v.chassis_no||'',customer_name:v.customer_name||x.customer_name,customer_mobile:v.customer_mobile||x.customer_mobile}));
+  const lookupVehicle=async(value)=>{
+    const no=(value||'').trim();
+    setVehicleSearch(no);
+    set('vehicle_no',no);
+    if(!no){ setForm(x=>({...x,vehicle_id:'',chassis_no:'',customer_name:'',customer_mobile:''})); return; }
+    try{
+      const m=await get('/repair-service-masters?vehicle_no='+encodeURIComponent(no));
+      const v=(m.vehicles||[])[0];
+      if(v){
+        setForm(x=>({...x,vehicle_id:String(v.vehicle_id),vehicle_no:v.vehicle_no||no,chassis_no:v.chassis_no||'',customer_name:v.customer_name||'',customer_mobile:v.customer_mobile||''}));
+        setVehicles(m.vehicles||[]);
+      }else{
+        setForm(x=>({...x,vehicle_id:'',vehicle_no:no,chassis_no:'',customer_name:'',customer_mobile:''}));
+      }
+    }catch(e){setError(e.message||'Vehicle lookup failed')}
   };
 
   async function saveVoucher(e){
@@ -89,16 +101,10 @@ export function RepairServiceVoucherPage(){
       <h2>New Repair / Service Voucher</h2>
       <div className="grid">
         <input className="input" type="date" value={form.date} onChange={e=>set('date',e.target.value)} required/>
+        <input className="input" placeholder="Vehicle No." value={vehicleSearch||form.vehicle_no} onChange={e=>setVehicleSearch(e.target.value)} onBlur={e=>lookupVehicle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();lookupVehicle(e.currentTarget.value)}}} required/>
         <input className="input" placeholder="Customer Name" value={form.customer_name} onChange={e=>set('customer_name',e.target.value)} required/>
         <input className="input" placeholder="Mobile No." value={form.customer_mobile} onChange={e=>set('customer_mobile',e.target.value)}/>
-        <div>
-          <select className="input" value={form.vehicle_id||'NEW'} onChange={e=>selectVehicle(e.target.value)}>
-            <option value="NEW">New Vehicle / Manual Entry</option>
-            {vehicles.map(v=><option key={v.vehicle_id} value={v.vehicle_id}>{v.vehicle_no||'No Reg. No.'} — {v.chassis_no||'No Chassis'} — {v.customer_name||'Customer'}</option>)}
-          </select>
-          {(!form.vehicle_id||form.vehicle_id==='')&&<input className="input" style={{marginTop:6}} placeholder="Vehicle No. (New)" value={form.vehicle_no} onChange={e=>set('vehicle_no',e.target.value)}/>}
-        </div>
-        <input className="input" placeholder="Chassis No." value={form.chassis_no} onChange={e=>set('chassis_no',e.target.value)}/>
+        <input className="input" placeholder="Chassis No." value={form.chassis_no} onChange={e=>set('chassis_no',e.target.value)} />
         <input className="input" placeholder="Remarks" value={form.remarks} onChange={e=>set('remarks',e.target.value)}/>
       </div>
 
