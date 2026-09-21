@@ -194,6 +194,7 @@ export function DealerPage() {
                     ['purchase-portal','Purchases / Customer Invoice'],
                     ['cashbook','Cash Book'],
                     ['loan-status','Loan Status'],
+                    ['old-rickshaw-sales','Old Rickshaw Sale'],
                   ].map(([key,label])=><label key={key} style={{display:'inline-flex',alignItems:'center',gap:6}}>
                     <input type="checkbox" checked={(form.portal_modules||[]).includes(key)} onChange={e=>{
                       const a=new Set(form.portal_modules||[]); e.target.checked?a.add(key):a.delete(key); setForm({...form,portal_modules:[...a]});
