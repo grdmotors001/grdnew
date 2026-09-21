@@ -29,9 +29,14 @@ export const MENU = {
     ['battery-swap', 'Battery Swap / Exchange Voucher'],
     ['battery-withdrawal', 'Battery Withdrawal'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
-    ['journal-stock', 'Journal Stock'],
-    ['expense-payment-voucher', 'Expense Payment Voucher'],
     ['repair-service-voucher', 'Repair & Service Voucher'],
+  ],
+  Expenses: [
+    ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['cash-at-dealer', 'Cash at Dealer'],
+    ['dealer-cash-receipt', 'Dealer Cash Receipt'],
+    ['insurance-rto', 'Insurance / RTO Expense'],
+    ['day-book', 'Day Book'],
   ],
   Stock: [
     ['closing-stock-premises', 'Closing Stock - Premises'],
