@@ -22,6 +22,7 @@ import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import { InsuranceRtoRegisterPage } from '../components/InsuranceRtoRegisterPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { VahanInventoryPage } from '../components/VahanInventoryPage';
+import { OldRickshawChallanPage } from '../components/OldRickshawChallanPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
 import {
@@ -64,6 +65,7 @@ const CUSTOM_PAGES = {
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
+  'old-rickshaw-challan': () => <OldRickshawChallanPage />,
   'closing-stock-premises': () => <ClosingStockPremisesPage />,
   'closing-stock-dealers': () => <ClosingStockDealersPage />,
   'closing-stock-raw': () => <ClosingStockRawPage />,
