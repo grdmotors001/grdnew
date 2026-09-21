@@ -4136,11 +4136,21 @@ def billing_old_rickshaw_challans():
     rows=q.order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).limit(500).all()
     return jsonify({"challans":[ser_old_rickshaw_challan(r) for r in rows]})
 
+@app.get("/api/dealer/old-rickshaw-challans")
+@require_dealer_auth
+def dealer_old_rickshaw_challans():
+    _ensure_old_rickshaw_challan_table()
+    rows=OldRickshawChallan.query.filter(OldRickshawChallan.dealer_id==g.current_dealer_id).order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).limit(200).all()
+    return jsonify({"challans":[ser_old_rickshaw_challan(r) for r in rows]})
+
 @app.post("/api/billing/old-rickshaw-challans/<int:row_id>/sale")
-@require_auth
+@require_auth_or_dealer
 def billing_old_rickshaw_challan_sale(row_id):
     _ensure_old_rickshaw_challan_table()
     row=OldRickshawChallan.query.get_or_404(row_id)
+    payload=getattr(g,"current_user_payload",{}) or {}
+    if payload.get("scope")=="dealer" and (not row.dealer_id or int(row.dealer_id)!=int(payload.get("dealer_id") or 0)):
+        return _err("This challan is not assigned to your dealer.",403)
     d=request.get_json(silent=True) or {}
     row.sale_amount=_f(d.get("sale_amount"))
     row.file_charge=_f(d.get("file_charge"))
