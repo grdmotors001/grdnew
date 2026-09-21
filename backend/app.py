@@ -611,7 +611,7 @@ EXPENSE_TYPES = [
     {"id":"office_exp","name":"Office Expense"},{"id":"misc_exp","name":"Misc Expense"},
     {"id":"stationery","name":"Stationery"},{"id":"printer","name":"Printer"},
     {"id":"computer_repair","name":"Computer Repair"},{"id":"cleaning","name":"Cleaning"},
-    {"id":"passing_exp","name":"Passing Expense"},{"id":"incentive","name":"Incentive"},{"id":"insurance","name":"Insurance"},{"id":"rto_expense","name":"RTO Expense"},
+    {"id":"passing_exp","name":"Passing Expense"},{"id":"commission","name":"Commission"},{"id":"incentive","name":"Incentive"},{"id":"insurance","name":"Insurance"},{"id":"rto_expense","name":"RTO Expense"},
     {"id":"fabrication","name":"Fabrication Work"},{"id":"assembly","name":"Assembly Work"},
     {"id":"other","name":"Other"},
 ]
@@ -732,6 +732,38 @@ def expense_incentive_register():
     return jsonify({"rows":[_expense_voucher_dict(v) for v in rows],
                     "total":round(sum(float(v.amount or 0) for v in rows),2)})
 
+@app.get("/api/expense-payment-voucher/booking-pending")
+@require_auth
+def expense_booking_pending():
+    expense_type=(request.args.get("expense_type") or "commission").strip().lower()
+    if expense_type not in {"commission","incentive"}: return _err("Unsupported booking expense type")
+    used=db.session.query(ExpensePaymentVoucher.vehicle_id).filter(
+        ExpensePaymentVoucher.expense_type==expense_type,
+        ExpensePaymentVoucher.vehicle_id.isnot(None),
+        ExpensePaymentVoucher.status!="rejected").subquery()
+    latest_invoice=db.session.query(
+        TaxInvoice.vehicle_id.label("vehicle_id"),
+        db.func.max(TaxInvoice.id).label("invoice_id")
+    ).filter(TaxInvoice.cancelled.is_(False),TaxInvoice.vehicle_id.isnot(None)).group_by(TaxInvoice.vehicle_id).subquery()
+    q=(db.session.query(DeliveryChallan,TaxInvoice)
+       .outerjoin(latest_invoice,latest_invoice.c.vehicle_id==DeliveryChallan.vehicle_id)
+       .outerjoin(TaxInvoice,TaxInvoice.id==latest_invoice.c.invoice_id)
+       .filter(DeliveryChallan.cancelled.is_(False),
+               DeliveryChallan.vehicle_id.isnot(None),
+               TaxInvoice.id.isnot(None),
+               ~DeliveryChallan.vehicle_id.in_(used))
+       .order_by(TaxInvoice.date.desc(),TaxInvoice.id.desc()))
+    dealer_id=request.args.get("dealer_id",type=int)
+    if dealer_id:q=q.filter(DeliveryChallan.dealer_id==dealer_id)
+    rows=q.limit(1000).all()
+    return jsonify({"rows":[
+        {"vehicle_id":dc.vehicle_id,"date":_iso(ti.date if ti else dc.date),
+         "dealer_id":dc.dealer_id,"dealer_name":dc.dealer.name if dc.dealer else None,
+         "model":dc.product_name,"chassis_no":dc.chassis_no,
+         "customer":ti.buyer_name if ti else None,"mobile_no":ti.buyer_mobile if ti else None,
+         "bill_no":ti.bill_no if ti else None,"value_amt":ti.sale_amount if ti else dc.sale_value or 0}
+        for dc,ti in rows]})
+
 @app.get("/api/expense-payment-voucher/masters")
 @require_auth
 def expense_payment_voucher_masters():
@@ -840,6 +872,36 @@ def expense_payment_voucher():
 
     # Assembly: select multiple rickshaws; create one work-payment row per rickshaw
     # so each chassis has its own paid/unpaid state.
+    if et=="commission":
+        raw_ids=d.get("vehicle_ids") if isinstance(d.get("vehicle_ids"),list) else []
+        if not raw_ids and d.get("vehicle_id"): raw_ids=[d.get("vehicle_id")]
+        if not raw_ids:return _err("Select at least one booking/customer")
+        amount=_f(d.get("amount"),0)
+        if amount<=0:return _err("Enter commission amount per booking")
+        clean=[]
+        for raw_id in raw_ids:
+            try:vid=int(raw_id)
+            except (TypeError,ValueError):return _err("Invalid booking selection")
+            if vid not in clean:clean.append(vid)
+        existing={x[0] for x in db.session.query(ExpensePaymentVoucher.vehicle_id).filter(
+            ExpensePaymentVoucher.expense_type=="commission",
+            ExpensePaymentVoucher.vehicle_id.in_(clean),
+            ExpensePaymentVoucher.status!="rejected").all()}
+        if existing:return _err("Some selected bookings already have a Commission voucher.")
+        created=[]
+        for vid in clean:
+            dc=DeliveryChallan.query.filter_by(vehicle_id=vid,cancelled=False).order_by(DeliveryChallan.id.desc()).first()
+            if not dc:return _err(f"Selected booking vehicle {vid} was not found")
+            voucher=ExpensePaymentVoucher(date=date_value,pay_to_type=pt,pay_to_name=pn,
+                dealer_id=dc.dealer_id,staff_name=(d.get("staff_name") or "").strip() or None,
+                expense_type=et,vehicle_id=vid,chassis_no=dc.chassis_no,payment_mode=pm,amount=round(amount,2),
+                bill_no=(d.get("bill_no") or "").strip() or None,
+                attachment_url=(d.get("attachment_url") or "").strip() or None,
+                remarks=common_remarks,status="pending",created_by=created_by)
+            db.session.add(voucher);db.session.flush();voucher.voucher_no=f"EXP-{voucher.id:06d}";created.append(voucher)
+        db.session.commit()
+        return jsonify({"success":True,"count":len(created),"vouchers":[_expense_voucher_dict(v) for v in created]}),201
+
     if et=="assembly":
         mechanic=(d.get("staff_name") or "").strip()
         if not mechanic:return _err("Select Assembler / Mechanic")
@@ -5385,6 +5447,24 @@ def production_register():
                     .add_columns(Vehicle.stage)
                     .order_by(ProductionVoucher.date.asc(), ProductionVoucher.id.asc())
                     .offset((page-1)*per_page).limit(per_page).all())
+    def _attach_expenses(out):
+        vehicle_ids=[x["vehicle_id"] for x in out if x.get("vehicle_id")]
+        if not vehicle_ids:return out
+        rows=(ExpensePaymentVoucher.query
+              .filter(ExpensePaymentVoucher.vehicle_id.in_(vehicle_ids),
+                      ExpensePaymentVoucher.status!="rejected")
+              .order_by(ExpensePaymentVoucher.date.asc(),ExpensePaymentVoucher.id.asc()).all())
+        by_vehicle={}
+        for e in rows:
+            by_vehicle.setdefault(e.vehicle_id,[]).append(e)
+        for row in out:
+            items=by_vehicle.get(row.get("vehicle_id"),[])
+            row["expense_total"]=round(sum(float(e.amount or 0) for e in items),2)
+            row["expense_details"]=[{"type":next((x["name"] for x in EXPENSE_TYPES if x["id"]==e.expense_type),e.expense_type),
+                                     "amount":e.amount or 0,"voucher_no":e.voucher_no or "","date":_iso(e.date)}
+                                    for e in items]
+        return out
+
     if request.args.get("export") == "csv":
         voucher_rows = (query
                         .add_columns(Vehicle.stage)
@@ -5672,7 +5752,8 @@ def payment_receivable_report():
                 "chassis_record": ti.chassis_record_no, "ledger": ti.ledger_no,
                 "voucher_no": ti.voucher_no, "cheque_no": ti.cancelled_cheque_no,
                 "vehicle_no": ti.vehicle_reg_no, "salesman": salesman,
-                "incentive_amount": 0, "incentive_voucher_no": "", "incentive_date": None}
+                "incentive_amount": 0, "incentive_voucher_no": "", "incentive_date": None,
+                "expense_total": 0, "expense_details": []}
 
     def _attach_incentives(out):
         vehicle_ids=[x["vehicle_id"] for x in out if x.get("vehicle_id")]
@@ -5696,23 +5777,23 @@ def payment_receivable_report():
 
     if request.args.get("export") == "csv":
         rows = base.order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc()).all()
-        out = _attach_incentives([_row_dict(ti, sm) for ti, sm in rows])
+        out = _attach_expenses(_attach_incentives([_row_dict(ti, sm) for ti, sm in rows]))
         headers = ["Date", "Dealer Name", "Bill No.", "Model", "Chassis No.", "Other", "Customer",
                    "Mobile No.", "Value Amt.", "Loan Amt.", "Amt. Recd.", "Balance", "Financer", "RTO",
                    "Chassis Record", "Ledger", "Voucher No.", "Cheque No.", "Vehicle No.", "Salesman",
-                   "Incentive Amount", "Incentive Voucher No.", "Incentive Date"]
+                   "Incentive Amount", "Incentive Voucher No.", "Incentive Date", "All Expenses", "Expense Details"]
         out_rows = [[d["date"], d["dealer_name"], d["bill_no"], d["model"], d["chassis_no"], d["other"],
                      d["customer"], d["mobile_no"], d["value_amt"], d["loan_amt"], d["amt_recd"],
                      d["balance"], d["financer"], d["rto"], d["chassis_record"], d["ledger"],
                      d["voucher_no"], d["cheque_no"], d["vehicle_no"], d["salesman"],
-                     d["incentive_amount"], d["incentive_voucher_no"], d["incentive_date"]]
+                     d["incentive_amount"], d["incentive_voucher_no"], d["incentive_date"], d["expense_total"], "; ".join(f'{x["type"]}: {x["amount"]}' for x in d["expense_details"])] ]
                     for d in out]
         return _csv_response("Payment_Receivable_Report.csv", headers, out_rows)
 
     total = base.count()
     page_rows = (base.order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc())
                  .offset((page - 1) * per_page).limit(per_page).all())
-    out = _attach_incentives([_row_dict(ti, sm) for ti, sm in page_rows])
+    out = _attach_expenses(_attach_incentives([_row_dict(ti, sm) for ti, sm in page_rows]))
 
     value_sum, loan_sum, recd_sum, balance_sum = base.with_entities(
         db.func.coalesce(db.func.sum(TaxInvoice.sale_amount), 0),
