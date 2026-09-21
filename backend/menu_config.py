@@ -49,8 +49,9 @@ MENU = {
         {"key": "battery-swap",            "label": "G1. Battery Swap / Exchange Voucher", "kind": "custom"},
         {"key": "battery-withdrawal",      "label": "G2. Battery Withdrawal",             "kind": "custom"},
         {"key": "battery-delivery-challan","label": "H. Battery Delivery Challan",       "kind": "custom"},
-        {"key": "repair-service-voucher", "label": "J3. Repair & Service Voucher",       "kind": "custom"},
-        {"key": "dealer-cash-receipt",    "label": "J1. Dealer Cash Receipt",              "kind": "custom"},
+
+    ],
+    "Sales & Billing": [
         {"key": "billing-pending-sales", "label": "J2. Pending Bills / Billing",          "kind": "custom"},
     ],
     "Expenses": [
