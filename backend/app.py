@@ -732,6 +732,86 @@ def expense_incentive_register():
     return jsonify({"rows":[_expense_voucher_dict(v) for v in rows],
                     "total":round(sum(float(v.amount or 0) for v in rows),2)})
 
+@app.get("/api/dealer/incentive-record")
+@require_dealer_auth
+def dealer_incentive_record():
+    """Showroom-only incentive status for all billed vehicles belonging to this dealer.
+    Includes paid, pending-payment, and not-yet-recorded rows so the showroom can
+    see which customer/rickshaw incentive has been received and which remains."""
+    dealer_id = getattr(g, "current_dealer_id", None)
+    dealer = Dealer.query.get(dealer_id) if dealer_id else None
+    if not dealer:
+        return _err("Dealer not found", 404)
+    if (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return _err("Showroom access required", 403)
+
+    latest_invoice = db.session.query(
+        TaxInvoice.vehicle_id.label("vehicle_id"),
+        db.func.max(TaxInvoice.id).label("invoice_id")
+    ).filter(
+        TaxInvoice.cancelled.is_(False),
+        TaxInvoice.vehicle_id.isnot(None)
+    ).group_by(TaxInvoice.vehicle_id).subquery()
+
+    rows = (db.session.query(DeliveryChallan, TaxInvoice)
+            .outerjoin(latest_invoice, latest_invoice.c.vehicle_id == DeliveryChallan.vehicle_id)
+            .outerjoin(TaxInvoice, TaxInvoice.id == latest_invoice.c.invoice_id)
+            .filter(
+                DeliveryChallan.dealer_id == dealer_id,
+                DeliveryChallan.cancelled.is_(False),
+                DeliveryChallan.vehicle_id.isnot(None),
+                TaxInvoice.id.isnot(None)
+            )
+            .order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc())
+            .limit(1000).all())
+
+    vouchers = (ExpensePaymentVoucher.query
+                .filter(
+                    ExpensePaymentVoucher.dealer_id == dealer_id,
+                    ExpensePaymentVoucher.expense_type == "incentive",
+                    ExpensePaymentVoucher.status != "rejected"
+                )
+                .order_by(ExpensePaymentVoucher.date.desc(), ExpensePaymentVoucher.id.desc())
+                .all())
+    voucher_by_vehicle = {}
+    for v in vouchers:
+        if v.vehicle_id is not None and v.vehicle_id not in voucher_by_vehicle:
+            voucher_by_vehicle[v.vehicle_id] = v
+
+    result = []
+    for dc, ti in rows:
+        v = voucher_by_vehicle.get(dc.vehicle_id)
+        result.append({
+            "vehicle_id": dc.vehicle_id,
+            "date": _iso(ti.date if ti else dc.date),
+            "bill_no": (ti.bill_no if ti else None) or dc.sale_bill_no,
+            "model": dc.product_name,
+            "chassis_no": dc.chassis_no,
+            "customer": ti.buyer_name if ti else None,
+            "mobile_no": ti.buyer_mobile if ti else None,
+            "vehicle_no": ti.vehicle_reg_no if ti else None,
+            "incentive_amount": float(v.amount or 0) if v else 0,
+            "voucher_no": v.voucher_no if v else None,
+            "paid_date": _iso(v.paid_at.date()) if v and v.paid_at else None,
+            "status": "Paid" if v and v.paid_at else ("Pending Payment" if v else "Not Recorded"),
+        })
+    paid = [x for x in result if x["status"] == "Paid"]
+    pending = [x for x in result if x["status"] == "Pending Payment"]
+    not_recorded = [x for x in result if x["status"] == "Not Recorded"]
+    return jsonify({
+        "dealer_id": dealer.id,
+        "dealer_name": dealer.name,
+        "rows": result,
+        "summary": {
+            "total": len(result),
+            "paid": len(paid),
+            "pending": len(pending),
+            "not_recorded": len(not_recorded),
+            "paid_amount": round(sum(x["incentive_amount"] for x in paid), 2),
+            "pending_amount": round(sum(x["incentive_amount"] for x in pending), 2),
+        }
+    })
+
 @app.get("/api/expense-payment-voucher/booking-pending")
 @require_auth
 def expense_booking_pending():
@@ -1405,15 +1485,16 @@ def _ensure_auth_columns():
                 return
             columns = {c["name"] for c in inspector.get_columns("user")}
             additions = {
-                # These columns were added after the first GRD staff database
-                # was created. User ORM queries select the complete row, so a
-                # missing one causes PostgreSQL to return a 500 before the
-                # username/password check can even run.
-                "department": 'VARCHAR(30)',
-                "assigned_dealer_ids": 'TEXT',
-                "mobile": 'VARCHAR(30)',
+                # Keep every mapped User column present. Older production
+                # schemas may predate one or more staff-auth fields, and
+                # User.query selects the complete row.
+                "password_hash": 'VARCHAR(255)',
+                "is_super_user": 'BOOLEAN DEFAULT FALSE',
                 "permissions": 'VARCHAR(50)',
                 "allowed_modules": 'TEXT',
+                "department": 'VARCHAR(30) DEFAULT \'Admin\'',
+                "assigned_dealer_ids": 'TEXT',
+                "mobile": 'VARCHAR(30)',
             }
             for name, sql_type in additions.items():
                 if name not in columns:
