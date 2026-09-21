@@ -199,6 +199,29 @@ class ChfplBillingQueue(db.Model):
 
     dealer = db.relationship("Dealer")
 
+class OldRickshawChallan(db.Model):
+    """Factory challan for seized/old rickshaw stock before resale billing."""
+    id = db.Column(db.Integer, primary_key=True)
+    challan_no = db.Column(db.String(50), unique=True, index=True)
+    date = db.Column(db.Date, nullable=False)
+    model_name = db.Column(db.String(200))
+    vehicle_no = db.Column(db.String(60))
+    colour = db.Column(db.String(100))
+    toolkit = db.Column(db.String(100))
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+    source = db.Column(db.String(30), default="chfpl")
+    source_ref = db.Column(db.String(100))
+    status = db.Column(db.String(30), default="PENDING_SALE", index=True)
+    sale_amount = db.Column(db.Float, default=0)
+    file_charge = db.Column(db.Float, default=0)
+    loan_amount = db.Column(db.Float, default=0)
+    down_payment = db.Column(db.Float, default=0)
+    sale_customer = db.Column(db.String(200))
+    sale_mobile = db.Column(db.String(40))
+    sold_at = db.Column(db.Date)
+    created_at = db.Column(db.DateTime, default=dt.utcnow)
+    dealer = db.relationship("Dealer")
+
 class ManualPendingBill(db.Model):
     """Manual cash sale entered by Head Office Billing. No customer master is
     created for these sales; the bill stays pending until Billing processes it."""
