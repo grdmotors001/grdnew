@@ -1,12 +1,15 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, post } from '../lib/api';
+import { get, post, downloadBlob } from '../lib/api';
 import { Money, Field, ErrorBanner } from './ui';
 
 export function BillingPendingSalesPage(){
   const [rows,setRows]=useState([]),[manual,setManual]=useState([]),[dealers,setDealers]=useState([]),[approvedLoans,setApprovedLoans]=useState([]);
   const [form,setForm]=useState({dealer_id:'',date:new Date().toISOString().slice(0,10),chassis_no:'',sale_amount:'',remarks:''});
   const [loading,setLoading]=useState(true),[error,setError]=useState(''),[saving,setSaving]=useState(false),[usingLoan,setUsingLoan]=useState('');
+  const [billingTab,setBillingTab]=useState('pending');
+  const [inventory,setInventory]=useState([]),[inventorySelected,setInventorySelected]=useState(new Set());
+  const [invFrom,setInvFrom]=useState(''),[invTo,setInvTo]=useState(''),[invName,setInvName]=useState('');
 
   const load=async()=>{
     setLoading(true);setError('');
@@ -15,7 +18,14 @@ export function BillingPendingSalesPage(){
       setRows(a.applications||[]);setManual(m.bills||[]);setDealers(d.dealers||[]);setApprovedLoans(l.applications||[]);
     }catch(e){setError(e.message)}finally{setLoading(false)}
   };
+  const loadInventory=async()=>{
+    try{
+      const p=new URLSearchParams(); if(invFrom)p.set('from_date',invFrom); if(invTo)p.set('to_date',invTo); if(invName)p.set('name',invName);
+      const r=await get('/billing/vehicle-inventory?'+p.toString()); setInventory(r.vehicles||[]); setInventorySelected(new Set());
+    }catch(e){setError(e.message)}
+  };
   useEffect(()=>{load()},[]);
+  useEffect(()=>{if(billingTab==='inventory')loadInventory()},[billingTab]);
 
   const useApprovedLoan=async applicationNo=>{
     if(!confirm('Use this approved CHFPL loan for GRD Pending Bill? It will be consumed here and hidden from this list.'))return;
@@ -34,10 +44,35 @@ export function BillingPendingSalesPage(){
   };
   const approveManual=async id=>{if(!confirm('Approve this manual cash bill?'))return;try{await post('/billing/manual-pending-bills/'+id+'/approve',{});load()}catch(e){setError(e.message)}};
 
+  const toggleInventory=id=>setInventorySelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n});
+  const selectAllInventory=()=>setInventorySelected(inventorySelected.size===inventory.length?new Set():new Set(inventory.map(x=>x.id)));
+  const downloadSelectedTxt=async()=>{try{if(!inventorySelected.size)return setError('Select at least one vehicle.');await downloadBlob('/billing/vehicle-inventory/download-txt',{invoice_ids:[...inventorySelected]},'VahanInventoryTXT.zip')}catch(e){setError(e.message)}};
+
   return <div className="page">
     <div className="pageHeader"><div><h2>Pending Bills / Billing</h2><p className="muted">Loan billing aur cash sales dono pehle Pending Bill me aayenge.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
     <ErrorBanner message={error}/>
+    <div className="actions" style={{marginBottom:14}}>
+      <button className={billingTab==='pending'?'btn primary':'btn'} onClick={()=>setBillingTab('pending')}>Pending Billing</button>
+      <button className={billingTab==='inventory'?'btn primary':'btn'} onClick={()=>setBillingTab('inventory')}>Vahan Inventory</button>
+    </div>
 
+    {billingTab==='inventory' ? <div className="card">
+      <div className="actions" style={{marginBottom:12}}>
+        <Field label="From Date" type="date" value={invFrom} onChange={setInvFrom}/>
+        <Field label="To Date" type="date" value={invTo} onChange={setInvTo}/>
+        <Field label="Name Filter" value={invName} onChange={setInvName} placeholder="Customer / Model"/>
+        <button className="btn primary" onClick={loadInventory}>Search</button>
+        <button className="btn" onClick={()=>{setInvFrom('');setInvTo('');setInvName('');setTimeout(loadInventory,0)}}>Clear</button>
+        <button className="btn" disabled={!inventorySelected.size} onClick={downloadSelectedTxt}>Download Text File ({inventorySelected.size})</button>
+      </div>
+      <div className="tablewrap"><table className="table"><thead><tr>
+        <th><input type="checkbox" checked={inventory.length>0&&inventorySelected.size===inventory.length} onChange={selectAllInventory}/></th>
+        <th>Date</th><th>Customer</th><th>Model</th><th>Chassis No.</th><th>Motor No.</th><th>UMRN</th><th>Manufacturing</th><th>Colour Code</th>
+      </tr></thead><tbody>{inventory.map(r=><tr key={r.id}>
+        <td><input type="checkbox" checked={inventorySelected.has(r.id)} onChange={()=>toggleInventory(r.id)}/></td>
+        <td>{r.date}</td><td>{r.customer_name||'—'}</td><td>{r.model_name||'—'}</td><td><b>{r.chassis_no||'—'}</b></td><td>{r.motor_no||'—'}</td><td>{r.umrn||'—'}</td><td>{r.manufacturing_month||'—'}</td><td>{r.colour_code||'—'}</td>
+      </tr>)}{!inventory.length&&<tr><td colSpan="9" className="muted">No vehicle records found.</td></tr>}</tbody></table></div>
+    </div> : <>
     <div className="card" style={{marginBottom:14}}>
       <h3 style={{marginTop:0}}>Manual Cash Sale → Pending Bill</h3>
       <p className="muted">Cash me rickshaw sale hone par customer master create nahi hoga. Billing department yahan manual entry karega.</p>
