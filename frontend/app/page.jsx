@@ -38,6 +38,7 @@ import { PlaceholderPage } from '../components/PlaceholderPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
 import { BalanceSheetPage, ProfitLossPage } from '../components/FinancialReportsPage';
+import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { SIMPLE_MASTERS } from '../lib/menu';
 
 const CUSTOM_PAGES = {
@@ -72,6 +73,7 @@ const CUSTOM_PAGES = {
   'closing-stock-raw': () => <ClosingStockRawPage />,
   'stock-ledger-premises': () => <StockLedgerPremisesPage />,
   'stock-ledger-dealers': () => <StockLedgerDealersPage />,
+  'loan-workflow': (ctx) => <LoanWorkflowPage user={ctx.user} />,
   'purchase-register': () => <PurchaseRegisterPage />,
   'production-register': () => <ProductionRegisterPage />,
   'delivery-challan-register': () => <DeliveryChallanRegisterPage />,
@@ -95,7 +97,7 @@ function PageRouter({ active, setActive, optionUserId, setOptionUserId, user }) 
   if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
   if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} />;
   const render = CUSTOM_PAGES[active];
-  if (render) return render({ setActive, optionUserId, setOptionUserId });
+  if (render) return render({ setActive, optionUserId, setOptionUserId, user });
   return <PlaceholderPage label={active} />;
 }
 
