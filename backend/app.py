@@ -46,7 +46,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
                      DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem,
-                     OldRickshaw, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt)
+                     OldRickshaw, OldRickshawChallan, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_auth_or_dealer, require_super_user, _serializer
 from hr_attendance import hr_bp
@@ -2697,6 +2697,20 @@ def _ensure_dealer_category_column():
     except Exception as exc:
         print(f"[dealer-category] schema check failed: {exc}")
 
+def _ensure_old_rickshaw_challan_table():
+    try:
+        OldRickshawChallan.__table__.create(db.engine, checkfirst=True)
+    except Exception as exc:
+        print(f"[old-rickshaw-challan] schema check failed: {exc}")
+
+def ser_old_rickshaw_challan(r):
+    return {"id":r.id,"challan_no":r.challan_no,"date":_iso(r.date),"model_name":r.model_name,
+            "vehicle_no":r.vehicle_no,"colour":r.colour,"toolkit":r.toolkit,"dealer_id":r.dealer_id,
+            "dealer_name":r.dealer.name if r.dealer else None,"source":r.source,"source_ref":r.source_ref,
+            "status":r.status,"sale_amount":r.sale_amount,"file_charge":r.file_charge,
+            "loan_amount":r.loan_amount,"down_payment":r.down_payment,
+            "sale_customer":r.sale_customer,"sale_mobile":r.sale_mobile,"sold_at":_iso(r.sold_at)}
+
 def _ensure_manual_pending_bill_table():
     try:
         ManualPendingBill.__table__.create(db.engine, checkfirst=True)
@@ -4092,6 +4106,52 @@ def old_rickshaw_delete(record_id):
     db.session.delete(rec);db.session.commit()
     return jsonify({"deleted":True})
 
+
+@app.route("/api/factory/old-rickshaw-challans", methods=["GET","POST"])
+@require_auth
+def factory_old_rickshaw_challans():
+    _ensure_old_rickshaw_challan_table()
+    if request.method=="GET":
+        rows=OldRickshawChallan.query.order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).limit(500).all()
+        return jsonify({"challans":[ser_old_rickshaw_challan(r) for r in rows],
+                        "suggested_challan_no":f"ORC{(db.session.query(db.func.max(OldRickshawChallan.id)).scalar() or 0)+1001}"})
+    d=request.get_json(silent=True) or {}
+    challan_no=(d.get("challan_no") or "").strip()
+    if not challan_no:return _err("Challan No. is required.")
+    if OldRickshawChallan.query.filter_by(challan_no=challan_no).first():return _err("Challan No. already exists.",409)
+    row=OldRickshawChallan(challan_no=challan_no,date=_parse_date(d.get("date")) or date.today(),
+        model_name=(d.get("model_name") or "").strip(),vehicle_no=(d.get("vehicle_no") or "").strip(),
+        colour=(d.get("colour") or "").strip(),toolkit=(d.get("toolkit") or "").strip(),
+        dealer_id=_i(d.get("dealer_id"),0) or None,source=(d.get("source") or "manual").strip(),
+        source_ref=(d.get("source_ref") or "").strip(),status="PENDING_SALE")
+    if row.dealer_id and not Dealer.query.get(row.dealer_id): return _err("Dealer not found.",404)
+    db.session.add(row);db.session.commit()
+    return jsonify(ser_old_rickshaw_challan(row)),201
+
+@app.get("/api/billing/old-rickshaw-challans")
+@require_auth
+def billing_old_rickshaw_challans():
+    _ensure_old_rickshaw_challan_table()
+    q=OldRickshawChallan.query.filter(OldRickshawChallan.status=="PENDING_SALE")
+    rows=q.order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).limit(500).all()
+    return jsonify({"challans":[ser_old_rickshaw_challan(r) for r in rows]})
+
+@app.post("/api/billing/old-rickshaw-challans/<int:row_id>/sale")
+@require_auth
+def billing_old_rickshaw_challan_sale(row_id):
+    _ensure_old_rickshaw_challan_table()
+    row=OldRickshawChallan.query.get_or_404(row_id)
+    d=request.get_json(silent=True) or {}
+    row.sale_amount=_f(d.get("sale_amount"))
+    row.file_charge=_f(d.get("file_charge"))
+    row.loan_amount=_f(d.get("loan_amount"))
+    row.down_payment=_f(d.get("down_payment"))
+    row.sale_customer=(d.get("sale_customer") or "").strip() or None
+    row.sale_mobile=(d.get("sale_mobile") or "").strip() or None
+    row.sold_at=_parse_date(d.get("sold_at")) or date.today()
+    row.status="SOLD_PENDING_INVOICE"
+    db.session.commit()
+    return jsonify(ser_old_rickshaw_challan(row))
 
 @app.post("/api/old-rickshaws/sale")
 @require_auth
