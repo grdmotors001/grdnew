@@ -900,6 +900,7 @@ export function DayBookPage() {
   const [data,setData]=useState(null);
   const [selectedDate,setSelectedDate]=useState(new Date().toISOString().slice(0,10));
   const [dealers,setDealers]=useState([]);
+  const [banks,setBanks]=useState([]);
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState({});
   const [error,setError]=useState('');
