@@ -137,6 +137,21 @@ def cash_customers():
     dealer = Dealer.query.get(g.current_dealer_id)
     if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
         return jsonify({"error":"Customer Register is available only for showroom/branch accounts."}),403
+    # Backfill customer records from older receipts created before the register existed.
+    legacy = DealerCashReceipt.query.filter_by(dealer_id=g.current_dealer_id, customer_id=None).order_by(DealerCashReceipt.id.asc()).all()
+    for r in legacy:
+        customer = None
+        if r.customer_phone:
+            customer = DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id, phone=r.customer_phone).first()
+        if not customer:
+            customer = DealerCashCustomer(dealer_id=g.current_dealer_id, full_name=r.customer_name, phone=r.customer_phone, page_no=r.dealer_register_page_no)
+            db.session.add(customer)
+            db.session.flush()
+        elif r.dealer_register_page_no and not customer.page_no:
+            customer.page_no = r.dealer_register_page_no
+        r.customer_id = customer.id
+    if legacy:
+        db.session.commit()
     q = str(request.args.get("q") or "").strip().lower()
     rows = DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id).order_by(DealerCashCustomer.id.desc()).all()
     if q:
