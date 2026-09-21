@@ -1381,16 +1381,23 @@ def _ensure_dealer_login_columns():
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
-    _ensure_auth_columns()
-    data = request.get_json(silent=True) or {}
-    userid = (data.get("userid") or "").strip()
-    password = data.get("password") or ""
-    user = User.query.filter_by(username=userid).first()
-    if not user:
-        user = User.query.filter_by(mobile=userid).first()
-    if not user or not user.check_password(password):
-        return _err("Invalid Username/Mobile or Password.", 401)
-    return jsonify({"otp_required": True, "otp_token": issue_pending_token(user), "user": ser_user(user)})
+    try:
+        schema_error = _ensure_auth_columns()
+        if schema_error:
+            return _err(f"Staff login database setup failed: {schema_error}", 500)
+        data = request.get_json(silent=True) or {}
+        userid = (data.get("userid") or "").strip()
+        password = data.get("password") or ""
+        user = User.query.filter_by(username=userid).first()
+        if not user:
+            user = User.query.filter_by(mobile=userid).first()
+        if not user or not user.check_password(password):
+            return _err("Invalid Username/Mobile or Password.", 401)
+        return jsonify({"otp_required": True, "otp_token": issue_pending_token(user), "user": ser_user(user)})
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[staff-login] {type(exc).__name__}: {exc}")
+        return _err(f"Staff login failed: {type(exc).__name__}: {exc}", 500)
 
 
 @app.route("/api/auth/verify-otp", methods=["POST"])
@@ -1413,25 +1420,32 @@ def verify_otp():
 
 @app.route("/api/auth/dealer-login", methods=["POST"])
 def dealer_login():
-    _ensure_dealer_login_columns()
-    data = request.get_json(silent=True) or {}
-    login_id = (data.get("userid") or "").strip()
-    password = data.get("password") or ""
-    dealer = Dealer.query.filter_by(login_id=login_id).first()
-    if not dealer or dealer.blocked:
-        return _err("Dealer login is blocked or not found.", 401)
-    if not dealer.check_password(password):
-        return _err("Invalid Dealer ID or Password.", 401)
-    token = issue_dealer_token(dealer)
-    return jsonify({
-        "token": token,
-        "dealer": {
-            "id": dealer.id, "code": dealer.code, "name": dealer.name,
-            "login_id": dealer.login_id,
-            "purchase_access": bool(dealer.purchase_access),
-            "portal_modules": [x for x in (dealer.portal_modules or "").split(",") if x],
-        },
-    })
+    try:
+        schema_error = _ensure_dealer_login_columns()
+        if schema_error:
+            return _err(f"Dealer login database setup failed: {schema_error}", 500)
+        data = request.get_json(silent=True) or {}
+        login_id = (data.get("userid") or "").strip()
+        password = data.get("password") or ""
+        dealer = Dealer.query.filter_by(login_id=login_id).first()
+        if not dealer or dealer.blocked:
+            return _err("Dealer login is blocked or not found.", 401)
+        if not dealer.check_password(password):
+            return _err("Invalid Dealer ID or Password.", 401)
+        token = issue_dealer_token(dealer)
+        return jsonify({
+            "token": token,
+            "dealer": {
+                "id": dealer.id, "code": dealer.code, "name": dealer.name,
+                "login_id": dealer.login_id,
+                "purchase_access": bool(dealer.purchase_access),
+                "portal_modules": [x for x in (dealer.portal_modules or "").split(",") if x],
+            },
+        })
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[dealer-login] {type(exc).__name__}: {exc}")
+        return _err(f"Dealer login failed: {type(exc).__name__}: {exc}", 500)
 
 
 @app.route("/api/dealer/me")
