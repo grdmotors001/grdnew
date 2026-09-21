@@ -1610,8 +1610,10 @@ def dealer_old_rickshaws():
 @app.route("/api/dealer/battery-stock")
 @require_dealer_auth
 def dealer_battery_stock():
-    rows=(BatteryStockMovement.query.filter_by(dealer_id=g.current_dealer_id,movement_type="withdrawal")
-          .order_by(BatteryStockMovement.date.desc(),BatteryStockMovement.id.desc()).all())
+    rows=(BatteryStockMovement.query.filter(
+        BatteryStockMovement.dealer_id==g.current_dealer_id,
+        BatteryStockMovement.movement_type.in_(["withdrawal","delivery"]))
+        .order_by(BatteryStockMovement.date.desc(),BatteryStockMovement.id.desc()).all())
     # Battery numbers are unique inventory units; later movement types can be
     # added without changing the dealer-facing response.
     return jsonify({"batteries":[{"id":r.id,"date":_iso(r.date),"battery_maker":r.battery_maker,
@@ -4445,11 +4447,25 @@ def battery_delivery_challans():
         dealer_id = data.get("dealer_id")
         if not dealer_id:
             return _err("Dealer is required.")
+        qty=_i(data.get("qty"), 1)
+        numbers=data.get("battery_numbers") if isinstance(data.get("battery_numbers"),list) else []
+        numbers=[str(x).strip() for x in numbers if str(x).strip()]
+        if qty<=0:return _err("Qty must be greater than zero.")
+        if len(numbers)!=qty:return _err(f"Enter exactly {qty} Battery No. values.")
+        maker=(data.get("battery_maker") or "").strip()
+        if not maker:return _err("Battery Maker is required.")
+        if len(set(n.upper() for n in numbers))!=len(numbers):return _err("Battery No. must be unique in this challan.")
         rec = BatteryDeliveryChallan(
             challan_no=data.get("challan_no"), date=_parse_date(data.get("date")) or date.today(),
-            dealer_id=dealer_id, battery_maker=data.get("battery_maker"),
-            battery_no=data.get("battery_no"), qty=_i(data.get("qty"), 1), remarks=data.get("remarks"))
+            dealer_id=dealer_id, battery_maker=maker,
+            battery_no=",".join(numbers), qty=qty, remarks=data.get("remarks"))
         db.session.add(rec)
+        db.session.flush()
+        for number in numbers:
+            db.session.add(BatteryStockMovement(
+                date=rec.date, dealer_id=dealer_id, battery_maker=maker, battery_no=number,
+                qty=1, movement_type="delivery", source_type="battery_challan", source_id=rec.id,
+                reference_no=rec.challan_no, remarks=rec.remarks))
         db.session.commit()
         return jsonify(ser_battery_dc(rec)), 201
 
@@ -4464,6 +4480,7 @@ def battery_delivery_challans():
 @require_auth
 def battery_delivery_challan_delete(record_id):
     rec = BatteryDeliveryChallan.query.get_or_404(record_id)
+    BatteryStockMovement.query.filter_by(source_type="battery_challan",source_id=rec.id,movement_type="delivery").delete(synchronize_session=False)
     db.session.delete(rec)
     db.session.commit()
     return jsonify({"deleted": True})
