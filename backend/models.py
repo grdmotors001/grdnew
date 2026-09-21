@@ -219,7 +219,7 @@ class OldRickshawChallan(db.Model):
     sale_customer = db.Column(db.String(200))
     sale_mobile = db.Column(db.String(40))
     sold_at = db.Column(db.Date)
-    created_at = db.Column(db.DateTime, default=dt.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     dealer = db.relationship("Dealer")
 
 class ManualPendingBill(db.Model):
