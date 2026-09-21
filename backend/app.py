@@ -4047,6 +4047,29 @@ def _old_sale_to_dealer(rec, data):
     return dealer
 
 
+@app.route("/api/factory/old-rickshaw-challans", methods=["GET","POST"])
+@require_auth
+def factory_old_rickshaw_challans():
+    OldRickshawChallan.__table__.create(db.engine, checkfirst=True)
+    if request.method=="POST":
+        d=request.get_json(silent=True) or {}
+        challan=(d.get("challan_no") or "").strip()
+        if not challan:return _err("Challan No. is required.")
+        if OldRickshawChallan.query.filter_by(challan_no=challan).first():return _err("Challan No. already exists.",409)
+        rec=OldRickshawChallan(challan_no=challan,date=_parse_date(d.get("date")) or date.today(),
+            model_name=d.get("model_name"),vehicle_no=d.get("vehicle_no"),colour=d.get("colour"),
+            toolkit=d.get("toolkit"),dealer_id=_i(d.get("dealer_id"),0) or None,
+            source=d.get("source") or "manual",source_ref=d.get("source_ref"),
+            status="PENDING_SALE")
+        db.session.add(rec);db.session.commit()
+        return jsonify({"id":rec.id,"challan_no":rec.challan_no}),201
+    rows=OldRickshawChallan.query.order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).all()
+    next_no=(db.session.query(db.func.max(OldRickshawChallan.id)).scalar() or 0)+1
+    return jsonify({"suggested_challan_no":f"ORC{next_no+1000}","challans":[
+        {"id":x.id,"challan_no":x.challan_no,"date":_iso(x.date),"model_name":x.model_name,"vehicle_no":x.vehicle_no,
+         "colour":x.colour,"toolkit":x.toolkit,"dealer_id":x.dealer_id,"dealer_name":x.dealer.name if x.dealer else None,
+         "source":x.source,"source_ref":x.source_ref,"status":x.status} for x in rows]})
+
 @app.route("/api/old-rickshaws", methods=["GET", "POST"])
 @require_auth
 def old_rickshaws():
