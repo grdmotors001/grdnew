@@ -47,6 +47,7 @@ MENU = {
         {"key": "battery-swap",            "label": "G1. Battery Swap / Exchange Voucher", "kind": "custom"},
         {"key": "battery-withdrawal",      "label": "G2. Battery Withdrawal",             "kind": "custom"},
         {"key": "battery-delivery-challan","label": "H. Battery Delivery Challan",       "kind": "custom"},
+        {"key": "battery-addition",          "label": "H1. Battery Addition to Rickshaw", "kind": "custom"},
 
     ],
     "Sales & Billing": [
