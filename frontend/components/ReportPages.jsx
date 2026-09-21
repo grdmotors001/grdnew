@@ -282,9 +282,9 @@ export function DeliveryChallanRegisterPage() {
               {rows.map((c) => (
                 <tr
                   key={c.id}
-                  onDoubleClick={() => setDetailRow(c)}
+                  onDoubleClick={() => setPrintId(c.id)}
                   style={{ cursor: 'pointer' }}
-                  title="Double-click to view challan details"
+                  title="Double-click to print challan"
                 >
                   <td>{formatDate(c.date)}</td>
                   <td>{c.challan_no}</td>
@@ -417,7 +417,6 @@ export function DeliveryChallanRegisterPage() {
             </div>
             <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn" onClick={() => setDetailRow(null)}>Close</button>
-              <button className="btn primary" onClick={() => setPrintId(detailRow.id)}>Preview PDF</button>
             </div>
           </div>
         </div>
