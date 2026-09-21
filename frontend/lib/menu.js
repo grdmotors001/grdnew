@@ -106,7 +106,7 @@ export const NAV_GROUPS = {
     ['company', 'Company Details'], ['user', 'User Master'], ['hr-attendance', 'Attendance & Salary'],
   ],
   Reports: [
-    ['loan-workflow', 'Loan Workflow / Status'], ['purchase-register', 'Purchase Register'],
+['purchase-register', 'Purchase Register'],
     ['delivery-challan-register', 'Delivery Challan Register'], ['sale-register', 'Sale Register'],
     ['payment-receivable-report', 'Payment Receivable'], ['hypothecation-register', 'Hypothecation Register'],
     ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
