@@ -49,7 +49,6 @@ MENU = {
         {"key": "battery-swap",            "label": "G1. Battery Swap / Exchange Voucher", "kind": "custom"},
         {"key": "battery-withdrawal",      "label": "G2. Battery Withdrawal",             "kind": "custom"},
         {"key": "battery-delivery-challan","label": "H. Battery Delivery Challan",       "kind": "custom"},
-        {"key": "journal-stock",          "label": "I. Journal Stock",                   "kind": "custom"},
         {"key": "repair-service-voucher", "label": "J3. Repair & Service Voucher",       "kind": "custom"},
         {"key": "dealer-cash-receipt",    "label": "J1. Dealer Cash Receipt",              "kind": "custom"},
         {"key": "billing-pending-sales", "label": "J2. Pending Bills / Billing",          "kind": "custom"},
@@ -61,7 +60,19 @@ MENU = {
         {"key": "insurance-rto",           "label": "Insurance / RTO Expense",             "kind": "custom"},
         {"key": "day-book",               "label": "Day Book",                             "kind": "custom"},
     ],
+    "Factory": [
+        {"key": "journal-stock",          "label": "I. Journal Stock",                   "kind": "custom"},
+        {"key": "repair-service-voucher", "label": "J3. Repair & Service Voucher",       "kind": "custom"},
+    ],
+    "Expenses": [
+        {"key": "expense-payment-voucher","label": "J. Expense Payment Voucher",           "kind": "custom"},
+        {"key": "cash-at-dealer",         "label": "Cash at Dealer",                       "kind": "custom"},
+        {"key": "dealer-cash-receipt",    "label": "Dealer Cash Receipt",                  "kind": "custom"},
+        {"key": "insurance-rto",           "label": "Insurance / RTO Expense",             "kind": "custom"},
+        {"key": "day-book",               "label": "Day Book",                             "kind": "custom"},
+    ],
     "Stock": [
+        {"key": "vahan-inventory",         "label": "Vahan Inventory",                     "kind": "custom"},
         {"key": "closing-stock-premises",   "label": "J. Closing Stock - E-Rickshaw at Premises", "kind": "custom"},
         {"key": "closing-stock-dealers",    "label": "K. Closing Stock - E-Rickshaw with Dealers", "kind": "custom"},
         {"key": "closing-stock-raw",        "label": "L. Closing Stock - Raw Material",           "kind": "custom"},
