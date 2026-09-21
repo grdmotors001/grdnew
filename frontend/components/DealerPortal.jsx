@@ -22,6 +22,7 @@ const nav = [
   ['ledger', '▤', 'Ledger'],
   ['pending-sales', '▤', 'Pending Sales'],
   ['loan-status', '✓', 'Loan Status'],
+  ['seized-vehicles', '⚠', 'Seized Vehicles'],
   ['battery-withdrawal', '↘', 'Battery Withdrawal'],
   ['battery-swap', '⇄', 'Battery Swap / Exchange'],
   ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
@@ -34,6 +35,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const [challans, setChallans] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [loans, setLoans] = useState([]);
+  const [seizedVehicles, setSeizedVehicles] = useState([]);
   const [tab, setTab] = useState('dashboard');
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -54,6 +56,9 @@ export function DealerPortal({ dealer, onLogout }) {
     get('/dealer/loan-status')
       .then((l) => setLoans(l.applications || []))
       .catch(() => setLoans([]));
+    get('/dealer/seized-vehicles')
+      .then((r) => setSeizedVehicles(r.vehicles || []))
+      .catch(() => setSeizedVehicles([]));
   }, []);
 
   const q = search.trim().toLowerCase();
@@ -121,6 +126,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
         {tab==='loan-status' && <DealerLoanStatusTable rows={loans}/>}
+        {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
       </>}
     </main>
   </div>;
