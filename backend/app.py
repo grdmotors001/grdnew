@@ -2453,9 +2453,18 @@ def billing_showroom_delivery_update(delivery_id):
                 db.func.lower(DealerCustomerDelivery.do_no) == do_no.lower()
             ).first()
             if conflict: return _err("This DO No. is already assigned to another delivery.",409)
+        previous_do=row.do_no
+        previous_by=row.do_selected_by
         row.do_no=do_no
-        row.do_selected_by="billing" if do_no else None
-        row.do_selected_at=dt.utcnow() if do_no else None
+        if not do_no:
+            row.do_selected_by=None
+            row.do_selected_at=None
+        elif do_no.lower() != str(previous_do or "").strip().lower():
+            row.do_selected_by="billing"
+            row.do_selected_at=dt.utcnow()
+        else:
+            row.do_selected_by=previous_by or "billing"
+            row.do_selected_at=row.do_selected_at or dt.utcnow()
     if "date" in data: row.delivery_date=_parse_date(data.get("date")) or row.delivery_date
     for field in ("sale_amount","loan_amount","down_payment"):
         if field in data: setattr(row,field,_f(data.get(field),getattr(row,field) or 0))
