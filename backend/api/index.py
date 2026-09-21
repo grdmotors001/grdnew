@@ -9,6 +9,8 @@ if BASE_DIR not in sys.path:
 try:
     from app import app
 except Exception as exc:
+    # Keep this handler importable on every Vercel cold start.
+    # The JSON fallback exposes the real startup/import error.
     # Keep the Vercel function importable so the real startup/import error
     # is returned as JSON instead of Vercel's generic "could not import api/index.py".
     from flask import Flask, jsonify
