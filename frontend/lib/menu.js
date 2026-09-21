@@ -16,7 +16,7 @@ export const MENU = {
     ['production-formula', 'Production Formula'],
     ['mechanic', 'Mechanic Master'],
     ['user', 'User Master'],
-    ['option-setting', 'User wise Option Setting'],
+    ['option-setting', 'User wise Option Setting'], ['expense-head', 'Expense Head'],
     ['bank', 'Bank Details'],
     ['colour', 'Colour Master'],
   ],
@@ -32,11 +32,8 @@ export const MENU = {
     ['repair-service-voucher', 'Repair & Service Voucher'],
   ],
   Expenses: [
-    ['expense-payment-voucher', 'Expense Payment Voucher'],
-    ['cash-at-dealer', 'Cash at Dealer'],
     ['dealer-cash-receipt', 'Dealer Cash Receipt'],
     ['insurance-rto', 'Insurance / RTO Expense'],
-    ['day-book', 'Day Book'],
   ],
   Stock: [
     ['closing-stock-premises', 'Closing Stock - Premises'],
@@ -75,8 +72,8 @@ export const NAV_GROUPS = {
     ['company', 'Company Details'], ['dealer', 'Dealer Master'], ['party', 'Party Master'],
     ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
     ['rto', 'RTO Master'], ['financer', 'Financer Master'], ['production-formula', 'Production Formula'],
-    ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
-    ['user', 'User Master'],
+    ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['expense-head', 'Expense Head'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
+    ['user', 'User Master'], ['expense-head', 'Expense Head'],
   ],
   Factory: [
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
@@ -97,6 +94,9 @@ export const NAV_GROUPS = {
   ],
   Accounts: [
     ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'],
+    ['expense-payment-voucher', 'Expense Payment Voucher'], ['cash-at-dealer', 'Cash at Dealer'], ['day-book', 'Day Book'],
+    ['payment-receivable-report', 'Payment Receivable'], ['hypothecation-register', 'Hypothecation Register'],
+    ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
     ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
   ],
   Inventory: [
