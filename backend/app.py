@@ -3747,23 +3747,54 @@ def delivery_challan_cancel(challan_id):
 # ---------------------------------------------------------------------------
 # Vouchers > F. Tax Invoice — GST split (brief Section 4.1)
 # ---------------------------------------------------------------------------
+@app.get("/api/billing/pending-chfpl")
+@require_auth
+def billing_pending_chfpl():
+    _ensure_chfpl_billing_queue_table()
+    if not _billing_user_allowed():
+        return _err("Billing approval rights required", 403)
+    q = ChfplBillingQueue.query.filter_by(billing_status="PENDING_BILL").order_by(ChfplBillingQueue.id.desc())
+    do_no = (request.args.get("do_no") or "").strip().lower()
+    rows = q.all()
+    if do_no:
+        rows = [r for r in rows if do_no in str(getattr(r, "application_no", "")).lower() or do_no in str(getattr(r, "chfpl_id", "")).lower()]
+    return jsonify({"loans": [{
+        "id": r.id, "application_no": r.application_no, "do_no": getattr(r, "do_no", None),
+        "dealer_name": r.dealer_name, "customer_name": r.customer_name,
+        "customer_phone": r.customer_phone, "vehicle_model_name": r.vehicle_model_name,
+        "loan_amount": r.loan_amount or 0, "tenure_months": r.tenure_months,
+        "chfpl_status": r.chfpl_status
+    } for r in rows]})
+
 @app.route("/api/tax-invoices", methods=["GET", "POST"])
 @require_auth
 def tax_invoices():
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
+        billing_queue_id = _i(data.get("billing_queue_id"), 0)
+        chfpl_bill = None
         challan_id = data.get("challan_id")
-        if not challan_id:
-            return _err("Please choose a Delivery Challan to invoice.")
-        challan = DeliveryChallan.query.get_or_404(challan_id)
+        if billing_queue_id:
+            _ensure_chfpl_billing_queue_table()
+            chfpl_bill = ChfplBillingQueue.query.filter_by(id=billing_queue_id, billing_status="PENDING_BILL").first()
+            if not chfpl_bill:
+                return _err("Pending CHFPL bill not found or already used.", 404)
+        elif not challan_id:
+            return _err("Please choose a Delivery Challan or approved CHFPL loan.")
+        challan = DeliveryChallan.query.get(challan_id) if challan_id else None
+        if challan_id and not challan:
+            return _err("Delivery Challan not found.", 404)
+        if not chfpl_bill and not challan:
+            return _err("Please choose a Delivery Challan or approved CHFPL loan.")
         if challan.cancelled:
             return _err("Cancelled Delivery Challan cannot be invoiced. Create a new Delivery Challan.")
-        if TaxInvoice.query.filter_by(delivery_challan_id=challan.id).first():
+        if challan and TaxInvoice.query.filter_by(delivery_challan_id=challan.id).first():
             return _err("That Delivery Challan already has a Tax Invoice.")
 
-        product = Product.query.filter_by(name=challan.product_name).first()
+        product_name = chfpl_bill.vehicle_model_name if chfpl_bill else challan.product_name
+        product = Product.query.filter_by(name=product_name).first()
         default_gst = product.gst_rate if product else 5
-        buyer_name = data.get("buyer_name") or (challan.dealer.name if challan.dealer else "")
+        buyer_name = data.get("buyer_name") or (chfpl_bill.customer_name if chfpl_bill else (challan.dealer.name if challan.dealer else ""))
 
         bank_name = (data.get("bank_name") or "").strip()
         bank_ifsc_input = (data.get("bank_ifsc") or "").strip()
@@ -3777,19 +3808,19 @@ def tax_invoices():
 
         ti = TaxInvoice(
             bill_no=data.get("bill_no"), date=_parse_date(data.get("date")) or date.today(),
-            delivery_challan_id=challan.id, vehicle_id=challan.vehicle_id,
+            delivery_challan_id=challan.id if challan else None, vehicle_id=challan.vehicle_id if challan else None,
             buyer_name=buyer_name, buyer_relation=data.get("buyer_relation") or "S/o",
             buyer_father_name=data.get("buyer_father_name"), buyer_address=data.get("buyer_address"),
             buyer_gst_no=data.get("buyer_gst_no"), buyer_pan=data.get("buyer_pan"),
             buyer_aadhar=data.get("buyer_aadhar"), buyer_mobile=data.get("buyer_mobile"),
             buyer_state=data.get("buyer_state"), buyer_state_code=data.get("buyer_state_code"),
             state_type=data.get("state_type") or "I", buyer_dob=_parse_date(data.get("buyer_dob")),
-            dealer_name=challan.dealer.name if challan.dealer else None,
-            product_name=challan.product_name, chassis_no=challan.chassis_no,
-            motor_no=challan.motor_no, controller_no=challan.controller_no,
-            other_desc=challan.other, colour=challan.colour,
-            sale_amount=_f(data.get("sale_amount"), challan.sale_value or 0),
-            gst_sale_amount=_f(data.get("gst_sale_amount"), _f(data.get("sale_amount"), challan.sale_value or 0)),
+            dealer_name=chfpl_bill.dealer_name if chfpl_bill else (challan.dealer.name if challan.dealer else None),
+            product_name=product_name, chassis_no=(data.get("chassis_no") or (challan.chassis_no if challan else None)),
+            motor_no=(challan.motor_no if challan else None), controller_no=(challan.controller_no if challan else None),
+            other_desc=(challan.other if challan else None), colour=(challan.colour if challan else None),
+            sale_amount=_f(data.get("sale_amount"), chfpl_bill.loan_amount if chfpl_bill else (challan.sale_value or 0)),
+            gst_sale_amount=_f(data.get("gst_sale_amount"), _f(data.get("sale_amount"), chfpl_bill.loan_amount if chfpl_bill else (challan.sale_value or 0))),
             discount=_f(data.get("discount")), gst_rate=_f(data.get("gst_rate"), default_gst or 5),
             insurance_amount=_f(data.get("insurance_amount")),
             registration_amount=_f(data.get("registration_amount")),
@@ -3807,8 +3838,12 @@ def tax_invoices():
             chassis_record_no=data.get("chassis_record_no"),
         )
         db.session.add(ti)
-        if challan.vehicle:
-            challan.vehicle.stage = "Tax Invoice"    # final pipeline stage
+        if challan and challan.vehicle:
+            challan.vehicle.stage = "Tax Invoice"
+        if chfpl_bill:
+            chfpl_bill.billing_status = "BILLED"
+            chfpl_bill.used_at = dt.utcnow()
+            chfpl_bill.used_by = (getattr(g, "current_user_payload", {}) or {}).get("username")
         db.session.commit()
         return jsonify(ser_ti(ti)), 201
 
