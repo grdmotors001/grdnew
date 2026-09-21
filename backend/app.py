@@ -5486,7 +5486,12 @@ def tax_invoice_upload_code(invoice_id):
     product = Product.query.filter_by(name=ti.product_name).first()
     umrn = (product.umrn_code if product else None) or ""
     colour_code = (ti.vehicle.colour_code if ti.vehicle else None) or ""
-    month_year = ti.date.strftime("%m/%Y") if ti.date else ""
+    # Manufacturing month/year must come from the vehicle/production record,
+    # not the invoice date. Format required by the upload file is MMYYYY.
+    production = ProductionVoucher.query.filter_by(chassis_no=ti.chassis_no).order_by(ProductionVoucher.id.desc()).first()
+    manufacturing_date = (production.date if production and production.date else
+                          (ti.vehicle.date if ti.vehicle else None))
+    month_year = manufacturing_date.strftime("%m%Y") if manufacturing_date else ""
     code = f"{umrn}|{ti.chassis_no or ''}|{ti.motor_no or ''}|{month_year}|R1|{colour_code}|NA"
     filename = f"{(ti.bill_no or 'upload').replace('/', '_')}.TXT"
     return Response(code, mimetype="text/plain",
