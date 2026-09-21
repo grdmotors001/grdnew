@@ -30,6 +30,7 @@ class DealerCashReceipt(db.Model):
     payment_mode = db.Column(db.String(20), nullable=False, default="cash")
     reference_no = db.Column(db.String(80))
     remarks = db.Column(db.String(500))
+    customer_id = db.Column(db.Integer, db.ForeignKey("dealer_cash_customer.id"), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -78,7 +79,6 @@ class DealerCashHandover(db.Model):
 def _ensure_cashbook_schema():
     """Keep the dealer receipt table compatible with the live database."""
     try:
-        db.create_all()
         db.create_all()
         cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
         with db.engine.begin() as conn:
