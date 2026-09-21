@@ -180,7 +180,7 @@ export function BatterySwapVoucherPage() {
 
 export function BatteryWithdrawalPage() {
   const [dealers,setDealers]=useState([]),[rickshaws,setRickshaws]=useState([]),[rows,setRows]=useState([]);
-  const [form,setForm]=useState({date:today(),dealer_id:'',rickshaw_type:'new',rickshaw_id:'',battery_no:'',reference_no:'',remarks:''});
+  const [form,setForm]=useState({date:today(),dealer_id:'',dealer_name:'',rickshaw_type:'new',rickshaw_id:'',battery_no:'',reference_no:'',remarks:''});
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-withdrawal')]);setDealers(d.dealers||[]);setRows(v.records||[]);}catch(e){setError(e.message)}};
   const loadR=async()=>{if(!form.dealer_id){setRickshaws([]);return;}const x=await get('/dealer/rickshaw-battery-options?dealer_id='+form.dealer_id+'&type='+form.rickshaw_type);setRickshaws(x.rickshaws||[]);};
@@ -191,7 +191,7 @@ export function BatteryWithdrawalPage() {
   return <div className="page"><div className="card"><h2>Battery Withdrawal</h2><p className="muted">Rickshaw se battery nikaal kar dealer ke battery stock me aa jayegi.</p><ErrorBanner message={error}/>
     <form onSubmit={save}><div className="formgrid">
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Dealer" type="combo" value={dealers.find(d=>String(d.id)===String(form.dealer_id))?.name || ''} options={dealers.map(d=>({value:d.name,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>{const d=dealers.find(x=>String(x.name).toLowerCase()===String(v).toLowerCase());setForm({...form,dealer_id:d?Number(d.id):'',rickshaw_id:'',battery_no:''})}} required/>
+      <Field label="Dealer" type="combo" value={form.dealer_name} options={dealers.map(d=>({value:d.name,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>{const d=dealers.find(x=>String(x.name).trim().toLowerCase()===String(v).trim().toLowerCase());setForm({...form,dealer_name:v,dealer_id:d?Number(d.id):'',rickshaw_id:'',battery_no:''})}} required/>
       <Field label="Rickshaw Type" type="select" value={form.rickshaw_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,rickshaw_type:v,rickshaw_id:'',battery_no:''})}/>
       <Field label="Rickshaw" type="select" value={form.rickshaw_id} options={rickshaws.map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')}))} onChange={v=>setForm({...form,rickshaw_id:Number(v),battery_no:''})} required/>
       <Field label="Battery No." type="select" value={form.battery_no} options={(current?.battery_numbers||[]).map(n=>({value:n,label:n}))} onChange={v=>setForm({...form,battery_no:v})} required/>
