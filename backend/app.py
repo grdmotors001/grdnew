@@ -2651,6 +2651,8 @@ def simple_masters_detail(kind, row_id):
         return _err(f"Unknown master kind '{kind}'", 404)
 
     if request.method == "PUT":
+        denied = _production_voucher_write_access()
+        if denied: return denied
         data = request.get_json(silent=True) or {}
         row = _save_simple_master(kind, data, row_id=row_id)
         return jsonify(ser_simple(row))
@@ -3091,6 +3093,18 @@ def production_formula_delete_product():
     return jsonify({"deleted": True})
 
 
+# Production Voucher write access is controlled by the same per-user
+# allowed_modules list used by User Master. Reports stay view-only because
+# their UI never exposes write actions and these write routes are protected.
+def _production_voucher_write_access():
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if payload.get("is_super_user"):
+        return None
+    allowed = set(payload.get("allowed_modules") or [])
+    if "production-voucher" not in allowed:
+        return _err("Production Voucher permission required.", 403)
+    return None
+
 # ---------------------------------------------------------------------------
 # Vouchers > D. Production Voucher
 # Creates/updates the matching Vehicle (chassis) -> Dashboard "Manufacturing".
@@ -3144,6 +3158,8 @@ def production_formula_lines():
 @require_auth
 def production_vouchers():
     if request.method == "POST":
+        denied = _production_voucher_write_access()
+        if denied: return denied
         data = request.get_json(silent=True) or {}
         product_name = (data.get("product_name") or "").strip()
         chassis_no = (data.get("chassis_no") or "").strip()
@@ -3300,6 +3316,8 @@ def production_voucher_detail(voucher_id):
         db.session.commit()
         return jsonify(ser_pv(pv))
     # DELETE
+    denied = _production_voucher_write_access()
+    if denied: return denied
     vehicle = Vehicle.query.filter_by(chassis_no=pv.chassis_no).first()
     if vehicle and vehicle.stage == "Manufacturing":
         db.session.delete(vehicle)
