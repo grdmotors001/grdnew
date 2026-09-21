@@ -217,23 +217,6 @@ export function DeliveryChallanRegisterPage() {
   const [filters, setFilters] = useState({ product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' });
   const [draftFilters, setDraftFilters] = useState(filters);
 
-  const openEdit = (c) => { setEditError(''); setEditRow({ ...c }); };
-  const setE = (f) => (v) => setEditRow({ ...editRow, [f]: v });
-
-  const saveEdit = async (ev) => {
-    ev.preventDefault();
-    setSaving(true);
-    setEditError('');
-    try {
-      await put(`/delivery-challans/${editRow.id}`, editRow);
-      setEditRow(null);
-      r.setExtra({ ...r.extra });
-    } catch (err) {
-      setEditError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
@@ -297,7 +280,7 @@ export function DeliveryChallanRegisterPage() {
             </thead>
             <tbody>
               {rows.map((c) => (
-                <tr key={c.id} onDoubleClick={() => openEdit(c)} style={{ cursor: 'pointer' }} title="Double-click to edit">
+                <tr key={c.id} >
                   <td>{formatDate(c.date)}</td>
                   <td>{c.challan_no}</td>
                   <td>{c.dealer_name}</td>
@@ -315,7 +298,6 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.remarks1}</td><td>{c.remarks2}</td>
                   <td style={{ display: 'flex', gap: 6 }}>
                     <button className="btn" onClick={(e) => { e.stopPropagation(); setDetailRow(c); }}>View</button>
-                    <button className="btn" onClick={(e) => { e.stopPropagation(); openEdit(c); }}>Edit</button>
                     <button className="btn" onClick={(e) => { e.stopPropagation(); setPrintId(c.id); }}>Preview</button>
                   </td>
                 </tr>
