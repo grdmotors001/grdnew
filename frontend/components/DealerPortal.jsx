@@ -11,6 +11,15 @@ import { DealerCustomerInvoicePage } from './DealerCustomerInvoicePage';
 import { DealerLedgerPage } from './DealerLedgerPage';
 import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 
+const dealerHeaderSections = [
+  {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock']]},
+  {label:'Record', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['seized-vehicles','Seized Vehicle']]},
+  {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports']]},
+  {label:'Daybook', items:[['cashbook','Cashbook'],['receipt-create','Receipt Create'],['expenses-create','Expenses Create'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
+  {label:'Pending Sales', items:[['pending-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
+  {label:'Battery Adjustment', items:[['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
+];
+
 const nav = [
   ['dashboard', '⌂', 'Dashboard'],
   ['stock', '▣', 'My Stock'],
@@ -90,6 +99,20 @@ export function DealerPortal({ dealer, onLogout }) {
   if (tab === 'delivery' && canDelivery) return <DealerDelivery onBack={() => setTab('dashboard')} />;
 
   return <div className="dealerShell">
+    <style>{`
+      .dealerPortalHeaderNav{display:flex;gap:8px;align-items:stretch;overflow-x:auto;border-bottom:1px solid #e3e8f0;background:#fff;padding:7px 0 8px;scrollbar-width:none}
+      .dealerPortalHeaderNav::-webkit-scrollbar{display:none}
+      .dealerPortalHeaderGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;padding:0 6px;border-right:1px solid #edf0f4}
+      .dealerPortalHeaderGroup:last-child{border-right:0}
+      .dealerPortalHeaderLabel{font-size:9px;font-weight:900;letter-spacing:.55px;text-transform:uppercase;color:#6b7b8f;padding:0 5px}
+      .dealerPortalHeaderItems{display:flex;gap:3px}
+      .dealerPortalHeaderItem{border:1px solid #e2e8ef;background:#f8fafc;color:#30445b;border-radius:7px;padding:6px 9px;font-size:10px;font-weight:700;white-space:nowrap;cursor:pointer}
+      .dealerPortalHeaderItem:hover,.dealerPortalHeaderItem.active{background:#eaf2ff;border-color:#9fc2fa;color:#155dcc}
+      .dealerTopbar{position:sticky;top:0;z-index:20;background:#fff}
+      @media(max-width:700px){.dealerPortalHeaderNav{margin:0 -10px;padding-left:10px;padding-right:10px}.dealerPortalHeaderItem{font-size:9px;padding:6px 8px}.dealerPortalHeaderLabel{font-size:8px}}
+      .dealerSidebar{display:none!important}
+      .dealerMain{margin-left:0!important;width:100%!important}
+    `}</style>
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
@@ -105,6 +128,22 @@ export function DealerPortal({ dealer, onLogout }) {
         <div><div className="dealerEyebrow">DEALER PANEL</div><h1>{tab==='dashboard'?'Dashboard':nav.find(x=>x[0]===tab)?.[2]||'Dealer Panel'}</h1></div>
         <div className="dealerTopActions"><div className="dealerWelcome">Welcome, <b>{dealerName}</b></div><button className="dealerThemeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
       </header>
+      <nav className="dealerPortalHeaderNav" aria-label="Dealer modules">
+        {dealerHeaderSections.map(section => (
+          <div className="dealerPortalHeaderGroup" key={section.label}>
+            <div className="dealerPortalHeaderLabel">{section.label}</div>
+            <div className="dealerPortalHeaderItems">
+              {section.items.map(([key,label]) => (
+                <button type="button" key={key}
+                  className={'dealerPortalHeaderItem'+(tab===key?' active':'')}
+                  onClick={()=>setTab(key)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
 
       {mobileNav && <div className="dealerMobileNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
       {error && <div className="error dealerError">{error}</div>}
