@@ -93,6 +93,7 @@ def require_auth(fn):
         if not payload or payload.get("scope") != "staff":
             return jsonify({"error": "Staff authentication required"}), 401
         g.current_user_payload = payload
+        g.current_user_id = payload.get("uid")
         return fn(*args, **kwargs)
     return wrapper
 
