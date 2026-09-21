@@ -77,6 +77,7 @@ def require_dealer_auth(fn):
             return jsonify({"error": "Dealer authentication required"}), 401
         g.current_dealer_id = payload["dealer_id"]
         g.current_user_payload = payload
+        g.current_user_id = payload.get("uid")
         return fn(*args, **kwargs)
     return wrapper
 
