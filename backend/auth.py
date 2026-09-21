@@ -43,6 +43,7 @@ def issue_token(user):
         "is_super_user": bool(user.is_super_user),
         "scope": "staff",
         "department": user.department or "Admin",
+        "allowed_modules": (user.allowed_modules or "").split(",") if user.allowed_modules else [],
         "dealer_ids": dealer_ids,
     })
 
