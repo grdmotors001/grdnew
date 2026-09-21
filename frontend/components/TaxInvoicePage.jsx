@@ -18,6 +18,8 @@ export function TaxInvoicePage() {
   const [search, setSearch] = useState('');
   const [challanSearch, setChallanSearch] = useState('');
   const [financers, setFinancers] = useState([]);
+  const [pendingLoans, setPendingLoans] = useState([]);
+  const [loanSearch, setLoanSearch] = useState('');
   const filteredChallans = (data?.uninvoiced_challans || []).filter((c) => {
     const q = challanSearch.trim().toLowerCase();
     if (!q) return true;
@@ -46,6 +48,8 @@ export function TaxInvoicePage() {
   const openNew = () => {
     setEditingId(null);
     setChallanSearch('');
+    setLoanSearch('');
+    get('/billing/pending-chfpl').then((d) => setPendingLoans(d.loans || [])).catch(() => setPendingLoans([]));
     setForm({ date: today(), state_type: 'I', gst_rate: 5 });
     setStep(0);
     setOpen(true);
@@ -62,6 +66,24 @@ export function TaxInvoicePage() {
       setStep(0);
       setOpen(true);
     }).catch((e) => setError(e.message));
+  };
+
+  const pickPendingLoan = (id) => {
+    const loan = pendingLoans.find((x) => String(x.id) === String(id));
+    if (!loan) return;
+    setForm((f) => ({
+      ...f,
+      billing_queue_id: Number(id),
+      challan_id: '',
+      buyer_name: loan.customer_name || '',
+      buyer_mobile: loan.customer_phone || '',
+      sale_amount: loan.loan_amount || '',
+      gst_sale_amount: loan.loan_amount || '',
+      _dealer_name: loan.dealer_name || '',
+      _model_name: loan.vehicle_model_name || '',
+      _loan_application_no: loan.application_no || '',
+      _do_no: loan.do_no || loan.application_no || '',
+    }));
   };
 
   const pickChallan = (id) => {
@@ -219,17 +241,27 @@ export function TaxInvoicePage() {
                 <>
                   <div className="formgrid" style={{ marginTop: 10 }}>
                     <div className="field">
-                      <label>Find Chassis / Dealer Name</label>
-                      <input
-                        className="input"
-                        value={challanSearch}
-                        onChange={(e) => setChallanSearch(e.target.value)}
-                        placeholder="Type chassis no. or dealer name…"
-                      />
+                      <label>Search DO No. / Loan</label>
+                      <input className="input" value={loanSearch} onChange={(e) => setLoanSearch(e.target.value)}
+                             placeholder="Type DO No. / Application No." />
                     </div>
-                    <Field label={`Delivery Challan to Invoice (${filteredChallans.length})`} type="select" value={form.challan_id}
+                    <Field label={`Approved / Pending Bill Loans (${pendingLoans.filter(x => {
+                      const q = loanSearch.trim().toLowerCase();
+                      return !q || [x.do_no, x.application_no, x.customer_name, x.dealer_name].some(v => String(v || '').toLowerCase().includes(q));
+                    }).length})`} type="select" value={form.billing_queue_id || ''}
+                           options={pendingLoans.filter(x => {
+                             const q = loanSearch.trim().toLowerCase();
+                             return !q || [x.do_no, x.application_no, x.customer_name, x.dealer_name].some(v => String(v || '').toLowerCase().includes(q));
+                           }).map((x) => ({ value: x.id, label: `${x.do_no || x.application_no} — ${x.application_no} — ${x.customer_name || ''}` }))}
+                           onChange={pickPendingLoan} />
+                    <div className="field">
+                      <label>Find Delivery Challan</label>
+                      <input className="input" value={challanSearch} onChange={(e) => setChallanSearch(e.target.value)}
+                             placeholder="Type chassis no. or dealer name…" />
+                    </div>
+                    <Field label={`Delivery Challan to Invoice (${filteredChallans.length})`} type="select" value={form.billing_queue_id ? '' : (form.challan_id || '')}
                            options={filteredChallans.map((c) => ({ value: c.id, label: `${c.challan_no} — ${c.dealer_name} — ${c.chassis_no}` }))}
-                           onChange={pickChallan} required />
+                           onChange={(id) => { setForm(f => ({...f, billing_queue_id: ''})); pickChallan(id); }} />
                     <Field label="Bill No." value={form.bill_no} onChange={(v) => setForm({ ...form, bill_no: v })} />
                     <button type="button" className="btn" style={{ alignSelf: 'flex-end', height: 38 }}
                             title="Fills Bill No. with the GRD/1000X stock-removal placeholder and zeroes Sale Amount/Tax/Insurance/Registration/Subsidy — buyer and internal details are left as-is."
@@ -238,8 +270,10 @@ export function TaxInvoicePage() {
                     </button>
                     <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
                   </div>
-                  {form.challan_id && (
+                  {(form.challan_id || form.billing_queue_id) && (
                     <div className="tiHeaderStrip">
+                      {form.billing_queue_id && <span><b>DO No.:</b> {form._do_no || '—'}</span>}
+                      {form.billing_queue_id && <span><b>Application:</b> {form._loan_application_no || '—'}</span>}
                       <span><b>Dealer:</b> {form._dealer_name || '—'}</span>
                       <span><b>Chassis No.:</b> {form._chassis_no || '—'}</span>
                       <span><b>Model:</b> {form._model_name || '—'}</span>
