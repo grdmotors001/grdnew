@@ -76,7 +76,7 @@ export const NAV_GROUPS = {
     ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
     ['rto', 'RTO Master'], ['financer', 'Financer Master'], ['production-formula', 'Production Formula'],
     ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
-    ['user', 'User Master'], ['option-setting', 'User Option Setting'],
+    ['user', 'User Master'],
   ],
   Factory: [
     ['repair-service-voucher', 'Repair & Service Voucher'], ['journal-stock', 'Journal Stock'],
@@ -107,7 +107,7 @@ export const NAV_GROUPS = {
     ['stock-ledger-dealers', 'Stock Ledger - Dealers'],
   ],
   HR: [
-    ['hr-attendance', 'Attendance & Salary'],
+    ['company', 'Company Details'], ['user', 'User Master'], ['hr-attendance', 'Attendance & Salary'],
   ],
   Reports: [
     ['purchase-register', 'Purchase Register'], ['production-register', 'Production Register'],
