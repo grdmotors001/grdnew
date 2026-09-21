@@ -1347,6 +1347,8 @@ def _ensure_dealer_login_columns():
                 "mobile": ("VARCHAR(30)", "NULL"),
                 "gst_no": ("VARCHAR(30)", "NULL"),
                 "registration_type": ("VARCHAR(20)", "'registered'"),
+                "dealer_category": ("VARCHAR(20)", "'dealer'"),
+                "portal_modules": ("TEXT", "''"),
                 "state": ("VARCHAR(100)", "NULL"),
                 "state_code": ("VARCHAR(10)", "NULL"),
                 "pan": ("VARCHAR(20)", "NULL"),
