@@ -79,7 +79,7 @@ export const NAV_GROUPS = {
     ['user', 'User Master'],
   ],
   Factory: [
-    ['repair-service-voucher', 'Repair & Service Voucher'], ['journal-stock', 'Journal Stock'],
+    ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'],
