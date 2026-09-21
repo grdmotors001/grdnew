@@ -21,6 +21,7 @@ import { RepairServiceVoucherPage } from '../components/RepairServiceVoucherPage
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import { InsuranceRtoRegisterPage } from '../components/InsuranceRtoRegisterPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
+import { VahanInventoryPage } from '../components/VahanInventoryPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
 import {
@@ -49,6 +50,7 @@ const CUSTOM_PAGES = {
   password: () => <PasswordPage />,
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
+  'vahan-inventory': () => <VahanInventoryPage />,
   'cash-at-dealer': () => <CashAtDealerPage />,
   'dealer-cash-receipt': () => <DealerCashReceiptPage />,
   'production-voucher': () => <ProductionVoucherPage />,
