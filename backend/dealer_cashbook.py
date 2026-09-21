@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import inspect, text
-from models import db, Dealer
+from models import db, Dealer, Vehicle, OldRickshaw
 from auth import require_dealer_auth
 
 dealer_cashbook_bp = Blueprint("dealer_cashbook", __name__)
