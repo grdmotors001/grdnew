@@ -5,7 +5,7 @@ import { Field,ErrorBanner,EmptyState } from './ui';
 
 export function OldRickshawChallanPage(){
  const [rows,setRows]=useState([]),[dealers,setDealers]=useState([]),[open,setOpen]=useState(false),[error,setError]=useState(''),[form,setForm]=useState({date:new Date().toISOString().slice(0,10),challan_no:'',model_name:'',vehicle_no:'',colour:'',toolkit:'',dealer_id:'',source:'manual',source_ref:''});
- const load=async()=>{try{const [r,d]=await Promise.all([get('/factory/old-rickshaw-challans'),get('/dealer-list')]);setRows(r.challans||[]);setDealers(d.dealers||[]);if(!form.challan_no)setForm(x=>({...x,challan_no:r.suggested_challan_no||''}))}catch(e){setError(e.message)}};
+ const load=async()=>{try{const [r,d]=await Promise.all([get('/factory/old-rickshaw-challans'),get('/dealers')]);setRows(r.challans||[]);setDealers(d.dealers||[]);if(!form.challan_no)setForm(x=>({...x,challan_no:r.suggested_challan_no||''}))}catch(e){setError(e.message)}};
  useEffect(()=>{load()},[]);
  const save=async e=>{e.preventDefault();try{await post('/factory/old-rickshaw-challans',form);setOpen(false);setForm({date:new Date().toISOString().slice(0,10),challan_no:'',model_name:'',vehicle_no:'',colour:'',toolkit:'',dealer_id:'',source:'manual',source_ref:''});await load()}catch(e){setError(e.message)}};
  return <div className="page"><div className="pageHeader"><div><h2>Old Rickshaw Challan Voucher</h2><p className="muted">CHFPL seized / old rickshaw ko GRD resale stock me lane ke liye factory challan.</p></div><button className="btn primary" onClick={()=>setOpen(true)}>+ New Old Rickshaw Challan</button></div><ErrorBanner message={!open?error:''}/>
