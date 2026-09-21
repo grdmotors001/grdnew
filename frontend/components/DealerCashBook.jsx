@@ -120,10 +120,10 @@ export function DealerCashBook(){
 
     {editing&&<div className="card" style={{marginTop:12}}><h2>Edit Customer</h2><div className="grid">
       {[
-        ['page_no','Page No.'],['name','Name'],['phone','Phone No.'],['financer','Financer'],['vehicle_no','Vehicle No.']
+        ['page_no','Page No.'],['name','Name'],['phone','Phone No.']
       ].map(([k,l])=><input key={k} className="input" placeholder={l} value={editing[k]||''} onChange={e=>setEditing({...editing,[k]:e.target.value})}/>)}
-      <input className="input" type="number" placeholder="Sale Amount" value={editing.sale_amount||''} onChange={e=>setEditing({...editing,sale_amount:e.target.value})}/>
-      <input className="input" type="number" placeholder="Loan Amount" value={editing.loan_amount||''} onChange={e=>setEditing({...editing,loan_amount:e.target.value})}/>
+      <div className="muted" style={{gridColumn:'1 / -1'}}>Financer, Vehicle No., Sale Amount and Loan are maintained by Billing Department and are shown here only.</div>
+
     </div><div className="actions"><button className="btn primary" disabled={saving} onClick={saveCustomer}>Save Customer</button><button className="btn" onClick={()=>setEditing(null)}>Cancel</button></div></div>}
 
     {tab==='expense'&&<form className="card" onSubmit={e=>{e.preventDefault();save('/dealer/cash-book/expense',expense,d=>`Expense ${d.expense.expense_no} saved`,()=>setExpense({...expense,amount:'',paid_to:'',remarks:''}))}}>
