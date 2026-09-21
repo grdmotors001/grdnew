@@ -24,6 +24,7 @@ const nav = [
   ['loan-status', '✓', 'Loan Status'],
   ['battery-withdrawal', '↘', 'Battery Withdrawal'],
   ['battery-swap', '⇄', 'Battery Swap / Exchange'],
+  ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
 ];
 
 export function DealerPortal({ dealer, onLogout }) {
@@ -44,6 +45,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const portalModules = new Set(dealer.portal_modules || []);
   const canBatteryWithdrawal = portalModules.has('battery-withdrawal');
   const canBatterySwap = portalModules.has('battery-swap');
+  const canOldRickshawSales = portalModules.has('old-rickshaw-sales');
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -72,13 +74,14 @@ export function DealerPortal({ dealer, onLogout }) {
   if (tab === 'newloan') return <DealerNewLoanForm onBack={() => setTab('dashboard')} />;
   if (tab === 'battery-withdrawal' && canBatteryWithdrawal) return <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} />;
   if (tab === 'battery-swap' && canBatterySwap) return <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} />;
+  if (tab === 'old-rickshaw-sales' && canOldRickshawSales) return <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} />;
   if (tab === 'customer-invoice' && canPurchase) return <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} />;
 
   return <div className="dealerShell">
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
-      <nav className="dealerSideNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap)).map(([key,icon,label]) =>
+      <nav className="dealerSideNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label]) =>
         <button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>setTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
       <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
@@ -203,4 +206,13 @@ function DealerBatterySwap({dealer,onBack}){
   const opts=items[type]||[];
   const save=async e=>{e.preventDefault();try{await post('/battery-swap-vouchers',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,from_type:type,from_id:Number(from),to_type:type,to_id:Number(to),remarks:''});alert('Battery swap saved');await load();setFrom('');setTo('')}catch(e){setError(e.message)}};
   return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Swap / Exchange</h2><p className="muted">Dealer ke apne rickshaws ke beech battery swap.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="formgrid"><label>Rickshaw Type<select value={type} onChange={e=>{setType(e.target.value);setFrom('');setTo('')}}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>From Rickshaw<select value={from} onChange={e=>setFrom(e.target.value)} required><option value="">Select…</option>{opts.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label><label>To Rickshaw<select value={to} onChange={e=>setTo(e.target.value)} required><option value="">Select…</option>{opts.filter(x=>String(x.id)!==String(from)).map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label></div><button className="btn primary">Save Battery Swap</button></form></div></div>;
+}
+
+
+function DealerOldRickshawSales({dealer,onBack}){
+ const [rows,setRows]=useState([]),[edit,setEdit]=useState(null),[form,setForm]=useState({}),[error,setError]=useState('');
+ const load=async()=>{try{const r=await get('/dealer/old-rickshaw-challans');setRows(r.challans||[])}catch(e){setError(e.message)}}; useEffect(()=>{load()},[]);
+ const open=r=>{setEdit(r);setForm({sale_amount:r.sale_amount||'',file_charge:r.file_charge||'',loan_amount:r.loan_amount||'',down_payment:r.down_payment||'',sale_customer:r.sale_customer||'',sale_mobile:r.sale_mobile||'',sold_at:new Date().toISOString().slice(0,10)})};
+ const save=async()=>{try{await post('/billing/old-rickshaw-challans/'+edit.id+'/sale',form);setEdit(null);load()}catch(e){setError(e.message)}};
+ return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Old Rickshaw Sale</h2><p className="muted">Aapke naam ke Factory Old Rickshaw Challans.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<div className="tablewrap"><table className="table"><thead><tr><th>Challan</th><th>Model</th><th>Vehicle No.</th><th>Colour</th><th>Status</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.challan_no}</td><td>{r.model_name}</td><td>{r.vehicle_no}</td><td>{r.colour||'—'}</td><td>{r.status}</td><td><button className="btn primary" onClick={()=>open(r)}>Enter Sale Data</button></td></tr>)}{!rows.length&&<tr><td colSpan="6">No pending Old Rickshaw challans.</td></tr>}</tbody></table></div></div>{edit&&<div className="modal"><div className="modalbox"><h2>Sale Data — {edit.challan_no}</h2><div className="formgrid"><label>Sale Amount<input type="number" value={form.sale_amount} onChange={e=>setForm({...form,sale_amount:e.target.value})} /></label><label>File Charge<input type="number" value={form.file_charge} onChange={e=>setForm({...form,file_charge:e.target.value})} /></label><label>Loan Amount<input type="number" value={form.loan_amount} onChange={e=>setForm({...form,loan_amount:e.target.value})} /></label><label>Down Payment<input type="number" value={form.down_payment} onChange={e=>setForm({...form,down_payment:e.target.value})} /></label><label>Customer Name<input value={form.sale_customer} onChange={e=>setForm({...form,sale_customer:e.target.value})} /></label><label>Mobile<input value={form.sale_mobile} onChange={e=>setForm({...form,sale_mobile:e.target.value})} /></label></div><div className="actions"><button className="btn" onClick={()=>setEdit(null)}>Cancel</button><button className="btn primary" onClick={save}>Save</button></div></div></div>}</div>
 }
