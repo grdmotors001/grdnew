@@ -2412,6 +2412,24 @@ def billing_showroom_deliveries():
         "billing_status":r.billing_status
     } for r in rows]})
 
+@app.get("/api/billing/showroom-deliveries-approved")
+@require_auth
+def billing_showroom_deliveries_approved():
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    rows=(DealerCustomerDelivery.query.filter(DealerCustomerDelivery.billing_status=="APPROVED")
+          .order_by(DealerCustomerDelivery.approved_at.desc(),DealerCustomerDelivery.id.desc()).limit(500).all())
+    return jsonify({"deliveries":[{
+        "id":r.id,"delivery_no":r.delivery_no,"date":_iso(r.delivery_date),
+        "dealer_id":r.dealer_id,"dealer_name":r.dealer.name if r.dealer else "",
+        "customer_id":r.customer_id,"customer_name":r.customer.full_name if getattr(r,"customer",None) else "",
+        "customer_phone":r.customer.phone if getattr(r,"customer",None) else "",
+        "delivery_type":r.delivery_type,"chassis_no":r.vehicle.chassis_no if getattr(r,"vehicle",None) else None,
+        "vehicle_no":r.old_rickshaw.vehicle_reg_no if getattr(r,"old_rickshaw",None) else None,
+        "sale_amount":r.sale_amount or 0,"loan_amount":r.loan_amount or 0,"down_payment":r.down_payment or 0,
+        "do_no":r.do_no,"do_selected_by":r.do_selected_by,"remarks":r.remarks,
+        "billing_status":r.billing_status,"approved_by":r.approved_by,"approved_at":_iso(r.approved_at)
+    } for r in rows]})
+
 @app.get("/api/billing/showroom-do-options")
 @require_auth
 def billing_showroom_do_options():
