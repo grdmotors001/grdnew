@@ -7,13 +7,14 @@ const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionD
 const today = () => new Date().toISOString().slice(0,10);
 
 export function DealerDelivery({ onBack }) {
-  const [data,setData]=useState({customers:[],new_stock:[],old_stock:[],battery_stock:[]});
+  const [data,setData]=useState({customers:[],new_stock:[],old_stock:[],battery_stock:[],do_numbers:[]});
   const [customerId,setCustomerId]=useState('');
   const [type,setType]=useState('new');
   const [vehicleId,setVehicleId]=useState('');
   const [oldId,setOldId]=useState('');
   const [date,setDate]=useState(today());
   const [remarks,setRemarks]=useState('');
+  const [doNo,setDoNo]=useState('');
   const [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
@@ -22,7 +23,7 @@ export function DealerDelivery({ onBack }) {
 
   async function load(){
     setLoading(true); setError('');
-    try { setData(await get('/dealer/delivery/options')); }
+    try { const [d,o]=await Promise.all([get('/dealer/delivery/options'),get('/dealer/delivery/do-options')]); setData({...d,do_numbers:o.do_numbers||[]}); }
     catch(e){ setError(e.message || 'Could not load delivery options'); }
     finally { setLoading(false); }
   }
@@ -37,17 +38,18 @@ export function DealerDelivery({ onBack }) {
   },[data.customers,search]);
 
   const customer=(data.customers||[]).find(c=>String(c.id)===String(customerId));
+  const isLoan=Number(customer?.loan_amount||0)>0;
   const stock=type==='new' ? data.new_stock||[] : data.old_stock||[];
 
   async function submit(e){
     e.preventDefault(); setSaving(true); setError(''); setMessage('');
     try{
-      const payload={customer_id:customerId,delivery_type:type,date,remarks};
+      const payload={customer_id:customerId,delivery_type:type,date,remarks,do_no:isLoan?doNo:''};
       if(type==='new') payload.vehicle_id=vehicleId;
       if(type==='old') payload.old_rickshaw_id=oldId;
       const d=await post('/dealer/delivery',payload);
       setMessage(`Delivery ${d.delivery.delivery_no} saved successfully.`);
-      setCustomerId(''); setVehicleId(''); setOldId(''); setSearch(''); setRemarks('');
+      setCustomerId(''); setVehicleId(''); setOldId(''); setSearch(''); setRemarks(''); setDoNo('');
       await load();
     }catch(e){setError(e.message || 'Could not save delivery')}
     finally{setSaving(false)}
@@ -107,6 +109,15 @@ export function DealerDelivery({ onBack }) {
               <option value="">Select vehicle</option>
               {stock.map(v=><option key={v.id} value={v.id}>{v.vehicle_no||'—'} · {v.model_name||'Model'}</option>)}
             </select>
+          </div>}
+
+          {isLoan&&<div>
+            <label className="muted">DO No. (Loan Case)</label>
+            <select className="input" value={doNo} onChange={e=>setDoNo(e.target.value)}>
+              <option value="">Select DO No. — Billing can select later</option>
+              {(data.do_numbers||[]).map(x=><option key={x.id} value={x.do_no}>{x.do_no} · {x.customer_name||x.application_no}</option>)}
+            </select>
+            <small className="muted">DO ek hi baar select hoga. Dealer select kare to Billing ko dobara select nahi karna padega.</small>
           </div>}
 
           {type==='battery'&&<div className="card" style={{padding:12}}>
