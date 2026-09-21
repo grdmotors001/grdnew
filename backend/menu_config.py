@@ -51,6 +51,7 @@ MENU = {
         {"key": "battery-delivery-challan","label": "H. Battery Delivery Challan",       "kind": "custom"},
         {"key": "journal-stock",          "label": "I. Journal Stock",                   "kind": "custom"},
         {"key": "expense-payment-voucher","label": "J. Expense Payment Voucher",           "kind": "custom"},
+        {"key": "repair-service-voucher", "label": "J3. Repair & Service Voucher",       "kind": "custom"},
         {"key": "dealer-cash-receipt",    "label": "J1. Dealer Cash Receipt",              "kind": "custom"},
         {"key": "billing-pending-sales", "label": "J2. Pending Bills / Billing",          "kind": "custom"},
     ],
