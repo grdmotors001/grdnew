@@ -565,7 +565,7 @@ export function PaymentReceivablePage() {
                 <th>Value Amt.</th><th>Loan Amt.</th><th>Amt.Recd.</th><th>Balance</th>
                 <th>Financer</th><th>RTO</th><th>Chassis Record</th><th>Ledger</th>
                 <th>Voucher No.</th><th>Cheque No.</th><th>Vehicle No.</th><th>Salesman</th>
-                <th>Incentive Amount</th><th>Incentive Voucher</th><th>Incentive Date</th>
+                <th>Incentive Amount</th><th>Incentive Voucher</th><th>Incentive Date</th><th>All Expenses</th><th>Expense Details</th>
               </tr>
             </thead>
             <tbody>
@@ -578,7 +578,7 @@ export function PaymentReceivablePage() {
                   <td><Money value={r.amt_recd} /></td><td><b><Money value={r.balance} /></b></td>
                   <td>{r.financer}</td><td>{r.rto}</td><td>{r.chassis_record}</td><td>{r.ledger}</td>
                   <td>{r.voucher_no}</td><td>{r.cheque_no}</td><td>{r.vehicle_no}</td><td>{r.salesman}</td>
-                  <td><Money value={r.incentive_amount} /></td><td>{r.incentive_voucher_no||'—'}</td><td>{r.incentive_date?formatDate(r.incentive_date):'—'}</td>
+                  <td><Money value={r.incentive_amount} /></td><td>{r.incentive_voucher_no||'—'}</td><td>{r.incentive_date?formatDate(r.incentive_date):'—'}</td><td><Money value={r.expense_total} /></td><td>{(r.expense_details||[]).map((e,i)=><div key={i}>{e.type}: <Money value={e.amount} /> <span className="muted">{e.voucher_no}</span></div>)}</td>
                 </tr>
               ))}
             </tbody>
@@ -589,7 +589,7 @@ export function PaymentReceivablePage() {
                 <td><Money value={data.totals.loan} /></td>
                 <td><Money value={data.totals.received} /></td>
                 <td><b><Money value={data.totals.balance} /></b></td>
-                <td colSpan={10}></td>
+                <td colSpan={12}></td>
               </tr>
             </tfoot>
           </table>
