@@ -137,6 +137,14 @@ def _ensure_cashbook_schema():
     except Exception as exc:
         print(f"[cash-book] customer link migration failed: {exc}")
 
+    try:
+        dcols = {c["name"] for c in inspect(db.engine).get_columns("dealer_customer_delivery")}
+        with db.engine.begin() as conn:
+            for col, sql in [("do_no","VARCHAR(60)"),("do_selected_by","VARCHAR(20)"),("do_selected_at","TIMESTAMP")]:
+                if col not in dcols:
+                    conn.execute(text(f"ALTER TABLE dealer_customer_delivery ADD COLUMN {col} {sql}"))
+    except Exception as exc:
+        print(f"[cash-book] delivery DO migration failed: {exc}")
 def _date(v):
     if not v: return date.today()
     try: return datetime.strptime(str(v), "%Y-%m-%d").date()
