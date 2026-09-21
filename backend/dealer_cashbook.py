@@ -70,6 +70,10 @@ class DealerCustomerDelivery(db.Model):
     do_selected_at = db.Column(db.DateTime)
     billing_status = db.Column(db.String(20), default="PENDING_BILL", index=True)
     remarks = db.Column(db.String(300))
+    approved_by = db.Column(db.String(120))
+    approved_at = db.Column(db.DateTime)
+    verified_by = db.Column(db.String(120))
+    verified_at = db.Column(db.DateTime)
     dealer = db.relationship("Dealer")
     customer = db.relationship("DealerCashCustomer")
     vehicle = db.relationship("Vehicle")
@@ -145,7 +149,7 @@ def _ensure_cashbook_schema():
     try:
         dcols = {c["name"] for c in inspect(db.engine).get_columns("dealer_customer_delivery")}
         with db.engine.begin() as conn:
-            for col, sql in [("do_no","VARCHAR(60)"),("do_selected_by","VARCHAR(20)"),("do_selected_at","TIMESTAMP"),("billing_status","VARCHAR(20) DEFAULT 'PENDING_BILL'")]:
+            for col, sql in [("do_no","VARCHAR(60)"),("do_selected_by","VARCHAR(20)"),("do_selected_at","TIMESTAMP"),("billing_status","VARCHAR(20) DEFAULT 'PENDING_BILL'"),("approved_by","VARCHAR(120)"),("approved_at","TIMESTAMP"),("verified_by","VARCHAR(120)"),("verified_at","TIMESTAMP")]:
                 if col not in dcols:
                     conn.execute(text(f"ALTER TABLE dealer_customer_delivery ADD COLUMN {col} {sql}"))
     except Exception as exc:
@@ -392,7 +396,17 @@ def create_showroom_delivery():
         battery_qty=battery_qty, sale_amount=sale_amount,
         loan_amount=loan_amount, down_payment=down_payment,
         remarks=str(d.get("remarks") or "").strip() or None,
+        do_no=str(d.get("do_no") or "").strip() or None,
+        do_selected_by="dealer" if str(d.get("do_no") or "").strip() else None,
+        do_selected_at=datetime.utcnow() if str(d.get("do_no") or "").strip() else None,
     )
+    if row.do_no:
+        conflict=DealerCustomerDelivery.query.filter(
+            DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+            db.func.lower(DealerCustomerDelivery.do_no) == row.do_no.lower()
+        ).first()
+        if conflict:
+            return jsonify({"error":"This DO No. is already used on another delivery."}),409
     db.session.add(row)
     db.session.commit()
     return jsonify({"success":True,"delivery":{
