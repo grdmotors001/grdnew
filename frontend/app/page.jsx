@@ -42,6 +42,18 @@ import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { SIMPLE_MASTERS } from '../lib/menu';
 
 const CUSTOM_PAGES = {
+  // Showroom navigation aliases
+  'showroom-new-stock': () => <ClosingStockPremisesPage />,
+  'showroom-old-stock': () => <OldRickshawPage />,
+  'showroom-battery-stock': () => <PlaceholderPage label="Battery Stock" />,
+  'showroom-seized-vehicle': () => <VahanInventoryPage />,
+  'showroom-all-customers': () => <PlaceholderPage label="All Customers" />,
+  'showroom-all-receipt': () => <DealerCashReceiptPage />,
+  'showroom-expenses-reports': () => <PlaceholderPage label="Expenses Reports" />,
+  'showroom-cashbook': () => <DayBookPage />,
+  'showroom-cash-handover': () => <CashAtDealerPage />,
+  'showroom-online-payment': () => <PlaceholderPage label="Online Payment" />,
+
   company: () => <CompanyMasterPage />,
   dealer: () => <DealerPage />,
   product: () => <ProductPage />,
