@@ -2485,8 +2485,10 @@ def loan_workflow_fe_submit(row_id):
     old = row.status
     row.fe_live_photos = _json.dumps(photos)
     row.fe_remark = remark
-    row.status = "FE_SUBMITTED"
-    db.session.add(LoanWorkflowLog(application_id=row.id, action="FE_SUBMITTED",
+    row.fe_approval_remark = remark
+    row.fe_approved_at = dt.utcnow()
+    row.status = "FE_APPROVED"
+    db.session.add(LoanWorkflowLog(application_id=row.id, action="FE_APPROVED",
         from_status=old, to_status=row.status, user_id=user.id, remark=remark,
         details=f"{len(photos)} live photo(s) submitted"))
     db.session.commit()
@@ -2498,8 +2500,8 @@ def loan_workflow_fe_submit(row_id):
 def loan_workflow_decision(row_id):
     _ensure_loan_workflow_tables()
     row = LoanWorkflow.query.get_or_404(row_id)
-    if row.status != "FE_SUBMITTED":
-        return _err("Only FE-submitted applications can be decided", 409)
+    if row.status not in {"FE_APPROVED", "FE_SUBMITTED"}:
+        return _err("Only FE-approved applications can be decided", 409)
     data = request.get_json(silent=True) or {}
     decision = (data.get("decision") or "").strip().upper()
     remark = (data.get("remark") or "").strip()
