@@ -8,14 +8,16 @@ const money=v=>`₹${Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:
 export function RepairServiceVoucherPage(){
   const [tab,setTab]=useState('voucher');
   const [rows,setRows]=useState([]);
+  const [rawItems,setRawItems]=useState([]);
+  const [vehicles,setVehicles]=useState([]);
   const [receipts,setReceipts]=useState([]);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
   const [msg,setMsg]=useState('');
   const [filter,setFilter]=useState('');
   const [form,setForm]=useState({
-    date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',remarks:'',
-    items:[{item_name:'',qty:1,rate:'',unit:'PCS'}]
+    date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',
+    items:[{item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]
   });
   const [receipt,setReceipt]=useState({date:today(),voucher_id:'',amount:'',payment_mode:'cash',reference_no:'',remarks:''});
 
@@ -23,28 +25,35 @@ export function RepairServiceVoucherPage(){
     try{
       const [v,r]=await Promise.all([
         get('/repair-service-vouchers'+(filter?'?status='+filter:'')),
-        get('/repair-service-receipts')
+        get('/repair-service-receipts'),
+        get('/repair-service-masters')
       ]);
       setRows(v.vouchers||[]);setReceipts(r.receipts||[]);
+      setRawItems(m.raw_items||[]);setVehicles(m.vehicles||[]);
     }catch(e){setError(e.message||'Could not load repair/service data')}
   };
   useEffect(()=>{load()},[filter]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const updateItem=(i,k,v)=>setForm(x=>({...x,items:x.items.map((it,n)=>n===i?{...it,[k]:v}:it)}));
-  const addItem=()=>setForm(x=>({...x,items:[...x.items,{item_name:'',qty:1,rate:'',unit:'PCS'}]}));
+  const addItem=()=>setForm(x=>({...x,items:[...x.items,{item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]}));
   const removeItem=i=>setForm(x=>({...x,items:x.items.length>1?x.items.filter((_,n)=>n!==i):x.items}));
   const total=useMemo(()=>form.items.reduce((s,x)=>s+Number(x.qty||0)*Number(x.rate||0),0),[form.items]);
+  const selectVehicle=(id)=>{
+    if(id==='NEW'){ setForm(x=>({...x,vehicle_id:'',vehicle_no:'',chassis_no:''})); return; }
+    const v=vehicles.find(x=>String(x.vehicle_id)===String(id));
+    if(v)setForm(x=>({...x,vehicle_id:String(v.vehicle_id),vehicle_no:v.vehicle_no||'',chassis_no:v.chassis_no||'',customer_name:v.customer_name||x.customer_name,customer_mobile:v.customer_mobile||x.customer_mobile}));
+  };
 
   async function saveVoucher(e){
     e.preventDefault();setSaving(true);setError('');setMsg('');
     try{
       if(!form.customer_name.trim())throw new Error('Customer Name is required.');
       const clean=form.items.map(x=>({...x,qty:Number(x.qty),rate:Number(x.rate)}));
-      if(clean.some(x=>!x.item_name.trim()||x.qty<=0||x.rate<0))throw new Error('Item, Qty and Rate correctly fill karein.');
+      if(clean.some(x=>!x.item_name.trim()||x.qty<=0||x.rate<0))throw new Error('Raw Item, Qty and Rate correctly fill karein.');
       const r=await post('/repair-service-vouchers',{...form,items:clean});
       setMsg('Repair / Service Voucher '+r.voucher.voucher_no+' created. GST: ₹0');
-      setForm({date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',remarks:'',items:[{item_name:'',qty:1,rate:'',unit:'PCS'}]});
+      setForm({date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',items:[{item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]});
       await load();
     }catch(e){setError(e.message||'Could not save voucher')}finally{setSaving(false)}
   }
@@ -82,7 +91,13 @@ export function RepairServiceVoucherPage(){
         <input className="input" type="date" value={form.date} onChange={e=>set('date',e.target.value)} required/>
         <input className="input" placeholder="Customer Name" value={form.customer_name} onChange={e=>set('customer_name',e.target.value)} required/>
         <input className="input" placeholder="Mobile No." value={form.customer_mobile} onChange={e=>set('customer_mobile',e.target.value)}/>
-        <input className="input" placeholder="Vehicle No." value={form.vehicle_no} onChange={e=>set('vehicle_no',e.target.value)}/>
+        <div>
+          <select className="input" value={form.vehicle_id||'NEW'} onChange={e=>selectVehicle(e.target.value)}>
+            <option value="NEW">New Vehicle / Manual Entry</option>
+            {vehicles.map(v=><option key={v.vehicle_id} value={v.vehicle_id}>{v.vehicle_no||'No Reg. No.'} — {v.chassis_no||'No Chassis'} — {v.customer_name||'Customer'}</option>)}
+          </select>
+          {(!form.vehicle_id||form.vehicle_id==='')&&<input className="input" style={{marginTop:6}} placeholder="Vehicle No. (New)" value={form.vehicle_no} onChange={e=>set('vehicle_no',e.target.value)}/>}
+        </div>
         <input className="input" placeholder="Chassis No." value={form.chassis_no} onChange={e=>set('chassis_no',e.target.value)}/>
         <input className="input" placeholder="Remarks" value={form.remarks} onChange={e=>set('remarks',e.target.value)}/>
       </div>
@@ -91,7 +106,13 @@ export function RepairServiceVoucherPage(){
         <div className="actions" style={{justifyContent:'space-between'}}><h3 style={{margin:0}}>Items / Parts / Service Used</h3><button type="button" className="btn" onClick={addItem}>+ Add Item</button></div>
         <div className="tablewrap"><table className="table"><thead><tr><th>Item / Service</th><th>Qty</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
           <tbody>{form.items.map((it,i)=><tr key={i}>
-            <td><input className="input" value={it.item_name} placeholder="Item / Service" onChange={e=>updateItem(i,'item_name',e.target.value)}/></td>
+            <td>
+              <select className="input" value={it.item_code||''} onChange={e=>{const p=rawItems.find(x=>String(x.id)===String(e.target.value)); updateItem(i,'item_code',p?.code||''); updateItem(i,'item_name',p?.name||''); updateItem(i,'unit',p?.unit||'PCS')}}>
+                <option value="">Select Raw Item</option>
+                {rawItems.map(p=><option key={p.id} value={p.id}>{p.name} — Stock {Number(p.stock_qty||0).toLocaleString('en-IN')}</option>)}
+              </select>
+              {!rawItems.length&&<small className="muted">Product Master me Raw (R) item add karein.</small>}
+            </td>
             <td><input className="input" type="number" min="0.01" step="0.01" value={it.qty} onChange={e=>updateItem(i,'qty',e.target.value)}/></td>
             <td><input className="input" type="number" min="0" step="0.01" value={it.rate} placeholder="Rate" onChange={e=>updateItem(i,'rate',e.target.value)}/></td>
             <td><b>{money(Number(it.qty||0)*Number(it.rate||0))}</b></td>
