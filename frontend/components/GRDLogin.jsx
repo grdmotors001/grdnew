@@ -71,7 +71,7 @@ export function GRDLogin({ onLogin }) {
         .loginCard{position:absolute;z-index:10;right:6.5%;top:50%;transform:translateY(-45%);width:31vw;min-width:410px;max-width:500px;padding:30px 34px 25px;border-radius:28px;background:rgba(255,255,255,.99);box-shadow:0 24px 70px rgba(12,71,115,.20);box-sizing:border-box}
         .badge{display:inline-block;border-radius:999px;background:#e7f3ff;color:#0b69ce;padding:7px 13px;font-size:10px;font-weight:900}.title{font-size:30px;line-height:1.05;margin:15px 0 7px;color:#172f52;font-weight:900}.title em{font-style:normal;color:#147ce3}.sub{margin:0 0 16px;color:#60758a;font-size:12px;line-height:1.45}.divider{height:1px;background:#dbe7ef;margin-bottom:15px}
         .tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tab{height:43px;border:1px solid #c8dce9;background:#fff;border-radius:10px;color:#28435f;font-weight:800;font-size:11px;cursor:pointer}.tab.active{color:#fff;border-color:transparent;background:linear-gradient(90deg,#087ce8,#18ac65)}
-        .field{margin-top:12px}.field label{display:block;font-size:11px;font-weight:900;color:#193553;margin-bottom:6px}.wrap{position:relative}.input{width:100%;height:49px;border:1px solid #bdd2e1;border-radius:11px;background:#fff;color:#183753;padding:0 42px;outline:none;box-sizing:border-box;font-size:14px}.input:focus{border-color:#0c7de7;box-shadow:0 0 0 3px rgba(12,125,231,.1)}.icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:15px}.eye{position:absolute;right:7px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#537089;padding:7px;cursor:pointer}
+        .field{margin-top:12px}.field label{display:block;font-size:11px;font-weight:900;color:#193553;margin-bottom:6px}.wrap{position:relative}.input{width:100%;height:49px;border:1px solid #bdd2e1;border-radius:11px;background:#fff;color:#183753;padding:0 14px;outline:none;box-sizing:border-box;font-size:14px}.input:focus{border-color:#0c7de7;box-shadow:0 0 0 3px rgba(12,125,231,.1)}.icon{position:absolute;left:-27px;top:50%;transform:translateY(-50%);font-size:15px;width:20px;text-align:center;z-index:2;pointer-events:none}.eye{position:absolute;right:7px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:#537089;padding:7px;cursor:pointer}
         .forgot{text-align:right;margin:7px 0 0}.forgot button{border:0;background:none;color:#0b6fce;font-weight:800;font-size:11px;padding:0;cursor:pointer}.loginBtn{width:100%;height:51px;border:0;border-radius:11px;margin-top:16px;color:#fff;font-weight:900;font-size:15px;background:linear-gradient(90deg,#087ce8,#16ad63);cursor:pointer}.loginBtn:disabled{opacity:.65}.help{text-align:center;margin-top:12px;color:#667b8e;font-size:10px}.help strong{color:#0a70d4}.secure{text-align:center;border-top:1px solid #e1ebf1;margin-top:15px;padding-top:13px;color:#718494;font-size:10px}.error{color:#a92020;background:#fff1f2;border:1px solid #fecdd3;padding:9px;border-radius:9px;margin:10px 0;font-size:11px}.otpNote{text-align:center;font-size:11px;color:#607789;margin:12px 0}
         .footer{position:absolute;left:0;right:0;bottom:0;height:132px;background:#07509a;border-top:4px solid #22a760;z-index:20;display:flex;align-items:center;padding:0 5%;box-sizing:border-box;gap:32px}.social{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-size:11px;font-weight:900;min-width:135px}.socialIcon{width:30px;height:30px;border-radius:8px;background:#1687e8;display:grid;place-items:center;font-size:17px}.social:nth-child(3) .socialIcon{background:#19b66b}
         @media(max-width:1050px){.hero h1{font-size:60px}.tomorrow{left:40%;font-size:38px}.vehicles{transform:scale(.85);transform-origin:left bottom}.loginCard{right:3%;width:40vw;min-width:390px}}
@@ -84,7 +84,7 @@ export function GRDLogin({ onLogin }) {
           .tabs{gap:7px}.tab{height:46px;font-size:10px}
           .field{margin-top:14px}.field label{font-size:11px}
           .wrap{width:100%}.input{height:52px;padding-left:52px;padding-right:48px;font-size:14px}
-          .icon{left:17px;width:22px;text-align:center;z-index:2;pointer-events:none}
+          .icon{left:-28px;width:22px;text-align:center;z-index:2;pointer-events:none}
           .eye{right:8px;z-index:3}
           .loginBtn{height:52px;margin-top:15px}
           .forgot{margin-top:8px}.secure{margin-top:13px}
@@ -92,7 +92,7 @@ export function GRDLogin({ onLogin }) {
         }
         @media(max-width:380px){
           .brandLogo{width:220px}.loginCard{margin-top:165px;padding:15px}.title{font-size:23px}
-          .input{padding-left:49px;padding-right:45px}
+          .input{padding-left:14px;padding-right:45px}
         }
       `}</style>
 
