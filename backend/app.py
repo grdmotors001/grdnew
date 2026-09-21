@@ -1588,11 +1588,16 @@ def dealer_battery_stock():
 
 
 @app.route("/api/dealer/rickshaw-battery-options")
-@require_auth
+@require_auth_or_dealer
 def dealer_rickshaw_battery_options():
     dealer_id=request.args.get("dealer_id",type=int)
     kind=(request.args.get("type") or "new").lower()
     if not dealer_id:return _err("Dealer is required.")
+    payload=getattr(g,"current_user_payload",{}) or {}
+    if payload.get("scope")=="dealer":
+        if int(payload.get("dealer_id") or 0)!=int(dealer_id): return _err("Dealer scope mismatch.",403)
+        if "battery-swap" not in set(payload.get("portal_modules") or []) and "battery-withdrawal" not in set(payload.get("portal_modules") or []):
+            return _err("Battery module permission required.",403)
     dealer=Dealer.query.get_or_404(dealer_id)
     out=[]
     if kind=="old":
