@@ -89,7 +89,7 @@ def _ensure_live_schema_additions():
     except Exception as exc:
         print(f"[schema] dealer category check failed: {exc}")
 
-from dealer_cashbook import dealer_cashbook_bp, DealerCashReceipt, DealerCashExpense, DealerCashHandover
+from dealer_cashbook import dealer_cashbook_bp, DealerCashReceipt, DealerCashExpense, DealerCashHandover, DealerCustomerDelivery, DealerCashCustomer
 app.register_blueprint(dealer_cashbook_bp, url_prefix="/api/dealer")
 app.register_blueprint(hr_bp, url_prefix="/api/hr")
 CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*")}})
@@ -2393,6 +2393,50 @@ def billing_vehicle_inventory_download_txt():
     content="\r\n".join(lines)+"\r\n"
     return Response(content, mimetype="text/plain; charset=utf-8",
                     headers={"Content-Disposition":'attachment; filename="VahanInventoryTXT.TXT"'})
+
+@app.get("/api/billing/showroom-deliveries")
+@require_auth
+def billing_showroom_deliveries():
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    rows=(DealerCustomerDelivery.query.filter(DealerCustomerDelivery.billing_status == "PENDING_BILL")
+          .order_by(DealerCustomerDelivery.delivery_date.desc(), DealerCustomerDelivery.id.desc()).limit(500).all())
+    return jsonify({"deliveries":[{
+        "id":r.id,"delivery_no":r.delivery_no,"date":_iso(r.delivery_date),
+        "dealer_id":r.dealer_id,"dealer_name":r.dealer.name if r.dealer else "",
+        "customer_id":r.customer_id,"customer_name":r.customer.full_name if getattr(r,"customer",None) else "",
+        "customer_phone":r.customer.phone if getattr(r,"customer",None) else "",
+        "delivery_type":r.delivery_type,"chassis_no":r.vehicle.chassis_no if getattr(r,"vehicle",None) else None,
+        "vehicle_no":r.old_rickshaw.vehicle_reg_no if getattr(r,"old_rickshaw",None) else None,
+        "sale_amount":r.sale_amount or 0,"loan_amount":r.loan_amount or 0,"down_payment":r.down_payment or 0,
+        "do_no":r.do_no,"do_selected_by":r.do_selected_by,"remarks":r.remarks,
+        "billing_status":r.billing_status
+    } for r in rows]})
+
+@app.get("/api/billing/showroom-do-options")
+@require_auth
+def billing_showroom_do_options():
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    rows=LoanWorkflow.query.filter(LoanWorkflow.do_no.isnot(None)).order_by(LoanWorkflow.id.desc()).limit(500).all()
+    return jsonify({"do_numbers":[{"id":r.id,"do_no":r.do_no,"application_no":r.application_no,"customer_name":r.customer.full_name if r.customer else ""} for r in rows if r.do_no]})
+
+@app.put("/api/billing/showroom-deliveries/<int:delivery_id>")
+@require_auth
+def billing_showroom_delivery_update(delivery_id):
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    row=DealerCustomerDelivery.query.get_or_404(delivery_id)
+    data=request.get_json(silent=True) or {}
+    do_no=str(data.get("do_no") or "").strip() or None
+    if do_no:
+        conflict=DealerCustomerDelivery.query.filter(
+            DealerCustomerDelivery.id != row.id,
+            db.func.lower(DealerCustomerDelivery.do_no) == do_no.lower()
+        ).first()
+        if conflict: return _err("This DO No. is already assigned to another delivery.",409)
+    row.do_no=do_no
+    row.do_selected_by="billing" if do_no else None
+    row.do_selected_at=dt.utcnow() if do_no else None
+    db.session.commit()
+    return jsonify({"success":True,"delivery":{"id":row.id,"do_no":row.do_no,"do_selected_by":row.do_selected_by}})
 
 @app.get("/api/billing/pending-sales")
 @require_auth
