@@ -68,6 +68,7 @@ class DealerCustomerDelivery(db.Model):
     do_no = db.Column(db.String(60), index=True)
     do_selected_by = db.Column(db.String(20))
     do_selected_at = db.Column(db.DateTime)
+    billing_status = db.Column(db.String(20), default="PENDING_BILL", index=True)
     remarks = db.Column(db.String(300))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -140,7 +141,7 @@ def _ensure_cashbook_schema():
     try:
         dcols = {c["name"] for c in inspect(db.engine).get_columns("dealer_customer_delivery")}
         with db.engine.begin() as conn:
-            for col, sql in [("do_no","VARCHAR(60)"),("do_selected_by","VARCHAR(20)"),("do_selected_at","TIMESTAMP")]:
+            for col, sql in [("do_no","VARCHAR(60)"),("do_selected_by","VARCHAR(20)"),("do_selected_at","TIMESTAMP"),("billing_status","VARCHAR(20) DEFAULT 'PENDING_BILL'")]:
                 if col not in dcols:
                     conn.execute(text(f"ALTER TABLE dealer_customer_delivery ADD COLUMN {col} {sql}"))
     except Exception as exc:
@@ -389,6 +390,7 @@ def create_showroom_delivery():
         "down_payment":row.down_payment,
         "do_no":row.do_no,
         "do_selected_by":row.do_selected_by,
+        "billing_status":row.billing_status,
     }}),201
 
 
