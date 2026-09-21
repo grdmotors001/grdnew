@@ -25,6 +25,8 @@ import urllib.request
 import urllib.error
 import json as _json
 import hmac
+import io
+import zipfile
 from datetime import date, datetime as dt, timedelta
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
@@ -2120,6 +2122,80 @@ def billing_manual_pending_bill_approve(row_id):
     row.status="BILL_APPROVED";row.approved_by=(getattr(g,"current_user_payload",{}) or {}).get("username");row.approved_at=dt.utcnow()
     db.session.commit()
     return jsonify({"success":True})
+
+@app.get("/api/billing/vehicle-inventory")
+@require_auth
+def billing_vehicle_inventory():
+    if not _billing_user_allowed():
+        return _err("Billing approval rights required", 403)
+    q=TaxInvoice.query
+    from_date=(request.args.get("from_date") or "").strip()
+    to_date=(request.args.get("to_date") or "").strip()
+    name=(request.args.get("name") or "").strip()
+    if from_date:
+        d=_parse_date(from_date)
+        if d: q=q.filter(TaxInvoice.date >= d)
+    if to_date:
+        d=_parse_date(to_date)
+        if d: q=q.filter(TaxInvoice.date <= d)
+    if name:
+        like=f"%{name}%"
+        q=q.filter(or_(TaxInvoice.buyer_name.ilike(like),TaxInvoice.product_name.ilike(like)))
+    rows=q.order_by(TaxInvoice.date.desc(),TaxInvoice.id.desc()).limit(2000).all()
+    out=[]
+    for ti in rows:
+        product=Product.query.filter_by(name=ti.product_name).first()
+        vehicle=Vehicle.query.get(ti.vehicle_id) if ti.vehicle_id else None
+        production=(ProductionVoucher.query.filter_by(chassis_no=ti.chassis_no)
+                    .order_by(ProductionVoucher.id.desc()).first()) if ti.chassis_no else None
+        md=(production.date if production and production.date else
+            (vehicle.date if vehicle else None))
+        umrn=(product.umrn_code if product else None) or ""
+        colour_code=(vehicle.colour_code if vehicle else None) or ""
+        txt=f"{umrn}|{ti.chassis_no or ''}|{ti.motor_no or ''}|{md.strftime('%m%Y') if md else ''}|R1|{colour_code}|NA"
+        safe=re.sub(r"[^A-Za-z0-9]","",ti.chassis_no or "") or re.sub(r"[^A-Za-z0-9]","",ti.bill_no or "") or f"INVOICE{ti.id}"
+        out.append({"id":ti.id,"date":_iso(ti.date),"customer_name":ti.buyer_name or "",
+                    "model_name":ti.product_name or "","chassis_no":ti.chassis_no or "",
+                    "motor_no":ti.motor_no or "","umrn":umrn,
+                    "manufacturing_month":md.strftime("%m%Y") if md else "",
+                    "colour_code":colour_code,"txt":txt,"filename":safe+".TXT"})
+    return jsonify({"vehicles":out})
+
+
+@app.post("/api/billing/vehicle-inventory/download-txt")
+@require_auth
+def billing_vehicle_inventory_download_txt():
+    if not _billing_user_allowed():
+        return _err("Billing approval rights required", 403)
+    data=request.get_json(silent=True) or {}
+    ids=[_i(x,0) for x in (data.get("invoice_ids") or [])]
+    ids=[x for x in ids if x]
+    if not ids:return _err("Select at least one vehicle.")
+    rows=TaxInvoice.query.filter(TaxInvoice.id.in_(ids)).all()
+    if not rows:return _err("Selected vehicles not found.",404)
+    mem=io.BytesIO()
+    used=set()
+    with zipfile.ZipFile(mem,"w",zipfile.ZIP_DEFLATED) as z:
+        for ti in rows:
+            product=Product.query.filter_by(name=ti.product_name).first()
+            vehicle=Vehicle.query.get(ti.vehicle_id) if ti.vehicle_id else None
+            production=(ProductionVoucher.query.filter_by(chassis_no=ti.chassis_no)
+                        .order_by(ProductionVoucher.id.desc()).first()) if ti.chassis_no else None
+            md=(production.date if production and production.date else
+                (vehicle.date if vehicle else None))
+            umrn=(product.umrn_code if product else None) or ""
+            colour_code=(vehicle.colour_code if vehicle else None) or ""
+            txt=f"{umrn}|{ti.chassis_no or ''}|{ti.motor_no or ''}|{md.strftime('%m%Y') if md else ''}|R1|{colour_code}|NA"
+            base=re.sub(r"[^A-Za-z0-9]","",ti.chassis_no or "") or re.sub(r"[^A-Za-z0-9]","",ti.bill_no or "") or f"INVOICE{ti.id}"
+            filename=base+".TXT"; n=2
+            while filename.upper() in used:
+                filename=f"{base}{n}.TXT"; n+=1
+            used.add(filename.upper())
+            z.writestr(filename,txt)
+    mem.seek(0)
+    from flask import Response
+    return Response(mem.getvalue(),mimetype="application/zip",
+                    headers={"Content-Disposition":'attachment; filename="VahanInventoryTXT.zip"'})
 
 @app.get("/api/billing/pending-sales")
 @require_auth
