@@ -17,6 +17,7 @@ import { CreditNotePage } from '../components/CreditNotePage';
 import { PurchaseBillPage } from '../components/PurchaseBillPage';
 import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, BatteryDeliveryChallanPage, JournalStockPage } from '../components/MinorVoucherPages';
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
+import { RepairServiceVoucherPage } from '../components/RepairServiceVoucherPage';
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import { InsuranceRtoRegisterPage } from '../components/InsuranceRtoRegisterPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
@@ -60,6 +61,7 @@ const CUSTOM_PAGES = {
   'battery-delivery-challan': () => <BatteryDeliveryChallanPage />,
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
+  'repair-service-voucher': () => <RepairServiceVoucherPage />,
   'closing-stock-premises': () => <ClosingStockPremisesPage />,
   'closing-stock-dealers': () => <ClosingStockDealersPage />,
   'closing-stock-raw': () => <ClosingStockRawPage />,
