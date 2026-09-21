@@ -1475,6 +1475,7 @@ def dealer_login():
             "dealer": {
                 "id": dealer.id, "code": dealer.code, "name": dealer.name,
                 "login_id": dealer.login_id,
+                "dealer_category": getattr(dealer, "dealer_category", "dealer") or "dealer",
                 "purchase_access": bool(dealer.purchase_access),
                 "portal_modules": [x for x in (dealer.portal_modules or "").split(",") if x],
             },
@@ -1494,6 +1495,7 @@ def dealer_me():
     return jsonify({
         "id": dealer.id, "code": dealer.code, "name": dealer.name,
         "login_id": dealer.login_id,
+        "dealer_category": getattr(dealer, "dealer_category", "dealer") or "dealer",
         "purchase_access": bool(dealer.purchase_access),
         "portal_modules": [x for x in (dealer.portal_modules or "").split(",") if x],
     })
