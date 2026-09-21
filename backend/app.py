@@ -2134,6 +2134,7 @@ def billing_vehicle_inventory():
     from_date=(request.args.get("from_date") or "").strip()
     to_date=(request.args.get("to_date") or "").strip()
     name=(request.args.get("name") or "").strip()
+    search=(request.args.get("search") or "").strip()
     if from_date:
         d=_parse_date(from_date)
         if d: q=q.filter(TaxInvoice.date >= d)
@@ -2143,13 +2144,32 @@ def billing_vehicle_inventory():
     if name:
         like=f"%{name}%"
         q=q.filter(or_(TaxInvoice.buyer_name.ilike(like),TaxInvoice.product_name.ilike(like)))
+    if search:
+        like=f"%{search}%"
+        q=q.filter(or_(TaxInvoice.chassis_no.ilike(like),TaxInvoice.motor_no.ilike(like),
+                       TaxInvoice.buyer_name.ilike(like),TaxInvoice.product_name.ilike(like)))
     rows=q.order_by(TaxInvoice.date.desc(),TaxInvoice.id.desc()).limit(2000).all()
+
+    # Batch-load related masters. The previous implementation executed up to
+    # 3 SQL queries per invoice (6,000 queries for 2,000 rows), which could
+    # exceed Vercel Hobby serverless execution limits.
+    product_names={x.product_name for x in rows if x.product_name}
+    vehicle_ids={x.vehicle_id for x in rows if x.vehicle_id}
+    chassis_names={x.chassis_no for x in rows if x.chassis_no}
+    products={p.name:p for p in Product.query.filter(Product.name.in_(product_names)).all()} if product_names else {}
+    vehicles={v.id:v for v in Vehicle.query.filter(Vehicle.id.in_(vehicle_ids)).all()} if vehicle_ids else {}
+    productions={}
+    if chassis_names:
+        pv_rows=(ProductionVoucher.query.filter(ProductionVoucher.chassis_no.in_(chassis_names))
+                 .order_by(ProductionVoucher.id.desc()).all())
+        for pv in pv_rows:
+            productions.setdefault(pv.chassis_no,pv)
+
     out=[]
     for ti in rows:
-        product=Product.query.filter_by(name=ti.product_name).first()
-        vehicle=Vehicle.query.get(ti.vehicle_id) if ti.vehicle_id else None
-        production=(ProductionVoucher.query.filter_by(chassis_no=ti.chassis_no)
-                    .order_by(ProductionVoucher.id.desc()).first()) if ti.chassis_no else None
+        product=products.get(ti.product_name)
+        vehicle=vehicles.get(ti.vehicle_id)
+        production=productions.get(ti.chassis_no)
         md=(production.date if production and production.date else
             (vehicle.date if vehicle else None))
         umrn=(product.umrn_code if product else None) or ""
@@ -2175,12 +2195,21 @@ def billing_vehicle_inventory_download_txt():
     if not ids:return _err("Select at least one vehicle.")
     rows=TaxInvoice.query.filter(TaxInvoice.id.in_(ids)).order_by(TaxInvoice.id.asc()).all()
     if not rows:return _err("Selected vehicles not found.",404)
+    product_names={x.product_name for x in rows if x.product_name}
+    vehicle_ids={x.vehicle_id for x in rows if x.vehicle_id}
+    chassis_names={x.chassis_no for x in rows if x.chassis_no}
+    products={p.name:p for p in Product.query.filter(Product.name.in_(product_names)).all()} if product_names else {}
+    vehicles={v.id:v for v in Vehicle.query.filter(Vehicle.id.in_(vehicle_ids)).all()} if vehicle_ids else {}
+    productions={}
+    if chassis_names:
+        for pv in (ProductionVoucher.query.filter(ProductionVoucher.chassis_no.in_(chassis_names))
+                   .order_by(ProductionVoucher.id.desc()).all()):
+            productions.setdefault(pv.chassis_no,pv)
     lines=[]
     for ti in rows:
-        product=Product.query.filter_by(name=ti.product_name).first()
-        vehicle=Vehicle.query.get(ti.vehicle_id) if ti.vehicle_id else None
-        production=(ProductionVoucher.query.filter_by(chassis_no=ti.chassis_no)
-                    .order_by(ProductionVoucher.id.desc()).first()) if ti.chassis_no else None
+        product=products.get(ti.product_name)
+        vehicle=vehicles.get(ti.vehicle_id)
+        production=productions.get(ti.chassis_no)
         md=(production.date if production and production.date else
             (vehicle.date if vehicle else None))
         umrn=(product.umrn_code if product else None) or ""
@@ -2656,6 +2685,17 @@ def _ensure_manual_pending_bill_table():
         ManualPendingBill.__table__.create(db.engine, checkfirst=True)
     except Exception as exc:
         print(f"[manual-pending-bill] schema check failed: {exc}")
+
+@app.get("/api/dealer-list")
+@require_auth
+def dealer_list():
+    # Lightweight dealer dropdown endpoint. Avoid the full Dealer Master payload
+    # and salesman-user query on pages that only need dealer id/code/name.
+    rows=(Dealer.query
+          .filter(Dealer.blocked.is_(False))
+          .order_by(Dealer.name.asc())
+          .all())
+    return jsonify({"dealers":[{"id":d.id,"code":d.code,"name":d.name,"salesman":d.salesman} for d in rows]})
 
 @app.route("/api/dealers/<int:dealer_id>", methods=["DELETE"])
 @require_auth
