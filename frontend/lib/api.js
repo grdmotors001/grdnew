@@ -166,3 +166,23 @@ export async function downloadText(path, filename) {
   link.remove();
   URL.revokeObjectURL(url);
 }
+
+export async function downloadBlob(path, body, filename) {
+  const token = getToken();
+  const r = await fetch(base + path, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json', ...(token ? {Authorization:`Bearer ${token}`} : {})},
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d?.error || 'Download failed');
+  }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href=url; link.download=filename || 'download';
+  document.body.appendChild(link); link.click(); link.remove();
+  URL.revokeObjectURL(url);
+}
