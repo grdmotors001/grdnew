@@ -44,7 +44,7 @@ export function ExpensePaymentVoucherPage(){
         if(qs)get('/expense-payment-voucher/rickshaws'+qs).then(x=>setRickshaws(x.rickshaws||[])).catch(e=>setError(e.message));
       }
     }
-  },[form.expense_type,form.pay_to_type,form.dealer_id,form.staff_name]);
+  },[form.expense_type,form.pay_to_type,form.dealer_id,form.staff_name,form.pay_to_name]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const onExpenseType=v=>{
