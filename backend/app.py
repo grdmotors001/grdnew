@@ -2424,19 +2424,84 @@ def billing_showroom_do_options():
 def billing_showroom_delivery_update(delivery_id):
     if not _billing_user_allowed(): return _err("Billing approval rights required",403)
     row=DealerCustomerDelivery.query.get_or_404(delivery_id)
+    if row.billing_status not in ("PENDING_BILL",):
+        return _err("Only Pending Bill deliveries can be edited.",409)
     data=request.get_json(silent=True) or {}
-    do_no=str(data.get("do_no") or "").strip() or None
-    if do_no:
-        conflict=DealerCustomerDelivery.query.filter(
-            DealerCustomerDelivery.id != row.id,
-            db.func.lower(DealerCustomerDelivery.do_no) == do_no.lower()
-        ).first()
-        if conflict: return _err("This DO No. is already assigned to another delivery.",409)
-    row.do_no=do_no
-    row.do_selected_by="billing" if do_no else None
-    row.do_selected_at=dt.utcnow() if do_no else None
+    if "do_no" in data:
+        do_no=str(data.get("do_no") or "").strip() or None
+        if do_no:
+            conflict=DealerCustomerDelivery.query.filter(
+                DealerCustomerDelivery.id != row.id,
+                db.func.lower(DealerCustomerDelivery.do_no) == do_no.lower()
+            ).first()
+            if conflict: return _err("This DO No. is already assigned to another delivery.",409)
+        row.do_no=do_no
+        row.do_selected_by="billing" if do_no else None
+        row.do_selected_at=dt.utcnow() if do_no else None
+    if "date" in data: row.delivery_date=_parse_date(data.get("date")) or row.delivery_date
+    for field in ("sale_amount","loan_amount","down_payment"):
+        if field in data: setattr(row,field,_f(data.get(field),getattr(row,field) or 0))
+    if "remarks" in data: row.remarks=str(data.get("remarks") or "").strip() or None
     db.session.commit()
-    return jsonify({"success":True,"delivery":{"id":row.id,"do_no":row.do_no,"do_selected_by":row.do_selected_by}})
+    return jsonify({"success":True,"delivery":{
+        "id":row.id,"delivery_no":row.delivery_no,"date":_iso(row.delivery_date),
+        "do_no":row.do_no,"do_selected_by":row.do_selected_by,
+        "sale_amount":row.sale_amount,"loan_amount":row.loan_amount,
+        "down_payment":row.down_payment,"remarks":row.remarks,
+        "billing_status":row.billing_status
+    }})
+
+@app.post("/api/billing/showroom-deliveries/<int:delivery_id>/approve")
+@require_auth
+def billing_showroom_delivery_approve(delivery_id):
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    row=DealerCustomerDelivery.query.get_or_404(delivery_id)
+    if row.billing_status!="PENDING_BILL": return _err("Only Pending Bill deliveries can be approved.",409)
+    row.approved_by=(getattr(g,"current_user_payload",{}) or {}).get("username") or str(getattr(g,"current_user_id",""))
+    row.approved_at=dt.utcnow()
+    if row.delivery_type=="old":
+        row.billing_status="VERIFIED"
+        row.verified_by=row.approved_by
+        row.verified_at=dt.utcnow()
+    else:
+        row.billing_status="APPROVED"
+    db.session.commit()
+    return jsonify({"success":True,"delivery":{"id":row.id,"billing_status":row.billing_status}})
+
+@app.post("/api/billing/showroom-deliveries/<int:delivery_id>/generate-bill")
+@require_auth
+def billing_showroom_delivery_generate_bill(delivery_id):
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    row=DealerCustomerDelivery.query.get_or_404(delivery_id)
+    if row.delivery_type=="old": return _err("Old Rickshaw does not get a bill here. It is verified and moved to Old Rickshaw Sales & Billing.",409)
+    if row.delivery_type!="new": return _err("Only New Rickshaw delivery can generate a bill.",409)
+    if row.billing_status!="APPROVED": return _err("Approval is required before Bill generation.",403)
+    if not row.vehicle_id: return _err("No chassis is attached to this delivery.",409)
+    vehicle=Vehicle.query.get_or_404(row.vehicle_id)
+    challan=DeliveryChallan.query.filter_by(vehicle_id=vehicle.id,dealer_id=row.dealer_id,cancelled=False).order_by(DeliveryChallan.id.desc()).first()
+    if not challan: return _err("Delivery Challan for this chassis is required before billing.",409)
+    existing=TaxInvoice.query.filter_by(delivery_challan_id=challan.id).first()
+    if existing:
+        row.billing_status="BILLED"; db.session.commit()
+        return jsonify({"success":True,"invoice":ser_ti(existing),"delivery":{"id":row.id,"billing_status":row.billing_status}})
+    customer=row.customer
+    product=Product.query.filter_by(name=challan.product_name).first()
+    sale=round(row.sale_amount or challan.sale_value or 0,2)
+    if sale<=0: return _err("Sale Amount is required before Bill generation.",409)
+    ti=TaxInvoice(
+        bill_no=None,date=date.today(),delivery_challan_id=challan.id,vehicle_id=vehicle.id,
+        buyer_name=customer.full_name if customer else None,buyer_mobile=customer.phone if customer else None,
+        dealer_name=challan.dealer.name if challan.dealer else None,product_name=challan.product_name,
+        chassis_no=challan.chassis_no,motor_no=challan.motor_no,controller_no=challan.controller_no,
+        other_desc=challan.other,colour=challan.colour,sale_amount=sale,gst_sale_amount=sale,
+        gst_rate=product.gst_rate if product else 5,amount_received=row.down_payment or 0,
+        mode_term="CHFPL" if (row.loan_amount or 0)>0 else "BANK/CASH",remarks=row.remarks)
+    db.session.add(ti); db.session.flush()
+    ti.bill_no=f"GRD/{date.today().year}/{ti.id:06d}"
+    vehicle.stage="Tax Invoice"
+    row.billing_status="BILLED"
+    db.session.commit()
+    return jsonify({"success":True,"invoice":ser_ti(ti),"delivery":{"id":row.id,"billing_status":row.billing_status}})
 
 @app.get("/api/billing/pending-sales")
 @require_auth
@@ -4489,24 +4554,55 @@ def dealer_old_rickshaw_challans():
     return jsonify({"challans":[ser_old_rickshaw_challan(r) for r in rows]})
 
 @app.post("/api/billing/old-rickshaw-challans/<int:row_id>/sale")
-@require_auth_or_dealer
+@require_auth
 def billing_old_rickshaw_challan_sale(row_id):
     _ensure_old_rickshaw_challan_table()
     row=OldRickshawChallan.query.get_or_404(row_id)
-    payload=getattr(g,"current_user_payload",{}) or {}
-    if payload.get("scope")=="dealer" and (not row.dealer_id or int(row.dealer_id)!=int(payload.get("dealer_id") or 0)):
-        return _err("This challan is not assigned to your dealer.",403)
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    if row.status not in ("PENDING_SALE","APPROVED","VERIFIED"): return _err("This Old Rickshaw is no longer pending.",409)
     d=request.get_json(silent=True) or {}
-    row.sale_amount=_f(d.get("sale_amount"))
-    row.file_charge=_f(d.get("file_charge"))
-    row.loan_amount=_f(d.get("loan_amount"))
-    row.down_payment=_f(d.get("down_payment"))
-    row.sale_customer=(d.get("sale_customer") or "").strip() or None
-    row.sale_mobile=(d.get("sale_mobile") or "").strip() or None
-    row.sold_at=_parse_date(d.get("sold_at")) or date.today()
-    row.status="SOLD_PENDING_INVOICE"
+    for field in ("sale_amount","file_charge","loan_amount","down_payment"):
+        if field in d: setattr(row,field,_f(d.get(field),getattr(row,field) or 0))
+    if "sale_customer" in d: row.sale_customer=(d.get("sale_customer") or "").strip() or None
+    if "sale_mobile" in d: row.sale_mobile=(d.get("sale_mobile") or "").strip() or None
+    if "sold_at" in d: row.sold_at=_parse_date(d.get("sold_at")) or row.sold_at or date.today()
     db.session.commit()
     return jsonify(ser_old_rickshaw_challan(row))
+
+@app.post("/api/billing/old-rickshaw-challans/<int:row_id>/approve")
+@require_auth
+def billing_old_rickshaw_challan_approve(row_id):
+    _ensure_old_rickshaw_challan_table()
+    if not _billing_user_allowed(): return _err("Billing approval rights required",403)
+    row=OldRickshawChallan.query.get_or_404(row_id)
+    if row.status!="PENDING_SALE": return _err("Only Pending Old Rickshaw challans can be approved.",409)
+    row.status="APPROVED"
+    # Verification completes the GRD handoff; there is intentionally NO bill.
+    stock=OldRickshaw.query.filter(
+        db.or_(OldRickshaw.chfpl_ref_no==row.source_ref,
+               db.and_(OldRickshaw.vehicle_reg_no==row.vehicle_no, OldRickshaw.dealer_id==row.dealer_id))
+    ).order_by(OldRickshaw.id.desc()).first()
+    if stock:
+        stock.model_name=row.model_name or stock.model_name
+        stock.vehicle_reg_no=row.vehicle_no or stock.vehicle_reg_no
+        stock.colour=row.colour or stock.colour
+        stock.toolkit=row.toolkit or stock.toolkit
+        stock.dealer_id=row.dealer_id or stock.dealer_id
+        stock.sale_dealer_id=row.dealer_id or stock.sale_dealer_id
+        stock.sale_date=row.sold_at or date.today()
+        stock.sale_amount=row.sale_amount or 0
+        stock.loan_amount=row.loan_amount or 0
+        stock.down_payment=row.down_payment or 0
+        stock.sold_to=row.sale_customer
+        stock.sale_type="finance" if (row.loan_amount or 0)>0 else "cash"
+        stock.do_number=stock.do_number
+        stock.status="sold"
+        stock.out_name=row.sale_customer
+        stock.sale_ref_no=row.challan_no
+        stock.remarks1="Verified from Old Rickshaw Pending"
+    row.status="VERIFIED"
+    db.session.commit()
+    return jsonify({"success":True,"challan":ser_old_rickshaw_challan(row),"bill_generated":False})
 
 @app.post("/api/old-rickshaws/sale")
 @require_auth
