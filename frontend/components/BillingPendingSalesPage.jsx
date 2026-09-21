@@ -1,13 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, post, downloadBlob } from '../lib/api';
+import { get, post } from '../lib/api';
 import { Money, Field, ErrorBanner } from './ui';
 
 export function BillingPendingSalesPage(){
   const [rows,setRows]=useState([]),[manual,setManual]=useState([]),[dealers,setDealers]=useState([]),[approvedLoans,setApprovedLoans]=useState([]);
   const [form,setForm]=useState({dealer_id:'',date:new Date().toISOString().slice(0,10),chassis_no:'',sale_amount:'',remarks:''});
   const [loading,setLoading]=useState(true),[error,setError]=useState(''),[saving,setSaving]=useState(false),[usingLoan,setUsingLoan]=useState('');
-  const [billingTab,setBillingTab]=useState('pending');
 
   const load=async()=>{
     setLoading(true);setError('');
@@ -35,7 +34,6 @@ export function BillingPendingSalesPage(){
   };
   const approveManual=async id=>{if(!confirm('Approve this manual cash bill?'))return;try{await post('/billing/manual-pending-bills/'+id+'/approve',{});load()}catch(e){setError(e.message)}};
 
-  const toggleInventory=id=>setInventorySelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n});
   const selectAllInventory=()=>setInventorySelected(inventorySelected.size===inventory.length?new Set():new Set(inventory.map(x=>x.id)));
   const downloadSelectedTxt=async()=>{try{if(!inventorySelected.size)return setError('Select at least one vehicle.');await downloadBlob('/billing/vehicle-inventory/download-txt',{invoice_ids:[...inventorySelected]},'VahanInventoryTXT.TXT')}catch(e){setError(e.message)}};
 
