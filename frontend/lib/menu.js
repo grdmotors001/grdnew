@@ -28,6 +28,7 @@ export const MENU = {
     ['old-rickshaw', 'Old Rickshaw'],
     ['battery-swap', 'Battery Swap / Exchange Voucher'],
     ['battery-withdrawal', 'Battery Withdrawal'],
+    ['battery-addition', 'Battery Fit to Rickshaw'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['repair-service-voucher', 'Repair & Service Voucher'],
   ],
@@ -79,7 +80,7 @@ export const NAV_GROUPS = {
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
-    ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'],
+    ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'], ['battery-addition', 'Battery Fit to Rickshaw'],
   ],
   'Sales & Billing': [
     ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
