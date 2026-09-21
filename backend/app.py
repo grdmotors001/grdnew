@@ -2134,7 +2134,7 @@ def dealer_pending_sales():
     _ensure_loan_workflow_tables()
     did=getattr(g,"current_dealer_id",None)
     rows=(LoanWorkflow.query.filter_by(dealer_id=did)
-          .filter(LoanWorkflow.status=="DO_APPROVED")
+          .filter(LoanWorkflow.status=="DISBURSED")
           .order_by(LoanWorkflow.id.desc()).limit(200).all())
     # Dealer can only attach one of its Delivery Challans to a pending sale.
     challans=(DeliveryChallan.query.filter_by(dealer_id=did,cancelled=False)
@@ -2151,7 +2151,7 @@ def dealer_pending_sale_create(row_id):
     _ensure_loan_workflow_tables()
     row=LoanWorkflow.query.get_or_404(row_id)
     if row.dealer_id!=getattr(g,"current_dealer_id",None): return _err("Not allowed",403)
-    if row.status!="DO_APPROVED": return _err("Only approved CHFPL/DO loans can be moved to Pending Sales",409)
+    if row.status!="DISBURSED": return _err("Only disbursed loans can be moved to Pending Sales",409)
     data=request.get_json(silent=True) or {}
     description=(data.get("dealer_description") or "").strip()
     vehicle_id=data.get("vehicle_id")
@@ -2346,7 +2346,7 @@ def billing_vehicle_inventory_download_txt():
 def billing_pending_sales():
     _ensure_loan_workflow_tables()
     if not _billing_user_allowed(): return _err("Billing approval rights required",403)
-    rows=(LoanWorkflow.query.filter(LoanWorkflow.status=="DO_APPROVED",
+    rows=(LoanWorkflow.query.filter(LoanWorkflow.status=="DISBURSED",
                                      LoanWorkflow.billing_status.in_(["NOT_REQUESTED","PENDING_SALE","BILL_APPROVED"]))
           .order_by(db.func.coalesce(LoanWorkflow.billing_requested_at, LoanWorkflow.approved_at).desc(),
                     LoanWorkflow.id.desc()).limit(500).all())
@@ -2358,7 +2358,7 @@ def billing_pending_sale_approve(row_id):
     _ensure_loan_workflow_tables()
     if not _billing_user_allowed(): return _err("Billing approval rights required",403)
     row=LoanWorkflow.query.get_or_404(row_id)
-    if row.status!="DO_APPROVED" or row.billing_status!="PENDING_SALE":
+    if row.status!="DISBURSED" or row.billing_status!="PENDING_SALE":
         return _err("Only Pending Sales can be approved",409)
     row.billing_status="BILL_APPROVED"
     row.billing_approved_by=getattr(g,"current_user_payload",{}).get("username") or str(getattr(g,"current_user_id",""))
