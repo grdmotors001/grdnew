@@ -260,7 +260,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
                   onClick={() => {
                     const target = activeGroup === group && allowed.some(([key]) => key === active)
                       ? active
-                      : firstKey;
+                      : group === 'HR' && allowed.some(([key]) => key === 'hr-attendance')
+                        ? 'hr-attendance'
+                        : firstKey;
                     if (target) selectMenu(target);
                   }}
                 >
