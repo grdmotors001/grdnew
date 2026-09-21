@@ -32,7 +32,6 @@ MENU = {
         {"key": "salesman",          "label": "8A. Salesman Master",                   "kind": "simple",
          "fields": [("name", "Salesman Name", "text")]},
         {"key": "user",              "label": "9. User Master",                          "kind": "custom"},
-        {"key": "option-setting",    "label": "A. User wise Option Setting",             "kind": "custom"},
         {"key": "bank",              "label": "B. Bank Details",                         "kind": "simple",
          "fields": [("name", "Bank Name", "text"), ("account_no", "Account No.", "text"), ("ifsc", "IFSC", "text"),
                     ("is_default", "Default / Primary (auto-fills on new Invoices)", "checkbox")]},
@@ -60,6 +59,11 @@ MENU = {
         {"key": "dealer-cash-receipt",    "label": "Dealer Cash Receipt",                  "kind": "custom"},
         {"key": "insurance-rto",           "label": "Insurance / RTO Expense",             "kind": "custom"},
         {"key": "day-book",               "label": "Day Book",                             "kind": "custom"},
+    ],
+    "HR": [
+        {"key": "company", "label": "Company Details (GST / Email / Mobile / Website)", "kind": "custom"},
+        {"key": "user", "label": "User Master", "kind": "custom"},
+        {"key": "hr-attendance", "label": "Attendance & Salary", "kind": "custom"},
     ],
     "Factory": [
         {"key": "journal-stock",          "label": "I. Journal Stock",                   "kind": "custom"},
