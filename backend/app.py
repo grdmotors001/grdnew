@@ -473,6 +473,43 @@ def _ser_repair_receipt(r):
         "reference_no": r.reference_no, "remarks": r.remarks, "created_by": r.created_by,
     }
 
+@app.get("/api/repair-service-masters")
+@require_auth
+def repair_service_masters():
+    _ensure_repair_service_tables()
+    denied = _repair_service_access()
+    if denied: return denied
+
+    vehicle_no = (request.args.get("vehicle_no") or "").strip()
+    # Raw items used by Repair / Service Voucher.
+    raw_items = Product.query.filter(Product.fro == "R").order_by(Product.name, Product.id).limit(2000).all()
+
+    vehicles = []
+    q = TaxInvoice.query
+    if vehicle_no:
+        q = q.filter(TaxInvoice.vehicle_reg_no.ilike(vehicle_no))
+    else:
+        q = q.filter(TaxInvoice.vehicle_reg_no.isnot(None))
+    rows = q.order_by(TaxInvoice.id.desc()).limit(500).all()
+    for ti in rows:
+        v = ti.vehicle
+        vehicles.append({
+            "vehicle_id": ti.vehicle_id or ti.id,
+            "vehicle_no": ti.vehicle_reg_no or "",
+            "chassis_no": (v.chassis_no if v else ti.chassis_no) or "",
+            "customer_name": ti.buyer_name or "",
+            "customer_mobile": ti.buyer_mobile or "",
+            "model_name": (v.model_name if v else ti.product_name) or "",
+        })
+
+    return jsonify({
+        "raw_items": [{
+            "id": p.id, "code": p.code or "", "name": p.name,
+            "unit": p.unit or "PCS", "stock_qty": 0
+        } for p in raw_items],
+        "vehicles": vehicles
+    })
+
 @app.route("/api/repair-service-vouchers", methods=["GET", "POST"])
 @require_auth
 def repair_service_vouchers():
