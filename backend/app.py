@@ -1477,6 +1477,38 @@ def _chfpl_bridge_get(path):
         return int(exc.code), detail
 
 
+@app.get("/api/factory/chfpl-repossessed")
+@require_auth
+def factory_chfpl_repossessed():
+    if not _billing_user_allowed():
+        return _err("Factory / Billing rights required",403)
+    try:
+        status,payload=_chfpl_bridge_get("/api/grd/repossessed?status=available_for_sale")
+    except Exception as exc:
+        print(f"[CHFPL repo stock] {exc}")
+        return _err("CHFPL repossession service is temporarily unavailable",502)
+    if status>=400:return _err((payload.get("error") if isinstance(payload,dict) else None) or "Could not load CHFPL repossessed stock",502)
+    return jsonify(payload if isinstance(payload,dict) else {"vehicles":[]})
+
+
+def _chfpl_bridge_post(path, payload):
+    secret = os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
+    if not secret:
+        raise RuntimeError("CHFPL_GRD_BRIDGE_SECRET is not configured")
+    target = f"{_chfpl_bridge_base()}{path}"
+    body = _json.dumps(payload or {}).encode("utf-8")
+    req = urllib.request.Request(target, data=body,
+        headers={"X-GRD-BRIDGE-SECRET": secret, "Accept": "application/json", "Content-Type": "application/json"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=12) as response:
+            return int(response.status or 200), _json.loads(response.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        raw=exc.read().decode("utf-8",errors="replace")
+        try: detail=_json.loads(raw)
+        except Exception: detail={"error":raw or f"CHFPL HTTP {exc.code}"}
+        return int(exc.code),detail
+
 @app.get("/api/dealer/loan-status")
 @require_dealer_auth
 def dealer_loan_status():
@@ -4112,6 +4144,39 @@ def old_rickshaw_delete(record_id):
 def factory_old_rickshaw_challans():
     _ensure_old_rickshaw_challan_table()
     if request.method=="GET":
+        # Pull CHFPL repossessed vehicles that have explicitly been released
+        # for resale, and create the GRD Factory challan queue automatically.
+        try:
+            status,payload=_chfpl_bridge_get("/api/grd/repossessed?status=available_for_sale")
+            if status<400 and isinstance(payload,dict):
+                for v in payload.get("vehicles",[]) or []:
+                    source_ref=str(v.get("id") or "").strip()
+                    if not source_ref: continue
+                    exists=OldRickshawChallan.query.filter_by(source="chfpl",source_ref=source_ref).first()
+                    if exists: continue
+                    loan=v.get("loan_applications") or {}
+                    customer=loan.get("customer_profiles") or {}
+                    parked=v.get("dealer_master") or {}
+                    dealer=None
+                    code=(parked.get("dealer_code") or "").strip()
+                    name=(parked.get("dealer_name") or "").strip()
+                    if code: dealer=Dealer.query.filter(db.func.lower(Dealer.code)==code.lower()).first()
+                    if not dealer and name: dealer=Dealer.query.filter(db.func.lower(Dealer.name)==name.lower()).first()
+                    row=OldRickshawChallan(
+                        challan_no=f"ORC-CHFPL-{source_ref[:8]}",
+                        date=_parse_date(v.get("repo_date")) or date.today(),
+                        model_name=v.get("model_name") or loan.get("vehicle_model_master",{}).get("model_name") or loan.get("grd_model_name") or "",
+                        vehicle_no=v.get("vehicle_no") or "",
+                        colour=v.get("colour") or "",
+                        toolkit=v.get("toolkit") or "",
+                        dealer_id=dealer.id if dealer else None,
+                        source="chfpl",source_ref=source_ref,status="PENDING_SALE")
+                    db.session.add(row); db.session.flush()
+                    try: _chfpl_bridge_post("/api/grd/repossessed/"+source_ref, {"status":"ALLOCATED_TO_GRD"})
+                    except Exception as exc: print(f"[CHFPL repo allocate] {exc}")
+                db.session.commit()
+        except Exception as exc:
+            print(f"[CHFPL repo sync] {exc}")
         rows=OldRickshawChallan.query.order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).limit(500).all()
         return jsonify({"challans":[ser_old_rickshaw_challan(r) for r in rows],
                         "suggested_challan_no":f"ORC{(db.session.query(db.func.max(OldRickshawChallan.id)).scalar() or 0)+1001}"})
