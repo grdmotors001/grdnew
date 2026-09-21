@@ -74,7 +74,7 @@ export const NAV_GROUPS = {
     ['user', 'User Master'], ['option-setting', 'User Option Setting'],
   ],
   Factory: [
-    ['repair-service-voucher', 'Repair & Service Voucher'],
+    ['repair-service-voucher', 'Repair & Service Voucher'], ['journal-stock', 'Journal Stock'],
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'],
