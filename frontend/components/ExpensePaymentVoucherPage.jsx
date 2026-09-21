@@ -7,7 +7,7 @@ const today=()=>new Date().toISOString().slice(0,10);
 
 export function ExpensePaymentVoucherPage(){
   const [masters,setMasters]=useState({expense_types:[],pay_to_types:[],dealers:[],staff:[],mechanics:[],fabricators:[]});
-  const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[selected,setSelected]=useState([]);
+  const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[partyRickshaws,setPartyRickshaws]=useState([]),[selected,setSelected]=useState([]);
   const [rows,setRows]=useState([]),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
   const [error,setError]=useState(''),[msg,setMsg]=useState(''),[statusFilter,setStatusFilter]=useState('');
   const [form,setForm]=useState({date:today(),pay_to_type:'dealer',pay_to_name:'',dealer_id:'',staff_name:'',expense_type:'office_exp',vehicle_id:'',vehicle_ids:[],payment_mode:'cash',amount:'',bill_no:'',attachment_url:'',remarks:'',work_model_name:'',work_qty:1,rate_per_unit:''});
@@ -31,7 +31,13 @@ export function ExpensePaymentVoucherPage(){
       get('/expense-payment-voucher/work-pending?work_type=assembly')
         .then(x=>{setRickshaws(x.rickshaws||[]);setSelected([])}).catch(e=>setError(e.message||'Could not load unpaid assembly rickshaws'));
     }else{
-      setRickshaws([]);setIncentiveRows([]);setSelected([]);
+      setRickshaws([]);setIncentiveRows([]);setPartyRickshaws([]);setSelected([]);
+      if(et==='insurance'||et==='rto_expense'){
+        const party=(form.pay_to_name||'').trim();
+        if(party) get('/expense-payment-voucher/party-rickshaws?'+new URLSearchParams({expense_type:et,party_name:party}))
+          .then(x=>setPartyRickshaws(x.rickshaws||[])).catch(e=>setError(e.message||'Could not load rickshaws'));
+        return;
+      }
       const needs=et==='passing_exp';
       if(needs){
         const qs=form.pay_to_type==='dealer'&&form.dealer_id?'?dealer_id='+form.dealer_id:form.pay_to_type==='staff'&&form.staff_name?'?staff_name='+encodeURIComponent(form.staff_name):'';
@@ -48,6 +54,8 @@ export function ExpensePaymentVoucherPage(){
       setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',staff_name:'',vehicle_id:'',vehicle_ids:[],amount:'',work_qty:1,rate_per_unit:''}));
     }else if(v==='incentive'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'dealer',pay_to_name:'',vehicle_id:'',vehicle_ids:[],amount:''}));
+    }else if(v==='insurance'||v==='rto_expense'){
+      setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:''}));
     }else setForm(x=>({...x,expense_type:v,vehicle_id:'',vehicle_ids:[],amount:''}));
   };
   const onDealer=v=>{const d=masters.dealers.find(x=>String(x.id)===v);setForm(x=>({...x,dealer_id:v,pay_to_name:d?.name||'',vehicle_id:''}))};
@@ -72,6 +80,11 @@ export function ExpensePaymentVoucherPage(){
       }else if(form.expense_type==='incentive'){
         if(!selected.length)throw new Error('Select at least one unpaid rickshaw.');
         payload={...form,vehicle_ids:selected};
+      }else if(form.expense_type==='insurance'||form.expense_type==='rto_expense'){
+        if(!form.pay_to_name.trim())throw new Error(form.expense_type==='insurance'?'Enter Insurance Provider.':'Enter RTO Passing Person / Provider.');
+        if(!selected.length)throw new Error('Select at least one rickshaw.');
+        if(Number(form.amount)<=0)throw new Error('Enter amount per rickshaw.');
+        payload={...form,pay_to_type:'other',vehicle_ids:selected};
       }
       const r=await post('/expense-payment-voucher',payload);
       const added=r.vouchers||[r.voucher]; setRows(x=>[...added,...x]);
@@ -104,7 +117,7 @@ export function ExpensePaymentVoucherPage(){
     <form className="card" onSubmit={save}><h2>New Expense / Work Payment</h2>
       <div className="grid">
         <input className="input" type="date" value={form.date} onChange={e=>set('date',e.target.value)} required/>
-        <select className="input" value={form.expense_type} onChange={e=>onExpenseType(e.target.value)}>{masters.expense_types.filter(x=>!['insurance','rto_expense'].includes(x.id)).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        <select className="input" value={form.expense_type} onChange={e=>onExpenseType(e.target.value)}>{masters.expense_types.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>
         {et==='assembly'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}} required><option value="">Select Assembler / Mechanic</option>{masters.mechanics.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
         {et==='fabrication'&&<select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required><option value="">Select Fabricator</option>{masters.fabricators.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
         {et!=='assembly'&&et!=='fabrication'&&<select className="input" value={form.pay_to_type} onChange={e=>set('pay_to_type',e.target.value)}><option value="dealer">Dealer</option><option value="staff">Staff / Salesman</option><option value="other">Other</option></select>}
@@ -130,6 +143,8 @@ export function ExpensePaymentVoucherPage(){
         <div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div>
       </div>}
 
+      {(et==='insurance'||et==='rto_expense')&&<div className="muted" style={{marginTop:10}}>Select rickshaws for this {et==='insurance'?'Insurance':'RTO'} expense.</div>}
+      {(et==='insurance'||et==='rto_expense')&&<div className="card" style={{marginTop:10}}><div className="actions" style={{justifyContent:'space-between'}}><b>Eligible Rickshaws ({partyRickshaws.length})</b><button type="button" className="btn" onClick={()=>setSelected(selected.length===partyRickshaws.length?[]:partyRickshaws.map(r=>r.vehicle_id))}>{selected.length===partyRickshaws.length?'Unselect All':'Select All'}</button></div><div className="tablewrap"><table className="table"><thead><tr><th></th><th>Date</th><th>Chassis</th><th>Model</th><th>Dealer</th></tr></thead><tbody>{partyRickshaws.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}><td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td><td>{r.date}</td><td><b>{r.chassis_no}</b></td><td>{r.model_name||'—'}</td><td>{r.dealer_name||'—'}</td></tr>)}{!partyRickshaws.length&&<tr><td colSpan="5" className="muted">Enter provider/person name to load eligible rickshaws.</td></tr>}</tbody></table></div><div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div></div>}
       {et==='passing_exp'&&<div className="muted" style={{marginTop:10}}>Select one rickshaw below for Passing Expense.</div>}
       {et==='passing_exp'&&<select className="input" style={{marginTop:8}} value={form.vehicle_id} onChange={e=>set('vehicle_id',e.target.value)} required><option value="">Select Rickshaw</option>{rickshaws.map(r=><option key={r.vehicle_id} value={r.vehicle_id}>{r.chassis_no} — {r.model_name}</option>)}</select>}
       <button className="btn primary" disabled={saving} style={{marginTop:14}}>{saving?'Saving…':'Save Voucher'}</button>
