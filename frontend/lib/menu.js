@@ -44,7 +44,7 @@ export const MENU = {
     ['stock-ledger-dealers', 'Stock Ledger - with Dealers'],
   ],
   Reports: [
-    ['loan-workflow', 'Loan Workflow / Status'], ['purchase-register', 'Purchase Register'],
+    ['purchase-register', 'Purchase Register'],
     ['production-register', 'Production Register'],
     ['delivery-challan-register', 'Delivery Challan Register'],
     ['sale-register', 'Sale Register'],
