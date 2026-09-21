@@ -10,6 +10,9 @@ export function ProductionVoucherPage() {
   const [data, setData] = useState(null);
   const [products, setProducts] = useState([]);
   const [formulas, setFormulas] = useState([]);
+  const [colours, setColours] = useState([]);
+  const [batteryMakers, setBatteryMakers] = useState([]);
+  const [mechanics, setMechanics] = useState([]);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ date: today(), quantity: 1 });
@@ -40,6 +43,9 @@ export function ProductionVoucherPage() {
     load(1, search);
     get('/products?fro=F&page=1&per_page=1000').then((d) => setProducts(d.products || []));
     get('/production-formulas').then((d) => setFormulas(d.grouped || []));
+    get('/masters/colour').then((d) => setColours(d.masters || d || [])).catch(() => {});
+    get('/masters/battery-maker').then((d) => setBatteryMakers(d.masters || d || [])).catch(() => {});
+    get('/masters/mechanic').then((d) => setMechanics(d.masters || d || [])).catch(() => {});
   }, []);
 
   const goToPage = (p) => { setPage(p); load(p, search); };
@@ -70,11 +76,15 @@ export function ProductionVoucherPage() {
     });
   };
 
-  const previewBom = (productName = form.product_name, formulaName = form.formula_name) => {
-    if (!productName) return;
-    const q = new URLSearchParams({ product_name: productName });
-    if (formulaName) q.set('formula_name', formulaName);
-    get(`/production-formulas/lines?${q}`).then(setBomPreview);
+  const previewBom = async (productName = form.product_name, formulaName = form.formula_name) => {
+    if (!productName) { setError('Choose a product first.'); return; }
+    try {
+      const q = new URLSearchParams({ product_name: productName });
+      if (formulaName) q.set('formula_name', formulaName);
+      const lines = await get(`/production-formulas/lines?${q}`);
+      setBomPreview(Array.isArray(lines) ? lines : (lines.lines || []));
+      if (!Array.isArray(lines) && !lines.lines) setError('BOM preview response is invalid.');
+    } catch (e) { setError(e.message); }
   };
 
   const save = (e) => {
@@ -120,7 +130,10 @@ export function ProductionVoucherPage() {
                   <td>{formatDate(r.date)}</td><td>{r.vou_no}</td><td>{r.product_name}</td>
                   <td><b>{r.chassis_no}</b></td><td>{r.motor_no}</td><td>{r.colour}</td>
                   <td>{r.item_count}</td>
-                  <td><button className="btn danger" onClick={() => remove(r.id)}>Delete</button></td>
+                  <td>
+                    <button className="btn" onClick={() => openEdit(r.id)}>Edit</button>
+                    <button className="btn danger" onClick={() => remove(r.id)}>Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -179,11 +192,20 @@ export function ProductionVoucherPage() {
               <Field label="Motor No." value={form.motor_no} onChange={(v) => setForm({ ...form, motor_no: v })} />
               <Field label="Controller No." value={form.controller_no} onChange={(v) => setForm({ ...form, controller_no: v })} />
               <Field label="Differential No." value={form.differential_no} onChange={(v) => setForm({ ...form, differential_no: v })} />
-              <Field label="Colour" value={form.colour} onChange={(v) => setForm({ ...form, colour: v })} />
+              <Field label="Colour" type="select" value={form.colour || ''}
+                     options={colours.map((p) => ({ value: p.name, label: p.code ? `${p.code} — ${p.name}` : p.name }))}
+                     onChange={(v) => {
+                       const x = colours.find((p) => String(p.name) === String(v));
+                       setForm({ ...form, colour: v, colour_code: x?.code || form.colour_code });
+                     }} />
               <Field label="Colour Code" value={form.colour_code} onChange={(v) => setForm({ ...form, colour_code: v })} />
-              <Field label="Battery Maker" value={form.battery_maker} onChange={(v) => setForm({ ...form, battery_maker: v })} />
+              <Field label="Battery Maker" type="select" value={form.battery_maker || ''}
+                     options={batteryMakers.map((p) => ({ value: p.name, label: p.name }))}
+                     onChange={(v) => setForm({ ...form, battery_maker: v })} />
               <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
-              <Field label="Mechanic" value={form.machnic} onChange={(v) => setForm({ ...form, machnic: v })} />
+              <Field label="Mechanic" type="select" value={form.machnic || ''}
+                     options={mechanics.map((p) => ({ value: p.name, label: p.name }))}
+                     onChange={(v) => setForm({ ...form, machnic: v })} />
               <Field label="Other" value={form.other} onChange={(v) => setForm({ ...form, other: v })} />
             </div>
 
