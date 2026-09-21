@@ -61,6 +61,7 @@ def issue_dealer_token(dealer):
         "dealer_id": dealer.id,
         "is_super_user": False,
         "scope": "dealer",
+        "portal_modules": [x for x in (dealer.portal_modules or "").split(",") if x],
     })
 
 
