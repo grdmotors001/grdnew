@@ -33,7 +33,7 @@ const ICONS = {
   'purchase-bills': ShoppingCart, 'billing-pending-sales': Wallet, 'production-voucher': Factory, 'delivery-challan': Truck,
   'tax-invoice': Receipt, 'old-rickshaw': Car, 'battery-delivery-challan': BatteryCharging,
   'journal-stock': BookOpen, 'cash-at-dealer': Wallet, 'dealer-cash-receipt': Wallet,
-  'repair-service-voucher': Wrench, 'vahan-inventory': ClipboardList,
+  'repair-service-voucher': Wrench, 'old-rickshaw-challan': Truck, 'vahan-inventory': ClipboardList,
   'closing-stock-premises': Warehouse, 'closing-stock-dealers': Store, 'closing-stock-raw': Boxes,
   'stock-ledger-premises': ClipboardList, 'stock-ledger-dealers': ClipboardList,
   'purchase-register': FileText, 'production-register': FileText, 'delivery-challan-register': FileText,
