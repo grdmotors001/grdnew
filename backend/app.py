@@ -48,7 +48,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem,
                      OldRickshaw, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt)
 from menu_config import MENU, find_item, all_items
-from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user, _serializer
+from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_auth_or_dealer, require_super_user, _serializer
 from hr_attendance import hr_bp
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -4099,9 +4099,28 @@ def old_rickshaw_sale():
     return jsonify(ser_old_rickshaw(rec))
 
 
+def _dealer_battery_module_allowed(module):
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if payload.get("scope") != "dealer":
+        return True
+    return module in set(payload.get("portal_modules") or [])
+
+def _assert_battery_dealer_scope(dealer_id, module):
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if payload.get("scope") != "dealer":
+        return None
+    if int(payload.get("dealer_id") or 0) != int(dealer_id or 0):
+        return _err("You can only access your own dealer battery data.", 403)
+    if not _dealer_battery_module_allowed(module):
+        return _err(f"{module.replace('-', ' ').title()} permission required.", 403)
+    return None
+
 @app.route("/api/battery-swap-vouchers", methods=["GET","POST","DELETE"])
-@require_auth
+@require_auth_or_dealer
 def battery_swap_vouchers():
+    payload=getattr(g,"current_user_payload",{}) or {}
+    if payload.get("scope")=="dealer" and not _dealer_battery_module_allowed("battery-swap"):
+        return _err("Battery Swap permission required.",403)
     if request.method=="DELETE":
         voucher_id=request.args.get("id",type=int)
         v=BatterySwapVoucher.query.get_or_404(voucher_id)
@@ -4161,6 +4180,8 @@ def battery_swap_vouchers():
     d=request.get_json(silent=True) or {}
     dealer_id=d.get("dealer_id")
     if not dealer_id:return _err("Dealer is required.")
+    scope_err=_assert_battery_dealer_scope(dealer_id,"battery-swap")
+    if scope_err:return scope_err
     dealer=Dealer.query.get(dealer_id)
     if not dealer:return _err("Dealer not found.")
     def target(kind,ident):
@@ -4207,8 +4228,11 @@ def battery_swap_vouchers():
 
 
 @app.route("/api/battery-withdrawal", methods=["GET","POST","DELETE"])
-@require_auth
+@require_auth_or_dealer
 def battery_withdrawal():
+    payload=getattr(g,"current_user_payload",{}) or {}
+    if payload.get("scope")=="dealer" and not _dealer_battery_module_allowed("battery-withdrawal"):
+        return _err("Battery Withdrawal permission required.",403)
     if request.method=="DELETE":
         movement_id=request.args.get("id",type=int)
         mov=BatteryStockMovement.query.get_or_404(movement_id)
@@ -4242,6 +4266,8 @@ def battery_withdrawal():
     d=request.get_json(silent=True) or {}
     dealer_id=d.get("dealer_id")
     if not dealer_id:return _err("Dealer is required.")
+    scope_err=_assert_battery_dealer_scope(dealer_id,"battery-withdrawal")
+    if scope_err:return scope_err
     dealer=Dealer.query.get(dealer_id)
     if not dealer:return _err("Dealer not found.")
     kind=(d.get("rickshaw_type") or "").lower();rid=d.get("rickshaw_id")
