@@ -44,7 +44,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
                      DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem,
-                     OldRickshaw, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue)
+                     OldRickshaw, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_super_user, _serializer
 from hr_attendance import hr_bp
@@ -420,6 +420,139 @@ def dealer_submit_loan():
         return _err(str(exc), 502)
 
 
+
+
+# ---------------------------------------------------------------------------
+# Factory Repair & Service Voucher
+# ---------------------------------------------------------------------------
+def _repair_service_access():
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if payload.get("is_super_user"):
+        return None
+    allowed = set((payload.get("allowed_modules") or "").split(","))
+    if "repair-service-voucher" not in allowed:
+        return _err("Repair & Service Voucher permission required", 403)
+    return None
+
+def _ensure_repair_service_tables():
+    RepairServiceVoucher.__table__.create(db.engine, checkfirst=True)
+    RepairServiceItem.__table__.create(db.engine, checkfirst=True)
+    RepairServicePaymentReceipt.__table__.create(db.engine, checkfirst=True)
+
+def _ser_repair_service(v):
+    return {
+        "id": v.id, "voucher_no": v.voucher_no, "date": _iso(v.date),
+        "customer_name": v.customer_name, "customer_mobile": v.customer_mobile,
+        "vehicle_no": v.vehicle_no, "chassis_no": v.chassis_no,
+        "subtotal": round(float(v.subtotal or 0), 2), "gst_amount": 0,
+        "total_amount": round(float(v.total_amount or 0), 2),
+        "paid_amount": round(float(v.paid_amount or 0), 2),
+        "balance_amount": round(float(v.total_amount or 0) - float(v.paid_amount or 0), 2),
+        "payment_status": v.payment_status, "status": v.status,
+        "remarks": v.remarks, "created_by": v.created_by,
+        "items": [{"id": x.id, "item_name": x.item_name, "qty": x.qty,
+                   "rate": x.rate, "amount": x.amount, "unit": x.unit} for x in v.items],
+    }
+
+def _ser_repair_receipt(r):
+    return {
+        "id": r.id, "receipt_no": r.receipt_no, "date": _iso(r.date),
+        "voucher_id": r.voucher_id, "voucher_no": r.voucher.voucher_no if r.voucher else None,
+        "customer_name": r.customer_name, "customer_mobile": r.customer_mobile,
+        "amount": r.amount, "payment_mode": r.payment_mode,
+        "reference_no": r.reference_no, "remarks": r.remarks, "created_by": r.created_by,
+    }
+
+@app.route("/api/repair-service-vouchers", methods=["GET", "POST"])
+@require_auth
+def repair_service_vouchers():
+    _ensure_repair_service_tables()
+    denied = _repair_service_access()
+    if denied: return denied
+    if request.method == "GET":
+        status = (request.args.get("status") or "").strip().lower()
+        q = RepairServiceVoucher.query.order_by(RepairServiceVoucher.date.desc(), RepairServiceVoucher.id.desc())
+        if status in {"paid", "unpaid"}:
+            q = q.filter(RepairServiceVoucher.payment_status == status)
+        rows = q.limit(500).all()
+        return jsonify({"vouchers": [_ser_repair_service(x) for x in rows]})
+
+    d = request.get_json(silent=True) or {}
+    customer = (d.get("customer_name") or "").strip()
+    if not customer: return _err("Customer Name is required")
+    mobile = (d.get("customer_mobile") or "").strip()
+    vehicle_no = (d.get("vehicle_no") or "").strip() or None
+    chassis_no = (d.get("chassis_no") or "").strip() or None
+    raw_items = d.get("items") if isinstance(d.get("items"), list) else []
+    if not raw_items: return _err("At least one item/service line is required")
+    lines = []
+    subtotal = 0
+    for raw in raw_items:
+        name = (raw.get("item_name") or "").strip()
+        qty = _f(raw.get("qty"), 0)
+        rate = _f(raw.get("rate"), 0)
+        if not name or qty <= 0 or rate < 0: return _err("Each item needs name, valid Qty and Rate")
+        amount = round(qty * rate, 2)
+        subtotal += amount
+        lines.append((name, qty, rate, amount, (raw.get("unit") or "PCS").strip() or "PCS"))
+    subtotal = round(subtotal, 2)
+    row = RepairServiceVoucher(
+        date=_parse_date(d.get("date")) or dt.utcnow().date(),
+        customer_name=customer, customer_mobile=mobile or None,
+        vehicle_no=vehicle_no, chassis_no=chassis_no,
+        subtotal=subtotal, gst_amount=0, total_amount=subtotal, paid_amount=0,
+        payment_status="unpaid", status="open",
+        remarks=(d.get("remarks") or "").strip() or None,
+        created_by=(getattr(g, "current_user_payload", {}) or {}).get("username")
+    )
+    db.session.add(row); db.session.flush()
+    row.voucher_no = f"RS-{row.id:06d}"
+    for name, qty, rate, amount, unit in lines:
+        db.session.add(RepairServiceItem(voucher_id=row.id, item_name=name, qty=qty,
+                                         rate=rate, amount=amount, unit=unit))
+    db.session.commit()
+    return jsonify({"success": True, "voucher": _ser_repair_service(row)}), 201
+
+@app.route("/api/repair-service-vouchers/<int:voucher_id>/receipt", methods=["POST"])
+@require_auth
+def repair_service_receipt(voucher_id):
+    _ensure_repair_service_tables()
+    denied = _repair_service_access()
+    if denied: return denied
+    voucher = RepairServiceVoucher.query.get_or_404(voucher_id)
+    d = request.get_json(silent=True) or {}
+    amount = _f(d.get("amount"), 0)
+    if amount <= 0: return _err("Receipt amount must be greater than zero")
+    balance = round(float(voucher.total_amount or 0) - float(voucher.paid_amount or 0), 2)
+    if amount > balance: return _err("Receipt cannot be greater than outstanding balance")
+    mode = (d.get("payment_mode") or "cash").strip().lower()
+    if mode not in {"cash", "bank", "upi", "cheque"}: return _err("Valid Payment Mode is required")
+    receipt = RepairServicePaymentReceipt(
+        date=_parse_date(d.get("date")) or dt.utcnow().date(),
+        voucher_id=voucher.id, customer_name=voucher.customer_name,
+        customer_mobile=voucher.customer_mobile, amount=round(amount,2),
+        payment_mode=mode, reference_no=(d.get("reference_no") or "").strip() or None,
+        remarks=(d.get("remarks") or "").strip() or None,
+        created_by=(getattr(g, "current_user_payload", {}) or {}).get("username")
+    )
+    db.session.add(receipt); db.session.flush()
+    receipt.receipt_no = f"RCPT-RS-{receipt.id:06d}"
+    voucher.paid_amount = round(float(voucher.paid_amount or 0) + amount, 2)
+    voucher.payment_status = "paid" if voucher.paid_amount >= voucher.total_amount else "partial"
+    if voucher.payment_status == "paid": voucher.status = "closed"
+    db.session.commit()
+    return jsonify({"success": True, "voucher": _ser_repair_service(voucher),
+                    "receipt": _ser_repair_receipt(receipt)}), 201
+
+@app.get("/api/repair-service-receipts")
+@require_auth
+def repair_service_receipts():
+    _ensure_repair_service_tables()
+    denied = _repair_service_access()
+    if denied: return denied
+    rows = RepairServicePaymentReceipt.query.order_by(
+        RepairServicePaymentReceipt.date.desc(), RepairServicePaymentReceipt.id.desc()).limit(500).all()
+    return jsonify({"receipts": [_ser_repair_receipt(x) for x in rows]})
 
 
 # ---------------------------------------------------------------------------
