@@ -1309,6 +1309,8 @@ def _ensure_auth_columns():
                 "department": 'VARCHAR(30)',
                 "assigned_dealer_ids": 'TEXT',
                 "mobile": 'VARCHAR(30)',
+                "permissions": 'VARCHAR(50)',
+                "allowed_modules": 'TEXT',
             }
             for name, sql_type in additions.items():
                 if name not in columns:
