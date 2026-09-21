@@ -154,55 +154,12 @@ export function PurchaseRegisterPage() {
 
 export function ProductionRegisterPage() {
   const r = useReport('/reports/production-register', { status: 'all' });
-  const [editRow, setEditRow] = useState(null);
-  const [editError, setEditError] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [products, setProducts] = useState([]);
-  const [formulas, setFormulas] = useState([]);
-
-  useEffect(() => {
-    get('/products?fro=F&page=1&per_page=1000').then((d) => setProducts(d.products || [])).catch(() => {});
-    get('/production-formulas').then((d) => setFormulas(d.grouped || [])).catch(() => {});
-  }, []);
-
-  if (r.error) return <ErrorBanner message={r.error} />;
+    if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
 
   const rows = r.data.rows || [];
-  const finishedProducts = products.filter((p) => p.fro !== 'R');
-  const formulasForProduct = (productName) => formulas.filter((g) => g.product_name === productName);
   const setStatus = (status) => r.setExtra({ ...r.extra, status, page: 1 });
   const goPage = (page) => r.setExtra({ ...r.extra, page });
-
-  const openEdit = async (v) => {
-    setEditError('');
-    try {
-      // Fetch the full voucher so editing retains all fields/items.
-      const full = await get(`/production-vouchers/${v.id}`);
-      setEditRow({ ...full, formula_name: '' });
-    } catch (e) {
-      setEditError(e.message);
-    }
-  };
-  const setE = (field) => (value) => setEditRow({ ...editRow, [field]: value });
-
-  const changeProduct = (value) => {
-    const matches = formulasForProduct(value);
-    const autoFormula = matches.length === 1 ? matches[0].formula_name : '';
-    setEditRow({ ...editRow, product_name: value, formula_name: autoFormula });
-  };
-
-  const saveEdit = async (e) => {
-    e.preventDefault();
-    setSaving(true); setEditError('');
-    try {
-      await put(`/production-vouchers/${editRow.id}`, editRow);
-      setEditRow(null);
-      r.setExtra({ ...r.extra });
-    } catch (err) {
-      setEditError(err.message);
-    } finally { setSaving(false); }
-  };
 
   return (
     <>
@@ -227,7 +184,7 @@ export function ProductionRegisterPage() {
               return <tr key={v.id}>
                 <td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.quantity}</td>
                 <td>{v.chassis_no}</td><td>{v.motor_no}</td><td>{status}</td>
-                <td><button className="btn" onClick={() => openEdit(v)}>Edit</button></td>
+                <td><span className="muted">View only</span></td>
               </tr>;
             })}</tbody>
           </table>
@@ -242,49 +199,7 @@ export function ProductionRegisterPage() {
         </div>
       )}
 
-      {editRow && (
-        <div className="modal">
-          <form className="modalbox" onSubmit={saveEdit} style={{ maxWidth: 780 }}>
-            <h2>Edit Production Voucher — {editRow.vou_no}</h2>
-            <ErrorBanner message={editError} />
-            <div className="formgrid">
-              <Field label="Vou. No." value={editRow.vou_no} onChange={setE('vou_no')} />
-              <Field label="Date" type="date" value={editRow.date} onChange={setE('date')} />
-              <Field label="Finished Product" type="select" value={editRow.product_name || ''}
-                     options={finishedProducts.map((p) => p.name)}
-                     onChange={changeProduct} />
-              <Field label="Formula Name" type="select" value={editRow.formula_name || ''}
-                     options={formulasForProduct(editRow.product_name).map((g) => g.formula_name)}
-                     onChange={setE('formula_name')} />
-              <Field label="Quantity" type="number" value={editRow.quantity} onChange={setE('quantity')} />
-              <Field label="Chassis No." value={editRow.chassis_no} onChange={setE('chassis_no')} />
-              <Field label="Motor No." value={editRow.motor_no} onChange={setE('motor_no')} />
-              <Field label="Controller No." value={editRow.controller_no} onChange={setE('controller_no')} />
-              <Field label="Differential No." value={editRow.differential_no} onChange={setE('differential_no')} />
-              <Field label="Colour" value={editRow.colour} onChange={setE('colour')} />
-              <Field label="Colour Code" value={editRow.colour_code} onChange={setE('colour_code')} />
-              <Field label="Battery Maker" value={editRow.battery_maker} onChange={setE('battery_maker')} />
-              <Field label="Battery No. 1" value={editRow.battery_no1} onChange={setE('battery_no1')} />
-              <Field label="Battery No. 2" value={editRow.battery_no2} onChange={setE('battery_no2')} />
-              <Field label="Battery No. 3" value={editRow.battery_no3} onChange={setE('battery_no3')} />
-              <Field label="Battery No. 4" value={editRow.battery_no4} onChange={setE('battery_no4')} />
-              <Field label="Mechanic" value={editRow.machnic} onChange={setE('machnic')} />
-              <Field label="Other" value={editRow.other} onChange={setE('other')} />
-              <Field label="Remarks" value={editRow.remarks} onChange={setE('remarks')} />
-              {[
-                ['toolkit','Toolkit'],['jack','Jack'],['charger','Charger'],['mat','Mat'],
-                ['stapney','Stapney'],['front_glass','Front Glass'],['h_lock','H Lock'],['center_lock','Center Lock']
-              ].map(([key,label]) => (
-                <Field key={key} label={label} type="checkbox" value={!!editRow[key]} onChange={setE(key)} />
-              ))}
-            </div>
-            <div className="actions" style={{ marginTop: 18 }}>
-              <button type="button" className="btn" onClick={() => setEditRow(null)}>Cancel</button>
-              <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save Changes'}</button>
-            </div>
-          </form>
-        </div>
-      )}
+      <div className="muted" style={{marginTop:12}}>Production Register is view-only. Edit Production Voucher from Factory → Production Voucher.</div>
     </>
   );
 }
