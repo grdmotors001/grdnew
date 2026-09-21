@@ -953,9 +953,10 @@ class RepairServiceVoucher(db.Model):
                             cascade="all, delete-orphan", order_by="RepairServiceItem.id")
 
 class RepairServiceItem(db.Model):
-    """Item/part/service line used in a repair/service voucher. No GST."""
+    """Raw-material/part line used in a repair/service voucher. No GST."""
     id = db.Column(db.Integer, primary_key=True)
     voucher_id = db.Column(db.Integer, db.ForeignKey("repair_service_voucher.id"), nullable=False, index=True)
+    item_code = db.Column(db.String(20))
     item_name = db.Column(db.String(200), nullable=False)
     qty = db.Column(db.Float, default=1)
     rate = db.Column(db.Float, default=0)
