@@ -60,8 +60,8 @@ export function BillingPendingSalesPage(){
 
     <OldRickshawBillingSection rows={oldChallans} onSaved={load}/>
     <div className="card" style={{marginBottom:14}}>
-      <h3 style={{marginTop:0}}>Approved CHFPL Loans → Billing</h3>
-      <p className="muted">CHFPL se approved/sanctioned loans yahan live dikhte hain. Inhi loans ko billing staff sale process me select karega.</p>
+      <h3 style={{marginTop:0}}>Pending for Bill — Approved CHFPL Loans</h3>
+      <p className="muted">CHFPL me loan approve hone ke baad yahan Pending for Bill me live dikhega. Billing staff isi application ko sale/billing process me use karega.</p>
       <div className="tablewrap"><table className="table"><thead><tr><th>Application</th><th>Dealer</th><th>Customer</th><th>Vehicle</th><th>Loan Amount</th><th>Status</th><th>Tenure</th><th>Action</th></tr></thead>
       <tbody>{approvedLoans.map(r=><tr key={r.id}><td><b>{r.application_no}</b></td><td>{r.dealer_name||'—'}</td><td>{r.customer_name||'—'}<br/><small className="muted">{r.customer_phone||''}</small></td><td>{r.vehicle_model_name||'—'}</td><td><Money value={r.loan_amount_requested}/></td><td><span className="loanStatus approved">{String(r.status||'').replace(/_/g,' ')}</span></td><td>{r.tenure_months||'—'} months</td><td><button className="btn primary" disabled={usingLoan===r.application_no} onClick={()=>useApprovedLoan(r.application_no)}>{usingLoan===r.application_no?'Using…':'Use for Pending Bill'}</button></td></tr>)}{!loading&&!approvedLoans.length&&<tr><td colSpan="8" className="muted">No approved CHFPL loans available for billing.</td></tr>}</tbody></table></div>
     </div>
