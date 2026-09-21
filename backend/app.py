@@ -1614,11 +1614,12 @@ def dealer_battery_stock():
         BatteryStockMovement.dealer_id==g.current_dealer_id,
         BatteryStockMovement.movement_type.in_(["withdrawal","delivery"]))
         .order_by(BatteryStockMovement.date.desc(),BatteryStockMovement.id.desc()).all())
-    # Battery numbers are unique inventory units; later movement types can be
-    # added without changing the dealer-facing response.
+    used={str(x.battery_no or "").strip().upper() for x in BatteryStockMovement.query.filter_by(
+        dealer_id=g.current_dealer_id,movement_type="addition").all()}
+    available=[r for r in rows if str(r.battery_no or "").strip().upper() not in used]
     return jsonify({"batteries":[{"id":r.id,"date":_iso(r.date),"battery_maker":r.battery_maker,
-        "battery_no":r.battery_no,"qty":r.qty,"reference_no":r.reference_no,"remarks":r.remarks}
-        for r in rows],"count":sum(int(r.qty or 0) for r in rows)})
+        "battery_no":r.battery_no,"qty":1,"reference_no":r.reference_no,"remarks":r.remarks}
+        for r in available],"count":len(available)})
 
 
 @app.route("/api/dealer/rickshaw-battery-options")
