@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post, setToken } from '../lib/api';
-import { NAV_GROUPS, groupForKey, labelFor } from '../lib/menu';
+import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor } from '../lib/menu';
 import { useDarkMode } from '../lib/theme';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
@@ -92,7 +92,14 @@ export function Login({ onLogin }) {
   </div>;
 }
 function NavItem({ icon: Icon, label, active, collapsed, onClick }) {
-  return (
+  return (<style>{`
+      .showroomModuleStrip{display:flex;align-items:stretch;gap:8px;overflow-x:auto;padding:4px 2px}
+      .showroomModuleGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto}
+      .showroomModuleLabel{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;color:#6b7c90;padding:0 5px}
+      .showroomModuleItems{display:flex;gap:3px}
+      .showroomModuleItems .moduleStripItem{white-space:nowrap}
+      @media(max-width:900px){.showroomModuleStrip{max-width:100%;padding-bottom:5px}.showroomModuleGroup{min-width:max-content}}
+    `}</style>
     <button
       className={'navbtn' + (active ? ' active' : '')}
       onClick={onClick}
@@ -295,20 +302,38 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             <div className="title">{active === 'dashboard' ? 'Dashboard' : activeGroup}</div>
             <div className="subtitle">{active === 'dashboard' ? 'Admin Overview' : labelFor(active)} · {user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
           </div>
-          {activeGroup !== 'Dashboard' && groupItems.length > 0 && (
+          {activeGroup === 'Showroom' ? (
+            <div className="moduleStrip showroomModuleStrip" aria-label="Showroom">
+              {SHOWROOM_SECTIONS.map(section => {
+                const items = allowedFor(section.items);
+                if (!items.length) return null;
+                return (
+                  <div className="showroomModuleGroup" key={section.label}>
+                    <div className="showroomModuleLabel">{section.label}</div>
+                    <div className="showroomModuleItems">
+                      {items.map(([key, label]) => (
+                        <button key={key} type="button"
+                          className={'moduleStripItem' + (active === key ? ' active' : '')}
+                          onClick={() => selectMenu(key)}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : activeGroup !== 'Dashboard' && groupItems.length > 0 ? (
             <div className="moduleStrip" aria-label={activeGroup}>
               {allowedFor(groupItems).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
+                <button key={key} type="button"
                   className={'moduleStripItem' + (active === key ? ' active' : '')}
-                  onClick={() => selectMenu(key)}
-                >
+                  onClick={() => selectMenu(key)}>
                   {label}
                 </button>
               ))}
             </div>
-          )}
+          ) : null}
           <div className="grdHeaderActions">
             <button type="button" className="grdHeaderIcon" title="Notifications">🔔<span>3</span></button>
             <div className="grdHeaderUser"><div className="grdHeaderAvatar">{initial}</div><strong>{user?.username || 'admin'}</strong><span>⌄</span></div>
