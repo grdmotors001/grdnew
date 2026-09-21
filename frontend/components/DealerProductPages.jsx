@@ -176,7 +176,7 @@ export function DealerPage() {
               <Field label="Mobile" value={form.mobile} onChange={(v) => setForm({ ...form, mobile: v })} />
               <Field label="GSTIN" value={form.gst_no} onChange={(v) => setForm({ ...form, gst_no: v })} />
               <Field label="Dealer Category" type="select" value={form.dealer_category || "dealer"} onChange={(v) => setForm({ ...form, dealer_category: v })} options={[{value:"showroom",label:"Showroom / Branch"},{value:"dealer",label:"Dealer"}]} />
-              {form.dealer_category !== 'showroom' && <Field label="Dealer Registration" type="select" value={form.registration_type || "registered"} onChange={(v) => setForm({ ...form, registration_type: v })} options={[{value:"registered",label:"Registered Dealer"},{value:"unregistered",label:"Unregistered Dealer"}]} />}
+              {form.dealer_category !== 'showroom' && <Field label="Dealer Registration" type="select" value={form.registration_type || "registered"} onChange={(v) => setForm({ ...form, registration_type: v, purchase_access: v === 'unregistered' ? false : form.purchase_access })} options={[{value:"registered",label:"Registered Dealer"},{value:"unregistered",label:"Unregistered Dealer"}]} />}
               <Field label="State" value={form.state} onChange={(v) => setForm({ ...form, state: v })} />
               <Field label="State Code" value={form.state_code} onChange={(v) => setForm({ ...form, state_code: v })} />
               <Field label="PAN" value={form.pan} onChange={(v) => setForm({ ...form, pan: v })} />
@@ -184,13 +184,14 @@ export function DealerPage() {
               <Field label="Bank Account No." value={form.bank_account_no} onChange={(v) => setForm({ ...form, bank_account_no: v })} />
               <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
               <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => ({ value: u.name, label: u.name }))]} />
-              <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />\n              <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access} onChange={(v) => setForm({ ...form, purchase_access: v })} />
+              <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />\n              <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access && form.registration_type !== 'unregistered'} disabled={form.registration_type === 'unregistered'} onChange={(v) => setForm({ ...form, purchase_access: form.registration_type === 'unregistered' ? false : v })} />
               <div className="field" style={{gridColumn:'1/-1'}}>
                 <label>Dealer Portal Permissions</label>
                 <div style={{display:'flex',gap:12,flexWrap:'wrap',padding:'10px 0'}}>
                   {[
                     ['battery-withdrawal','Battery Withdrawal'],
                     ['battery-swap','Battery Swap / Exchange'],
+                    ['battery-addition','Battery Fit to Rickshaw'],
                     ['purchase-portal','Purchases / Customer Invoice'],
                     ['cashbook','Cash Book'],
                     ['loan-status','Loan Status'],
