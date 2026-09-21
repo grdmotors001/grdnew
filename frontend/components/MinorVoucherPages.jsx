@@ -226,7 +226,7 @@ export function BatteryDeliveryChallanPage() {
   const [form,setForm]=useState({date:today(),qty:1,battery_numbers:['']});
   const {busy,error,setError,run}=useAsyncAction();
   const load=()=>get('/battery-delivery-challans').then(setData).catch(e=>setError(e.message));
-  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[]));get('/masters/battery-maker').then(d=>setMakers(d||[])).catch(()=>{});},[]);
+  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[]));get('/masters/battery-maker').then(d=>setMakers(Array.isArray(d)?d:(d.masters||[]))).catch(()=>setMakers([]));},[]);
   const openNew=()=>{setForm({date:today(),qty:1,challan_no:data?.suggested_challan_no||'',dealer_id:'',battery_maker:'',battery_numbers:[''],remarks:''});setOpen(true)};
   const setQty=(v)=>{const qty=Math.max(1,Number(v)||1);setForm(f=>({...f,qty,battery_numbers:Array.from({length:qty},(_,i)=>f.battery_numbers?.[i]||'')}))};
   const setNo=(i,v)=>setForm(f=>({...f,battery_numbers:f.battery_numbers.map((x,n)=>n===i?v:x)}));
