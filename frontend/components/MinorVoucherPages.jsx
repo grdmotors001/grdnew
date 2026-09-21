@@ -203,6 +203,24 @@ export function BatteryWithdrawalPage() {
 }
 
 
+export function BatteryAdditionPage() {
+  const [dealers,setDealers]=useState([]),[rickshaws,setRickshaws]=useState([]),[batteries,setBatteries]=useState([]);
+  const [form,setForm]=useState({date:today(),dealer_id:'',rickshaw_type:'new',rickshaw_id:'',battery_no:'',reference_no:'',remarks:''});
+  const [error,setError]=useState(''),[busy,setBusy]=useState(false);
+  const load=async()=>{try{const d=await get('/dealers');setDealers(d.dealers||[]);if(form.dealer_id){const [r,b]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+form.dealer_id+'&type='+form.rickshaw_type),get('/battery-addition?dealer_id='+form.dealer_id)]);setRickshaws((r.rickshaws||[]).filter(x=>!(x.battery_numbers||[]).length));setBatteries(b.batteries||[])}}catch(e){setError(e.message)}};
+  useEffect(()=>{load()},[form.dealer_id,form.rickshaw_type]);
+  const save=async e=>{e.preventDefault();setBusy(true);setError('');try{await post('/battery-addition',form);setForm({...form,rickshaw_id:'',battery_no:'',reference_no:'',remarks:''});await load()}catch(e){setError(e.message)}finally{setBusy(false)}};
+  return <div className="page"><div className="card"><h2>Battery Addition to Rickshaw</h2><p className="muted">Sirf wahi New/Old Rickshaw select honge jisme abhi battery fitted nahi hai.</p><ErrorBanner message={error}/><form onSubmit={save}><div className="formgrid">
+    <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+    <Field label="Dealer" type="select" value={form.dealer_id} options={dealers.map(d=>({value:d.id,label:d.name}))} onChange={v=>setForm({...form,dealer_id:Number(v),rickshaw_id:'',battery_no:''})} required/>
+    <Field label="Rickshaw Type" type="select" value={form.rickshaw_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,rickshaw_type:v,rickshaw_id:'',battery_no:''})}/>
+    <Field label="Rickshaw" type="select" value={form.rickshaw_id} options={rickshaws.map(x=>({value:x.id,label:(x.reg_no||x.chassis_no)+' — '+(x.model_name||'')}))} onChange={v=>setForm({...form,rickshaw_id:Number(v),battery_no:''})} required/>
+    <Field label="Battery No." type="select" value={form.battery_no} options={batteries.map(x=>({value:x.battery_no,label:(x.battery_maker||'')+' — '+x.battery_no}))} onChange={v=>setForm({...form,battery_no:v})} required/>
+    <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
+    <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
+  </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Add Battery to Rickshaw'}</button></div></form></div></div>;
+}
+
 export function BatteryDeliveryChallanPage() {
   const [data,setData]=useState(null),[dealers,setDealers]=useState([]),[makers,setMakers]=useState([]),[open,setOpen]=useState(false);
   const [form,setForm]=useState({date:today(),qty:1,battery_numbers:['']});
