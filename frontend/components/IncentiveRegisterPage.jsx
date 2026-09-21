@@ -13,7 +13,7 @@ export function IncentiveRegisterPage(){
   const [amount,setAmount]=useState(''),[date,setDate]=useState(today()),[paymentMode,setPaymentMode]=useState('cash'),[remarks,setRemarks]=useState('');
   const [error,setError]=useState(''),[saving,setSaving]=useState(false),[dealerPromptOpen,setDealerPromptOpen]=useState(true);
 
-  useEffect(()=>{get('/dealers').then(x=>setDealers(x.dealers||[])).catch(e=>setError(e.message))},[]);
+  useEffect(()=>{get('/dealer-list').then(x=>setDealers(x.dealers||[])).catch(e=>setError(e.message))},[]);
   const load=async()=>{
     setError('');
     if(!dealerId){setRows([]);return}
