@@ -14,7 +14,7 @@ export function BillingPendingSalesPage(){
   const load=async()=>{
     setLoading(true);setError('');
     try{
-      const [a,m,d,l]=await Promise.all([get('/billing/pending-sales'),get('/billing/manual-pending-bills'),get('/dealers'),get('/billing/approved-loans')]);
+      const [a,m,d,l]=await Promise.all([get('/billing/pending-sales'),get('/billing/manual-pending-bills'),get('/dealer-list'),get('/billing/approved-loans')]);
       setRows(a.applications||[]);setManual(m.bills||[]);setDealers(d.dealers||[]);setApprovedLoans(l.applications||[]);
     }catch(e){setError(e.message)}finally{setLoading(false)}
   };
