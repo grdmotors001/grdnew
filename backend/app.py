@@ -438,6 +438,11 @@ def _ensure_repair_service_tables():
     RepairServiceVoucher.__table__.create(db.engine, checkfirst=True)
     RepairServiceItem.__table__.create(db.engine, checkfirst=True)
     RepairServicePaymentReceipt.__table__.create(db.engine, checkfirst=True)
+    # Existing databases may already have the repair item table without item_code.
+    cols={c["name"] for c in inspect(db.engine).get_columns("repair_service_item")}
+    if "item_code" not in cols:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE repair_service_item ADD COLUMN item_code VARCHAR(20)"))
 
 def _ser_repair_service(v):
     return {
