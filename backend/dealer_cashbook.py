@@ -77,18 +77,41 @@ class DealerCashHandover(db.Model):
 
 @dealer_cashbook_bp.before_request
 def _ensure_cashbook_schema():
-    """Keep the dealer receipt table compatible with the live database."""
+    """Ensure the showroom cash/customer tables exist before ORM queries run.
+
+    Older production databases predate the customer register columns.  Keep
+    this migration deliberately small and independent so a failure in another
+    table's create_all() cannot leave dealer_cash_receipt unusable.
+    """
     try:
-        db.create_all()
-        cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
-        with db.engine.begin() as conn:
-            if "dealer_register_page_no" not in cols:
-                conn.execute(text("ALTER TABLE dealer_cash_receipt ADD COLUMN dealer_register_page_no VARCHAR(40)"))
-            if "customer_id" not in cols:
-                conn.execute(text("ALTER TABLE dealer_cash_receipt ADD COLUMN customer_id INTEGER"))
+        # Create the new customer table first because dealer_cash_receipt has
+        # a string-based FK to it.
+        DealerCashCustomer.__table__.create(db.engine, checkfirst=True)
+        DealerCashReceipt.__table__.create(db.engine, checkfirst=True)
+        DealerCashExpense.__table__.create(db.engine, checkfirst=True)
+        DealerCashHandover.__table__.create(db.engine, checkfirst=True)
     except Exception as exc:
-        # Do not hide the real request error if schema repair is unavailable.
-        print(f"[cash-book] schema check failed: {exc}")
+        print(f"[cash-book] table ensure failed: {exc}")
+
+    try:
+        cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
+        if "dealer_register_page_no" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE dealer_cash_receipt ADD COLUMN dealer_register_page_no VARCHAR(40)"
+                ))
+    except Exception as exc:
+        print(f"[cash-book] page column migration failed: {exc}")
+
+    try:
+        cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
+        if "customer_id" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE dealer_cash_receipt ADD COLUMN customer_id INTEGER"
+                ))
+    except Exception as exc:
+        print(f"[cash-book] customer link migration failed: {exc}")
 
 def _date(v):
     if not v: return date.today()
