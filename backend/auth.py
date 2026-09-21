@@ -106,3 +106,19 @@ def require_super_user(fn):
             return jsonify({"error": "Super user access required"}), 403
         return fn(*args, **kwargs)
     return wrapper
+
+
+def require_auth_or_dealer(fn):
+    """Accept staff tokens or dealer tokens for explicitly shared dealer modules."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+        payload = _decode(token) if token else None
+        if not payload or payload.get("scope") not in {"staff", "dealer"}:
+            return jsonify({"error": "Authentication required"}), 401
+        g.current_user_payload = payload
+        if payload.get("scope") == "dealer":
+            g.current_dealer_id = payload.get("dealer_id")
+        return fn(*args, **kwargs)
+    return wrapper
