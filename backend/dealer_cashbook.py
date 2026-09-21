@@ -49,6 +49,26 @@ class DealerCashCustomer(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class DealerCustomerDelivery(db.Model):
+    """Showroom customer delivery register. One customer can be delivered once."""
+    __tablename__ = "dealer_customer_delivery"
+    id = db.Column(db.Integer, primary_key=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("dealer_cash_customer.id"), nullable=False, index=True)
+    delivery_no = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    delivery_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    delivery_type = db.Column(db.String(20), nullable=False)  # new / old / battery
+    vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), nullable=True, index=True)
+    old_rickshaw_id = db.Column(db.Integer, db.ForeignKey("old_rickshaw.id"), nullable=True, index=True)
+    battery_no = db.Column(db.String(60))
+    battery_qty = db.Column(db.Integer, default=0)
+    sale_amount = db.Column(db.Float, default=0)
+    loan_amount = db.Column(db.Float, default=0)
+    down_payment = db.Column(db.Float, default=0)
+    remarks = db.Column(db.String(300))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class DealerCashExpense(db.Model):
     __tablename__ = "dealer_cash_expense"
     id = db.Column(db.Integer, primary_key=True)
@@ -90,6 +110,7 @@ def _ensure_cashbook_schema():
         DealerCashReceipt.__table__.create(db.engine, checkfirst=True)
         DealerCashExpense.__table__.create(db.engine, checkfirst=True)
         DealerCashHandover.__table__.create(db.engine, checkfirst=True)
+        DealerCustomerDelivery.__table__.create(db.engine, checkfirst=True)
     except Exception as exc:
         print(f"[cash-book] table ensure failed: {exc}")
 
@@ -206,6 +227,137 @@ def all_cash_receipts():
         return jsonify({"error":"Receipt Register is available only for showroom/branch accounts."}),403
     rows = DealerCashReceipt.query.filter_by(dealer_id=g.current_dealer_id).order_by(DealerCashReceipt.receipt_date.desc(),DealerCashReceipt.id.desc()).all()
     return jsonify({"success":True,"receipts":[_receipt(x) for x in rows]})
+
+@dealer_cashbook_bp.route("/delivery/options", methods=["GET"])
+@require_dealer_auth
+def showroom_delivery_options():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Delivery is available only for showroom/branch accounts."}),403
+
+    # Only customers who have not received any vehicle yet.
+    delivered_ids = {int(x[0]) for x in db.session.query(DealerCustomerDelivery.customer_id)
+                     .filter_by(dealer_id=g.current_dealer_id).all()}
+    customers = (DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id)
+                 .order_by(DealerCashCustomer.full_name.asc(), DealerCashCustomer.id.asc()).all())
+    customer_rows = [_customer(c) for c in customers if c.id not in delivered_ids]
+
+    # New rickshaw stock: showroom stock already assigned to this dealer,
+    # excluding chassis already used in this delivery register.
+    delivered_vehicle_ids = {int(x[0]) for x in db.session.query(DealerCustomerDelivery.vehicle_id)
+                             .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+                                     DealerCustomerDelivery.vehicle_id.isnot(None)).all()}
+    new_rows = (Vehicle.query
+                .filter(Vehicle.stage == "Delivery Challan")
+                .filter(db.func.lower(db.func.trim(Vehicle.dealer_name)) ==
+                        db.func.lower(db.func.trim(dealer.name)))
+                .order_by(Vehicle.chassis_no.asc()).all())
+    new_stock = [{"id":v.id,"chassis_no":v.chassis_no,"model_name":v.model_name,
+                  "date":v.date.isoformat() if v.date else None}
+                 for v in new_rows if v.id not in delivered_vehicle_ids]
+
+    delivered_old_ids = {int(x[0]) for x in db.session.query(DealerCustomerDelivery.old_rickshaw_id)
+                         .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+                                 DealerCustomerDelivery.old_rickshaw_id.isnot(None)).all()}
+    old_rows = (OldRickshaw.query
+                .filter(OldRickshaw.sale_dealer_id == g.current_dealer_id,
+                        OldRickshaw.status == "sold")
+                .order_by(OldRickshaw.vehicle_reg_no.asc()).all())
+    old_stock = [{"id":r.id,"vehicle_no":r.vehicle_reg_no,"model_name":r.model_name,
+                  "date":r.sale_date.isoformat() if r.sale_date else None}
+                 for r in old_rows if r.id not in delivered_old_ids]
+
+    return jsonify({"success":True,"customers":customer_rows,"new_stock":new_stock,"old_stock":old_stock,
+                    "battery_stock":[]})
+
+
+@dealer_cashbook_bp.route("/delivery", methods=["POST"])
+@require_dealer_auth
+def create_showroom_delivery():
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Delivery is available only for showroom/branch accounts."}),403
+
+    d = request.get_json(silent=True) or {}
+    customer_id = d.get("customer_id")
+    delivery_type = str(d.get("delivery_type") or "").strip().lower()
+    if not str(customer_id or "").isdigit():
+        return jsonify({"error":"Customer is required."}),400
+    if delivery_type not in {"new","old","battery"}:
+        return jsonify({"error":"Invalid delivery type."}),400
+
+    customer = DealerCashCustomer.query.filter_by(
+        id=int(customer_id), dealer_id=g.current_dealer_id
+    ).first()
+    if not customer:
+        return jsonify({"error":"Customer not found."}),404
+
+    if DealerCustomerDelivery.query.filter_by(
+        dealer_id=g.current_dealer_id, customer_id=customer.id
+    ).first():
+        return jsonify({"error":"This customer already has a delivery record."}),409
+
+    sale_amount = _amt(customer.sale_amount)
+    loan_amount = _amt(customer.loan_amount)
+    paid_amount = db.session.query(
+        db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0)
+    ).filter(
+        DealerCashReceipt.dealer_id == g.current_dealer_id,
+        DealerCashReceipt.customer_id == customer.id,
+    ).scalar() or 0
+    down_payment = _amt(paid_amount)
+
+    vehicle_id = None
+    old_rickshaw_id = None
+    battery_no = None
+    battery_qty = 0
+
+    if delivery_type == "new":
+        vehicle_id = int(d.get("vehicle_id") or 0)
+        vehicle = Vehicle.query.filter_by(id=vehicle_id).first()
+        if not vehicle:
+            return jsonify({"error":"New rickshaw stock not found."}),404
+        if vehicle.stage != "Delivery Challan" or (vehicle.dealer_name or "").strip().lower() != (dealer.name or "").strip().lower():
+            return jsonify({"error":"Selected chassis is not in this showroom's stock."}),409
+        if DealerCustomerDelivery.query.filter_by(dealer_id=g.current_dealer_id, vehicle_id=vehicle.id).first():
+            return jsonify({"error":"This chassis is already delivered."}),409
+
+    elif delivery_type == "old":
+        old_rickshaw_id = int(d.get("old_rickshaw_id") or 0)
+        old = OldRickshaw.query.filter_by(
+            id=old_rickshaw_id, sale_dealer_id=g.current_dealer_id, status="sold"
+        ).first()
+        if not old:
+            return jsonify({"error":"Old rickshaw stock not found."}),404
+        if DealerCustomerDelivery.query.filter_by(dealer_id=g.current_dealer_id, old_rickshaw_id=old.id).first():
+            return jsonify({"error":"This old rickshaw is already delivered."}),409
+
+    else:
+        battery_no = str(d.get("battery_no") or "").strip() or None
+        battery_qty = max(0, int(d.get("battery_qty") or 0))
+        if not battery_no or battery_qty <= 0:
+            return jsonify({"error":"Battery number and quantity are required."}),400
+        return jsonify({"error":"Battery delivery will be enabled in the next step."}),400
+
+    row = DealerCustomerDelivery(
+        dealer_id=g.current_dealer_id, customer_id=customer.id,
+        delivery_no=_no(DealerCustomerDelivery, "DEL"),
+        delivery_date=_date(d.get("date")) or date.today(),
+        delivery_type=delivery_type, vehicle_id=vehicle_id,
+        old_rickshaw_id=old_rickshaw_id, battery_no=battery_no,
+        battery_qty=battery_qty, sale_amount=sale_amount,
+        loan_amount=loan_amount, down_payment=down_payment,
+        remarks=str(d.get("remarks") or "").strip() or None,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({"success":True,"delivery":{
+        "id":row.id,"delivery_no":row.delivery_no,"date":row.delivery_date.isoformat(),
+        "customer_id":row.customer_id,"delivery_type":row.delivery_type,
+        "sale_amount":row.sale_amount,"loan_amount":row.loan_amount,
+        "down_payment":row.down_payment,
+    }}),201
+
 
 @dealer_cashbook_bp.route("/cash-book", methods=["GET"])
 @require_dealer_auth
