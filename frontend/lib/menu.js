@@ -107,6 +107,8 @@ export const NAV_GROUPS = {
   Reports: [
     ['purchase-register', 'Purchase Register'], ['production-register', 'Production Register'],
     ['delivery-challan-register', 'Delivery Challan Register'], ['sale-register', 'Sale Register'],
+    ['payment-receivable-report', 'Payment Receivable'], ['hypothecation-register', 'Hypothecation Register'],
+    ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
   ],
   System: [
     ['backup-restore', 'Backup / Restore'], ['password', 'Password'],
