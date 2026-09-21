@@ -2077,7 +2077,7 @@ def _billing_user_allowed():
     if u.is_super_user:return True
     dept=(u.department or "").strip().lower()
     if dept in {"billing","accounts","admin","head office","head-office"}: return True
-    return u.has_module_access("billing-pending-sales")
+    return u.has_module_access("billing-pending-sales") or u.has_module_access("vahan-inventory")
 
 @app.get("/api/billing/manual-pending-bills")
 @require_auth
