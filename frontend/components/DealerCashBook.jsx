@@ -150,7 +150,7 @@ export function DealerCashBook(){
       onPrev={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()-1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
       onNext={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()+1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
       onPrint={()=>window.print()}
-      onExport={()=>downloadExcel(`/dealer/cash-book?from=${from}&to=${to}`,`Cash_Day_Book_${from}.xlsx`)}
+      onExport={()=>downloadExcel('/dealer/cash-book?from='+from+'&to='+to,'Cash_Day_Book_'+from+'.xlsx')}
     />
   </div>
 }
