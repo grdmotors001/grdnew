@@ -4249,6 +4249,33 @@ def factory_old_rickshaw_challans():
                         dealer_id=dealer.id if dealer else None,
                         source="chfpl",source_ref=source_ref,status="PENDING_SALE")
                     db.session.add(row); db.session.flush()
+                    # Put the released CHFPL vehicle into GRD's Old Rickshaw
+                    # register immediately. dealer_id is nullable: null means
+                    # the vehicle is physically in GRD Factory stock.
+                    stock = OldRickshaw.query.filter_by(chfpl_ref_no=source_ref).first()
+                    if not stock:
+                        nums = [v.get("battery_no"), None, None, None]
+                        stock = OldRickshaw(
+                            record_no=_old_rickshaw_record_next(),
+                            vou_no=f"CHFPL-{source_ref[:12]}",
+                            date=_parse_date(v.get("repo_date")) or date.today(),
+                            source="chfpl", chfpl_ref_no=source_ref,
+                            party_name="CHFPL", purchase_ref_no=source_ref,
+                            purchase_amount=0, file_charge=0,
+                            vehicle_reg_no=v.get("vehicle_no") or "",
+                            model_name=v.get("model_name") or loan.get("grd_model_name") or "",
+                            owner_name=customer.get("full_name"),
+                            chassis_no=v.get("vehicle_no") or "",
+                            battery_maker=(v.get("battery_master") or {}).get("battery_name") if isinstance(v.get("battery_master"), dict) else None,
+                            battery_no1=v.get("battery_no"),
+                            colour=v.get("colour") or "",
+                            toolkit=v.get("toolkit") or "",
+                            status="available",
+                            dealer_id=dealer.id if dealer else None,
+                            remarks1="CHFPL repossessed vehicle released for sale",
+                            remarks2=f"Factory Challan: {row.challan_no}",
+                        )
+                        db.session.add(stock)
                     try: _chfpl_bridge_post("/api/grd/repossessed/"+source_ref, {"status":"ALLOCATED_TO_GRD"})
                     except Exception as exc: print(f"[CHFPL repo allocate] {exc}")
                 db.session.commit()
