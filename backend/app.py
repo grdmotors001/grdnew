@@ -1545,9 +1545,18 @@ def dealer_seized_vehicles():
 @app.get("/api/dealer/loan-status")
 @require_dealer_auth
 def dealer_loan_status():
+    _ensure_loan_workflow_tables()
     dealer = Dealer.query.get(g.current_dealer_id)
     if not dealer:
         return _err("Dealer not found", 404)
+    local = (LoanWorkflow.query.filter_by(dealer_id=dealer.id)
+             .order_by(LoanWorkflow.id.desc()).limit(200).all())
+    if local:
+        return jsonify({
+            "success": True,
+            "source": "GRD",
+            "applications": [_ser_workflow(x) for x in local],
+        })
     try:
         status, payload = _chfpl_bridge_get(f"/api/grd-dealer-loans?grd_dealer_id={dealer.id}")
     except Exception as exc:
@@ -1989,6 +1998,13 @@ def _ensure_loan_workflow_tables():
                 "billing_approved_by":"VARCHAR(120)",
                 "billing_approved_at":"TIMESTAMP",
                 "billing_invoice_id":"INTEGER",
+                "fe_approved_at":"TIMESTAMP",
+                "fe_approval_remark":"TEXT",
+                "tvr_submitted_at":"TIMESTAMP",
+                "tvr_remark":"TEXT",
+                "disbursed_at":"TIMESTAMP",
+                "disbursed_by":"INTEGER",
+                "disbursement_remark":"TEXT",
             }
             for name,sql_type in additions.items():
                 if name not in columns:
@@ -2020,6 +2036,13 @@ def _ser_workflow(row):
         "customer_id": row.customer_id, "customer_name": row.customer.full_name if row.customer else None,
         "status": row.status, "do_user_id": row.do_user_id, "fe_user_id": row.fe_user_id,
         "do_remark": row.do_remark, "fe_remark": row.fe_remark,
+        "fe_approved_at": _iso(getattr(row,"fe_approved_at",None)),
+        "fe_approval_remark": getattr(row,"fe_approval_remark",None),
+        "tvr_submitted_at": _iso(getattr(row,"tvr_submitted_at",None)),
+        "tvr_remark": getattr(row,"tvr_remark",None),
+        "disbursed_at": _iso(getattr(row,"disbursed_at",None)),
+        "disbursed_by": getattr(row,"disbursed_by",None),
+        "disbursement_remark": getattr(row,"disbursement_remark",None),
         "approved_at": _iso(row.approved_at), "do_expiry_at": _iso(row.do_expiry_at),
         "billing_status": getattr(row,"billing_status","NOT_REQUESTED"),
         "dealer_description": getattr(row,"dealer_description",None),
@@ -2046,14 +2069,39 @@ def loan_workflow_list():
     user = _workflow_user()
     rows = LoanWorkflow.query.order_by(LoanWorkflow.id.desc()).limit(500).all()
     result = []
-    for row in rows:
-        _workflow_expire(row)
-        if user and not user.is_super_user:
-            dept = (user.department or "").strip().lower()
+    if user and not user.is_super_user:
+        dept = (user.department or "").strip().lower()
+        for row in rows:
+            _workflow_expire(row)
             if dept == "fe" and row.fe_user_id != user.id:
                 continue
+            if dept in {"do", "disbursement officer"}:
+                # DO sees applications needing a DO action plus completed history.
+                pass
+            elif dept not in {"admin", "fe"}:
+                continue
+            result.append(_ser_workflow(row))
+        return jsonify({"success": True, "applications": result})
+    for row in rows:
+        _workflow_expire(row)
         result.append(_ser_workflow(row))
     return jsonify({"success": True, "applications": result})
+
+
+@app.get("/api/loan-workflow/<int:row_id>/history")
+@require_auth
+def loan_workflow_history(row_id):
+    _ensure_loan_workflow_tables()
+    row = LoanWorkflow.query.get_or_404(row_id)
+    logs = (LoanWorkflowLog.query
+            .filter_by(application_id=row.id)
+            .order_by(LoanWorkflowLog.created_at.asc(), LoanWorkflowLog.id.asc())
+            .all())
+    return jsonify({"success": True, "application": _ser_workflow(row), "history": [{
+        "id": x.id, "action": x.action, "from_status": x.from_status,
+        "to_status": x.to_status, "user_id": x.user_id, "remark": x.remark,
+        "details": x.details, "created_at": _iso(x.created_at)
+    } for x in logs]})
 
 
 @app.post("/api/integration/loan-status")
@@ -2459,8 +2507,13 @@ def loan_workflow_decision(row_id):
     row.do_user_id = getattr(g, "current_user_id", None)
     row.do_remark = remark
     row.do_decision_at = now
+    user = _workflow_user()
+    dept = (getattr(user, "department", "") or "").strip().lower() if user else ""
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if not payload.get("is_super_user") and dept not in {"do", "disbursement officer", "admin"}:
+        return _err("DO access required", 403)
     if decision == "APPROVE":
-        row.status = "DO_APPROVED"
+        row.status = "TVR_PENDING"
         row.approved_at = now
         row.do_expiry_at = now + timedelta(days=30)
         row.do_no = row.do_no or f"DO-{now.strftime('%Y%m%d')}-{row.id:06d}"
@@ -2471,6 +2524,96 @@ def loan_workflow_decision(row_id):
     db.session.add(LoanWorkflowLog(application_id=row.id, action=f"DO_{decision}",
         from_status=old, to_status=row.status, user_id=getattr(g, "current_user_id", None),
         remark=remark))
+    db.session.commit()
+    return jsonify({"success": True, "application": _ser_workflow(row)})
+
+
+@app.post("/api/loan-workflow/<int:row_id>/fe-approve")
+@require_auth
+def loan_workflow_fe_approve(row_id):
+    _ensure_loan_workflow_tables()
+    row = LoanWorkflow.query.get_or_404(row_id)
+    user = _workflow_user()
+    if not user or (user.department or "").strip().lower() != "fe":
+        return _err("FE access required", 403)
+    if row.fe_user_id != user.id or row.status != "FE_ASSIGNED":
+        return _err("This application is not assigned to you", 403)
+    data = request.get_json(silent=True) or {}
+    remark = (data.get("remark") or "").strip()
+    photos = data.get("live_photos") or []
+    if not remark:
+        return _err("FE approval remark is required", 422)
+    if not photos:
+        return _err("At least one live photo is required", 422)
+    old = row.status
+    row.fe_live_photos = _json.dumps(photos)
+    row.fe_remark = remark
+    row.fe_approval_remark = remark
+    row.fe_approved_at = dt.utcnow()
+    row.status = "FE_APPROVED"
+    db.session.add(LoanWorkflowLog(application_id=row.id, action="FE_APPROVED",
+        from_status=old, to_status=row.status, user_id=user.id, remark=remark,
+        details=f"{len(photos)} live photo(s) submitted"))
+    db.session.commit()
+    return jsonify({"success": True, "application": _ser_workflow(row)})
+
+
+@app.post("/api/loan-workflow/<int:row_id>/fe-submit")
+@require_auth
+def loan_workflow_fe_submit_legacy(row_id):
+    # Backward-compatible alias for the old button/API name.
+    return loan_workflow_fe_approve(row_id)
+
+
+@app.post("/api/loan-workflow/<int:row_id>/tvr")
+@require_auth
+def loan_workflow_tvr(row_id):
+    _ensure_loan_workflow_tables()
+    row = LoanWorkflow.query.get_or_404(row_id)
+    user = _workflow_user()
+    if not user or (user.department or "").strip().lower() != "fe":
+        return _err("FE access required", 403)
+    if row.fe_user_id != user.id or row.status != "TVR_PENDING":
+        return _err("TVR is not pending for this application", 409)
+    data = request.get_json(silent=True) or {}
+    remark = (data.get("remark") or "").strip()
+    if not remark:
+        return _err("TVR remark is required", 422)
+    old = row.status
+    row.tvr_remark = remark
+    row.tvr_submitted_at = dt.utcnow()
+    row.status = "DISBURSEMENT_PENDING"
+    db.session.add(LoanWorkflowLog(application_id=row.id, action="TVR_SUBMITTED",
+        from_status=old, to_status=row.status, user_id=user.id, remark=remark,
+        details="FE completed TVR verification"))
+    db.session.commit()
+    return jsonify({"success": True, "application": _ser_workflow(row)})
+
+
+@app.post("/api/loan-workflow/<int:row_id>/disburse")
+@require_auth
+def loan_workflow_disburse(row_id):
+    _ensure_loan_workflow_tables()
+    row = LoanWorkflow.query.get_or_404(row_id)
+    user = _workflow_user()
+    dept = (getattr(user, "department", "") or "").strip().lower() if user else ""
+    payload = getattr(g, "current_user_payload", {}) or {}
+    if not payload.get("is_super_user") and dept not in {"do", "disbursement officer", "admin"}:
+        return _err("DO access required", 403)
+    if row.status != "DISBURSEMENT_PENDING":
+        return _err("Only TVR-completed applications can be disbursed", 409)
+    data = request.get_json(silent=True) or {}
+    remark = (data.get("remark") or "").strip()
+    if not remark:
+        return _err("Disbursement remark is required", 422)
+    old = row.status
+    row.status = "DISBURSED"
+    row.disbursed_at = dt.utcnow()
+    row.disbursed_by = getattr(g, "current_user_id", None)
+    row.disbursement_remark = remark
+    db.session.add(LoanWorkflowLog(application_id=row.id, action="DISBURSED",
+        from_status=old, to_status=row.status, user_id=getattr(g, "current_user_id", None),
+        remark=remark, details="DO completed disbursement"))
     db.session.commit()
     return jsonify({"success": True, "application": _ser_workflow(row)})
 
