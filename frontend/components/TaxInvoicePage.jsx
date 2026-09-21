@@ -20,6 +20,14 @@ export function TaxInvoicePage() {
   const [financers, setFinancers] = useState([]);
   const [pendingLoans, setPendingLoans] = useState([]);
   const [loanSearch, setLoanSearch] = useState('');
+  const searchPendingLoans = async (value='') => {
+    setLoanSearch(value);
+    try {
+      const q = value.trim();
+      const d = await get('/billing/pending-chfpl' + (q ? '?do_no=' + encodeURIComponent(q) : ''));
+      setPendingLoans(d.loans || []);
+    } catch (e) { setPendingLoans([]); }
+  };
   const filteredChallans = (data?.uninvoiced_challans || []).filter((c) => {
     const q = challanSearch.trim().toLowerCase();
     if (!q) return true;
@@ -49,7 +57,7 @@ export function TaxInvoicePage() {
     setEditingId(null);
     setChallanSearch('');
     setLoanSearch('');
-    get('/billing/pending-chfpl').then((d) => setPendingLoans(d.loans || [])).catch(() => setPendingLoans([]));
+    searchPendingLoans('');
     setForm({ date: today(), state_type: 'I', gst_rate: 5 });
     setStep(0);
     setOpen(true);
@@ -300,7 +308,10 @@ export function TaxInvoicePage() {
 
             <div className="tiStepBody">
               {step === 0 && (
-                <div className="formgrid">
+                <div className="actions" style={{margin:'10px 0'}}>
+          <input className="input" placeholder="Search DO No." value={loanSearch} onChange={e=>searchPendingLoans(e.target.value)} style={{maxWidth:320}} />
+          <span className="muted">Approved / Pending for Bill loans</span>
+        </div><div className="formgrid">
                   <Field label="Customer Name" value={form.buyer_name} onChange={(v) => setForm({ ...form, buyer_name: v })} required />
                   <Field label="Buyer Relation" value={form.buyer_relation} onChange={(v) => setForm({ ...form, buyer_relation: v })} />
                   <Field label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={(v) => setForm({ ...form, buyer_father_name: v })} />
