@@ -36,6 +36,7 @@ const ICONS = {
   'repair-service-voucher': Wrench, 'old-rickshaw-challan': Truck, 'vahan-inventory': ClipboardList,
   'closing-stock-premises': Warehouse, 'closing-stock-dealers': Store, 'closing-stock-raw': Boxes,
   'stock-ledger-premises': ClipboardList, 'stock-ledger-dealers': ClipboardList,
+  'loan-workflow': ClipboardList,
   'purchase-register': FileText, 'production-register': FileText, 'delivery-challan-register': FileText,
   'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText,
   'payment-receivable-report': Wallet, 'subsidy-report': Gift, ledger: BookOpen,
