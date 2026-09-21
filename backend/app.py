@@ -472,8 +472,10 @@ def repair_service_vouchers():
     if request.method == "GET":
         status = (request.args.get("status") or "").strip().lower()
         q = RepairServiceVoucher.query.order_by(RepairServiceVoucher.date.desc(), RepairServiceVoucher.id.desc())
-        if status in {"paid", "unpaid"}:
-            q = q.filter(RepairServiceVoucher.payment_status == status)
+        if status == "paid":
+            q = q.filter(RepairServiceVoucher.paid_amount >= RepairServiceVoucher.total_amount)
+        elif status == "unpaid":
+            q = q.filter(RepairServiceVoucher.paid_amount < RepairServiceVoucher.total_amount)
         rows = q.limit(500).all()
         return jsonify({"vouchers": [_ser_repair_service(x) for x in rows]})
 
