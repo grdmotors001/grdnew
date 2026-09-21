@@ -68,7 +68,48 @@ export const MENU = {
 // Admin navigation: keep the sidebar at the main functional level and show
 // the selected group's modules in the sticky header. This prevents a long
 // list of individual admin options while keeping every existing module reachable.
+
+export const SHOWROOM_SECTIONS = [
+  { label: 'Stock', items: [
+    ['showroom-new-stock', 'New Stock'],
+    ['showroom-old-stock', 'Old Stock'],
+    ['showroom-battery-stock', 'Battery Stock'],
+  ]},
+  { label: 'Record', items: [
+    ['delivery-challan', 'Delivery Challan'],
+    ['tax-invoice', 'Tax Invoice'],
+    ['showroom-seized-vehicle', 'Seized Vehicle'],
+  ]},
+  { label: 'Report', items: [
+    ['showroom-all-customers', 'All Customers'],
+    ['showroom-all-receipt', 'All Receipt'],
+    ['showroom-expenses-reports', 'Expenses Reports'],
+  ]},
+  { label: 'Daybook', items: [
+    ['showroom-cashbook', 'Cashbook'],
+    ['dealer-cash-receipt', 'Receipt Create'],
+    ['expense-payment-voucher', 'Expenses Create'],
+    ['showroom-cash-handover', 'Cash Handover'],
+    ['showroom-online-payment', 'Online Payment'],
+  ]},
+  { label: 'Pending Sales', items: [
+    ['billing-pending-sales', 'Pending Sales'],
+  ]},
+  { label: 'Old Rickshaw Sale', items: [
+    ['old-rickshaw', 'Old Rickshaw Sale'],
+  ]},
+  { label: 'Ledger', items: [
+    ['ledger', 'Ledger'],
+  ]},
+  { label: 'Battery Adjustment', items: [
+    ['battery-swap', 'Battery Exchange'],
+    ['battery-withdrawal', 'Battery Withdrawal'],
+    ['battery-addition', 'Battery Fitting'],
+  ]},
+];
+
 export const NAV_GROUPS = {
+  Showroom: SHOWROOM_SECTIONS.flatMap(section => section.items),
   Masters: [
     ['company', 'Company Details'], ['dealer', 'Dealer Master'], ['party', 'Party Master'],
     ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
