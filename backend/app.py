@@ -4439,6 +4439,49 @@ def battery_withdrawal():
     return jsonify({"success":True,"movement_id":mov.id,"battery_no":battery_no}),201
 
 
+@app.route("/api/battery-addition", methods=["GET","POST"])
+@require_auth
+def battery_addition():
+    if request.method=="GET":
+        dealer_id=request.args.get("dealer_id",type=int)
+        if not dealer_id:return _err("Dealer is required.")
+        incoming=(BatteryStockMovement.query.filter(
+            BatteryStockMovement.dealer_id==dealer_id,
+            BatteryStockMovement.movement_type.in_(["withdrawal","delivery"]))
+            .order_by(BatteryStockMovement.date.desc(),BatteryStockMovement.id.desc()).all())
+        used={str(x.battery_no).strip().upper() for x in BatteryStockMovement.query.filter_by(
+            dealer_id=dealer_id,movement_type="addition").all() if x.battery_no}
+        return jsonify({"batteries":[{"id":x.id,"battery_maker":x.battery_maker,"battery_no":x.battery_no,
+            "reference_no":x.reference_no,"date":_iso(x.date)} for x in incoming if str(x.battery_no or "").strip().upper() not in used]})
+    d=request.get_json(silent=True) or {}
+    dealer_id=_i(d.get("dealer_id"),0); kind=(d.get("rickshaw_type") or "").lower(); rid=_i(d.get("rickshaw_id"),0)
+    if not dealer_id or kind not in {"new","old"} or not rid:return _err("Dealer, rickshaw type and rickshaw are required.")
+    dealer=Dealer.query.get_or_404(dealer_id)
+    obj=Vehicle.query.get(rid) if kind=="new" else OldRickshaw.query.get(rid)
+    if not obj:return _err("Rickshaw not found.",404)
+    if kind=="new":
+        if obj.stage!="Delivery Challan" or (obj.dealer_name or "").strip().lower()!=dealer.name.strip().lower():return _err("New rickshaw is not with this dealer.")
+    else:
+        if obj.sale_dealer_id!=dealer.id or obj.status!="sold":return _err("Old rickshaw is not with this dealer.")
+    if any(_battery_fields(obj)):return _err("Selected rickshaw already has a battery fitted.")
+    battery_no=(d.get("battery_no") or "").strip()
+    if not battery_no:return _err("Battery No. is required.")
+    incoming=(BatteryStockMovement.query.filter(BatteryStockMovement.dealer_id==dealer.id,
+        BatteryStockMovement.movement_type.in_(["withdrawal","delivery"]),
+        db.func.lower(BatteryStockMovement.battery_no)==battery_no.lower()).first())
+    if not incoming:return _err("Battery is not available in this dealer's stock.")
+    used=BatteryStockMovement.query.filter(BatteryStockMovement.dealer_id==dealer.id,
+        BatteryStockMovement.movement_type=="addition",
+        db.func.lower(BatteryStockMovement.battery_no)==battery_no.lower()).first()
+    if used:return _err("This battery has already been fitted to a rickshaw.")
+    maker=incoming.battery_maker
+    _battery_set(obj,maker,[battery_no])
+    mov=BatteryStockMovement(date=_parse_date(d.get("date")) or date.today(),dealer_id=dealer.id,
+        battery_maker=maker,battery_no=battery_no,qty=-1,movement_type="addition",
+        source_type=kind,source_id=obj.id,reference_no=d.get("reference_no"),remarks=d.get("remarks"))
+    db.session.add(mov);db.session.commit()
+    return jsonify({"success":True,"battery_no":battery_no,"battery_maker":maker}),201
+
 @app.route("/api/battery-delivery-challans", methods=["GET", "POST"])
 @require_auth
 def battery_delivery_challans():
