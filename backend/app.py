@@ -4101,200 +4101,95 @@ def _old_sale_to_dealer(rec, data):
 @app.route("/api/factory/old-rickshaw-challans", methods=["GET","POST"])
 @require_auth
 def factory_old_rickshaw_challans():
-    OldRickshawChallan.__table__.create(db.engine, checkfirst=True)
-    if request.method=="POST":
-        d=request.get_json(silent=True) or {}
-        challan=(d.get("challan_no") or "").strip()
-        if not challan:return _err("Challan No. is required.")
-        if OldRickshawChallan.query.filter_by(challan_no=challan).first():return _err("Challan No. already exists.",409)
-        rec=OldRickshawChallan(challan_no=challan,date=_parse_date(d.get("date")) or date.today(),
-            model_name=d.get("model_name"),vehicle_no=d.get("vehicle_no"),colour=d.get("colour"),
-            toolkit=d.get("toolkit"),dealer_id=_i(d.get("dealer_id"),0) or None,
-            source=d.get("source") or "manual",source_ref=d.get("source_ref"),
-            status="PENDING_SALE")
-        db.session.add(rec);db.session.commit()
-        return jsonify({"id":rec.id,"challan_no":rec.challan_no}),201
-    rows=OldRickshawChallan.query.order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).all()
-    next_no=(db.session.query(db.func.max(OldRickshawChallan.id)).scalar() or 0)+1
-    return jsonify({"suggested_challan_no":f"ORC{next_no+1000}","challans":[
-        {"id":x.id,"challan_no":x.challan_no,"date":_iso(x.date),"model_name":x.model_name,"vehicle_no":x.vehicle_no,
-         "colour":x.colour,"toolkit":x.toolkit,"dealer_id":x.dealer_id,"dealer_name":x.dealer.name if x.dealer else None,
-         "source":x.source,"source_ref":x.source_ref,"status":x.status} for x in rows]})
-
-@app.route("/api/old-rickshaws", methods=["GET", "POST"])
-@require_auth
-def old_rickshaws():
-    if request.method=="POST":
-        data=request.get_json(silent=True) or {}
-        action=(data.get("action") or "purchase").strip().lower()
-        if action=="sale":
-            rec=OldRickshaw.query.get(data.get("id"))
-            if not rec:return _err("Old Rickshaw record not found.",404)
-            _old_sale_to_dealer(rec,data)
-            db.session.commit()
-            return jsonify(ser_old_rickshaw(rec))
-        vehicle_reg_no=(data.get("vehicle_reg_no") or "").strip()
-        if not vehicle_reg_no:return _err("Vehicle Reg. No. is required.")
-        rec=OldRickshaw(
-            record_no=_old_rickshaw_record_next(),
-            vou_no=data.get("vou_no"),date=_parse_date(data.get("date")) or date.today(),
-            source=(data.get("source") or "manual").strip().lower(),
-            chfpl_ref_no=(data.get("chfpl_ref_no") or "").strip() or None,
-            party_name=data.get("party_name"),purchase_ref_no=data.get("purchase_ref_no"),
-            purchase_amount=_f(data.get("purchase_amount"),0),file_charge=_f(data.get("file_charge"),0),
-            vehicle_reg_no=vehicle_reg_no,model_name=data.get("model_name"),
-            owner_name=data.get("owner_name"),salesman=data.get("salesman"),
-            chassis_no=data.get("chassis_no"),ledger_date=_parse_date(data.get("ledger_date")),
-            challan_no=(data.get("challan_no") or "").strip() or None,
-            sale_type=(data.get("sale_type") or "").strip().lower() or None,
-            do_number=(data.get("do_number") or "").strip() or None,
-            battery_maker=data.get("battery_maker"),battery_no1=data.get("battery_no1"),
-            battery_no2=data.get("battery_no2"),battery_no3=data.get("battery_no3"),
-            battery_no4=data.get("battery_no4"),
-            charger=data.get("charger"),mat=data.get("mat"),jack=data.get("jack"),
-            center_lock=data.get("centre_lock") or data.get("center_lock"),
-            big_mirror=data.get("big_mirror"),colour=data.get("colour"),
-            toolkit=data.get("toolkit"),stepney=data.get("stepney"),
-            out_name=(data.get("out_name") or "").strip() or None,
-            status="available",
-            dealer_id=_i(data.get("dealer_id"),0) or None,sp_no=(data.get("sp_no") or "").strip() or None,
-            dealer_page_no=(data.get("dealer_page_no") or "").strip() or None,
-            remarks1=data.get("remarks1"),remarks2=data.get("remarks2"))
-        db.session.add(rec)
-        db.session.commit()
-        return jsonify(ser_old_rickshaw(rec)),201
-
-    q=OldRickshaw.query
-    status=(request.args.get("status") or "").strip().lower()
-    source=(request.args.get("source") or "").strip().lower()
-    dealer_id=request.args.get("dealer_id",type=int)
-    search=(request.args.get("search") or "").strip()
-    if status:q=q.filter(OldRickshaw.status==status)
-    if source:q=q.filter(OldRickshaw.source==source)
-    if dealer_id:q=q.filter(db.or_(OldRickshaw.dealer_id==dealer_id,OldRickshaw.sale_dealer_id==dealer_id))
-    if search:
-        like=f"%{search}%"
-        q=q.filter(db.or_(OldRickshaw.vehicle_reg_no.ilike(like),OldRickshaw.model_name.ilike(like),
-                          OldRickshaw.owner_name.ilike(like),OldRickshaw.sp_no.ilike(like),
-                          OldRickshaw.chfpl_ref_no.ilike(like)))
-    rows=q.order_by(OldRickshaw.date.desc(),OldRickshaw.id.desc()).limit(500).all()
-    next_no=_old_rickshaw_record_next()
-    return jsonify({"records":[ser_old_rickshaw(r) for r in rows],"suggested_record_no":next_no,
-                    "suggested_vou_no":str(next_no+90)})
-
-
-@app.post("/api/integration/old-rickshaw/available-for-sale")
-def chfpl_old_rickshaw_available_for_sale():
-    supplied=request.headers.get("X-GRD-BRIDGE-SECRET") or ""
-    expected=os.environ.get("CHFPL_GRD_BRIDGE_SECRET") or ""
-    if not expected or not supplied or not hmac.compare_digest(supplied,expected):
-        return _err("Invalid integration secret",401)
-    data=request.get_json(silent=True) or {}
-    ref=(data.get("chfpl_ref_no") or data.get("reference_no") or "").strip()
-    vehicle_reg_no=(data.get("vehicle_reg_no") or "").strip()
-    if not ref:return _err("CHFPL reference no. is required.")
-    if not vehicle_reg_no:return _err("Vehicle Reg. No. is required.")
-    existing=OldRickshaw.query.filter_by(chfpl_ref_no=ref).first()
-    if existing:return jsonify(ser_old_rickshaw(existing))
-    rec=OldRickshaw(record_no=_old_rickshaw_record_next(),vou_no=data.get("vou_no"),
-        date=_parse_date(data.get("date")) or date.today(),source="chfpl",chfpl_ref_no=ref,
-        party_name=data.get("party_name") or "CHFPL",purchase_ref_no=data.get("purchase_ref_no") or ref,
-        purchase_amount=_f(data.get("purchase_amount"),0),file_charge=_f(data.get("file_charge"),0),
-        vehicle_reg_no=vehicle_reg_no,model_name=data.get("model_name"),owner_name=data.get("owner_name"),
-        salesman=data.get("salesman"),battery_maker=data.get("battery_maker"),
-        battery_no1=data.get("battery_no1"),battery_no2=data.get("battery_no2"),
-        battery_no3=data.get("battery_no3"),battery_no4=data.get("battery_no4"),status="available")
-    db.session.add(rec);db.session.commit()
-    return jsonify(ser_old_rickshaw(rec)),201
-
-
-@app.route("/api/old-rickshaws/<int:record_id>", methods=["DELETE"])
-@require_auth
-def old_rickshaw_delete(record_id):
-    rec=OldRickshaw.query.get_or_404(record_id)
-    db.session.delete(rec);db.session.commit()
-    return jsonify({"deleted":True})
-
-
-@app.route("/api/factory/old-rickshaw-challans", methods=["GET","POST"])
-@require_auth
-def factory_old_rickshaw_challans():
     _ensure_old_rickshaw_challan_table()
     if request.method=="GET":
-        # Pull CHFPL repossessed vehicles that have explicitly been released
-        # for resale, and create the GRD Factory challan queue automatically.
+        released=[]
         try:
             status,payload=_chfpl_bridge_get("/api/grd/repossessed?status=available_for_sale")
             if status<400 and isinstance(payload,dict):
-                for v in payload.get("vehicles",[]) or []:
-                    source_ref=str(v.get("id") or "").strip()
-                    if not source_ref: continue
-                    exists=OldRickshawChallan.query.filter_by(source="chfpl",source_ref=source_ref).first()
-                    if exists: continue
-                    loan=v.get("loan_applications") or {}
-                    customer=loan.get("customer_profiles") or {}
-                    parked=v.get("dealer_master") or {}
-                    dealer=None
-                    code=(parked.get("dealer_code") or "").strip()
-                    name=(parked.get("dealer_name") or "").strip()
-                    if code: dealer=Dealer.query.filter(db.func.lower(Dealer.code)==code.lower()).first()
-                    if not dealer and name: dealer=Dealer.query.filter(db.func.lower(Dealer.name)==name.lower()).first()
-                    row=OldRickshawChallan(
-                        challan_no=f"ORC-CHFPL-{source_ref[:8]}",
-                        date=_parse_date(v.get("repo_date")) or date.today(),
-                        model_name=v.get("model_name") or loan.get("vehicle_model_master",{}).get("model_name") or loan.get("grd_model_name") or "",
-                        vehicle_no=v.get("vehicle_no") or "",
-                        colour=v.get("colour") or "",
-                        toolkit=v.get("toolkit") or "",
-                        dealer_id=dealer.id if dealer else None,
-                        source="chfpl",source_ref=source_ref,status="PENDING_SALE")
-                    db.session.add(row); db.session.flush()
-                    # Put the released CHFPL vehicle into GRD's Old Rickshaw
-                    # register immediately. dealer_id is nullable: null means
-                    # the vehicle is physically in GRD Factory stock.
-                    stock = OldRickshaw.query.filter_by(chfpl_ref_no=source_ref).first()
-                    if not stock:
-                        nums = [v.get("battery_no"), None, None, None]
-                        stock = OldRickshaw(
-                            record_no=_old_rickshaw_record_next(),
-                            vou_no=f"CHFPL-{source_ref[:12]}",
-                            date=_parse_date(v.get("repo_date")) or date.today(),
-                            source="chfpl", chfpl_ref_no=source_ref,
-                            party_name="CHFPL", purchase_ref_no=source_ref,
-                            purchase_amount=0, file_charge=0,
-                            vehicle_reg_no=v.get("vehicle_no") or "",
-                            model_name=v.get("model_name") or loan.get("grd_model_name") or "",
-                            owner_name=customer.get("full_name"),
-                            chassis_no=v.get("vehicle_no") or "",
-                            battery_maker=(v.get("battery_master") or {}).get("battery_name") if isinstance(v.get("battery_master"), dict) else None,
-                            battery_no1=v.get("battery_no"),
-                            colour=v.get("colour") or "",
-                            toolkit=v.get("toolkit") or "",
-                            status="available",
-                            dealer_id=dealer.id if dealer else None,
-                            remarks1="CHFPL repossessed vehicle released for sale",
-                            remarks2=f"Factory Challan: {row.challan_no}",
-                        )
-                        db.session.add(stock)
-                    try: _chfpl_bridge_post("/api/grd/repossessed/"+source_ref, {"status":"ALLOCATED_TO_GRD"})
-                    except Exception as exc: print(f"[CHFPL repo allocate] {exc}")
-                db.session.commit()
+                released=payload.get("vehicles",[]) or []
         except Exception as exc:
-            print(f"[CHFPL repo sync] {exc}")
+            print(f"[CHFPL repo queue] {exc}")
         rows=OldRickshawChallan.query.order_by(OldRickshawChallan.date.desc(),OldRickshawChallan.id.desc()).limit(500).all()
-        return jsonify({"challans":[ser_old_rickshaw_challan(r) for r in rows],
-                        "suggested_challan_no":f"ORC{(db.session.query(db.func.max(OldRickshawChallan.id)).scalar() or 0)+1001}"})
+        return jsonify({
+            "challans":[ser_old_rickshaw_challan(r) for r in rows],
+            "available_for_sale": released,
+            "suggested_challan_no":f"ORC{(db.session.query(db.func.max(OldRickshawChallan.id)).scalar() or 0)+1001}"
+        })
+
     d=request.get_json(silent=True) or {}
     challan_no=(d.get("challan_no") or "").strip()
+    source=(d.get("source") or "manual").strip().lower()
+    source_ref=(d.get("source_ref") or "").strip()
     if not challan_no:return _err("Challan No. is required.")
     if OldRickshawChallan.query.filter_by(challan_no=challan_no).first():return _err("Challan No. already exists.",409)
-    row=OldRickshawChallan(challan_no=challan_no,date=_parse_date(d.get("date")) or date.today(),
-        model_name=(d.get("model_name") or "").strip(),vehicle_no=(d.get("vehicle_no") or "").strip(),
+    if source=="chfpl" and not source_ref:return _err("CHFPL Reference is required.")
+    if source=="chfpl":
+        try:
+            status,payload=_chfpl_bridge_get("/api/grd/repossessed?status=available_for_sale")
+            vehicles=payload.get("vehicles",[]) if status<400 and isinstance(payload,dict) else []
+            vehicle=next((v for v in vehicles if str(v.get("id") or "")==source_ref),None)
+            if not vehicle:return _err("CHFPL vehicle is no longer Available for Sale.",409)
+            loan=vehicle.get("loan_applications") or {}
+            customer=loan.get("customer_profiles") or {}
+            parked=vehicle.get("dealer_master") or {}
+            if not d.get("model_name"): d["model_name"]=vehicle.get("model_name") or loan.get("grd_model_name") or ""
+            if not d.get("vehicle_no"): d["vehicle_no"]=vehicle.get("vehicle_no") or ""
+            if not d.get("colour"): d["colour"]=vehicle.get("colour") or ""
+            if not d.get("toolkit"): d["toolkit"]=vehicle.get("toolkit") or ""
+            if not d.get("dealer_id") and parked.get("dealer_name"):
+                pd=Dealer.query.filter(db.func.lower(Dealer.name)==str(parked.get("dealer_name")).strip().lower()).first()
+                if pd: d["dealer_id"]=pd.id
+            d["_chfpl_vehicle"]=vehicle
+        except Exception as exc:
+            print(f"[CHFPL repo create challan] {exc}")
+            return _err("CHFPL repossession service is temporarily unavailable",502)
+
+    vehicle_no=(d.get("vehicle_no") or "").strip()
+    if not vehicle_no:return _err("Vehicle No. is required.")
+    dealer_id=_i(d.get("dealer_id"),0) or None
+    if dealer_id and not Dealer.query.get(dealer_id):return _err("Dealer not found.",404)
+
+    row=OldRickshawChallan(
+        challan_no=challan_no,date=_parse_date(d.get("date")) or date.today(),
+        model_name=(d.get("model_name") or "").strip(),vehicle_no=vehicle_no,
         colour=(d.get("colour") or "").strip(),toolkit=(d.get("toolkit") or "").strip(),
-        dealer_id=_i(d.get("dealer_id"),0) or None,source=(d.get("source") or "manual").strip(),
-        source_ref=(d.get("source_ref") or "").strip(),status="PENDING_SALE")
-    if row.dealer_id and not Dealer.query.get(row.dealer_id): return _err("Dealer not found.",404)
-    db.session.add(row);db.session.commit()
+        dealer_id=dealer_id,source=source,source_ref=source_ref,status="PENDING_SALE")
+    db.session.add(row); db.session.flush()
+
+    stock=OldRickshaw.query.filter_by(chfpl_ref_no=source_ref).first() if source_ref else None
+    if not stock:
+        v=d.get("_chfpl_vehicle") or {}
+        loan=v.get("loan_applications") or {}
+        customer=loan.get("customer_profiles") or {}
+        stock=OldRickshaw(
+            record_no=_old_rickshaw_record_next(),
+            vou_no=f"CHFPL-{source_ref[:12]}" if source_ref else challan_no,
+            date=row.date, source="chfpl" if source=="chfpl" else "manual",
+            chfpl_ref_no=source_ref or None,
+            party_name="CHFPL" if source=="chfpl" else None,
+            purchase_ref_no=source_ref or challan_no,
+            vehicle_reg_no=vehicle_no, model_name=row.model_name,
+            owner_name=customer.get("full_name") if source=="chfpl" else None,
+            chassis_no=vehicle_no, colour=row.colour, toolkit=row.toolkit,
+            status="available", dealer_id=dealer_id,
+            remarks1="CHFPL repossessed vehicle released for sale" if source=="chfpl" else "Factory Old Rickshaw Challan",
+            remarks2=f"Factory Challan: {challan_no}",
+        )
+        if source=="chfpl":
+            stock.battery_no1=v.get("battery_no")
+        db.session.add(stock)
+
+    if source=="chfpl":
+        try:
+            status,payload=_chfpl_bridge_post("/api/grd/repossessed/"+source_ref, {"status":"ALLOCATED_TO_GRD"})
+            if status>=400: raise RuntimeError((payload or {}).get("error") or "CHFPL status update failed")
+        except Exception as exc:
+            db.session.rollback()
+            print(f"[CHFPL repo allocate] {exc}")
+            return _err("Could not move CHFPL vehicle to GRD stock.",502)
+
+    db.session.commit()
     return jsonify(ser_old_rickshaw_challan(row)),201
 
 @app.get("/api/billing/old-rickshaw-challans")
