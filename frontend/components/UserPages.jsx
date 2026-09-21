@@ -11,6 +11,8 @@ const DEPARTMENT_DEFAULT_MODULES = {
   Cashier: ['expense-payment-voucher', 'day-book', 'ledger', 'ledger-v', 'payment-receivable-report'],
   Salesman: ['delivery-challan', 'tax-invoice', 'closing-stock-dealers', 'stock-ledger-dealers', 'sale-register', 'payment-receivable-report'],
   HR: ['hr-attendance'],
+  FE: ['loan-workflow'],
+  DO: ['loan-workflow'],
 };
 
 export function UserPage({ setActive, setOptionUserId }) {
@@ -104,7 +106,7 @@ export function UserPage({ setActive, setOptionUserId }) {
                 const next = { ...form, department: v, allowed_modules: DEPARTMENT_DEFAULT_MODULES[v] || [] };
                 if (v !== 'Salesman') { delete next.salesman_name; }
                 setForm(next);
-              }} options={['Admin','Factory','Billing','Cashier','Salesman','HR']} />
+              }} options={['Admin','Factory','Billing','Cashier','Salesman','HR','FE','DO']} />
               <Field label="Super User (unrestricted access)" type="checkbox" value={form.is_super_user}
                      onChange={(v) => setForm({ ...form, is_super_user: v })} />
               <div className="muted" style={{ gridColumn: '1 / -1', fontSize: 12 }}>
