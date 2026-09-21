@@ -4672,10 +4672,16 @@ def battery_withdrawal():
 
 
 @app.route("/api/battery-addition", methods=["GET","POST"])
-@require_auth
+@require_auth_or_dealer
 def battery_addition():
     if request.method=="GET":
+        location=(request.args.get("location") or "dealer").lower()
         dealer_id=request.args.get("dealer_id",type=int)
+        payload=getattr(g,"current_user_payload",{}) or {}
+        if payload.get("scope")=="dealer": dealer_id=int(payload.get("dealer_id") or 0); location="dealer"
+        if location=="factory":
+            vehicles=Vehicle.query.filter_by(stage="Manufacturing").order_by(Vehicle.chassis_no).all()
+            return jsonify({"batteries":[],"rickshaws":[{"id":v.id,"reg_no":v.vehicle_reg_no,"chassis_no":v.chassis_no,"model_name":v.model_name,"battery_numbers":_battery_fields(v)} for v in vehicles if not any(_battery_fields(v))]})
         if not dealer_id:return _err("Dealer is required.")
         incoming=(BatteryStockMovement.query.filter(
             BatteryStockMovement.dealer_id==dealer_id,
@@ -4686,8 +4692,23 @@ def battery_addition():
         return jsonify({"batteries":[{"id":x.id,"battery_maker":x.battery_maker,"battery_no":x.battery_no,
             "reference_no":x.reference_no,"date":_iso(x.date)} for x in incoming if str(x.battery_no or "").strip().upper() not in used]})
     d=request.get_json(silent=True) or {}
-    dealer_id=_i(d.get("dealer_id"),0); kind=(d.get("rickshaw_type") or "").lower(); rid=_i(d.get("rickshaw_id"),0)
+    location=(d.get("location") or "dealer").lower()
+    kind=(d.get("rickshaw_type") or "").lower(); rid=_i(d.get("rickshaw_id"),0)
+    if location=="factory":
+        if kind!="new" or not rid:return _err("Factory battery fit requires a new factory rickshaw.")
+        obj=Vehicle.query.get(rid)
+        if not obj or obj.stage!="Manufacturing":return _err("Rickshaw is not currently in factory stock.")
+        if any(_battery_fields(obj)):return _err("Selected rickshaw already has a battery fitted.")
+        battery_no=(d.get("battery_no") or "").strip()
+        maker=(d.get("battery_maker") or "").strip()
+        if not battery_no or not maker:return _err("Battery Maker and Battery No. are required.")
+        _battery_set(obj,maker,[battery_no])
+        db.session.commit()
+        return jsonify({"success":True,"battery_no":battery_no,"battery_maker":maker}),201
+    dealer_id=_i(d.get("dealer_id"),0)
     if not dealer_id or kind not in {"new","old"} or not rid:return _err("Dealer, rickshaw type and rickshaw are required.")
+    payload=getattr(g,"current_user_payload",{}) or {}
+    if payload.get("scope")=="dealer" and int(payload.get("dealer_id") or 0)!=dealer_id:return _err("Dealer scope mismatch.",403)
     dealer=Dealer.query.get_or_404(dealer_id)
     obj=Vehicle.query.get(rid) if kind=="new" else OldRickshaw.query.get(rid)
     if not obj:return _err("Rickshaw not found.",404)
