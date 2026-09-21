@@ -83,16 +83,20 @@ export const NAV_GROUPS = {
     ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
     ['old-rickshaw', 'Old Rickshaw'],
   ],
+  Expenses: [
+    ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['cash-at-dealer', 'Cash at Dealer'],
+    ['dealer-cash-receipt', 'Dealer Cash Receipt'],
+    ['insurance-rto', 'Insurance / RTO Expense'],
+    ['day-book', 'Day Book'],
+  ],
   Accounts: [
-    ['journal-stock', 'Journal Stock'], ['expense-payment-voucher', 'Expense Payment Voucher'], ['cash-at-dealer', 'Cash at Dealer'], ['dealer-cash-receipt', 'Dealer Cash Receipt'],
-    ['ledger', 'Ledger'], ['day-book', 'Day Book'], ['ledger-v', 'Ledger V'],
-    ['payment-receivable-report', 'Payment Receivable'], ['gst-register', 'GST Register'],
-    ['hypothecation-register', 'Hypothecation Register'], ['incentive-register', 'Incentive Register'],
-    ['subsidy-report', 'Subsidy Report'],
-    ['balance-sheet', 'Balance Sheet'],
-    ['profit-loss', 'Profit & Loss A/c'],
+    ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'],
+    ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
   ],
   Inventory: [
+    ['vahan-inventory', 'Vahan Inventory'],
+
     ['closing-stock-premises', 'Closing Stock - Premises'], ['closing-stock-dealers', 'Closing Stock - Dealers'],
     ['closing-stock-raw', 'Closing Stock - Raw Material'], ['stock-ledger-premises', 'Stock Ledger - Premises'],
     ['stock-ledger-dealers', 'Stock Ledger - Dealers'],
