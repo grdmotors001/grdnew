@@ -78,6 +78,9 @@ def _ensure_live_schema_additions():
             if "dealer_category" not in cols:
                 with db.engine.begin() as conn:
                     conn.execute(text("ALTER TABLE dealer ADD COLUMN dealer_category VARCHAR(20) DEFAULT 'dealer'"))
+            if "portal_modules" not in cols:
+                with db.engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE dealer ADD COLUMN portal_modules TEXT DEFAULT ''"))
             # Existing deployments: add the insurance bill-vs-charge field without requiring a manual migration.
             ep_cols={c["name"] for c in inspect(db.engine).get_columns("expense_payment_voucher")}
             if "bill_amount" not in ep_cols:
@@ -1039,6 +1042,7 @@ def ser_dealer(d):
             "bank_name": d.bank_name, "bank_account_no": d.bank_account_no, "bank_ifsc": d.bank_ifsc,
             "registration_type": d.registration_type or "registered",
             "dealer_category": getattr(d, "dealer_category", "dealer") or "dealer",
+            "portal_modules": [x for x in (getattr(d, "portal_modules", "") or "").split(",") if x],
             "salesman": d.salesman, "blocked": d.blocked, "purchase_access": bool(d.purchase_access), "login_id": d.login_id}
 
 
@@ -1423,6 +1427,7 @@ def dealer_login():
             "id": dealer.id, "code": dealer.code, "name": dealer.name,
             "login_id": dealer.login_id,
             "purchase_access": bool(dealer.purchase_access),
+            "portal_modules": [x for x in (dealer.portal_modules or "").split(",") if x],
         },
     })
 
@@ -1436,6 +1441,8 @@ def dealer_me():
     return jsonify({
         "id": dealer.id, "code": dealer.code, "name": dealer.name,
         "login_id": dealer.login_id,
+        "purchase_access": bool(dealer.purchase_access),
+        "portal_modules": [x for x in (dealer.portal_modules or "").split(",") if x],
     })
 
 
@@ -2654,6 +2661,11 @@ def dealers():
         d.code = data.get("code") or None
         d.blocked = bool(data.get("blocked"))
         d.purchase_access = bool(data.get("purchase_access"))
+        modules = data.get("portal_modules")
+        if isinstance(modules, list):
+            d.portal_modules = ",".join(str(x).strip() for x in modules if str(x).strip())
+        elif modules is not None:
+            d.portal_modules = str(modules)
         d.login_id = data.get("login_id")
         if data.get("password"):
             d.set_password(data.get("password"))
