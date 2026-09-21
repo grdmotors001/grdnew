@@ -7,7 +7,7 @@ const today=()=>new Date().toISOString().slice(0,10);
 
 export function ExpensePaymentVoucherPage(){
   const [masters,setMasters]=useState({expense_types:[],pay_to_types:[],dealers:[],staff:[],mechanics:[],fabricators:[]});
-  const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[partyRickshaws,setPartyRickshaws]=useState([]),[selected,setSelected]=useState([]);
+  const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[bookingRows,setBookingRows]=useState([]),[partyRickshaws,setPartyRickshaws]=useState([]),[selected,setSelected]=useState([]);
   const [rows,setRows]=useState([]),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
   const [error,setError]=useState(''),[msg,setMsg]=useState(''),[statusFilter,setStatusFilter]=useState('');
   const [form,setForm]=useState({date:today(),pay_to_type:'dealer',pay_to_name:'',dealer_id:'',staff_name:'',expense_type:'office_exp',vehicle_id:'',vehicle_ids:[],payment_mode:'cash',amount:'',bill_no:'',attachment_url:'',remarks:'',work_model_name:'',work_qty:1,rate_per_unit:''});
@@ -31,7 +31,12 @@ export function ExpensePaymentVoucherPage(){
       get('/expense-payment-voucher/work-pending?work_type=assembly')
         .then(x=>{setRickshaws(x.rickshaws||[]);setSelected([])}).catch(e=>setError(e.message||'Could not load unpaid assembly rickshaws'));
     }else{
-      setRickshaws([]);setIncentiveRows([]);setPartyRickshaws([]);setSelected([]);
+      setRickshaws([]);setIncentiveRows([]);setBookingRows([]);setPartyRickshaws([]);setSelected([]);
+      if(et==='commission'){
+        get('/expense-payment-voucher/booking-pending?expense_type=commission')
+          .then(x=>setBookingRows(x.rows||[])).catch(e=>setError(e.message||'Could not load bookings'));
+        return;
+      }
       if(et==='insurance'||et==='rto_expense'){
         const party=(form.pay_to_name||'').trim();
         if(party) get('/expense-payment-voucher/party-rickshaws?'+new URLSearchParams({expense_type:et,party_name:party}))
@@ -48,7 +53,9 @@ export function ExpensePaymentVoucherPage(){
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const onExpenseType=v=>{
-    if(v==='assembly'){
+    if(v==='commission'){
+      setForm(x=>({...x,expense_type:v,pay_to_type:'staff',pay_to_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:''}));
+    }else if(v==='assembly'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'staff',pay_to_name:'',staff_name:'',vehicle_id:'',vehicle_ids:[],amount:'',rate_per_unit:''}));
     }else if(v==='fabrication'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',staff_name:'',vehicle_id:'',vehicle_ids:[],amount:'',work_qty:1,rate_per_unit:''}));
@@ -67,7 +74,11 @@ export function ExpensePaymentVoucherPage(){
     e.preventDefault();setSaving(true);setError('');setMsg('');
     try{
       let payload={...form};
-      if(form.expense_type==='assembly'){
+      if(form.expense_type==='commission'){
+        if(!selected.length)throw new Error('Select at least one booking/customer.');
+        if(Number(form.amount)<=0)throw new Error('Enter commission amount per booking.');
+        payload={...form,vehicle_ids:selected};
+      }else if(form.expense_type==='assembly'){
         if(!form.staff_name)throw new Error('Select Assembler / Mechanic.');
         if(!selected.length)throw new Error('Select at least one rickshaw.');
         if(Number(form.rate_per_unit)<=0)throw new Error('Enter rate per rickshaw.');
@@ -90,7 +101,9 @@ export function ExpensePaymentVoucherPage(){
       const added=r.vouchers||[r.voucher]; setRows(x=>[...added,...x]);
       setMsg(added.length>1?added.length+' work/payment vouchers saved — sent for Head Office approval':'Voucher saved — sent for Head Office approval');
       set('amount','');set('vehicle_id','');set('vehicle_ids',[]);set('remarks','');setSelected([]);
-      if(form.expense_type==='incentive'){
+      if(form.expense_type==='commission'){
+        const p=await get('/expense-payment-voucher/booking-pending?expense_type=commission');setBookingRows(p.rows||[]);
+      }else if(form.expense_type==='incentive'){
         const p=await get('/expense-payment-voucher/incentive-pending?'+new URLSearchParams({dealer_id:form.dealer_id,page:1,per_page:100}));setIncentiveRows(p.rows||[]);
       }else if(form.expense_type==='assembly'){
         const p=await get('/expense-payment-voucher/work-pending?work_type=assembly');setRickshaws(p.rickshaws||[]);
@@ -126,7 +139,7 @@ export function ExpensePaymentVoucherPage(){
         {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='other'&&<input className="input" placeholder="Pay To Name" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)}/>}
         {et==='fabrication'&&<><input className="input" placeholder="Model Name" value={form.work_model_name} onChange={e=>set('work_model_name',e.target.value)} required/><input className="input" type="number" min="1" step="1" placeholder="Qty (rickshaws)" value={form.work_qty} onChange={e=>set('work_qty',e.target.value)} required/><input className="input" type="number" min="0.01" step="0.01" placeholder="Rate per Rickshaw" value={form.rate_per_unit} onChange={e=>set('rate_per_unit',e.target.value)} required/></>}
         {et==='assembly'&&<input className="input" type="number" min="0.01" step="0.01" placeholder="Rate per Rickshaw" value={form.rate_per_unit} onChange={e=>set('rate_per_unit',e.target.value)} required/>}
-        {et==='incentive'&&<input className="input" type="number" min="0.01" step="0.01" placeholder="Incentive Amount per Rickshaw" value={form.amount} onChange={e=>set('amount',e.target.value)} required/>}
+        {(et==='incentive'||et==='commission')&&<input className="input" type="number" min="0.01" step="0.01" placeholder={et==='commission'?'Commission Amount per Booking':'Incentive Amount per Rickshaw'} value={form.amount} onChange={e=>set('amount',e.target.value)} required/>}
         {et!=='fabrication'&&et!=='assembly'&&et!=='incentive'&&<input className="input" type="number" min="0.01" step="0.01" placeholder="Amount" value={form.amount} onChange={e=>set('amount',e.target.value)} required/>}
         <select className="input" value={form.payment_mode} onChange={e=>set('payment_mode',e.target.value)}><option value="cash">Cash</option><option value="bank">Bank</option><option value="upi">UPI</option><option value="cheque">Cheque</option></select>
         <input className="input" placeholder="Bill / Receipt No." value={form.bill_no} onChange={e=>set('bill_no',e.target.value)}/>
@@ -136,6 +149,22 @@ export function ExpensePaymentVoucherPage(){
       {et==='assembly'&&<div className="card" style={{marginTop:14}}><div className="actions" style={{justifyContent:'space-between'}}><b>Unpaid Rickshaws for Assembly ({rickshaws.length})</b><button type="button" className="btn" onClick={toggleAll}>{allSelected?'Unselect All':'Select All'}</button></div>
         <div className="tablewrap"><table className="table"><thead><tr><th><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th><th>Date</th><th>Chassis</th><th>Model</th><th>Dealer</th></tr></thead><tbody>{rickshaws.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}><td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td><td>{r.date}</td><td><b>{r.chassis_no}</b></td><td>{r.model_name||'—'}</td><td>{r.dealer_name||'—'}</td></tr>)}</tbody></table></div>
         <div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selectedTotal)}</b></div>
+      </div>}
+
+      {et==='commission'&&<div className="card" style={{marginTop:14}}>
+        <div className="actions" style={{justifyContent:'space-between'}}>
+          <b>Booking / Customer List for Commission ({bookingRows.length})</b>
+          <button type="button" className="btn" onClick={()=>setSelected(selected.length===bookingRows.length?[]:bookingRows.map(r=>r.vehicle_id))}>
+            {selected.length===bookingRows.length?'Unselect All':'Select All'}
+          </button>
+        </div>
+        <div className="tablewrap"><table className="table"><thead><tr><th></th><th>Date</th><th>Customer</th><th>Mobile</th><th>Bill No.</th><th>Chassis</th><th>Model</th></tr></thead>
+          <tbody>{bookingRows.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}>
+            <td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td>
+            <td>{r.date}</td><td><b>{r.customer||'—'}</b></td><td>{r.mobile_no||'—'}</td><td>{r.bill_no||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.model||'—'}</td>
+          </tr>)}{!bookingRows.length&&<tr><td colSpan="7" className="muted">No eligible bookings found.</td></tr>}</tbody>
+        </table></div>
+        <div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div>
       </div>}
 
       {et==='incentive'&&<div className="card" style={{marginTop:14}}><div className="actions" style={{justifyContent:'space-between'}}><b>Unpaid Incentive Rickshaws</b><button type="button" className="btn" onClick={()=>setSelected(selected.length===incentiveRows.length?[]:incentiveRows.map(r=>r.vehicle_id))}>{selected.length===incentiveRows.length?'Unselect All':'Select All'}</button></div>
