@@ -25,6 +25,7 @@ const nav = [
   ['seized-vehicles', '⚠', 'Seized Vehicles'],
   ['battery-withdrawal', '↘', 'Battery Withdrawal'],
   ['battery-swap', '⇄', 'Battery Swap / Exchange'],
+  ['battery-addition', '↗', 'Battery Fit to Rickshaw'],
   ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
 ];
 
@@ -47,6 +48,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const portalModules = new Set(dealer.portal_modules || []);
   const canBatteryWithdrawal = portalModules.has('battery-withdrawal');
   const canBatterySwap = portalModules.has('battery-swap');
+  const canBatteryAddition = portalModules.has('battery-addition');
   const canOldRickshawSales = portalModules.has('old-rickshaw-sales');
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export function DealerPortal({ dealer, onLogout }) {
   if (tab === 'newloan') return <DealerNewLoanForm onBack={() => setTab('dashboard')} />;
   if (tab === 'battery-withdrawal' && canBatteryWithdrawal) return <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} />;
   if (tab === 'battery-swap' && canBatterySwap) return <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} />;
+  if (tab === 'battery-addition' && canBatteryAddition) return <DealerBatteryAddition dealer={dealer} onBack={() => setTab('dashboard')} />;
   if (tab === 'old-rickshaw-sales' && canOldRickshawSales) return <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} />;
   if (tab === 'customer-invoice' && canPurchase) return <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} />;
 
@@ -86,7 +89,7 @@ export function DealerPortal({ dealer, onLogout }) {
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
-      <nav className="dealerSideNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label]) =>
+      <nav className="dealerSideNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label]) =>
         <button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>setTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
       <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
@@ -203,6 +206,14 @@ function DealerBatteryWithdrawal({dealer,onBack}){
   const current=items.find(x=>String(x.id)===String(rickshawId));
   const save=async e=>{e.preventDefault();try{await post('/battery-withdrawal',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery,reference_no:ref,remarks});alert('Battery withdrawn successfully');await load();setRef('');setRemarks('')}catch(e){setError(e.message)}};
   return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Withdrawal</h2><p className="muted">Battery rickshaw se remove karke aapke dealer battery stock me jayegi.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="formgrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{(current?.battery_numbers||[]).map(n=><option key={n}>{n}</option>)}</select></label><label>Reference No.<input value={ref} onChange={e=>setRef(e.target.value)}/></label><label>Remarks<input value={remarks} onChange={e=>setRemarks(e.target.value)}/></label></div><button className="btn primary">Withdraw Battery</button></form></div></div>;
+}
+
+function DealerBatteryAddition({dealer,onBack}){
+  const [type,setType]=useState('new'),[items,setItems]=useState([]),[batteries,setBatteries]=useState([]),[rickshawId,setRickshawId]=useState(''),[battery,setBattery]=useState(''),[error,setError]=useState('');
+  const load=async()=>{try{const [r,b]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealer.id+'&type='+type),get('/battery-addition?dealer_id='+dealer.id)]);setItems((r.rickshaws||[]).filter(x=>!(x.battery_numbers||[]).length));setBatteries(b.batteries||[]);setRickshawId('');setBattery('')}catch(e){setError(e.message)}};
+  useEffect(()=>{load()},[type]);
+  const save=async e=>{e.preventDefault();try{await post('/battery-addition',{date:new Date().toISOString().slice(0,10),location:'dealer',dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery});alert('Battery fitted successfully');await load()}catch(e){setError(e.message)}};
+  return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Fit to Rickshaw</h2><p className="muted">Dealer stock ki available battery ko apne rickshaw me fit karein.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="formgrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{batteries.map(x=><option key={x.id} value={x.battery_no}>{x.battery_maker||''} — {x.battery_no}</option>)}</select></label></div><button className="btn primary">Fit Battery to Rickshaw</button></form></div></div>;
 }
 
 function DealerBatterySwap({dealer,onBack}){
