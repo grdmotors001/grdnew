@@ -4124,6 +4124,8 @@ def battery_swap_vouchers():
     if request.method=="DELETE":
         voucher_id=request.args.get("id",type=int)
         v=BatterySwapVoucher.query.get_or_404(voucher_id)
+        scope_err=_assert_battery_dealer_scope(v.dealer_id,"battery-swap")
+        if scope_err:return scope_err
         # Only allow deleting the latest swap touching either rickshaw, so a
         # later swap cannot be silently corrupted.
         newer=BatterySwapVoucher.query.filter(
@@ -4151,7 +4153,9 @@ def battery_swap_vouchers():
         db.session.delete(v); db.session.commit()
         return jsonify({"deleted":True})
     if request.method=="GET":
-        rows=BatterySwapVoucher.query.order_by(BatterySwapVoucher.date.desc(),BatterySwapVoucher.id.desc()).limit(300).all()
+        q=BatterySwapVoucher.query
+        if payload.get("scope")=="dealer": q=q.filter_by(dealer_id=payload.get("dealer_id"))
+        rows=q.order_by(BatterySwapVoucher.date.desc(),BatterySwapVoucher.id.desc()).limit(300).all()
         def swap_target(kind, ident):
             return Vehicle.query.get(ident) if kind == "new" else OldRickshaw.query.get(ident)
 
@@ -4236,6 +4240,8 @@ def battery_withdrawal():
     if request.method=="DELETE":
         movement_id=request.args.get("id",type=int)
         mov=BatteryStockMovement.query.get_or_404(movement_id)
+        scope_err=_assert_battery_dealer_scope(mov.dealer_id,"battery-withdrawal")
+        if scope_err:return scope_err
         if mov.movement_type!="withdrawal": return _err("Only withdrawal records can be deleted here.")
         kind=mov.source_type
         obj=Vehicle.query.get(mov.source_id) if kind=="new" else OldRickshaw.query.get(mov.source_id) if kind=="old" else None
@@ -4258,6 +4264,7 @@ def battery_withdrawal():
     if request.method=="GET":
         dealer_id=request.args.get("dealer_id",type=int)
         q=BatteryStockMovement.query.filter_by(movement_type="withdrawal")
+        if payload.get("scope")=="dealer": dealer_id=payload.get("dealer_id")
         if dealer_id:q=q.filter_by(dealer_id=dealer_id)
         rows=q.order_by(BatteryStockMovement.date.desc(),BatteryStockMovement.id.desc()).limit(500).all()
         return jsonify({"records":[{"id":x.id,"date":_iso(x.date),"dealer_id":x.dealer_id,
