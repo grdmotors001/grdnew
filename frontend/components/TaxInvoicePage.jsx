@@ -16,7 +16,14 @@ export function TaxInvoicePage() {
   const [printId, setPrintId] = useState(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [challanSearch, setChallanSearch] = useState('');
   const [financers, setFinancers] = useState([]);
+  const filteredChallans = (data?.uninvoiced_challans || []).filter((c) => {
+    const q = challanSearch.trim().toLowerCase();
+    if (!q) return true;
+    return [c.challan_no, c.chassis_no, c.dealer_name, c.product_name, c.colour]
+      .some(v => String(v || '').toLowerCase().includes(q));
+  });
   const { busy, error, setError, run } = useAsyncAction();
 
   useEffect(() => { get('/masters/financer').then((d) => setFinancers(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
@@ -36,7 +43,13 @@ export function TaxInvoicePage() {
   const goToPage = (p) => { setPage(p); load(p, search); };
   const runSearch = (e) => { e.preventDefault(); setPage(1); load(1, search); };
 
-  const openNew = () => { setEditingId(null); setForm({ date: today(), state_type: 'I', gst_rate: 5 }); setStep(0); setOpen(true); };
+  const openNew = () => {
+    setEditingId(null);
+    setChallanSearch('');
+    setForm({ date: today(), state_type: 'I', gst_rate: 5 });
+    setStep(0);
+    setOpen(true);
+  };
 
   // Opens the same form in edit mode, pre-filled from the full invoice
   // record (GET /tax-invoices/:id — same endpoint the Ledger's inline
@@ -64,6 +77,8 @@ export function TaxInvoicePage() {
       _chassis_no: c?.chassis_no || '',
       _battery_maker: c?.battery_maker || '',
       _battery_no: c?.battery_no1 || '',
+      _model_name: c?.product_name || '',
+      _colour: c?.colour || '',
     }));
   };
 
@@ -203,8 +218,17 @@ export function TaxInvoicePage() {
               ) : (
                 <>
                   <div className="formgrid" style={{ marginTop: 10 }}>
-                    <Field label="Delivery Challan to Invoice" type="select" value={form.challan_id}
-                           options={data.uninvoiced_challans.map((c) => ({ value: c.id, label: `${c.challan_no} — ${c.dealer_name} — ${c.chassis_no}` }))}
+                    <div className="field">
+                      <label>Find Chassis / Dealer Name</label>
+                      <input
+                        className="input"
+                        value={challanSearch}
+                        onChange={(e) => setChallanSearch(e.target.value)}
+                        placeholder="Type chassis no. or dealer name…"
+                      />
+                    </div>
+                    <Field label={`Delivery Challan to Invoice (${filteredChallans.length})`} type="select" value={form.challan_id}
+                           options={filteredChallans.map((c) => ({ value: c.id, label: `${c.challan_no} — ${c.dealer_name} — ${c.chassis_no}` }))}
                            onChange={pickChallan} required />
                     <Field label="Bill No." value={form.bill_no} onChange={(v) => setForm({ ...form, bill_no: v })} />
                     <button type="button" className="btn" style={{ alignSelf: 'flex-end', height: 38 }}
@@ -218,6 +242,8 @@ export function TaxInvoicePage() {
                     <div className="tiHeaderStrip">
                       <span><b>Dealer:</b> {form._dealer_name || '—'}</span>
                       <span><b>Chassis No.:</b> {form._chassis_no || '—'}</span>
+                      <span><b>Model:</b> {form._model_name || '—'}</span>
+                      <span><b>Colour:</b> {form._colour || '—'}</span>
                       <span><b>Battery Maker:</b> {form._battery_maker || '—'}</span>
                       <span><b>Battery No.:</b> {form._battery_no || '—'}</span>
                     </div>
