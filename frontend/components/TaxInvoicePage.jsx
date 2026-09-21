@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, post, put, del, downloadText } from '../lib/api';
+import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { TaxInvoicePrintView } from './PrintDocs';
@@ -115,10 +115,6 @@ export function TaxInvoicePage() {
     load();
   });
 
-  const downloadUploadTxt = (invoice) => run(async () => {
-    const name = `${(invoice.bill_no || 'upload').replace(/\\//g, '_')}.TXT`;
-    await downloadText(`/tax-invoices/${invoice.id}/upload-code`, name);
-  });
 
   if (!data) return <div className="card">Loading…</div>;
 
@@ -172,7 +168,6 @@ export function TaxInvoicePage() {
                   <td>
                     <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
                       <button className="btn" onClick={() => setPrintId(i.id)}>Print</button>
-                      <button className="btn" onClick={() => downloadUploadTxt(i)} disabled={busy}>TXT Upload</button>
                       {!i.irn && <button className="btn" onClick={() => generateEInvoice(i.id)} disabled={busy}>E-Invoice</button>}
                       {i.irn && <span className="muted" style={{fontSize:11,alignSelf:'center'}}>IRN ✓</span>}
                       {!i.eway_bill_no && <button className="btn" onClick={() => generateEWayBill(i.id)} disabled={busy}>E-Way</button>}
