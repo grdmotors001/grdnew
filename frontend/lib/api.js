@@ -145,3 +145,24 @@ export async function downloadExcel(path, filename) {
   const xlsxName = filename.replace(/\.csv$/i, '') + '.xlsx';
   XLSX.writeFile(wb, xlsxName);
 }
+
+export async function downloadText(path, filename) {
+  const token = getToken();
+  const r = await fetch(base + path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+  });
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d?.error || 'TXT download failed');
+  }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || 'upload.TXT';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
