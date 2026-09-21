@@ -17,7 +17,7 @@ import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock']]},
   {label:'Record', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['seized-vehicles','Seized Vehicle']]},
-  {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports'],['all-expenses','All Expenses']]},
+  {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports'],['all-expenses','All Expenses'],['incentive','Incentive Record']]},
   {label:'Daybook', items:[['cashbook','Cashbook'],['receipt-create','Receipt Create'],['expenses-create','Expenses Create'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
   {label:'Battery Adjustment', items:[['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
@@ -41,6 +41,7 @@ const nav = [
   ['battery-swap', '⇄', 'Battery Swap / Exchange'],
   ['battery-addition', '↗', 'Battery Fit to Rickshaw'],
   ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
+  ['incentive', '₹', 'Incentive Record'],
 ];
 
 export function DealerPortal({ dealer, onLogout }) {
@@ -136,7 +137,7 @@ export function DealerPortal({ dealer, onLogout }) {
           <div className="dealerPortalHeaderGroup" key={section.label}>
             <div className="dealerPortalHeaderLabel">{section.label}</div>
             <div className="dealerPortalHeaderItems">
-              {section.items.map(([key,label]) => (
+              {section.items.filter(([key]) => key !== 'incentive' || canCashBook).map(([key,label]) => (
                 <button type="button" key={key}
                   className={'dealerPortalHeaderItem'+(tab===key?' active':'')}
                   onClick={()=>setTab(key)}>
@@ -166,6 +167,7 @@ export function DealerPortal({ dealer, onLogout }) {
         </div>
         {tab==='cashbook' && canCashBook && <DealerCashBook/>}
         {tab==='all-expenses' && canCashBook && <DealerAllExpenses/>}
+        {tab==='incentive' && canCashBook && <DealerIncentiveRegister dealer={dealer}/>}
         {tab==='receipt-create' && canCashBook && <DealerCashReceiptPage dealer={dealer}/>}
         {tab==='cash-handover' && canCashBook && <CashAtDealerPage/>}
         {tab==='delivery' && canDelivery && <DealerDelivery onBack={() => setTab('dashboard')}/>}
@@ -293,5 +295,28 @@ function DealerAllExpenses(){
   return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>All Expenses</h3><p>All expense / work payment vouchers</p></div><input className="input dealerSearch" placeholder="Search expense, voucher, customer/chassis…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
     {error&&<div className="error">{error}</div>}{loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Expense</th><th>Pay To</th><th>Chassis / Booking</th><th>Amount</th><th>Status</th><th>Payment</th></tr></thead><tbody>
       {filtered.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.voucher_no}</b></td><td>{r.expense_type_name}</td><td>{r.pay_to_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>₹ {Number(r.amount||0).toLocaleString('en-IN')}</td><td>{r.status}</td><td>{r.payment_status}</td></tr>)}{!filtered.length&&<tr><td colSpan="8" className="muted">No expenses found.</td></tr>}</tbody></table></div>}
+  </div></div>
+}
+
+function DealerIncentiveRegister({dealer}){
+  const [data,setData]=useState({rows:[],summary:{}}),[error,setError]=useState(''),[loading,setLoading]=useState(true),[status,setStatus]=useState('all'),[search,setSearch]=useState('');
+  const load=async()=>{setLoading(true);try{const r=await get('/dealer/incentive-record');setData(r)}catch(e){setError(e.message||'Could not load incentive record')}finally{setLoading(false)}};
+  useEffect(()=>{load()},[]);
+  const q=search.trim().toLowerCase();
+  const rows=(data.rows||[]).filter(r=>status==='all'||r.status.toLowerCase().replace(' ','_')===status).filter(r=>[r.date,r.bill_no,r.model,r.chassis_no,r.customer,r.mobile_no,r.vehicle_no,r.voucher_no,r.status].join(' ').toLowerCase().includes(q));
+  const s=data.summary||{};
+  return <div className="dealerPage"><div className="dealerPanel">
+    <div className="dealerPanelHead"><div><h3>Incentive Record</h3><p>Paid / Pending / Not Recorded incentive status</p></div><input className="input dealerSearch" placeholder="Search bill, customer, chassis…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+    <div className="actions" style={{marginBottom:12,flexWrap:'wrap'}}>
+      <button className={'btn '+(status==='all'?'primary':'')} onClick={()=>setStatus('all')}>All {s.total||0}</button>
+      <button className={'btn '+(status==='paid'?'primary':'')} onClick={()=>setStatus('paid')}>Paid {s.paid||0}</button>
+      <button className={'btn '+(status==='pending_payment'?'primary':'')} onClick={()=>setStatus('pending_payment')}>Pending {s.pending||0}</button>
+      <button className={'btn '+(status==='not_recorded'?'primary':'')} onClick={()=>setStatus('not_recorded')}>Not Recorded {s.not_recorded||0}</button>
+    </div>
+    {error&&<div className="error">{error}</div>}
+    {loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Bill No.</th><th>Customer</th><th>Chassis</th><th>Model</th><th>Incentive</th><th>Voucher</th><th>Paid Date</th><th>Status</th></tr></thead><tbody>
+      {rows.map(r=><tr key={r.vehicle_id}><td>{formatDate(r.date)}</td><td><b>{r.bill_no||'—'}</b></td><td>{r.customer||'—'}<br/><span className="muted">{r.mobile_no||''}</span></td><td>{r.chassis_no||'—'}</td><td>{r.model||'—'}</td><td>₹ {Number(r.incentive_amount||0).toLocaleString('en-IN')}</td><td>{r.voucher_no||'—'}</td><td>{r.paid_date?formatDate(r.paid_date):'—'}</td><td><b>{r.status}</b></td></tr>)}
+      {!rows.length&&<tr><td colSpan="9" className="muted">No incentive records found.</td></tr>}
+    </tbody></table></div>}
   </div></div>
 }
