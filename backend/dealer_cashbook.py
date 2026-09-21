@@ -65,6 +65,9 @@ class DealerCustomerDelivery(db.Model):
     sale_amount = db.Column(db.Float, default=0)
     loan_amount = db.Column(db.Float, default=0)
     down_payment = db.Column(db.Float, default=0)
+    do_no = db.Column(db.String(60), index=True)
+    do_selected_by = db.Column(db.String(20))
+    do_selected_at = db.Column(db.DateTime)
     remarks = db.Column(db.String(300))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -271,6 +274,26 @@ def showroom_delivery_options():
                     "battery_stock":[]})
 
 
+@dealer_cashbook_bp.route("/delivery/<int:delivery_id>", methods=["PUT"])
+@require_dealer_auth
+def edit_showroom_delivery(delivery_id):
+    row = DealerCustomerDelivery.query.filter_by(id=delivery_id, dealer_id=g.current_dealer_id).first_or_404()
+    d = request.get_json(silent=True) or {}
+    do_no = str(d.get("do_no") or "").strip() or None
+    if do_no:
+        conflict = DealerCustomerDelivery.query.filter(
+            DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+            DealerCustomerDelivery.id != row.id,
+            db.func.lower(DealerCustomerDelivery.do_no) == do_no.lower()
+        ).first()
+        if conflict: return jsonify({"error":"This DO No. is already used on another delivery."}),409
+    row.do_no = do_no
+    row.do_selected_by = "dealer" if do_no else None
+    row.do_selected_at = datetime.utcnow() if do_no else None
+    if "remarks" in d: row.remarks = str(d.get("remarks") or "").strip() or None
+    db.session.commit()
+    return jsonify({"success":True,"delivery":{"id":row.id,"delivery_no":row.delivery_no,"do_no":row.do_no,"do_selected_by":row.do_selected_by}})
+
 @dealer_cashbook_bp.route("/delivery", methods=["POST"])
 @require_dealer_auth
 def create_showroom_delivery():
@@ -356,6 +379,8 @@ def create_showroom_delivery():
         "customer_id":row.customer_id,"delivery_type":row.delivery_type,
         "sale_amount":row.sale_amount,"loan_amount":row.loan_amount,
         "down_payment":row.down_payment,
+        "do_no":row.do_no,
+        "do_selected_by":row.do_selected_by,
     }}),201
 
 
