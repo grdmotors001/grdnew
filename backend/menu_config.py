@@ -65,6 +65,7 @@ MENU = {
         {"key": "hr-attendance", "label": "Attendance & Salary", "kind": "custom"},
     ],
     "Factory": [
+        {"key": "old-rickshaw-challan", "label": "Old Rickshaw Challan Voucher", "kind": "custom"},
         {"key": "journal-stock",          "label": "I. Journal Stock",                   "kind": "custom"},
         {"key": "repair-service-voucher", "label": "J3. Repair & Service Voucher",       "kind": "custom"},
     ],
