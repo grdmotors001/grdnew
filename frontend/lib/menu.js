@@ -31,6 +31,7 @@ export const MENU = {
     ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['journal-stock', 'Journal Stock'],
     ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['repair-service-voucher', 'Repair & Service Voucher'],
   ],
   Stock: [
     ['closing-stock-premises', 'Closing Stock - Premises'],
