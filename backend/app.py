@@ -2120,18 +2120,11 @@ def integration_loan_status():
     ref=(data.get("chfpl_reference") or "").strip()
     if ref:row.chfpl_reference=ref
     old=row.status
-    if status in {"APPROVED","LOAN_APPROVED","SANCTIONED"}:
-        row.status="DO_APPROVED"
-        row.approved_at=row.approved_at or dt.utcnow()
-        row.do_expiry_at=row.do_expiry_at or (dt.utcnow()+timedelta(days=30))
-        row.do_no=row.do_no or f"DO-{dt.utcnow().strftime('%Y%m%d')}-{row.id:06d}"
-    elif status in {"REJECTED","DECLINED"}:
-        row.status="DO_REJECTED"
-    elif status in {"HOLD","PENDING"}:
-        row.status="DO_HOLD"
+    # CHFPL is an integration source only; it must not skip GRD's own
+    # FE approval -> DO approval -> TVR -> disbursement controls.
     db.session.add(LoanWorkflowLog(application_id=row.id,action=f"CHFPL_{status or 'STATUS'}",
         from_status=old,to_status=row.status,remark=data.get("remark"),
-        details="CHFPL loan status received through GRD bridge"))
+        details="CHFPL loan status received through GRD bridge; GRD workflow state preserved"))
     db.session.commit()
     return jsonify({"success":True,"application":_ser_workflow(row)})
 
