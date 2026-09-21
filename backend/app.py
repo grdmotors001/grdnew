@@ -482,7 +482,7 @@ def repair_service_masters():
 
     vehicle_no = (request.args.get("vehicle_no") or "").strip()
     # Raw items used by Repair / Service Voucher.
-    raw_items = Product.query.filter(Product.fro == "R").order_by(Product.name, Product.id).limit(2000).all()
+    raw_items = Product.query.filter(db.func.upper(db.func.trim(Product.fro)) == "R").order_by(Product.name, Product.id).limit(2000).all()
 
     vehicles = []
     q = TaxInvoice.query
