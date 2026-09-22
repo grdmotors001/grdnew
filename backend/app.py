@@ -68,27 +68,6 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle"
 
 db.init_app(app)
 
-@app.before_request
-def _ensure_live_schema_additions():
-    # Lightweight compatibility migration for deployments that already have
-    # the dealer table but predate the Showroom/Dealer category column.
-    try:
-        if request.path.startswith("/api/"):
-            cols={c["name"] for c in inspect(db.engine).get_columns("dealer")}
-            if "dealer_category" not in cols:
-                with db.engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE dealer ADD COLUMN dealer_category VARCHAR(20) DEFAULT 'dealer'"))
-            if "portal_modules" not in cols:
-                with db.engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE dealer ADD COLUMN portal_modules TEXT DEFAULT ''"))
-            # Existing deployments: add the insurance bill-vs-charge field without requiring a manual migration.
-            ep_cols={c["name"] for c in inspect(db.engine).get_columns("expense_payment_voucher")}
-            if "bill_amount" not in ep_cols:
-                with db.engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE expense_payment_voucher ADD COLUMN bill_amount FLOAT DEFAULT 0"))
-    except Exception as exc:
-        print(f"[schema] dealer category check failed: {exc}")
-
 from dealer_cashbook import dealer_cashbook_bp, DealerCashReceipt, DealerCashExpense, DealerCashHandover, DealerCustomerDelivery, DealerCashCustomer
 from chat_api import chat_bp
 app.register_blueprint(dealer_cashbook_bp, url_prefix="/api/dealer")
@@ -6575,10 +6554,13 @@ def _seed_defaults():
 
 
 # Vercel imports this module as a serverless function — initialize once per
-# warm instance so the first request can use the tables.
+# warm instance so the first request can use the tables. Schema compatibility
+# is handled here at startup, never inside every API request.
 try:
     with app.app_context():
         _seed_defaults()
+except Exception as exc:
+    print(f"[startup] Database initialization skipped/failed: {exc}")
 except Exception as exc:
     print(f"[startup] Database initialization skipped/failed: {exc}")
 
