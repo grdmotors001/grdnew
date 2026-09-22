@@ -51,7 +51,7 @@ export function DealerCashReceiptPage() {
     finally{setSaving(false)}
   };
 
-  return <div className="dealerPage grdFormPage">
+  return <div className="dealerLoanPage">
     <div className="dealerPanel" style={{maxWidth:980}}>
       <div className="dealerPanelHead">
         <div><h3>Customer Cash Receipt</h3><p>Booking aur customer balance payment ki receipt yahin se banegi.</p></div>
