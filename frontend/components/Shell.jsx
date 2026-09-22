@@ -8,7 +8,7 @@ import {
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
   Truck, Receipt, Car, BookOpen, Warehouse, Store, Boxes, ClipboardList, FileText,
   BarChart3, Wallet, Gift, Calendar, Key, Database, LogOut, ChevronLeft, ChevronRight,
-  Sun, Moon, Palette, CreditCard, Settings2,
+  Sun, Moon, Palette, CreditCard, Settings2, MessageCircle,
 } from 'lucide-react';
 
 // Icon per menu key — mirrors MENU's grouping in lib/menu.js so the sidebar
@@ -335,6 +335,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             </div>
           ) : null}
           <div className="grdHeaderActions">
+            <button type="button" className="grdHeaderIcon" title="Office Chat" onClick={() => { window.location.href = '/chat'; }}><MessageCircle size={18} /></button>
             <button type="button" className="grdHeaderIcon" title="Notifications">🔔<span>3</span></button>
             <div className="grdHeaderUser"><div className="grdHeaderAvatar">{initial}</div><strong>{user?.username || 'admin'}</strong><span>⌄</span></div>
           </div>
@@ -347,6 +348,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
         </button>
         <button type="button" onClick={() => setMobileMenu(v => !v)}>
           <span style={{fontSize:18,lineHeight:1}}>☰</span><small>Menu</small>
+        </button>
+        <button type="button" onClick={() => { window.location.href = '/chat'; }}>
+          <MessageCircle size={18} /><small>Chat</small>
         </button>
         <button type="button" className={profileOpen ? 'active' : ''} onClick={() => {
           const saved = window.localStorage.getItem('grd_profile');
