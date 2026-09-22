@@ -22,6 +22,7 @@ export function GRDLogin({ onLogin }) {
       if (mode === 'dealer') {
         setToken(data.token);
         setPortalKind('dealer');
+        try { window.localStorage.setItem('grd_dealer_profile', JSON.stringify(data.dealer)); } catch {}
         onLogin({ ...data.dealer, is_dealer: true });
       } else {
         setOtpToken(data.otp_token);
