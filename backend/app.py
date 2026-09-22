@@ -5848,8 +5848,7 @@ def payment_receivable_report():
                      d["customer"], d["mobile_no"], d["value_amt"], d["loan_amt"], d["amt_recd"],
                      d["balance"], d["financer"], d["rto"], d["chassis_record"], d["ledger"],
                      d["voucher_no"], d["cheque_no"], d["vehicle_no"], d["salesman"],
-                     d["incentive_amount"], d["incentive_voucher_no"], d["incentive_date"], d["expense_total"], "; ".join(f'{x["type"]}: {x["amount"]}' for x in d["expense_details"])] ]
-                    for d in out]
+                     d["incentive_amount"], d["incentive_voucher_no"], d["incentive_date"], d["expense_total"], "; ".join(f'{x["type"]}: {x["amount"]}' for x in d["expense_details"])] ] for d in out]
         return _csv_response("Payment_Receivable_Report.csv", headers, out_rows)
 
     total = base.count()
