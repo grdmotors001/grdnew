@@ -3,6 +3,9 @@ import {useEffect,useMemo,useRef,useState} from "react";
 import {createClient} from "@supabase/supabase-js";
 import {getToken} from "../../lib/api";
 import "./chat.css";
+import {PhoneIcon,VideoIcon,UserIcon} from "./Icons";
+import {ProfileScreen,CallPanel} from "./ProfileScreens";
+import {useCalls} from "./useCalls";
 
 const SB_URL=process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -16,7 +19,7 @@ async function chatJwt(){
 }
 
 export default function ChatPage(){
- const [db,setDb]=useState(null),[me,setMe]=useState(null),[users,setUsers]=useState([]),[convs,setConvs]=useState([]),[parts,setParts]=useState([]),[msgs,setMsgs]=useState([]),[active,setActive]=useState(null),[text,setText]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+ const [db,setDb]=useState(null),[me,setMe]=useState(null),[users,setUsers]=useState([]),[convs,setConvs]=useState([]),[parts,setParts]=useState([]),[msgs,setMsgs]=useState([]),[active,setActive]=useState(null),[text,setText]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false),[tab,setTab]=useState("chats"),[profile,setProfile]=useState(false);\n const {call,busy:callBusy,error:callError,startCall,endCall}=useCalls();
  const end=useRef(null);
  useEffect(()=>{(async()=>{try{
    const jwt=await chatJwt();
@@ -48,11 +51,11 @@ export default function ChatPage(){
  async function send(e){e.preventDefault();if(!text.trim()||!active)return;setBusy(true);const {error}=await db.from("messages").insert({conversation_id:active,sender_id:me,body:text.trim()});setBusy(false);if(error)setError(error.message);else setText("")}
  async function sendFile(e){const f=e.target.files?.[0];if(!f||!active)return;if(f.size>10*1024*1024)return setError("File must be smaller than 10 MB");setBusy(true);const path=active+"/"+crypto.randomUUID()+"-"+f.name.replace(/[^\\w.\\-]+/g,"_");const up=await db.storage.from(BUCKET).upload(path,f,{contentType:f.type});if(up.error){setBusy(false);return setError(up.error.message)}const r=await db.from("messages").insert({conversation_id:active,sender_id:me,body:null,file_url:path,file_name:f.name,file_type:f.type});setBusy(false);if(r.error)setError(r.error.message)}
  return <div className="oc">
-  <aside className="oc-listpane"><header><button onClick={()=>location.href="/"}>←</button><h1>Office Chat</h1></header>
+  <aside className="oc-listpane"><header><button onClick={()=>location.href="/"}>←</button><h1>Office Chat</h1></header><nav className="oc-tabs"><button className={tab==="chats"?"on":""} onClick={()=>setTab("chats")}>Chats</button><button className={tab==="calls"?"on":""} onClick={()=>setTab("calls")}>Calls</button><button className={tab==="profile"?"on":""} onClick={()=>setTab("profile")}>Profile</button></nav>
    {error&&<div className="oc-error" onClick={()=>setError("")}>{error}</div>}
-   {mineUsers.map(u=><button key={u.id} className="oc-user" onClick={()=>openUser(u.id)}><span className="oc-avatar">{(u.name||"?").slice(0,1).toUpperCase()}</span><span><b>{u.name}</b><small>{u.about||"Available"}</small></span></button>)}
-   {chats.map(c=><button key={c.id} className={"oc-user "+(active===c.id?"on":"")} onClick={()=>setActive(c.id)}><span className="oc-avatar">{(c.name||"?").slice(0,1).toUpperCase()}</span><span><b>{c.name}</b><small>{c.last?.body||"No messages"}</small></span></button>)}
+   {tab==="chats" && mineUsers.map(u=><button key={u.id} className="oc-user" onClick={()=>openUser(u.id)}><span className="oc-avatar">{(u.name||"?").slice(0,1).toUpperCase()}</span><span><b>{u.name}</b><small>{u.about||"Available"}</small></span></button>)}
+   {tab==="chats" && chats.map(c=><button key={c.id} className={"oc-user "+(active===c.id?"on":"")} onClick={()=>setActive(c.id)}><span className="oc-avatar">{(c.name||"?").slice(0,1).toUpperCase()}</span><span><b>{c.name}</b><small>{c.last?.body||"No messages"}</small></span></button>)}
   </aside>
-  <main className="oc-main">{active?<><header className="oc-head"><h2>{chats.find(c=>c.id===active)?.name||"Chat"}</h2><button onClick={()=>setActive(null)}>Close</button></header><section className="oc-thread">{thread.map(m=><div key={m.id} className={"oc-msg "+(m.sender_id===me?"mine":"")}><div>{m.body}</div>{m.file_name&&<small>📎 {m.file_name}</small>}<time>{new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</time></div>)}<div ref={end}/></section><form className="oc-send" onSubmit={send}><label>📎<input hidden type="file" onChange={sendFile}/></label><input value={text} onChange={e=>setText(e.target.value)} placeholder={busy?"Sending…":"Type a message"}/><button disabled={busy}>Send</button></form></>:<div className="oc-empty"><h2>Office Chat</h2><p>Select a person to start chatting.</p></div>}</main>
+  <main className="oc-main">{active?<><header className="oc-head"><h2>{chats.find(c=>c.id===active)?.name||"Chat"}</h2><div className="oc-actions"><button title="Voice call" disabled={callBusy} onClick={()=>startCall(active,false)}><PhoneIcon/></button><button title="Video call" disabled={callBusy} onClick={()=>startCall(active,true)}><VideoIcon/></button><button title="Profile" onClick={()=>setProfile(true)}><UserIcon/></button><button onClick={()=>setActive(null)}>Close</button></div></header><section className="oc-thread">{thread.map(m=><div key={m.id} className={"oc-msg "+(m.sender_id===me?"mine":"")}><div>{m.body}</div>{m.file_name&&<small>📎 {m.file_name}</small>}<time>{new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</time></div>)}<div ref={end}/></section>{(call||callError)&&<CallPanel call={call||{room:active,video:false}} onEnd={endCall}/>} {profile&&<ProfileScreen user={users.find(u=>u.id!==me&&parts.some(p=>p.conversation_id===active&&p.user_id===u.id))} onClose={()=>setProfile(false)}/>}<form className="oc-send" onSubmit={send}><label>📎<input hidden type="file" onChange={sendFile}/></label><input value={text} onChange={e=>setText(e.target.value)} placeholder={busy?"Sending…":"Type a message"}/><button disabled={busy}>Send</button></form></>:<div className="oc-empty"><h2>Office Chat</h2><p>Select a person to start chatting.</p></div>}</main>
  </div>
 }
