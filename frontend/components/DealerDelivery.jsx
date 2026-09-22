@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 
-const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionDigits:2})}`;
+const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionDigits:2})`;
 const today = () => new Date().toISOString().slice(0,10);
 
 export function DealerDelivery({ onBack }) {
@@ -65,25 +65,7 @@ export function DealerDelivery({ onBack }) {
     finally{setSaving(false)}
   }
 
-  return <div className="dealerPage grdFormPage">
-    <style>{`
-      .grdFormPage{padding:12px}
-      .grdFormPage .dealerPanel{background:#fff;border:1px solid #e4e9ef;border-radius:14px;box-shadow:0 5px 18px rgba(31,55,79,.06);padding:16px}
-      .grdFormPage .dealerPanelHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-      .grdFormPage .dealerPanelHead h3{margin:0;font-size:18px;color:#172b45}
-      .grdFormPage .dealerPanelHead p{margin:3px 0 0;color:#748297;font-size:11px}
-      .grdFormPage .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-      .grdFormPage .grid>div{min-width:0}
-      .grdFormPage .muted{font-size:11px;color:#65758a}
-      .grdFormPage .input{width:100%;min-height:40px;border:1px solid #d7e0e9;border-radius:8px;background:#fff;box-sizing:border-box;padding:9px 11px;font-size:12px;color:#24384d}
-      .grdFormPage .input:focus{outline:none;border-color:#2d79df;box-shadow:0 0 0 2px rgba(45,121,223,.10)}
-      .grdFormPage .card{border:1px solid #e2e8ef;border-radius:10px;background:#fbfdff}
-      .grdFormPage .btn{border:1px solid #d8e0e8;border-radius:8px;background:#fff;color:#33475b;padding:8px 13px;font-size:11px;font-weight:700;cursor:pointer}
-      .grdFormPage .btn.primary{border-color:#246fe8;background:#246fe8;color:#fff}
-      .grdFormPage .error{border:1px solid #f3cccc;background:#fff3f3;color:#a52b2b;border-radius:8px;padding:8px 10px;font-size:11px}
-      .grdFormPage .actions{display:flex;gap:8px}
-      @media(max-width:700px){.grdFormPage{padding:0}.grdFormPage .dealerPanel{border-radius:0 0 12px 12px;padding:13px}.grdFormPage .grid{grid-template-columns:1fr;gap:11px}.grdFormPage .dealerPanelHead h3{font-size:15px}.grdFormPage .dealerPanelHead p{font-size:10px}.grdFormPage .input{min-height:38px;font-size:11px}.grdFormPage .btn{font-size:10px;padding:7px 11px}.grdFormPage .card{padding:10px!important}}
-    `}</style>
+  return <div className="dealerLoanPage">
     <div className="dealerPanel" style={{maxWidth:980}}>
       <div className="dealerPanelHead">
         <div>
