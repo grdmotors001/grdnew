@@ -109,7 +109,8 @@ export const SHOWROOM_SECTIONS = [
 ];
 
 export const NAV_GROUPS = {
-  Showroom: SHOWROOM_SECTIONS.flatMap(section => section.items),
+  // Showroom is a separate dealer/showroom portal. It must not appear as a
+  // staff/admin sidebar group; staff access is controlled by allowed_modules.
   Masters: [
     ['company', 'Company Details'], ['dealer', 'Dealer Master'], ['party', 'Party Master'],
     ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
