@@ -329,7 +329,7 @@ function DealerBatterySwap({dealer,onBack}){
   useEffect(()=>{load()},[]);
   const opts=items[type]||[];
   const save=async e=>{e.preventDefault();try{await post('/battery-swap-vouchers',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,from_type:type,from_id:Number(from),to_type:type,to_id:Number(to),remarks:''});alert('Battery swap saved');await load();setFrom('');setTo('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage dealerBatteryFormPage"></style><div className="dealerPanel">
+  return <div className="dealerPage grdFormPage"><div className="dealerPanel">
       <div className="dealerPanelHead"><div><h3>Battery Swap / Exchange</h3><p>Dealer ke apne rickshaws ke beech battery swap.</p></div><button className="btn" type="button" onClick={onBack}>Back</button></div>
       {error&&<div className="error">{error}</div>}
       <form onSubmit={save}><div className="grid">
