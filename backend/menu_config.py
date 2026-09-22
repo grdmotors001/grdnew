@@ -101,7 +101,6 @@ MENU = {
     ],
     "Utilities": [
         {"key": "backup-restore",  "label": "Backup / Restore",       "kind": "placeholder"},
-        {"key": "import-data",     "label": "Import Old Data (Excel / MDB)", "kind": "custom"},
     ],
 }
 
