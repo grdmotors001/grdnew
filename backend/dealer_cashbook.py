@@ -65,6 +65,9 @@ class DealerCustomerDelivery(db.Model):
     sale_amount = db.Column(db.Float, default=0)
     loan_amount = db.Column(db.Float, default=0)
     down_payment = db.Column(db.Float, default=0)
+    file_charge = db.Column(db.Float, default=0)
+    misc_charge = db.Column(db.Float, default=0)
+    loan_workflow_id = db.Column(db.Integer, db.ForeignKey("loan_workflow.id"), nullable=True, index=True)
     do_no = db.Column(db.String(60), index=True)
     do_selected_by = db.Column(db.String(20))
     do_selected_at = db.Column(db.DateTime)
@@ -149,7 +152,7 @@ def _ensure_cashbook_schema():
     try:
         dcols = {c["name"] for c in inspect(db.engine).get_columns("dealer_customer_delivery")}
         with db.engine.begin() as conn:
-            for col, sql in [("do_no","VARCHAR(60)"),("do_selected_by","VARCHAR(20)"),("do_selected_at","TIMESTAMP"),("billing_status","VARCHAR(20) DEFAULT 'PENDING_BILL'"),("approved_by","VARCHAR(120)"),("approved_at","TIMESTAMP"),("verified_by","VARCHAR(120)"),("verified_at","TIMESTAMP")]:
+            for col, sql in [("do_no","VARCHAR(60)"),("do_selected_by","VARCHAR(20)"),("do_selected_at","TIMESTAMP"),("billing_status","VARCHAR(20) DEFAULT 'PENDING_BILL'"),("approved_by","VARCHAR(120)"),("approved_at","TIMESTAMP"),("verified_by","VARCHAR(120)"),("verified_at","TIMESTAMP"),("file_charge","DOUBLE PRECISION DEFAULT 0"),("misc_charge","DOUBLE PRECISION DEFAULT 0"),("loan_workflow_id","INTEGER")]:
                 if col not in dcols:
                     conn.execute(text(f"ALTER TABLE dealer_customer_delivery ADD COLUMN {col} {sql}"))
     except Exception as exc:
@@ -295,8 +298,14 @@ def showroom_delivery_options():
                   "date":r.sale_date.isoformat() if r.sale_date else None}
                  for r in old_rows if r.id not in delivered_old_ids]
 
+    approved_loans = (LoanWorkflow.query.filter(LoanWorkflow.dealer_id == g.current_dealer_id)
+        .filter(LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"]))
+        .order_by(LoanWorkflow.id.desc()).limit(500).all())
+    approved_loan_rows = [{"id":r.id,"application_no":r.application_no,"do_no":r.do_no,
+        "customer_name":r.customer.full_name if r.customer else "","customer_id":r.customer_id,"status":r.status}
+        for r in approved_loans]
     return jsonify({"success":True,"customers":customer_rows,"new_stock":new_stock,"old_stock":old_stock,
-                    "battery_stock":[]})
+                    "battery_stock":[],"approved_loans":approved_loan_rows})
 
 
 @dealer_cashbook_bp.route("/delivery/<int:delivery_id>", methods=["PUT"])
@@ -345,8 +354,21 @@ def create_showroom_delivery():
     ).first():
         return jsonify({"error":"This customer already has a delivery record."}),409
 
-    sale_amount = _amt(customer.sale_amount)
-    loan_amount = _amt(customer.loan_amount)
+    sale_amount = _amt(d.get("sale_amount"))
+    loan_amount = _amt(d.get("loan_amount"))
+    if "sale_amount" not in d: sale_amount = _amt(customer.sale_amount)
+    if "loan_amount" not in d: loan_amount = _amt(customer.loan_amount)
+    file_charge = _amt(d.get("file_charge"))
+    misc_charge = _amt(d.get("misc_charge"))
+    loan_workflow_id = int(d.get("loan_workflow_id") or 0) or None
+    if loan_amount > 0:
+        if not loan_workflow_id:
+            return jsonify({"error":"Approved loan selection is required when Loan Amount is entered."}),400
+        approved_loan = LoanWorkflow.query.filter(LoanWorkflow.id == loan_workflow_id,
+            LoanWorkflow.dealer_id == g.current_dealer_id,
+            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"])).first()
+        if not approved_loan:
+            return jsonify({"error":"Selected approved loan was not found for this dealer."}),400
     paid_amount = db.session.query(
         db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0)
     ).filter(
@@ -395,6 +417,7 @@ def create_showroom_delivery():
         old_rickshaw_id=old_rickshaw_id, battery_no=battery_no,
         battery_qty=battery_qty, sale_amount=sale_amount,
         loan_amount=loan_amount, down_payment=down_payment,
+        file_charge=file_charge, misc_charge=misc_charge, loan_workflow_id=loan_workflow_id,
         remarks=str(d.get("remarks") or "").strip() or None,
         do_no=str(d.get("do_no") or "").strip() or None,
         do_selected_by="dealer" if str(d.get("do_no") or "").strip() else None,
