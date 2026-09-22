@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 
-const backend = process.env.BACKEND_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:5000' : '');
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+const backend = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:5000' : 'https://grdnew-backend.vercel.app');
 
 async function proxy(request, context) {
   if (!backend) {
