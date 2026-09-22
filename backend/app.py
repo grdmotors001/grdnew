@@ -240,6 +240,98 @@ def dealer_loan_masters():
 
 
 # ---------------------------------------------------------------------------
+# Dealer Ledger Master — create ledger accounts from the dealer portal
+# ---------------------------------------------------------------------------
+LEDGER_ACCOUNT_TYPES = [
+    {"id":"dealer","name":"Dealer"},
+    {"id":"salesman","name":"Salesman"},
+    {"id":"financer","name":"Finance"},
+    {"id":"rto_expense","name":"RTO Expense"},
+    {"id":"insurance_expense","name":"Insurance Expense"},
+    {"id":"party","name":"Party / Supplier"},
+    {"id":"mechanic","name":"Mechanic"},
+    {"id":"fabricator","name":"Fabricator"},
+    {"id":"expense_head","name":"Expense Head"},
+    {"id":"other","name":"Other"},
+]
+
+@app.get("/api/dealer/ledger-masters")
+@require_dealer_auth
+def dealer_ledger_masters():
+    dealers = Dealer.query.filter(Dealer.blocked.is_(False)).order_by(Dealer.name.asc()).all()
+    def rows(kind):
+        return [{"id":x.id,"code":x.code,"name":x.name,"mobile":x.mobile,
+                 "account_no":x.account_no,"ifsc":x.ifsc,"address":x.address}
+                for x in SimpleMaster.query.filter_by(kind=kind).order_by(SimpleMaster.name.asc()).all()]
+    salesman = rows("salesman")
+    financers = rows("financer")
+    rto = rows("rto")
+    parties = rows("party")
+    mechanics = rows("mechanic")
+    fabricators = rows("fabricator")
+    expense_heads = rows("expense-head")
+    return jsonify({
+        "types": LEDGER_ACCOUNT_TYPES,
+        "dealers": [{"id":d.id,"code":d.code,"name":d.name,"mobile":d.mobile} for d in dealers],
+        "salesmen": salesman, "financers": financers, "rtos": rto,
+        "parties": parties, "mechanics": mechanics, "fabricators": fabricators,
+        "expense_heads": expense_heads,
+    })
+
+@app.get("/api/dealer/ledger-accounts")
+@require_dealer_auth
+def dealer_ledger_accounts():
+    rows = SimpleMaster.query.filter_by(kind="ledger").order_by(SimpleMaster.name.asc()).all()
+    out=[]
+    for x in rows:
+        extra={}
+        try: extra=_json.loads(x.extra or "{}")
+        except Exception: extra={}
+        out.append({"id":x.id,"name":x.name,"code":x.code,"address":x.address,
+                    "mobile":x.mobile,"account_no":x.account_no,"ifsc":x.ifsc,
+                    "account_type":extra.get("account_type") or x.code or "other",
+                    "opening_balance":_f(extra.get("opening_balance"),0),
+                    "opening_type":extra.get("opening_type") or "dr",
+                    "notes":extra.get("notes") or ""})
+    return jsonify({"accounts":out})
+
+@app.post("/api/dealer/ledger-accounts")
+@require_dealer_auth
+def create_dealer_ledger_account():
+    d=request.get_json(silent=True) or {}
+    account_type=str(d.get("account_type") or "").strip().lower()
+    if account_type not in {x["id"] for x in LEDGER_ACCOUNT_TYPES}:
+        return _err("Valid ledger account type is required.")
+    name=str(d.get("name") or "").strip()
+    if account_type=="dealer":
+        dealer=Dealer.query.filter_by(id=_i(d.get("dealer_id"),0)).first()
+        if not dealer: return _err("Select a valid dealer.")
+        name=dealer.name
+        code=dealer.code
+        mobile=dealer.mobile
+    else:
+        code=str(d.get("code") or "").strip() or None
+        mobile=str(d.get("mobile") or "").strip() or None
+    if not name: return _err("Ledger name is required.")
+    opening=_f(d.get("opening_balance"),0)
+    if opening < 0: return _err("Opening balance cannot be negative.")
+    row=SimpleMaster(kind="ledger", name=name, code=code,
+                     address=str(d.get("address") or "").strip() or None,
+                     mobile=mobile,
+                     account_no=str(d.get("account_no") or "").strip() or None,
+                     ifsc=str(d.get("ifsc") or "").strip() or None,
+                     extra=_json.dumps({
+                         "account_type":account_type,
+                         "opening_balance":opening,
+                         "opening_type":str(d.get("opening_type") or "dr").lower(),
+                         "notes":str(d.get("notes") or "").strip()
+                     }))
+    db.session.add(row); db.session.commit()
+    return jsonify({"success":True,"account":{"id":row.id,"name":row.name,"code":row.code,
+        "account_type":account_type,"opening_balance":opening,
+        "opening_type":str(d.get("opening_type") or "dr").lower()}}),201
+
+# ---------------------------------------------------------------------------
 # Dealer customer + CHFPL loan bridge
 # ---------------------------------------------------------------------------
 def _ensure_customer_table():
