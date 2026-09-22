@@ -283,8 +283,33 @@ function DealerBatteryWithdrawal({dealer,onBack}){
   useEffect(()=>{load()},[type]);
   const current=items.find(x=>String(x.id)===String(rickshawId));
   const save=async e=>{e.preventDefault();try{await post('/battery-withdrawal',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery,reference_no:ref,remarks});alert('Battery withdrawn successfully');await load();setRef('');setRemarks('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage"><div className="card dealerBatteryCard"><div className="pageHeader"><div><h2>Battery Withdrawal</h2><p className="muted">Battery rickshaw se remove karke aapke dealer battery stock me jayegi.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="dealerBatteryFormGrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{(current?.battery_numbers||[]).map(n=><option key={n}>{n}</option>)}</select></label><label>Reference No.<input value={ref} onChange={e=>setRef(e.target.value)}/></label><label>Remarks<input value={remarks} onChange={e=>setRemarks(e.target.value)}/></label></div><div className="dealerBatteryFormActions"><button className="btn primary">Withdraw Battery</button></div></form></div></div>;
-}
+  return <div className="dealerPage dealerBatteryFormPage"><style>{`
+      .dealerBatteryFormPage{padding:12px}
+      .dealerBatteryFormPage .dealerPanel{max-width:980px;background:#fff;border:1px solid #e4e9ef;border-radius:14px;box-shadow:0 5px 18px rgba(31,55,79,.06);padding:16px}
+      .dealerBatteryFormPage .dealerPanelHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+      .dealerBatteryFormPage .dealerPanelHead h3{margin:0;font-size:18px;color:#172b45}
+      .dealerBatteryFormPage .dealerPanelHead p{margin:3px 0 0;color:#748297;font-size:11px}
+      .dealerBatteryFormPage .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+      .dealerBatteryFormPage .grid>div{min-width:0}
+      .dealerBatteryFormPage label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:700;color:#65758a}
+      .dealerBatteryFormPage .input{width:100%;min-height:40px;border:1px solid #d7e0e9;border-radius:8px;background:#fff;box-sizing:border-box;padding:9px 11px;font-size:12px;color:#24384d}
+      .dealerBatteryFormPage .input:focus{outline:none;border-color:#2d79df;box-shadow:0 0 0 2px rgba(45,121,223,.10)}
+      .dealerBatteryFormPage .actions{display:flex;gap:8px;margin-top:14px}
+      .dealerBatteryFormPage .btn{border:1px solid #d8e0e8;border-radius:8px;background:#fff;color:#33475b;padding:8px 13px;font-size:11px;font-weight:700;cursor:pointer}
+      .dealerBatteryFormPage .btn.primary{border-color:#246fe8;background:#246fe8;color:#fff}
+      .dealerBatteryFormPage .error{border:1px solid #f3cccc;background:#fff3f3;color:#a52b2b;border-radius:8px;padding:8px 10px;font-size:11px;margin-bottom:12px}
+      @media(max-width:700px){.dealerBatteryFormPage{padding:0}.dealerBatteryFormPage .dealerPanel{border-radius:0 0 12px 12px;padding:13px}.dealerBatteryFormPage .grid{grid-template-columns:1fr;gap:11px}.dealerBatteryFormPage .dealerPanelHead h3{font-size:15px}.dealerBatteryFormPage .input{min-height:38px;font-size:11px}}
+    `}</style><div className="dealerPanel">
+      <div className="dealerPanelHead"><div><h3>Battery Withdrawal</h3><p>Battery rickshaw se remove karke aapke dealer battery stock me jayegi.</p></div><button className="btn" type="button" onClick={onBack}>Back</button></div>
+      {error&&<div className="error">{error}</div>}
+      <form onSubmit={save}><div className="grid">
+        <label>Rickshaw Type<select className="input" value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label>
+        <label>Rickshaw<select className="input" value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label>
+        <label>Battery No.<select className="input" value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{(current?.battery_numbers||[]).map(n=><option key={n}>{n}</option>)}</select></label>
+        <label>Reference No.<input className="input" value={ref} onChange={e=>setRef(e.target.value)}/></label>
+        <label>Remarks<input className="input" value={remarks} onChange={e=>setRemarks(e.target.value)}/></label>
+      </div><div className="actions"><button className="btn primary">Withdraw Battery</button></div></form>
+    </div></div>;
 
 function DealerBatteryAddition({dealer,onBack}){
   const [type,setType]=useState('new'),[items,setItems]=useState([]),[batteries,setBatteries]=useState([]),[rickshawId,setRickshawId]=useState(''),[battery,setBattery]=useState(''),[error,setError]=useState('');
@@ -300,8 +325,31 @@ function DealerBatterySwap({dealer,onBack}){
   useEffect(()=>{load()},[]);
   const opts=items[type]||[];
   const save=async e=>{e.preventDefault();try{await post('/battery-swap-vouchers',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,from_type:type,from_id:Number(from),to_type:type,to_id:Number(to),remarks:''});alert('Battery swap saved');await load();setFrom('');setTo('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage"><div className="card dealerBatteryCard"><div className="pageHeader"><div><h2>Battery Swap / Exchange</h2><p className="muted">Dealer ke apne rickshaws ke beech battery swap.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="dealerBatteryFormGrid"><label>Rickshaw Type<select value={type} onChange={e=>{setType(e.target.value);setFrom('');setTo('')}}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>From Rickshaw<select value={from} onChange={e=>setFrom(e.target.value)} required><option value="">Select…</option>{opts.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label><label>To Rickshaw<select value={to} onChange={e=>setTo(e.target.value)} required><option value="">Select…</option>{opts.filter(x=>String(x.id)!==String(from)).map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label></div><div className="dealerBatteryFormActions"><button className="btn primary">Save Battery Swap</button></div></form></div></div>;
-}
+  return <div className="dealerPage dealerBatteryFormPage"><style>{`
+      .dealerBatteryFormPage{padding:12px}
+      .dealerBatteryFormPage .dealerPanel{max-width:980px;background:#fff;border:1px solid #e4e9ef;border-radius:14px;box-shadow:0 5px 18px rgba(31,55,79,.06);padding:16px}
+      .dealerBatteryFormPage .dealerPanelHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+      .dealerBatteryFormPage .dealerPanelHead h3{margin:0;font-size:18px;color:#172b45}
+      .dealerBatteryFormPage .dealerPanelHead p{margin:3px 0 0;color:#748297;font-size:11px}
+      .dealerBatteryFormPage .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+      .dealerBatteryFormPage .grid>div{min-width:0}
+      .dealerBatteryFormPage label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:700;color:#65758a}
+      .dealerBatteryFormPage .input{width:100%;min-height:40px;border:1px solid #d7e0e9;border-radius:8px;background:#fff;box-sizing:border-box;padding:9px 11px;font-size:12px;color:#24384d}
+      .dealerBatteryFormPage .input:focus{outline:none;border-color:#2d79df;box-shadow:0 0 0 2px rgba(45,121,223,.10)}
+      .dealerBatteryFormPage .actions{display:flex;gap:8px;margin-top:14px}
+      .dealerBatteryFormPage .btn{border:1px solid #d8e0e8;border-radius:8px;background:#fff;color:#33475b;padding:8px 13px;font-size:11px;font-weight:700;cursor:pointer}
+      .dealerBatteryFormPage .btn.primary{border-color:#246fe8;background:#246fe8;color:#fff}
+      .dealerBatteryFormPage .error{border:1px solid #f3cccc;background:#fff3f3;color:#a52b2b;border-radius:8px;padding:8px 10px;font-size:11px;margin-bottom:12px}
+      @media(max-width:700px){.dealerBatteryFormPage{padding:0}.dealerBatteryFormPage .dealerPanel{border-radius:0 0 12px 12px;padding:13px}.dealerBatteryFormPage .grid{grid-template-columns:1fr;gap:11px}.dealerBatteryFormPage .dealerPanelHead h3{font-size:15px}.dealerBatteryFormPage .input{min-height:38px;font-size:11px}}
+    `}</style><div className="dealerPanel">
+      <div className="dealerPanelHead"><div><h3>Battery Swap / Exchange</h3><p>Dealer ke apne rickshaws ke beech battery swap.</p></div><button className="btn" type="button" onClick={onBack}>Back</button></div>
+      {error&&<div className="error">{error}</div>}
+      <form onSubmit={save}><div className="grid">
+        <label>Rickshaw Type<select className="input" value={type} onChange={e=>{setType(e.target.value);setFrom('');setTo('')}}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label>
+        <label>From Rickshaw<select className="input" value={from} onChange={e=>setFrom(e.target.value)} required><option value="">Select…</option>{opts.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label>
+        <label>To Rickshaw<select className="input" value={to} onChange={e=>setTo(e.target.value)} required><option value="">Select…</option>{opts.filter(x=>String(x.id)!==String(from)).map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label>
+      </div><div className="actions"><button className="btn primary">Save Battery Swap</button></div></form>
+    </div></div>;
 
 
 function DealerOldRickshawSales({dealer,onBack}){
