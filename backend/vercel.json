@@ -9,11 +9,11 @@
   "routes": [
     {
       "src": "/api/backend/auth/(.*)",
-      "dest": "api/auth.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/api/backend/auth",
-      "dest": "api/auth.py"
+      "dest": "api/index.py"
     },
     {
       "src": "/api/auth/(.*)",
