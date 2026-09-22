@@ -9,29 +9,6 @@ const blankPerson = {
   relation_with_customer:'', remarks:''
 };
 
-// TEMP TEST DATA — remove after bridge testing is complete.
-const DEMO_BORROWER = {
-  full_name:'DEMO TEST CUSTOMER', phone:'9876500001', email:'demo@example.test',
-  dob:'1995-01-15', gender:'male', pan:'ABCDE1234F', aadhaar:'123456789012',
-  occupation:'Demo Customer', monthly_income:'30000', pincode:'201001',
-  city:'Ghaziabad', state:'Uttar Pradesh', address:'DEMO TEST ADDRESS',
-  relation_with_customer:'', remarks:'TEMPORARY TEST DATA'
-};
-const DEMO_GUARANTOR = {
-  full_name:'DEMO TEST GUARANTOR', phone:'9876500002', email:'guarantor@example.test',
-  dob:'1970-01-15', gender:'male', pan:'BCDEF2345G', aadhaar:'234567890123',
-  occupation:'Demo Guarantor', monthly_income:'40000', pincode:'201001',
-  city:'Ghaziabad', state:'Uttar Pradesh', address:'DEMO GUARANTOR ADDRESS',
-  relation_with_customer:'Father', remarks:'TEMPORARY TEST DATA'
-};
-const DEMO_COBORROWER = {
-  full_name:'DEMO TEST CO-BORROWER', phone:'9876500003', email:'coborrower@example.test',
-  dob:'1998-01-15', gender:'female', pan:'CDEFG3456H', aadhaar:'345678901234',
-  occupation:'Demo Co-Borrower', monthly_income:'35000', pincode:'201001',
-  city:'Ghaziabad', state:'Uttar Pradesh', address:'DEMO CO-BORROWER ADDRESS',
-  relation_with_customer:'Spouse', remarks:'TEMPORARY TEST DATA'
-};
-
 function PersonFields({ value, setValue, title, relationLabel, compact=false }) {
   const set=(k,v)=>setValue({...value,[k]:v});
   return <div className="dealerFormCard">
@@ -60,9 +37,9 @@ async function fileToDataUrl(file){return await new Promise((resolve,reject)=>{c
 
 export function DealerNewLoanForm({ onBack }) {
   const [step,setStep]=useState('borrower');
-  const [borrower,setBorrower]=useState(DEMO_BORROWER);
-  const [guarantor,setGuarantor]=useState(DEMO_GUARANTOR);
-  const [coBorrower,setCoBorrower]=useState(DEMO_COBORROWER);
+  const [borrower,setBorrower]=useState(blankPerson);
+  const [guarantor,setGuarantor]=useState(blankPerson);
+  const [coBorrower,setCoBorrower]=useState(blankPerson);
   const [customerId,setCustomerId]=useState('');
   const [customerSearch,setCustomerSearch]=useState('');
   const [customers,setCustomers]=useState([]);
@@ -91,20 +68,6 @@ export function DealerNewLoanForm({ onBack }) {
   },[]);
 
   useEffect(()=>{
-    // Create temporary in-memory demo KYC files so the test form can be
-    // submitted repeatedly without manually selecting files each time.
-    const pngBase64='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-    try{
-      const bytes=Uint8Array.from(atob(pngBase64),c=>c.charCodeAt(0));
-      const names=['DEMO-CUSTOMER-PHOTO.png','DEMO-KYC-DOCUMENT.png'];
-      const files=names.map(name=>new File([bytes],name,{type:'image/png'}));
-      setCustomerPhoto(files[0]);
-      setDocuments([files[1]]);
-      setDocumentPreviews(names);
-    }catch(_){}
-  },[]);
-
-  useEffect(()=>{
     let cancelled=false;
     const timer=setTimeout(()=>get('/dealer/customers?search='+encodeURIComponent(customerSearch))
       .then(d=>{if(!cancelled)setCustomers(d.customers||[])}).catch(()=>{}),250);
@@ -129,8 +92,8 @@ export function DealerNewLoanForm({ onBack }) {
 
   async function submit(){
     setError('');
-    if(!borrower.full_name||!/^[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}
-    if(!/^[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}
+    if(!borrower.full_name||!/^\[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}
+    if(!/^\[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}
     if(!customerPhoto){setError('Customer photo mandatory hai.');setStep('borrower');return;}
     if(!documents.length){setError('At least one customer document mandatory hai.');setStep('borrower');return;}
     if(!vehicleLoan.loan_amount_requested||!vehicleLoan.tenure_months){setError('Loan amount aur tenure mandatory hai.');setStep('loan');return;}
