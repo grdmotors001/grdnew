@@ -57,6 +57,8 @@ export function DealerCashBook(){
     try{const d=await put(`/dealer/cash-book/customers/${editing.id}`,editing);flash('Customer record updated');setEditing(null);await loadCustomers();setCustomers(x=>x);if(d.customer)setSelectedCustomer(d.customer)}catch(e){setError(e.message||'Could not update customer')}finally{setSaving(false)}
   }
 
+  const exportDayBook = () => downloadExcel('/dealer/cash-book?from='+from+'&to='+to,'Cash_Day_Book_'+from+'.xlsx');
+
   return <div className="dealerPortal">
     <div className="dealerPortalHeader"><div><h1>Showroom Cash Book</h1><div className="muted">Customer receipts, customer register, shop expenses and Head Office handover</div></div></div>
     {error&&<div className="error">{error}</div>}{message&&<div className="card" style={{marginBottom:12}}>{message}</div>}
@@ -150,7 +152,7 @@ export function DealerCashBook(){
       onPrev={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()-1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
       onNext={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()+1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
       onPrint={()=>window.print()}
-      onExport={()=>downloadExcel('/dealer/cash-book?from='+from+'&to='+to,'Cash_Day_Book_'+from+'.xlsx')}
+      onExport={exportDayBook}
     />
   </div>
 }
