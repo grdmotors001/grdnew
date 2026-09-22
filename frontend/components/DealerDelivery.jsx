@@ -43,6 +43,10 @@ export function DealerDelivery({ onBack }) {
   },[data.customers,search]);
 
   const customer=(data.customers||[]).find(c=>String(c.id)===String(customerId));
+  useEffect(()=>{
+    if(customer){ setSaleAmount(String(customer.sale_amount||0)); setLoanAmount(String(customer.loan_amount||0)); setLoanWorkflowId(''); }
+    else { setSaleAmount(''); setLoanAmount(''); setLoanWorkflowId(''); }
+  },[customerId]);
   const isLoan=Number(customer?.loan_amount||0)>0;
   const stock=type==='new' ? data.new_stock||[] : data.old_stock||[];
   const approvedLoans=(data.approved_loans||[]).filter(x=>!customerId || String(x.customer_id)===String(customerId));
