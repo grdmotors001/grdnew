@@ -173,7 +173,7 @@ export function DealerDelivery({ onBack }) {
             <div><small className="muted">Down Payment</small><div><b>{money(customer.paid_amount)}</b></div></div>
             <div><small className="muted">Current Balance</small><div><b>{money(Number(saleAmount||customer.sale_amount||0)-Number(loanAmount||customer.loan_amount||0)-Number(customer.paid_amount||0))}</b></div></div>
           </div>
-        </div>
+        </div>}
 
         <div style={{marginTop:14}}>
           <input className="input" placeholder="Remarks (optional)" value={remarks} onChange={e=>setRemarks(e.target.value)}/>
