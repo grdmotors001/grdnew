@@ -289,8 +289,8 @@ export function DeliveryChallanRegisterPage() {
                 >
                   <td>{formatDate(c.date)}</td>
                   <td>{c.challan_no}</td>
-                  <td>{c.dealer_name}</td>
-                  <td>{c.chassis_no}</td>
+                  <td><button type="button" onClick={() => setDetailRow(c)} title="Open Delivery Challan" style={{border:0,background:"none",padding:0,color:"var(--primary,#1976d2)",textDecoration:"underline",fontWeight:600,cursor:"pointer"}}>{c.dealer_name}</button></td>
+                  <td><button type="button" onClick={() => setDetailRow(c)} title="Open Delivery Challan" style={{border:0,background:"none",padding:0,color:"var(--primary,#1976d2)",textDecoration:"underline",fontWeight:600,cursor:"pointer"}}>{c.chassis_no}</button></td>
                   <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}>
                     <span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)||'transparent'}} />
                     {c.colour||'—'}
