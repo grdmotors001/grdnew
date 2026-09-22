@@ -3045,7 +3045,7 @@ def _ensure_simple_master_columns():
         return str(exc)
     return None
 
-SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour", "salesman", "expense-head"}
+SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour", "salesman", "expense-head", "ledger"}
 
 # Representative colour shades for the Colour Master. These are intentionally
 # editable in the master later; they are only used to fill currently blank
