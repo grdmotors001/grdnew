@@ -86,6 +86,7 @@ def dealer_json(d):
     }
 
 @app.post("/api/auth/login")
+@app.post("/api/backend/auth/login")
 def login():
     try:
         err=ensure_user_columns()
@@ -103,6 +104,7 @@ def login():
         return jsonify({"error":f"Staff login failed: {type(exc).__name__}: {exc}"}),500
 
 @app.post("/api/auth/verify-otp")
+@app.post("/api/backend/auth/verify-otp")
 def verify_otp():
     data=request.get_json(silent=True) or {}
     try: payload=_serializer.loads(data.get("otp_token") or "",max_age=600)
@@ -114,6 +116,7 @@ def verify_otp():
     return jsonify({"token":issue_token(user),"user":user_json(user)})
 
 @app.post("/api/auth/dealer-login")
+@app.post("/api/backend/auth/dealer-login")
 def dealer_login():
     try:
         err=ensure_dealer_columns()
@@ -130,6 +133,7 @@ def dealer_login():
         return jsonify({"error":f"Dealer login failed: {type(exc).__name__}: {exc}"}),500
 
 @app.get("/api/auth/health")
+@app.get("/api/backend/auth/health")
 def health():
     return jsonify({"status":"ok","service":"auth"})
 
