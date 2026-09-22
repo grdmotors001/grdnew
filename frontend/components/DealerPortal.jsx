@@ -114,8 +114,6 @@ export function DealerPortal({ dealer, onLogout }) {
       .dealerPortalHeaderItem:hover,.dealerPortalHeaderItem.active{background:#eaf2ff;border-color:#9fc2fa;color:#155dcc}
       .dealerTopbar{position:sticky;top:0;z-index:20;background:#fff}
       @media(max-width:700px){.dealerPortalHeaderNav{margin:0 -10px;padding-left:10px;padding-right:10px}.dealerPortalHeaderItem{font-size:9px;padding:6px 8px}.dealerPortalHeaderLabel{font-size:8px}}
-      .dealerSidebar{display:none!important}
-      .dealerMain{margin-left:0!important;width:100%!important}
     `}</style>
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
