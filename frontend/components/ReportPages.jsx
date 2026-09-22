@@ -273,7 +273,7 @@ export function DeliveryChallanRegisterPage() {
             <thead>
               <tr>
                 <th>Date</th><th>Challan No.</th><th>Party Name</th>
-                <th>Item Amount</th><th>Chassis No.</th><th>Colour</th><th>Other</th>
+                <th>Chassis No.</th><th>Colour</th><th>Other</th>
                 <th>Sale Bill No.</th><th>Sale Value</th><th>Salesman</th>
                 <th>Battery Make</th><th>Battery No. 1</th><th>Battery No. 2</th><th>Battery No. 3</th><th>Battery No. 4</th>
                 <th>Remarks (1)</th><th>Remarks (2)</th><th></th>
@@ -290,7 +290,6 @@ export function DeliveryChallanRegisterPage() {
                   <td>{formatDate(c.date)}</td>
                   <td>{c.challan_no}</td>
                   <td>{c.dealer_name}</td>
-                  <td>{c.item_amount ? <Money value={c.item_amount} /> : ''}</td>
                   <td>{c.chassis_no}</td>
                   <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}>
                     <span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)||'transparent'}} />

@@ -217,9 +217,9 @@ export function DeliveryChallanPage() {
                 <tr key={c.id}>
                   <td>{formatDate(c.date)}</td>
                   <td>{c.challan_no}</td>
-                  <td><button type="button" className="linkButton" onClick={() => openEdit(c)} title="Open Delivery Challan">{c.dealer_name}</button></td>
+                  <td>{c.dealer_name}</td>
                   <td>{c.product_name}</td>
-                  <td><button type="button" className="linkButton" onClick={() => openEdit(c)} title="Open Delivery Challan"><b>{c.chassis_no}</b></button></td>
+                  <td><b>{c.chassis_no}</b></td>
                   <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)?.background||'transparent'}} />{c.colour||'—'}</span></td>
                   <td>
                     {c.cancelled ? <Pill text="Cancelled" /> : c.invoiced ? <Pill text={`Sold (${c.bill_no})`} kind="t" /> : <Pill text="Unsold" kind="d" />}
