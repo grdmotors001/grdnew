@@ -92,8 +92,8 @@ export function DealerNewLoanForm({ onBack }) {
 
   async function submit(){
     setError('');
-    if(!borrower.full_name||!/^\[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}
-    if(!/^\[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}
+    if(!borrower.full_name||!/^[0-9]{10}$/.test(borrower.phone)){setError('Borrower name aur 10-digit phone required hai.');setStep('borrower');return;}
+    if(!/^[0-9]{12}$/.test(borrower.aadhaar||'')){setError('12-digit Aadhaar required hai.');setStep('borrower');return;}
     if(!customerPhoto){setError('Customer photo mandatory hai.');setStep('borrower');return;}
     if(!documents.length){setError('At least one customer document mandatory hai.');setStep('borrower');return;}
     if(!vehicleLoan.loan_amount_requested||!vehicleLoan.tenure_months){setError('Loan amount aur tenure mandatory hai.');setStep('loan');return;}
