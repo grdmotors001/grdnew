@@ -104,16 +104,33 @@ export function DealerPortal({ dealer, onLogout }) {
   const dealerName = dealer.name || dealer.full_name || 'Dealer';
   const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
 
-  if (tab === 'newloan') return <DealerNewLoanForm onBack={() => setTab('dashboard')} />;
-  if (tab === 'battery-withdrawal' && canBatteryWithdrawal) return <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} />;
-  if (tab === 'battery-swap' && canBatterySwap) return <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} />;
-  if (tab === 'battery-addition' && canBatteryAddition) return <DealerBatteryAddition dealer={dealer} onBack={() => setTab('dashboard')} />;
-  if (tab === 'old-rickshaw-sales' && canOldRickshawSales) return <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} />;
-  if (tab === 'customer-invoice' && canPurchase) return <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} />;
-  if (tab === 'delivery' && canDelivery) return <DealerDelivery onBack={() => setTab('dashboard')} />;
+  const standaloneForm =
+    tab === 'newloan' ? <DealerNewLoanForm onBack={() => setTab('dashboard')} /> :
+    (tab === 'battery-withdrawal' && canBatteryWithdrawal) ? <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} /> :
+    (tab === 'battery-swap' && canBatterySwap) ? <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} /> :
+    (tab === 'battery-addition' && canBatteryAddition) ? <DealerBatteryAddition dealer={dealer} onBack={() => setTab('dashboard')} /> :
+    (tab === 'old-rickshaw-sales' && canOldRickshawSales) ? <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} /> :
+    (tab === 'customer-invoice' && canPurchase) ? <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} /> :
+    (tab === 'delivery' && canDelivery) ? <DealerDelivery onBack={() => setTab('dashboard')} /> : null;
 
   return <div className="dealerShell">
     <style>{`
+      .grdFormPage{padding:12px}
+      .grdFormPage .dealerPanel{background:#fff;border:1px solid #e4e9ef;border-radius:14px;box-shadow:0 5px 18px rgba(31,55,79,.06);padding:16px}
+      .grdFormPage .dealerPanelHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+      .grdFormPage .dealerPanelHead h3{margin:0;font-size:18px;color:#172b45}
+      .grdFormPage .dealerPanelHead p{margin:3px 0 0;color:#748297;font-size:11px}
+      .grdFormPage .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+      .grdFormPage .grid>div{min-width:0}
+      .grdFormPage label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:700;color:#65758a}
+      .grdFormPage .input{width:100%;min-height:40px;border:1px solid #d7e0e9;border-radius:8px;background:#fff;box-sizing:border-box;padding:9px 11px;font-size:12px;color:#24384d}
+      .grdFormPage .input:focus{outline:none;border-color:#2d79df;box-shadow:0 0 0 2px rgba(45,121,223,.10)}
+      .grdFormPage .card{border:1px solid #e2e8ef;border-radius:10px;background:#fbfdff}
+      .grdFormPage .btn{border:1px solid #d8e0e8;border-radius:8px;background:#fff;color:#33475b;padding:8px 13px;font-size:11px;font-weight:700;cursor:pointer}
+      .grdFormPage .btn.primary{border-color:#246fe8;background:#246fe8;color:#fff}
+      .grdFormPage .error{border:1px solid #f3cccc;background:#fff3f3;color:#a52b2b;border-radius:8px;padding:8px 10px;font-size:11px;margin-bottom:12px}
+      .grdFormPage .actions{display:flex;gap:8px;margin-top:14px}
+      @media(max-width:700px){.grdFormPage{padding:0}.grdFormPage .dealerPanel{border-radius:0 0 12px 12px;padding:13px}.grdFormPage .grid{grid-template-columns:1fr;gap:11px}.grdFormPage .dealerPanelHead h3{font-size:15px}.grdFormPage .input{min-height:38px;font-size:11px}}
       .dealerPortalHeaderNav{display:flex;gap:8px;align-items:stretch;overflow-x:auto;border-bottom:1px solid #e3e8f0;background:#fff;padding:7px 0 8px;scrollbar-width:none;min-height:50px}
       .dealerPortalHeaderNav::-webkit-scrollbar{display:none}
       .dealerPortalHeaderGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;padding:0 8px}
@@ -184,6 +201,7 @@ export function DealerPortal({ dealer, onLogout }) {
           </button>
         )}
       </nav>
+      {standaloneForm || <>
       {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab}/>} 
       {tab!=='dashboard' && <>
         <div className="dealerContentToolbar">
@@ -208,6 +226,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {!['cashbook','receipt-create','cash-handover','delivery','purchases','payments','ledger','pending-sales','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
         {tab==='loan-status' && <DealerLoanStatusTable rows={loans}/>}
         {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
+      </>}
       </>}
     </main>
   </div>;
