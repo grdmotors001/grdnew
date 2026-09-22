@@ -310,6 +310,7 @@ function DealerBatteryWithdrawal({dealer,onBack}){
         <label>Remarks<input className="input" value={remarks} onChange={e=>setRemarks(e.target.value)}/></label>
       </div><div className="actions"><button className="btn primary">Withdraw Battery</button></div></form>
     </div></div>;
+}
 
 function DealerBatteryAddition({dealer,onBack}){
   const [type,setType]=useState('new'),[items,setItems]=useState([]),[batteries,setBatteries]=useState([]),[rickshawId,setRickshawId]=useState(''),[battery,setBattery]=useState(''),[error,setError]=useState('');
@@ -350,6 +351,7 @@ function DealerBatterySwap({dealer,onBack}){
         <label>To Rickshaw<select className="input" value={to} onChange={e=>setTo(e.target.value)} required><option value="">Select…</option>{opts.filter(x=>String(x.id)!==String(from)).map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label>
       </div><div className="actions"><button className="btn primary">Save Battery Swap</button></div></form>
     </div></div>;
+}
 
 
 function DealerOldRickshawSales({dealer,onBack}){
