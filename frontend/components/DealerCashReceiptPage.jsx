@@ -80,7 +80,7 @@ export function DealerCashReceiptPage() {
             <div className="card" style={{padding:10}}><small className="muted">Paid</small><b>₹ {Number(selected?.paid_amount||0).toLocaleString('en-IN')}</b></div>
             <div className="card" style={{padding:10}}><small className="muted">Outstanding Balance</small><b>₹ {balance.toLocaleString('en-IN')}</b></div>
             <Field label="Receipt Amount" type="number" value={form.amount} onChange={v=>set('amount',v)} required/>
-            <Field label="Payment Mode" type="select" value={form.payment_mode} options={Object.entries({cash:'Cash',upi:'UPI',bank:'Bank',cheque:'Cheque',other:'Other'}).map(([value,label])=>({value,label}))} onChange={v=>set('payment_mode',v)}/>
+            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b></div>
             <Field label="Reference No." value={form.reference_no} onChange={v=>set('reference_no',v)}/>
             <Field label="Remarks" value={form.remarks} onChange={v=>set('remarks',v)}/>
           </div>
@@ -95,7 +95,7 @@ export function DealerCashReceiptPage() {
             ]} onChange={v=>set('booking_for',v)}/>
             <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>set('loan_amount',v)}/>
             <Field label="Receipt Amount" type="number" value={form.amount} onChange={v=>set('amount',v)} required/>
-            <Field label="Payment Mode" type="select" value={form.payment_mode} options={Object.entries({cash:'Cash',upi:'UPI',bank:'Bank',cheque:'Cheque',other:'Other'}).map(([value,label])=>({value,label}))} onChange={v=>set('payment_mode',v)}/>
+            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b></div>
             <Field label="Reference No." value={form.reference_no} onChange={v=>set('reference_no',v)}/>
             <Field label="Remarks" value={form.remarks} onChange={v=>set('remarks',v)}/>
           </div>
