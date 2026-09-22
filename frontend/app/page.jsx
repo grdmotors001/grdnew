@@ -165,7 +165,7 @@ export default function App() {
 
   if (!checkedAuth) return <div className="appLoadingScreen"><div className="appLoadingCard"><div className="appLoadingMark">G</div><b>G.R.D. MOTORS</b><span>Restoring your session…</span></div></div>;
   if (!user) return <GRDLogin onLogin={setUser} />;
-  if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setPortalKind(null); setToken(null); setUser(null); }} />;
+  if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setPortalKind(null); setToken(null); try { window.localStorage.removeItem('grd_dealer_profile'); } catch {} setUser(null); }} />;
 
   return (
     <Shell active={active} setActive={setActive} user={user} onLogout={() => { setToken(null); setUser(null); }}>
