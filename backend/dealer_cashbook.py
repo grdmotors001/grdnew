@@ -497,35 +497,73 @@ def create_receipt():
     dealer = Dealer.query.get(g.current_dealer_id)
     if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
         return jsonify({"error":"Booking Receipt is available only for showroom/branch accounts."}),403
-    d=request.get_json(silent=True) or {}; name=str(d.get("customer_name") or "").strip()
-    amount=_amt(d.get("amount")); mode=str(d.get("payment_mode") or "cash").lower().strip(); rd=_date(d.get("date"))
-    if not name: return jsonify({"error":"Customer name is required."}),400
+
+    d=request.get_json(silent=True) or {}
+    receipt_type=str(d.get("receipt_type") or "new_booking").strip().lower()
+    if receipt_type not in {"new_booking","balance_payment"}:
+        return jsonify({"error":"Select New Booking or Balance Payment."}),400
+
+    amount=_amt(d.get("amount"))
+    mode=str(d.get("payment_mode") or "cash").lower().strip()
+    rd=_date(d.get("date"))
     if amount<=0: return jsonify({"error":"Amount must be greater than zero."}),400
     if mode not in PAYMENT_MODES: return jsonify({"error":"Invalid payment mode."}),400
     if not rd: return jsonify({"error":"Invalid receipt date."}),400
-    if not Dealer.query.get(g.current_dealer_id): return jsonify({"error":"Dealer not found."}),404
-    customer_id = d.get("customer_id")
-    customer = DealerCashCustomer.query.filter_by(id=int(customer_id), dealer_id=g.current_dealer_id).first() if str(customer_id or "").isdigit() else None
-    phone = str(d.get("customer_phone") or "").strip() or None
-    page_no = str(d.get("dealer_register_page_no") or "").strip() or None
-    if not customer and phone:
-        customer = DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id, phone=phone).order_by(DealerCashCustomer.id.desc()).first()
-    if not customer:
-        customer = DealerCashCustomer(dealer_id=g.current_dealer_id, full_name=name, phone=phone, page_no=page_no)
-        db.session.add(customer)
-        db.session.flush()
+
+    customer=None
+    phone=str(d.get("customer_phone") or "").strip() or None
+    page_no=str(d.get("dealer_register_page_no") or "").strip() or None
+
+    if receipt_type == "balance_payment":
+        customer_id=d.get("customer_id")
+        customer=(DealerCashCustomer.query
+                  .filter_by(id=int(customer_id), dealer_id=g.current_dealer_id).first()
+                  if str(customer_id or "").isdigit() else None)
+        if not customer:
+            return jsonify({"error":"Please select a previous customer for Balance Payment."}),400
+        paid=db.session.query(db.func.coalesce(db.func.sum(DealerCashReceipt.amount),0)).filter(
+            DealerCashReceipt.dealer_id==g.current_dealer_id,
+            DealerCashReceipt.customer_id==customer.id
+        ).scalar() or 0
+        balance=round(float(customer.sale_amount or 0)-float(customer.loan_amount or 0)-float(paid),2)
+        if balance <= 0:
+            return jsonify({"error":"This customer has no outstanding balance."}),400
+        if amount > balance:
+            return jsonify({"error":f"Receipt amount cannot be greater than outstanding balance ₹{balance:,.2f}."}),400
+        name=customer.full_name
+        phone=customer.phone
+        booking_for=customer.vehicle_no or None
     else:
-        customer.full_name = name or customer.full_name
-        customer.phone = phone or customer.phone
-        if page_no: customer.page_no = page_no
-    r=DealerCashReceipt(dealer_id=g.current_dealer_id, customer_id=customer.id, receipt_no=_no(DealerCashReceipt,"DRC"), receipt_date=rd,
-       customer_name=name, customer_phone=phone,
-       application_no=str(d.get("application_no") or "").strip() or None,
-       dealer_register_page_no=str(d.get("dealer_register_page_no") or "").strip() or None,
-       booking_for=str(d.get("booking_for") or "").strip() or None, amount=amount, payment_mode=mode,
-       reference_no=str(d.get("reference_no") or "").strip() or None, remarks=str(d.get("remarks") or "").strip() or None)
+        name=str(d.get("customer_name") or "").strip()
+        booking_for=str(d.get("booking_for") or "").strip().lower()
+        if not name: return jsonify({"error":"Customer name is required for New Booking."}),400
+        if not phone: return jsonify({"error":"Mobile number is required for New Booking."}),400
+        if booking_for not in {"new","old","battery"}:
+            return jsonify({"error":"Select New / Old / Battery for the booking."}),400
+        sale_amount=_amt(d.get("sale_amount"))
+        loan_amount=_amt(d.get("loan_amount"))
+        if sale_amount <= 0: return jsonify({"error":"Sale Amount is required for New Booking."}),400
+        if loan_amount < 0 or loan_amount > sale_amount:
+            return jsonify({"error":"Loan Amount cannot exceed Sale Amount."}),400
+        customer=DealerCashCustomer(
+            dealer_id=g.current_dealer_id, full_name=name, phone=phone, page_no=page_no,
+            vehicle_no=booking_for, sale_amount=sale_amount, loan_amount=loan_amount
+        )
+        db.session.add(customer); db.session.flush()
+
+    r=DealerCashReceipt(
+        dealer_id=g.current_dealer_id, customer_id=customer.id,
+        receipt_no=_no(DealerCashReceipt,"DRC"), receipt_date=rd,
+        customer_name=name, customer_phone=phone,
+        application_no=str(d.get("application_no") or "").strip() or None,
+        dealer_register_page_no=page_no or customer.page_no,
+        booking_for=(booking_for if receipt_type=="new_booking" else (customer.vehicle_no or None)),
+        amount=amount, payment_mode=mode,
+        reference_no=str(d.get("reference_no") or "").strip() or None,
+        remarks=str(d.get("remarks") or "").strip() or None
+    )
     db.session.add(r); db.session.commit()
-    return jsonify({"success":True,"receipt":_receipt(r)}),201
+    return jsonify({"success":True,"receipt":_receipt(r),"customer":_customer(customer)}),201
 
 @dealer_cashbook_bp.route("/cash-book/expense", methods=["POST"])
 @require_dealer_auth
