@@ -302,7 +302,7 @@ function DealerBatteryWithdrawal({dealer,onBack}){
   useEffect(()=>{load()},[type]);
   const current=items.find(x=>String(x.id)===String(rickshawId));
   const save=async e=>{e.preventDefault();try{await post('/battery-withdrawal',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery,reference_no:ref,remarks});alert('Battery withdrawn successfully');await load();setRef('');setRemarks('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage dealerBatteryFormPage"></style><div className="dealerPanel">
+  return <div className="dealerPage grdFormPage"><div className="dealerPanel">
       <div className="dealerPanelHead"><div><h3>Battery Withdrawal</h3><p>Battery rickshaw se remove karke aapke dealer battery stock me jayegi.</p></div><button className="btn" type="button" onClick={onBack}>Back</button></div>
       {error&&<div className="error">{error}</div>}
       <form onSubmit={save}><div className="grid">
