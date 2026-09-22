@@ -12,7 +12,7 @@ async function proxy(request, context) {
   const { path = [] } = await context.params;
   const backendPath = path.map((part) => encodeURIComponent(part)).join('/');
   const incomingUrl = new URL(request.url);
-  const target = `${backend.replace(/\\/$/, '')}/api/auth/${backendPath}${incomingUrl.search}`;
+  const target = `${backend.replace(/\/$/, '')}/api/auth/${backendPath}${incomingUrl.search}`;
 
   const headers = new Headers();
   for (const [key, value] of request.headers.entries()) {
