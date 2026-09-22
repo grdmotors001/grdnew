@@ -59,7 +59,8 @@ export function DealerCashBook(){
 
   const exportDayBook = () => downloadExcel('/dealer/cash-book?from='+from+'&to='+to,'Cash_Day_Book_'+from+'.xlsx');
 
-  return <div className="dealerPortal">
+  return (
+    <div className="dealerPortal">
     <div className="dealerPortalHeader"><div><h1>Showroom Cash Book</h1><div className="muted">Customer receipts, customer register, shop expenses and Head Office handover</div></div></div>
     {error&&<div className="error">{error}</div>}{message&&<div className="card" style={{marginBottom:12}}>{message}</div>}
 
@@ -154,5 +155,6 @@ export function DealerCashBook(){
       onPrint={()=>window.print()}
       onExport={exportDayBook}
     />
-  </div>
+    </div>
+  );
 }
