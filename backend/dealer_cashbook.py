@@ -504,7 +504,8 @@ def create_receipt():
         return jsonify({"error":"Select New Booking or Balance Payment."}),400
 
     amount=_amt(d.get("amount"))
-    mode=str(d.get("payment_mode") or "cash").lower().strip()
+    # Showroom customer receipts are strictly CASH receipts. Bank/UPI/cheque receipts use separate online-payment flows.
+    mode="cash"
     rd=_date(d.get("date"))
     if amount<=0: return jsonify({"error":"Amount must be greater than zero."}),400
     if mode not in PAYMENT_MODES: return jsonify({"error":"Invalid payment mode."}),400
