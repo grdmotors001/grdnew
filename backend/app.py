@@ -90,7 +90,9 @@ def _ensure_live_schema_additions():
         print(f"[schema] dealer category check failed: {exc}")
 
 from dealer_cashbook import dealer_cashbook_bp, DealerCashReceipt, DealerCashExpense, DealerCashHandover, DealerCustomerDelivery, DealerCashCustomer
+from chat_api import chat_bp
 app.register_blueprint(dealer_cashbook_bp, url_prefix="/api/dealer")
+app.register_blueprint(chat_bp, url_prefix="/api/chat")
 app.register_blueprint(hr_bp, url_prefix="/api/hr")
 CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*")}})
 
