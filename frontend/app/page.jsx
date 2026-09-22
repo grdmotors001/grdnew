@@ -126,14 +126,30 @@ export default function App() {
     // Keep the portal type beside the token so a browser refresh can restore
     // the correct dashboard directly instead of probing the other auth system.
     const portal = getPortalKind();
+    const savedDealer = typeof window !== 'undefined'
+      ? (() => { try { return JSON.parse(window.localStorage.getItem('grd_dealer_profile') || 'null'); } catch { return null; } })()
+      : null;
+
     const restore = portal === 'dealer'
-      ? get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => setUser({ ...dealer, is_dealer: true }))
+      ? get('/dealer/me', { preserveAuthOn401: true })
+          .then((dealer) => {
+            window.localStorage.setItem('grd_dealer_profile', JSON.stringify(dealer));
+            setUser({ ...dealer, is_dealer: true });
+          })
+          .catch(() => {
+            // Keep the dealer portal visible through a temporary /dealer/me
+            // failure. The bearer token remains intact because this request
+            // uses preserveAuthOn401.
+            if (savedDealer) setUser({ ...savedDealer, is_dealer: true });
+            else throw new Error('Dealer session could not be restored');
+          })
       : portal === 'staff'
         ? get('/auth/me', { preserveAuthOn401: true }).then(setUser)
         : get('/auth/me', { preserveAuthOn401: true })
             .then(setUser)
             .catch(() => get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => {
               setPortalKind('dealer');
+              window.localStorage.setItem('grd_dealer_profile', JSON.stringify(dealer));
               setUser({ ...dealer, is_dealer: true });
             }));
 
@@ -141,6 +157,7 @@ export default function App() {
       .catch(() => {
         setToken(null);
         setPortalKind(null);
+        window.localStorage.removeItem('grd_dealer_profile');
         setUser(null);
       })
       .finally(() => setCheckedAuth(true));
