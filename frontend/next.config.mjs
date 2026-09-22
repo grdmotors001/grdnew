@@ -3,7 +3,7 @@ const nextConfig = {
   async rewrites() {
     const backend = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://grdnew-backend.vercel.app';
     return [
-      { source: '/api/backend/auth/:path*', destination: `${backend}/api/auth/:path*` },
+      { source: '/api/backend/auth/:path*', destination: `${backend}/api/backend/auth/:path*` },
     ];
   },
   // Next.js expects hostnames here, not host:port.
