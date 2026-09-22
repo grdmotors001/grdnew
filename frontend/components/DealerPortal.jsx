@@ -23,6 +23,15 @@ const dealerHeaderSections = [
   {label:'Battery Adjustment', items:[['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
 ];
 
+const dealerHeaderSectionByTab = {
+  stock:'Stock','old-stock':'Stock','battery-stock':'Stock',
+  challans:'Record',invoices:'Record','seized-vehicles':'Record',
+  'all-customers':'Report','all-receipt':'Report','expenses-reports':'Report','all-expenses':'Report',incentive:'Report',
+  cashbook:'Daybook','receipt-create':'Daybook','expenses-create':'Daybook','cash-handover':'Daybook',payments:'Daybook',
+  'pending-sales':'Pending Sales','old-rickshaw-sales':'Pending Sales',ledger:'Pending Sales',
+  'battery-swap':'Battery Adjustment','battery-withdrawal':'Battery Adjustment','battery-addition':'Battery Adjustment'
+};
+
 const nav = [
   ['dashboard', '⌂', 'Dashboard'],
   ['stock', '▣', 'My Stock'],
@@ -66,6 +75,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const canBatterySwap = portalModules.has('battery-swap');
   const canBatteryAddition = portalModules.has('battery-addition');
   const canOldRickshawSales = portalModules.has('old-rickshaw-sales');
+  const activeHeaderSection = dealerHeaderSectionByTab[tab] || null;
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -104,15 +114,21 @@ export function DealerPortal({ dealer, onLogout }) {
 
   return <div className="dealerShell">
     <style>{`
-      .dealerPortalHeaderNav{display:flex;gap:8px;align-items:stretch;overflow-x:auto;border-bottom:1px solid #e3e8f0;background:#fff;padding:7px 0 8px;scrollbar-width:none}
+      .dealerPortalHeaderNav{display:flex;gap:8px;align-items:stretch;overflow-x:auto;border-bottom:1px solid #e3e8f0;background:#fff;padding:7px 0 8px;scrollbar-width:none;min-height:50px}
       .dealerPortalHeaderNav::-webkit-scrollbar{display:none}
-      .dealerPortalHeaderGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;padding:0 6px;border-right:1px solid #edf0f4}
-      .dealerPortalHeaderGroup:last-child{border-right:0}
+      .dealerPortalHeaderGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;padding:0 8px}
       .dealerPortalHeaderLabel{font-size:9px;font-weight:900;letter-spacing:.55px;text-transform:uppercase;color:#6b7b8f;padding:0 5px}
-      .dealerPortalHeaderItems{display:flex;gap:3px}
-      .dealerPortalHeaderItem{border:1px solid #e2e8ef;background:#f8fafc;color:#30445b;border-radius:7px;padding:6px 9px;font-size:10px;font-weight:700;white-space:nowrap;cursor:pointer}
+      .dealerPortalHeaderItems{display:flex;gap:5px}
+      .dealerPortalHeaderItem{border:1px solid #e2e8ef;background:#f8fafc;color:#30445b;border-radius:7px;padding:6px 10px;font-size:10px;font-weight:700;white-space:nowrap;cursor:pointer}
       .dealerPortalHeaderItem:hover,.dealerPortalHeaderItem.active{background:#eaf2ff;border-color:#9fc2fa;color:#155dcc}
       .dealerTopbar{position:sticky;top:0;z-index:20;background:#fff}
+      .dealerBatteryCard{margin-top:6px}
+      .dealerBatteryFormGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 16px;align-items:end}
+      .dealerBatteryFormGrid label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:800;color:#30445b}
+      .dealerBatteryFormGrid input,.dealerBatteryFormGrid select{width:100%;min-height:42px;box-sizing:border-box}
+      .dealerBatteryFormActions{display:flex;justify-content:flex-start;margin-top:16px}
+      @media(max-width:900px){.dealerBatteryFormGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media(max-width:620px){.dealerBatteryFormGrid{grid-template-columns:1fr}}
       @media(max-width:700px){.dealerPortalHeaderNav{margin:0 -10px;padding-left:10px;padding-right:10px}.dealerPortalHeaderItem{font-size:9px;padding:6px 8px}.dealerPortalHeaderLabel{font-size:8px}}
     `}</style>
     <aside className="dealerSidebar">
@@ -128,23 +144,34 @@ export function DealerPortal({ dealer, onLogout }) {
       <header className="dealerTopbar">
         <button className="dealerMobileMenu" onClick={()=>setMobileNav(v=>!v)}>☰</button>
         <div><div className="dealerEyebrow">DEALER PANEL</div><h1>{tab==='dashboard'?'Dashboard':nav.find(x=>x[0]===tab)?.[2]||'Dealer Panel'}</h1></div>
-        <div className="dealerTopActions"><div className="dealerWelcome">Welcome, <b>{dealerName}</b></div><button className="dealerThemeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
+        <div className="dealerTopActions"><button className="dealerThemeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
       </header>
-      <nav className="dealerPortalHeaderNav" aria-label="Dealer modules">
-        {dealerHeaderSections.map(section => (
-          <div className="dealerPortalHeaderGroup" key={section.label}>
+      <nav className="dealerPortalHeaderNav" aria-label="Dealer module submenu">
+        {activeHeaderSection && (() => {
+          const section = dealerHeaderSections.find(s => s.label === activeHeaderSection);
+          if (!section) return null;
+          return <div className="dealerPortalHeaderGroup">
             <div className="dealerPortalHeaderLabel">{section.label}</div>
             <div className="dealerPortalHeaderItems">
-              {section.items.filter(([key]) => key !== 'incentive' || canCashBook).map(([key,label]) => (
-                <button type="button" key={key}
-                  className={'dealerPortalHeaderItem'+(tab===key?' active':'')}
-                  onClick={()=>setTab(key)}>
-                  {label}
-                </button>
-              ))}
+              {section.items
+                .filter(([key]) =>
+                  (key !== 'incentive' || canCashBook) &&
+                  (key !== 'cashbook' && key !== 'receipt-create' && key !== 'cash-handover' && key !== 'expenses-create' || canCashBook) &&
+                  (key !== 'battery-withdrawal' || canBatteryWithdrawal) &&
+                  (key !== 'battery-swap' || canBatterySwap) &&
+                  (key !== 'battery-addition' || canBatteryAddition) &&
+                  (key !== 'old-rickshaw-sales' || canOldRickshawSales)
+                )
+                .map(([key,label]) => (
+                  <button type="button" key={key}
+                    className={'dealerPortalHeaderItem'+(tab===key?' active':'')}
+                    onClick={()=>setTab(key)}>
+                    {label}
+                  </button>
+                ))}
             </div>
-          </div>
-        ))}
+          </div>;
+        })()}
       </nav>
 
       {mobileNav && <div className="dealerMobileNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
@@ -194,7 +221,7 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
     ['Tax Invoices',invoiceCount,'Invoice records','invoices','▥'],
   ];
   return <div className="dealerDashboard">
-    <section className="dealerHero"><div><span className="dealerHeroKicker">G.R.D. MOTORS</span><h2>Welcome back, {dealerName}</h2><p>Manage stock, documents, cash book and loan applications from one place.</p></div><button className="dealerPrimaryAction" onClick={onNewLoan}><span>＋</span> New Loan Application</button></section>
+    <section className="dealerHero"><div><span className="dealerHeroKicker">G.R.D. MOTORS</span><h2>Dealer Dashboard</h2><p>Manage stock, documents, cash book and loan applications from one place.</p></div><button className="dealerPrimaryAction" onClick={onNewLoan}><span>＋</span> New Loan Application</button></section>
     <section className="dealerKpis">{cards.map(([label,value,sub,key,icon])=><button className="dealerKpi" key={key} onClick={()=>onOpen(key)}><div className="dealerKpiIcon">{icon}</div><div className="dealerKpiText"><span>{label}</span><strong>{value}</strong><small>{sub}</small></div><i>→</i></button>)}</section>
     <section className="dealerDashboardGrid">
       <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Quick Actions</h3><p>Common dealer work</p></div></div>
@@ -256,7 +283,7 @@ function DealerBatteryWithdrawal({dealer,onBack}){
   useEffect(()=>{load()},[type]);
   const current=items.find(x=>String(x.id)===String(rickshawId));
   const save=async e=>{e.preventDefault();try{await post('/battery-withdrawal',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery,reference_no:ref,remarks});alert('Battery withdrawn successfully');await load();setRef('');setRemarks('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Withdrawal</h2><p className="muted">Battery rickshaw se remove karke aapke dealer battery stock me jayegi.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="formgrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{(current?.battery_numbers||[]).map(n=><option key={n}>{n}</option>)}</select></label><label>Reference No.<input value={ref} onChange={e=>setRef(e.target.value)}/></label><label>Remarks<input value={remarks} onChange={e=>setRemarks(e.target.value)}/></label></div><button className="btn primary">Withdraw Battery</button></form></div></div>;
+  return <div className="dealerPage"><div className="card dealerBatteryCard"><div className="pageHeader"><div><h2>Battery Withdrawal</h2><p className="muted">Battery rickshaw se remove karke aapke dealer battery stock me jayegi.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="dealerBatteryFormGrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{(current?.battery_numbers||[]).map(n=><option key={n}>{n}</option>)}</select></label><label>Reference No.<input value={ref} onChange={e=>setRef(e.target.value)}/></label><label>Remarks<input value={remarks} onChange={e=>setRemarks(e.target.value)}/></label></div><button className="btn primary">Withdraw Battery</button></form></div></div>;
 }
 
 function DealerBatteryAddition({dealer,onBack}){
@@ -264,7 +291,7 @@ function DealerBatteryAddition({dealer,onBack}){
   const load=async()=>{try{const [r,b]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealer.id+'&type='+type),get('/battery-addition?dealer_id='+dealer.id)]);setItems((r.rickshaws||[]).filter(x=>!(x.battery_numbers||[]).length));setBatteries(b.batteries||[]);setRickshawId('');setBattery('')}catch(e){setError(e.message)}};
   useEffect(()=>{load()},[type]);
   const save=async e=>{e.preventDefault();try{await post('/battery-addition',{date:new Date().toISOString().slice(0,10),location:'dealer',dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery});alert('Battery fitted successfully');await load()}catch(e){setError(e.message)}};
-  return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Fit to Rickshaw</h2><p className="muted">Dealer stock ki available battery ko apne rickshaw me fit karein.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="formgrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{batteries.map(x=><option key={x.id} value={x.battery_no}>{x.battery_maker||''} — {x.battery_no}</option>)}</select></label></div><button className="btn primary">Fit Battery to Rickshaw</button></form></div></div>;
+  return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Fit to Rickshaw</h2><p className="muted">Dealer stock ki available battery ko apne rickshaw me fit karein.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="dealerBatteryFormGrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{batteries.map(x=><option key={x.id} value={x.battery_no}>{x.battery_maker||''} — {x.battery_no}</option>)}</select></label></div><button className="btn primary">Fit Battery to Rickshaw</button></form></div></div>;
 }
 
 function DealerBatterySwap({dealer,onBack}){
@@ -273,7 +300,7 @@ function DealerBatterySwap({dealer,onBack}){
   useEffect(()=>{load()},[]);
   const opts=items[type]||[];
   const save=async e=>{e.preventDefault();try{await post('/battery-swap-vouchers',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,from_type:type,from_id:Number(from),to_type:type,to_id:Number(to),remarks:''});alert('Battery swap saved');await load();setFrom('');setTo('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Swap / Exchange</h2><p className="muted">Dealer ke apne rickshaws ke beech battery swap.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="formgrid"><label>Rickshaw Type<select value={type} onChange={e=>{setType(e.target.value);setFrom('');setTo('')}}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>From Rickshaw<select value={from} onChange={e=>setFrom(e.target.value)} required><option value="">Select…</option>{opts.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label><label>To Rickshaw<select value={to} onChange={e=>setTo(e.target.value)} required><option value="">Select…</option>{opts.filter(x=>String(x.id)!==String(from)).map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label></div><button className="btn primary">Save Battery Swap</button></form></div></div>;
+  return <div className="dealerPage"><div className="card dealerBatteryCard"><div className="pageHeader"><div><h2>Battery Swap / Exchange</h2><p className="muted">Dealer ke apne rickshaws ke beech battery swap.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="formgrid"><label>Rickshaw Type<select value={type} onChange={e=>{setType(e.target.value);setFrom('');setTo('')}}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>From Rickshaw<select value={from} onChange={e=>setFrom(e.target.value)} required><option value="">Select…</option>{opts.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label><label>To Rickshaw<select value={to} onChange={e=>setTo(e.target.value)} required><option value="">Select…</option>{opts.filter(x=>String(x.id)!==String(from)).map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label></div><div className="dealerBatteryFormActions"><button className="btn primary">Save Battery Swap</button></div></form></div></div>;
 }
 
 
