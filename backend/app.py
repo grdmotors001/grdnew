@@ -32,7 +32,6 @@ from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, text, inspect
-from sqlalchemy.pool import NullPool
 
 # Load backend/.env if present (local dev convenience — e.g. DATABASE_URL,
 # SECRET_KEY). No-op in production/Vercel, where real env vars are set
@@ -65,7 +64,7 @@ if db_url.startswith("postgresql") and "supabase" in db_url and "sslmode=" not i
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"poolclass": NullPool, "pool_pre_ping": True}
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 300}
 
 db.init_app(app)
 
