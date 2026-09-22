@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 
-const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionDigits:2})`;
+const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionDigits:2})}`;
 const today = () => new Date().toISOString().slice(0,10);
 
 export function DealerDelivery({ onBack }) {
