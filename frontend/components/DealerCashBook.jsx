@@ -5,7 +5,7 @@ import { get, post, put, downloadExcel } from '../lib/api';
 import { DayBookPreview } from './DayBookPreview';
 
 const today = () => new Date().toISOString().slice(0,10);
-const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionDigits:2})`;
+const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionDigits:2})}`;
 const categories = [
   ['tea_customer','Tea for Customer'],['tea_staff','Tea for Staff'],['water','Water Expense'],
   ['rent','Rent Expense'],['repairing','Repairing Expense'],['makhi_commission','Makhi / Commission Expense'],['other','Other Expense']
