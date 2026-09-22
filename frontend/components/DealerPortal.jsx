@@ -18,7 +18,7 @@ const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock']]},
   {label:'Record', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['seized-vehicles','Seized Vehicle']]},
   {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports'],['all-expenses','All Expenses'],['incentive','Incentive Record']]},
-  {label:'Daybook', items:[['cashbook','Cashbook'],['receipt-create','Receipt Create'],['expenses-create','Expenses Create'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
+  {label:'Daybook', items:[['cashbook','Cashbook'],['receipt-create','Customer Receipt'],['expenses-create','Expenses Create'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
   {label:'Battery Adjustment', items:[['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
 ];
