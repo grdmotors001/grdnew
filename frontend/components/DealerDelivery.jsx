@@ -7,7 +7,12 @@ const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionD
 const today = () => new Date().toISOString().slice(0,10);
 
 export function DealerDelivery({ onBack }) {
-  const [data,setData]=useState({customers:[],new_stock:[],old_stock:[],battery_stock:[],do_numbers:[]});
+  const [data,setData]=useState({customers:[],new_stock:[],old_stock:[],battery_stock:[],do_numbers:[],approved_loans:[]});
+  const [saleAmount,setSaleAmount]=useState('');
+  const [loanAmount,setLoanAmount]=useState('');
+  const [loanWorkflowId,setLoanWorkflowId]=useState('');
+  const [fileCharge,setFileCharge]=useState('');
+  const [miscCharge,setMiscCharge]=useState('');
   const [customerId,setCustomerId]=useState('');
   const [type,setType]=useState('new');
   const [vehicleId,setVehicleId]=useState('');
@@ -40,16 +45,17 @@ export function DealerDelivery({ onBack }) {
   const customer=(data.customers||[]).find(c=>String(c.id)===String(customerId));
   const isLoan=Number(customer?.loan_amount||0)>0;
   const stock=type==='new' ? data.new_stock||[] : data.old_stock||[];
+  const approvedLoans=(data.approved_loans||[]).filter(x=>!customerId || String(x.customer_id)===String(customerId));
 
   async function submit(e){
     e.preventDefault(); setSaving(true); setError(''); setMessage('');
     try{
-      const payload={customer_id:customerId,delivery_type:type,date,remarks,do_no:isLoan?doNo:''};
+      const payload={customer_id:customerId,delivery_type:type,date,remarks,do_no:isLoan?doNo:'',sale_amount:saleAmount,loan_amount:loanAmount,file_charge:fileCharge,misc_charge:miscCharge,loan_workflow_id:Number(loanWorkflowId)||null};
       if(type==='new') payload.vehicle_id=vehicleId;
       if(type==='old') payload.old_rickshaw_id=oldId;
       const d=await post('/dealer/delivery',payload);
       setMessage(`Delivery ${d.delivery.delivery_no} saved successfully.`);
-      setCustomerId(''); setVehicleId(''); setOldId(''); setSearch(''); setRemarks(''); setDoNo('');
+      setCustomerId(''); setVehicleId(''); setOldId(''); setSearch(''); setRemarks(''); setDoNo(''); setSaleAmount(''); setLoanAmount(''); setLoanWorkflowId(''); setFileCharge(''); setMiscCharge('');
       await load();
     }catch(e){setError(e.message || 'Could not save delivery')}
     finally{setSaving(false)}
@@ -145,14 +151,25 @@ export function DealerDelivery({ onBack }) {
         </div>
 
         {customer&&<div className="card" style={{marginTop:14,padding:14}}>
-          <div className="muted">Customer financial details — already maintained in Customer Register</div>
+          <div className="muted">Customer financial details — editable for this delivery</div>
           <div className="grid" style={{marginTop:8}}>
-            <div><small className="muted">Sale Amount</small><div><b>{money(customer.sale_amount)}</b></div></div>
-            <div><small className="muted">Loan Amount</small><div><b>{money(customer.loan_amount)}</b></div></div>
-            <div><small className="muted">Down Payment</small><div><b>{money(customer.paid_amount)}</b></div></div>
-            <div><small className="muted">Balance</small><div><b>{money(customer.balance)}</b></div></div>
+            <div><label className="muted">Sale Amount<input className="input" type="number" min="0" step="0.01" value={saleAmount} onChange={e=>setSaleAmount(e.target.value)} placeholder={String(customer.sale_amount||0)}/></label></div>
+            <div><label className="muted">Loan Amount<input className="input" type="number" min="0" step="0.01" value={loanAmount} onChange={e=>{setLoanAmount(e.target.value);if(!Number(e.target.value))setLoanWorkflowId('')}} placeholder={String(customer.loan_amount||0)}/></label></div>
+            <div><label className="muted">File Charge<input className="input" type="number" min="0" step="0.01" value={fileCharge} onChange={e=>setFileCharge(e.target.value)} placeholder="0"/></label></div>
+            <div><label className="muted">Misc Charge<input className="input" type="number" min="0" step="0.01" value={miscCharge} onChange={e=>setMiscCharge(e.target.value)} placeholder="0"/></label></div>
           </div>
-        </div>}
+          {Number(loanAmount)>0&&<div style={{marginTop:12}}>
+            <label className="muted">Approved Loan</label>
+            <select className="input" value={loanWorkflowId} onChange={e=>setLoanWorkflowId(e.target.value)} required>
+              <option value="">Select approved loan application</option>
+              {approvedLoans.map(x=><option key={x.id} value={x.id}>{x.application_no} · {x.do_no||'No DO'} · {x.customer_name||'Customer'} · {x.status}</option>)}
+            </select>
+          </div>}
+          <div className="grid" style={{marginTop:8}}>
+            <div><small className="muted">Down Payment</small><div><b>{money(customer.paid_amount)}</b></div></div>
+            <div><small className="muted">Current Balance</small><div><b>{money(Number(saleAmount||customer.sale_amount||0)-Number(loanAmount||customer.loan_amount||0)-Number(customer.paid_amount||0))}</b></div></div>
+          </div>
+        </div>
 
         <div style={{marginTop:14}}>
           <input className="input" placeholder="Remarks (optional)" value={remarks} onChange={e=>setRemarks(e.target.value)}/>
