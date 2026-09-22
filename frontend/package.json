@@ -13,6 +13,10 @@
     "papaparse": "^5.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@livekit/components-react": "^2.9.6",
+    "@livekit/components-styles": "^1.1.6",
+    "@supabase/supabase-js": "^2.45.4",
+    "livekit-client": "^2.9.3"
   }
 }
