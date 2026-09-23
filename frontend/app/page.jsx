@@ -40,7 +40,7 @@ import { HRAttendancePage } from '../components/HRAttendancePage';
 import { ProfilePage } from '../components/ProfilePage';
 import { BalanceSheetPage, ProfitLossPage } from '../components/FinancialReportsPage';
 import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
-import { SIMPLE_MASTERS } from '../lib/menu';
+import { SIMPLE_MASTERS, keyForPath, routeForKey } from '../lib/menu';
 
 const CUSTOM_PAGES = {
   // Showroom navigation aliases
@@ -118,7 +118,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkedAuth, setCheckedAuth] = useState(false);
   const [active, setActive] = useState('dashboard');
-  const [optionUserId, setOptionUserId] = useState(null);
+  const [optionUserId, setOptionUserId] = useState(null);\n\n  // URL-hash routing: direct links, browser Back/Forward and refresh now keep\n  // the selected module. The menu still uses the same stable module keys.\n  useEffect(() => {\n    const syncFromUrl = () => {\n      const key = keyForPath(window.location.hash.replace(/^#/, '') || '/dashboard');\n      setActive(key);\n    };\n    syncFromUrl();\n    window.addEventListener('hashchange', syncFromUrl);\n    return () => window.removeEventListener('hashchange', syncFromUrl);\n  }, []);\n\n  const navigate = (key) => {\n    const path = routeForKey(key).path;\n    if (window.location.hash.replace(/^#/, '') === path) setActive(key);\n    else window.location.hash = path;\n  };
 
   useEffect(() => {
     const token = getToken();
@@ -169,7 +169,7 @@ export default function App() {
   if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setPortalKind(null); setToken(null); try { window.localStorage.removeItem('grd_dealer_profile'); } catch {} setUser(null); }} />;
 
   return (
-    <Shell active={active} setActive={setActive} user={user} onLogout={() => { setToken(null); setUser(null); }}>
+    <Shell active={active} setActive={navigate} user={user} onLogout={() => { setToken(null); setUser(null); }}>
       <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} />
     </Shell>
   );
