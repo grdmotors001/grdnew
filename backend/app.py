@@ -1921,9 +1921,19 @@ def use_chfpl_approved_loan(application_no):
 @app.route("/api/dealer/old-rickshaws")
 @require_dealer_auth
 def dealer_old_rickshaws():
-    rows=(OldRickshaw.query.filter(OldRickshaw.sale_dealer_id==g.current_dealer_id,
-                                   OldRickshaw.status=="sold")
-          .order_by(OldRickshaw.sale_date.desc(),OldRickshaw.id.desc()).all())
+    # Dealer Old Rickshaw Stock must show both vehicles received into stock
+    # (available) and vehicles already sold from that dealer.  The previous
+    # query only returned sold rows, so a newly-created factory challan could
+    # exist in the database while My Stock appeared empty.
+    rows=(OldRickshaw.query.filter(
+            OldRickshaw.dealer_id==g.current_dealer_id,
+            OldRickshaw.status.in_(["available","sold"])
+          )
+          .order_by(
+            db.case((OldRickshaw.status=="available", 0), else_=1),
+            OldRickshaw.date.desc(),
+            OldRickshaw.id.desc()
+          ).all())
     return jsonify({"rickshaws":[ser_old_rickshaw(r) for r in rows],"count":len(rows)})
 
 
