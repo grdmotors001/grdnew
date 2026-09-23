@@ -35,6 +35,7 @@ import {
   LedgerPage, DayBookPage, LedgerVPage,
 } from '../components/ReportPages';
 import { PlaceholderPage } from '../components/PlaceholderPage';
+import { DebitNotePage } from '../components/DebitNotePage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
 import { ProfilePage } from '../components/ProfilePage';
@@ -71,7 +72,7 @@ const CUSTOM_PAGES = {
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
   'tax-invoice': () => <TaxInvoicePage />,
-  'credit-note': () => <CreditNotePage />,\n  'debit-note': () => <PlaceholderPage label="Debit Note - Raw Items" />,
+  'credit-note': () => <CreditNotePage />,\n  'debit-note': () => <DebitNotePage />,
   'old-rickshaw': () => <OldRickshawPage />,
   'battery-swap': () => <BatterySwapVoucherPage />,
   'battery-withdrawal': () => <BatteryWithdrawalPage />,
