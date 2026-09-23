@@ -133,6 +133,7 @@ export const NAV_GROUPS = {
     ['rto', 'RTO Master'], ['financer', 'Financer Master'],
   ],
   Expenses: [
+    ['expense-head', 'Account Head Master'],
     ['expense-payment-voucher', 'Expense Payment Voucher'],
     ['cash-at-dealer', 'Showroom Branch'],
     ['insurance-rto', 'Insurance / RTO Expense'],
@@ -225,5 +226,16 @@ export const SIMPLE_MASTERS = {
   salesman: { label: 'Salesman Master', fields: [['name', 'Salesman Name', 'text']] },
   fabricator: { label: 'Fabricator Master', fields: [['name', 'Fabricator Name', 'text']] },
   bank: { label: 'Bank Details', fields: [['name', 'Bank Name', 'text'], ['account_no', 'Account No.', 'text'], ['ifsc', 'IFSC', 'text'], ['is_default', 'Default (auto-fills on new Invoices)', 'checkbox']] },
+  'expense-head': {
+    label: 'Account Head Master',
+    fields: [
+      ['name', 'Account Head', 'text'],
+      ['sub_category', 'Sub Category', 'select', [
+        'Current Asset', 'Fixed Asset', 'Other / Non-Current Asset',
+        'Current Liability', 'Long Term Liability', 'Capital & Reserves',
+        'Direct Expense', 'Indirect Expense', 'Direct Income', 'Indirect Income'
+      ].map(v => ({ value: v, label: v }))]
+    ]
+  },
   colour: { label: 'Colour Master', fields: [['name', 'Colour', 'text'], ['code', 'Colour Code', 'text'], ['color_hex', 'RGB / HEX', 'color'], ['color_hex2', 'Second Tone RGB / HEX', 'color'], ['is_double_tone', 'Double Tone', 'checkbox']] },
 };
