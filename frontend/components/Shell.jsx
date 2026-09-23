@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post, setToken } from '../lib/api';
-import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor } from '../lib/menu';
+import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups } from '../lib/menu';
 import { useDarkMode } from '../lib/theme';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
@@ -10,6 +10,17 @@ import {
   BarChart3, Wallet, Gift, Calendar, Key, Database, LogOut, ChevronLeft, ChevronRight,
   Sun, Moon, Palette, CreditCard, Settings2, MessageCircle,
 } from 'lucide-react';
+
+// Lookup used to resolve an admin-picked icon name (stored as a plain
+// string on a NavTab, see lib/menu.js NAV_ICON_NAMES) back to the actual
+// lucide-react component, for custom sidebar tabs.
+const ICON_BY_NAME = {
+  LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
+  FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
+  Truck, Receipt, Car, BookOpen, Warehouse, Store, Boxes, ClipboardList, FileText,
+  BarChart3, Wallet, Gift, Calendar, Key, Database, Palette, CreditCard, Settings2,
+  MessageCircle,
+};
 
 // Icon per menu key — mirrors MENU's grouping in lib/menu.js so the sidebar
 // (collapsed or expanded) always has a matching icon for every item.
@@ -43,6 +54,7 @@ const ICONS = {
   'payment-receivable-report': Wallet, 'subsidy-report': Gift, ledger: BookOpen,
   'day-book': Calendar, 'ledger-v': BookOpen, password: Key,
   'backup-restore': Database, 'hr-attendance': Users, profile: UserCog,
+  'nav-settings': Settings2,
 };
 
 export function Login({ onLogin }) {
@@ -115,6 +127,14 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   const [myAttendance, setMyAttendance] = useState(null);
   const [attendanceMonth, setAttendanceMonth] = useState(new Date().toISOString().slice(0,7));
   const [attendanceLoading, setAttendanceLoading] = useState(false);
+  // Admin-configured tabs from Menu / Tabs Settings, if any have been set
+  // up (Setup > Menu / Tabs Settings). Falls back to the static NAV_GROUPS
+  // layout from lib/menu.js until an admin actually creates one.
+  const [customTabs, setCustomTabs] = useState(null);
+  useEffect(() => {
+    get('/nav-config').then((d) => setCustomTabs(d?.custom ? d.tabs : null)).catch(() => setCustomTabs(null));
+  }, []);
+  const { groups: navGroups, iconByGroup } = buildNavGroups(customTabs);
 
   const palette = [
     '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
@@ -153,8 +173,10 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   };
 
   const initial = (user?.username || '?').charAt(0).toUpperCase();
-  const activeGroup = groupForKey(active);
-  const groupItems = activeGroup === 'Dashboard' ? [] : (NAV_GROUPS[activeGroup] || []);
+  const activeGroup = customTabs
+    ? (Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0] || 'Dashboard')
+    : groupForKey(active);
+  const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);
   const allowedFor = (items) => user?.is_super_user ? items : items.filter(([key]) => (user?.allowed_modules || []).includes(key));
 
   return (
@@ -256,10 +278,10 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             collapsed={collapsed}
             onClick={() => selectMenu('dashboard')}
           />
-          {Object.entries(NAV_GROUPS).map(([group, items]) => {
+          {Object.entries(navGroups).map(([group, items]) => {
             const allowed = allowedFor(items);
             if (!allowed.length) return null;
-            const GroupIcon = GROUP_ICONS[group] || FileText;
+            const GroupIcon = ICON_BY_NAME[iconByGroup[group]] || GROUP_ICONS[group] || FileText;
             const firstKey = allowed[0]?.[0];
             return (
               <div className="navGroupHead" key={group}>

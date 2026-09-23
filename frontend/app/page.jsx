@@ -10,6 +10,7 @@ import { CompanyMasterPage } from '../components/CompanyMasterPage';
 import { ProductionFormulaPage } from '../components/ProductionFormulaPage';
 import { ChassisMasterPage } from '../components/ChassisMasterPage';
 import { UserPage, OptionSettingPage, PasswordPage } from '../components/UserPages';
+import { NavTabsSettings } from '../components/NavTabsSettings';
 import { ProductionVoucherPage } from '../components/ProductionVoucherPage';
 import { DeliveryChallanPage } from '../components/DeliveryChallanPage';
 import { TaxInvoicePage } from '../components/TaxInvoicePage';
@@ -64,6 +65,7 @@ const CUSTOM_PAGES = {
   user: (ctx) => <UserPage setActive={ctx.setActive} setOptionUserId={ctx.setOptionUserId} />,
   'option-setting': (ctx) => <OptionSettingPage userId={ctx.optionUserId} />,
   password: () => <PasswordPage />,
+  'nav-settings': () => <NavTabsSettings />,
   profile: (ctx) => <ProfilePage user={ctx.user} />,
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,

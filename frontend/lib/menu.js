@@ -159,6 +159,7 @@ export const NAV_GROUPS = {
   ],
   System: [
     ['profile', 'My Profile'], ['password', 'Password'],
+    ['nav-settings', 'Menu / Tabs Settings'],
   ],
 };
 
@@ -191,6 +192,42 @@ export const ROUTES = {
   'showroom-online-payment': { path: '/showroom/online-payment', title: 'Online Payment' },
 };
 
+// Flat catalog of every module key + label the admin can put into a sidebar
+// tab, grouped by its original NAV_GROUPS section (just for organising the
+// picker UI — a tab can mix items from any group).
+export const NAV_CATALOG = Object.entries(NAV_GROUPS).map(([group, items]) => ({
+  group,
+  items: items.map(([key, label]) => ({ key, label })),
+}));
+
+// Icon names an admin can pick for a custom tab. Kept to a small fixed set
+// that Shell.jsx already imports from lucide-react, so no extra bundle cost.
+export const NAV_ICON_NAMES = [
+  'Sliders', 'Factory', 'BatteryCharging', 'Receipt', 'Wallet', 'CreditCard',
+  'Warehouse', 'Users', 'BarChart3', 'Settings2', 'Building2', 'Package',
+  'Landmark', 'HandCoins', 'FlaskConical', 'Wrench', 'UserCog', 'Banknote',
+  'ShoppingCart', 'Truck', 'Car', 'BookOpen', 'Store', 'Boxes',
+  'ClipboardList', 'FileText', 'Gift', 'Calendar', 'Key', 'Database',
+  'Palette', 'MessageCircle', 'LayoutDashboard',
+];
+
+// Given the admin-configured tabs from GET /nav-config (or null/undefined
+// when none are set up yet), build the same shape as NAV_GROUPS —
+// { [tabLabel]: [[key,label], ...] } — falling back to the static layout.
+// Also returns iconByGroup, a { [tabLabel]: iconName } map for custom tabs.
+export function buildNavGroups(customTabs) {
+  if (!customTabs || !customTabs.length) {
+    return { groups: NAV_GROUPS, iconByGroup: {} };
+  }
+  const groups = {};
+  const iconByGroup = {};
+  for (const tab of customTabs) {
+    groups[tab.label] = (tab.items || []).map((key) => [key, labelFor(key)]);
+    if (tab.icon) iconByGroup[tab.label] = tab.icon;
+  }
+  return { groups, iconByGroup };
+}
+
 export function routeForKey(key) {
   return ROUTES[key] || { path: '/' + key, title: key };
 }
@@ -210,6 +247,12 @@ export function groupForKey(key) {
 
 export function labelFor(key) {
   for (const items of Object.values(MENU)) {
+    for (const [k, l] of items) if (k === key) return l;
+  }
+  // MENU (above) only mirrors the original desktop grouping; NAV_GROUPS has
+  // since grown a few keys (debit-note, balance-sheet, fabricator, ...) that
+  // never made it back into MENU, so fall back to it before giving up.
+  for (const items of Object.values(NAV_GROUPS)) {
     for (const [k, l] of items) if (k === key) return l;
   }
   return key;

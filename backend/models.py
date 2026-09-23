@@ -991,6 +991,31 @@ class User(db.Model):
         return check_password_hash(self.password_hash, raw)
 
 
+class NavTab(db.Model):
+    """Admin-defined sidebar tab. When any row exists here, the frontend
+    sidebar is built from these tabs instead of the built-in NAV_GROUPS
+    layout in lib/menu.js — this is how an admin adds a new tab, renames or
+    hides an existing one, and picks which modules each tab shows."""
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(60), unique=True, nullable=False)
+    label = db.Column(db.String(120), nullable=False)
+    icon = db.Column(db.String(40))
+    position = db.Column(db.Integer, default=0)
+    hidden = db.Column(db.Boolean, default=False)
+    items = db.relationship(
+        "NavTabItem", backref="tab", cascade="all, delete-orphan",
+        order_by="NavTabItem.position")
+
+
+class NavTabItem(db.Model):
+    """One module/page shown inside a NavTab, e.g. key 'dealer' inside the
+    'Masters' tab. item_key matches a menu key from lib/menu.js's catalog."""
+    id = db.Column(db.Integer, primary_key=True)
+    tab_id = db.Column(db.Integer, db.ForeignKey("nav_tab.id"), nullable=False)
+    item_key = db.Column(db.String(80), nullable=False)
+    position = db.Column(db.Integer, default=0)
+
+
 class ExpensePaymentVoucher(db.Model):
     """Head Office expense payment voucher with approval and payment controls."""
     id = db.Column(db.Integer, primary_key=True)

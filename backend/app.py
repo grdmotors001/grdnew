@@ -44,6 +44,7 @@ except ImportError:
     pass
 
 from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicle, User,
+                     NavTab, NavTabItem,
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
                      DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem, DebitNote, DebitNoteItem,
@@ -3677,6 +3678,121 @@ def reset_password(user_id):
     if not new_password or new_password != confirm_password:
         return _err("Passwords must match and not be blank.")
     u.set_password(new_password)
+    db.session.commit()
+    return jsonify({"updated": True})
+
+
+# ---------------------------------------------------------------------------
+# Sidebar Tabs (admin-configurable navigation)
+#
+# By default the sidebar is the static NAV_GROUPS layout baked into
+# frontend/lib/menu.js. A super-user can instead define NavTab rows here to
+# add a brand-new tab, rename/hide a tab, reorder tabs, and choose exactly
+# which module keys each tab shows. As soon as one NavTab row exists,
+# /api/nav-config starts returning that configuration and the frontend
+# switches over to it; with none, it reports back "custom": false so the
+# frontend keeps using its built-in layout unchanged.
+# ---------------------------------------------------------------------------
+def ser_nav_tab(t, include_hidden=False):
+    items = t.items if include_hidden else [i for i in t.items]
+    return {
+        "id": t.id, "key": t.key, "label": t.label, "icon": t.icon,
+        "position": t.position, "hidden": t.hidden,
+        "items": [i.item_key for i in sorted(items, key=lambda i: i.position)],
+    }
+
+
+def _slugify_tab_key(label, existing_keys):
+    base = re.sub(r"[^a-z0-9]+", "-", (label or "tab").strip().lower()).strip("-") or "tab"
+    key = base
+    n = 2
+    while key in existing_keys:
+        key = f"{base}-{n}"
+        n += 1
+    return key
+
+
+@app.route("/api/nav-config", methods=["GET"])
+@require_auth
+def nav_config():
+    """Effective sidebar layout for the Shell. Visible tabs/items only,
+    ordered by position. Module-level permission filtering (allowed_modules)
+    still happens client-side, same as it does for the static layout."""
+    tabs = NavTab.query.order_by(NavTab.position, NavTab.id).all()
+    if not tabs:
+        return jsonify({"custom": False, "tabs": []})
+    visible = [t for t in tabs if not t.hidden]
+    return jsonify({"custom": True, "tabs": [ser_nav_tab(t) for t in visible]})
+
+
+@app.route("/api/admin/nav-tabs", methods=["GET", "POST"])
+@require_auth
+@require_super_user
+def admin_nav_tabs():
+    """GET: full tab list (including hidden ones) for the Menu Settings page.
+    POST: create a new tab — {label, icon, items: [item_key, ...]}."""
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        label = (data.get("label") or "").strip()
+        if not label:
+            return _err("Tab name is required.")
+        existing_keys = {t.key for t in NavTab.query.all()}
+        max_pos = db.session.query(db.func.max(NavTab.position)).scalar() or 0
+        t = NavTab(
+            key=_slugify_tab_key(label, existing_keys),
+            label=label, icon=data.get("icon") or None,
+            position=max_pos + 1, hidden=False,
+        )
+        db.session.add(t)
+        db.session.flush()
+        for idx, item_key in enumerate(data.get("items") or []):
+            db.session.add(NavTabItem(tab_id=t.id, item_key=item_key, position=idx))
+        db.session.commit()
+        return jsonify(ser_nav_tab(t)), 201
+
+    tabs = NavTab.query.order_by(NavTab.position, NavTab.id).all()
+    return jsonify([ser_nav_tab(t, include_hidden=True) for t in tabs])
+
+
+@app.route("/api/admin/nav-tabs/<int:tab_id>", methods=["PUT", "DELETE"])
+@require_auth
+@require_super_user
+def admin_nav_tab_detail(tab_id):
+    t = NavTab.query.get_or_404(tab_id)
+    if request.method == "DELETE":
+        db.session.delete(t)
+        db.session.commit()
+        return jsonify({"deleted": True})
+
+    data = request.get_json(silent=True) or {}
+    if "label" in data:
+        label = (data.get("label") or "").strip()
+        if not label:
+            return _err("Tab name is required.")
+        t.label = label
+    if "icon" in data:
+        t.icon = data.get("icon") or None
+    if "hidden" in data:
+        t.hidden = bool(data.get("hidden"))
+    if "items" in data:
+        NavTabItem.query.filter_by(tab_id=t.id).delete()
+        for idx, item_key in enumerate(data.get("items") or []):
+            db.session.add(NavTabItem(tab_id=t.id, item_key=item_key, position=idx))
+    db.session.commit()
+    return jsonify(ser_nav_tab(t))
+
+
+@app.route("/api/admin/nav-tabs/reorder", methods=["PUT"])
+@require_auth
+@require_super_user
+def admin_nav_tabs_reorder():
+    """Body: {order: [tab_id, tab_id, ...]} — full new tab order."""
+    data = request.get_json(silent=True) or {}
+    order = data.get("order") or []
+    tabs_by_id = {t.id: t for t in NavTab.query.filter(NavTab.id.in_(order)).all()}
+    for idx, tab_id in enumerate(order):
+        if tab_id in tabs_by_id:
+            tabs_by_id[tab_id].position = idx
     db.session.commit()
     return jsonify({"updated": True})
 

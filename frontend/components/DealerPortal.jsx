@@ -17,18 +17,16 @@ import { DealerAllReceiptsPage, DealerAllCustomersPage, DealerExpenseCreatePage,
 
 const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
-  {label:'Record', items:[['challans','Delivery Challan'],['invoices','Tax Invoice']]},
-  {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports'],['all-expenses','All Expenses'],['incentive','Incentive Record']]},
-  {label:'Daybook', items:[['cashbook','Cashbook'],['receipt-create','Customer Receipt'],['expenses-create','Expenses Create'],['handover-create','Record Handover'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
+  {label:'Report', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['incentive','Incentive Record'],['expenses-reports','Expenses Reports']]},
+  {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['expenses-create','Expenses Create'],['handover-create','Record Handover'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
-  {label:'Battery Adjustment', items:[['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
+  {label:'Battery Adjustment', items:[['battery-stock','Battery Stock'],['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
 ];
 
 const dealerHeaderSectionByTab = {
   stock:'Stock','old-stock':'Stock','battery-stock':'Stock','seized-vehicles':'Stock',
-  challans:'Record',invoices:'Record',
-  'all-customers':'Report','all-receipt':'Report','expenses-reports':'Report','all-expenses':'Report',incentive:'Report',
-  cashbook:'Daybook','receipt-create':'Daybook','expenses-create':'Daybook','handover-create':'Daybook','cash-handover':'Daybook',payments:'Daybook',
+  challans:'Report',invoices:'Report',incentive:'Report','expenses-reports':'Report',
+  cashbook:'Bahikhata','all-customers':'Bahikhata','all-receipt':'Bahikhata','all-expenses':'Bahikhata','expenses-create':'Bahikhata','handover-create':'Bahikhata','cash-handover':'Bahikhata',payments:'Bahikhata',
   'pending-sales':'Pending Sales','old-rickshaw-sales':'Pending Sales',ledger:'Pending Sales',
   'battery-swap':'Battery Adjustment','battery-withdrawal':'Battery Adjustment','battery-addition':'Battery Adjustment'
 };
@@ -40,7 +38,7 @@ const nav = [
   ['battery-stock', '🔋', 'Battery Stock'],
   ['challans', '▤', 'Delivery Challans'],
   ['invoices', '▥', 'Tax Invoices'],
-  ['cashbook', '₹', 'Cash Book'],
+  ['cashbook', '₹', 'Bahikhata'],
   ['delivery', '✓', 'Delivery'],
   ['payments', '↔', 'Online Payment'],
   ['ledger', '▤', 'Ledger'],
@@ -51,14 +49,22 @@ const nav = [
   ['battery-swap', '⇄', 'Battery Swap / Exchange'],
   ['battery-addition', '↗', 'Battery Fit to Rickshaw'],
   ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
-  ['incentive', '₹', 'Incentive Record'],
+  ['incentive', '₹', 'Incentive'],
+  ['receipt-create', '🧾', 'Create Receipt'],
 ];
 
 // Old Rickshaw Stock, Battery Stock and Seized Vehicles are no longer
 // separate side-nav entries — they live as tabs inside "My Stock" (see
 // dealerHeaderSections' Stock group below). Kept in `nav` above so page
 // titles/icons still resolve by key; just hidden from the side/mobile menus.
-const SIDEBAR_HIDDEN_KEYS = new Set(['old-stock', 'battery-stock', 'seized-vehicles']);
+// Battery Withdrawal, Battery Swap/Exchange and Battery Fit (addition) are
+// likewise folded into a single "Battery Adjustment" side-nav entry (see
+// BATTERY_ADJUSTMENT_KEYS + the sidebarEntries logic below); Battery Stock
+// is also reachable from that same group's top sub-menu.
+// Create Receipt used to live inside the Bahikhata sub-menu; it now lives
+// only as a Dashboard quick action, so it's hidden from the side/mobile menus.
+const SIDEBAR_HIDDEN_KEYS = new Set(['old-stock', 'battery-stock', 'seized-vehicles', 'battery-withdrawal', 'battery-swap', 'battery-addition', 'receipt-create']);
+const BATTERY_ADJUSTMENT_KEYS = ['battery-withdrawal', 'battery-swap', 'battery-addition', 'battery-stock'];
 
 export function DealerPortal({ dealer, onLogout }) {
   const [stock, setStock] = useState(null);
@@ -83,6 +89,19 @@ export function DealerPortal({ dealer, onLogout }) {
   const canBatteryAddition = portalModules.has('battery-addition');
   const canOldRickshawSales = portalModules.has('old-rickshaw-sales');
   const activeHeaderSection = dealerHeaderSectionByTab[tab] || null;
+  // Battery Withdrawal / Swap / Fit are grouped into one "Battery Adjustment"
+  // side-nav entry. It shows up if the dealer has access to any of the three,
+  // and lands on whichever of them is actually enabled for that dealer.
+  const canBatteryAdjustment = canBatteryWithdrawal || canBatterySwap || canBatteryAddition;
+  const defaultBatteryTab = canBatteryWithdrawal ? 'battery-withdrawal' : canBatterySwap ? 'battery-swap' : 'battery-addition';
+  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
+  if (canBatteryAdjustment) {
+    const batteryEntry = ['battery-adjustment', '🔋', 'Battery Adjustment'];
+    const insertAt = sidebarEntries.findIndex(([key]) => key === 'old-rickshaw-sales');
+    if (insertAt === -1) sidebarEntries.push(batteryEntry); else sidebarEntries.splice(insertAt, 0, batteryEntry);
+  }
+  const isBatteryAdjustmentActive = BATTERY_ADJUSTMENT_KEYS.includes(tab);
+  const goToSidebarTab = (key) => setTab(key === 'battery-adjustment' ? defaultBatteryTab : key);
 
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
@@ -158,8 +177,8 @@ export function DealerPortal({ dealer, onLogout }) {
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
-      <nav className="dealerSideNav">{nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label]) =>
-        <button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>setTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
+      <nav className="dealerSideNav">{sidebarEntries.map(([key,icon,label]) =>
+        <button key={key} className={'dealerNavItem'+((key==='battery-adjustment'?isBatteryAdjustmentActive:tab===key)?' active':'')} onClick={()=>goToSidebarTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
       <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
     </aside>
@@ -180,7 +199,7 @@ export function DealerPortal({ dealer, onLogout }) {
               {section.items
                 .filter(([key]) =>
                   (key !== 'incentive' || canCashBook) &&
-                  (key !== 'cashbook' && key !== 'receipt-create' && key !== 'cash-handover' && key !== 'expenses-create' && key !== 'handover-create' || canCashBook) &&
+                  (key !== 'cashbook' && key !== 'cash-handover' && key !== 'expenses-create' && key !== 'handover-create' || canCashBook) &&
                   (key !== 'battery-withdrawal' || canBatteryWithdrawal) &&
                   (key !== 'battery-swap' || canBatterySwap) &&
                   (key !== 'battery-addition' || canBatteryAddition) &&
@@ -198,7 +217,7 @@ export function DealerPortal({ dealer, onLogout }) {
         })()}
       </nav>}
 
-      {mobileNav && <div className="dealerMobileNav">{nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
+      {mobileNav && <div className="dealerMobileNav">{sidebarEntries.map(([key,icon,label])=><button key={key} className={'dealerNavItem'+((key==='battery-adjustment'?isBatteryAdjustmentActive:tab===key)?' active':'')} onClick={()=>{goToSidebarTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
       {error && <div className="error dealerError">{error}</div>}
 
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
@@ -209,7 +228,7 @@ export function DealerPortal({ dealer, onLogout }) {
         )}
       </nav>
       {standaloneForm || <>
-      {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab}/>} 
+      {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab} canCashBook={canCashBook}/>} 
       {tab!=='dashboard' && <>
         <div className="dealerContentToolbar">
           <div className="dealerPageIntro"><span className="dealerSectionIcon">{nav.find(x=>x[0]===tab)?.[1]}</span><div><strong>{nav.find(x=>x[0]===tab)?.[2]}</strong><small>Dealer-wise records</small></div></div>
@@ -243,7 +262,7 @@ export function DealerPortal({ dealer, onLogout }) {
   </div>;
 }
 
-function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen}) {
+function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook}) {
   const cards=[
     ['Current Stock',stockCount??'—','Vehicles currently assigned','stock','▣'],
     ['Loan Applications',loanCount??0,'CHFPL loan status','loan-status','✓'],
@@ -259,7 +278,8 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
           <button onClick={onNewLoan}><span className="quickIcon">＋</span><b>New Loan</b><small>Create customer & loan</small></button>
           <button onClick={()=>onOpen('stock')}><span className="quickIcon">▣</span><b>View Stock</b><small>Check available vehicles</small></button>
           <button onClick={()=>onOpen('challans')}><span className="quickIcon">▤</span><b>Delivery Challans</b><small>View challan history</small></button>
-          <button onClick={()=>onOpen('cashbook')}><span className="quickIcon">₹</span><b>Cash Book</b><small>Receipts & handover</small></button>
+          <button onClick={()=>onOpen('cashbook')}><span className="quickIcon">₹</span><b>Bahikhata</b><small>Ledger & handover entries</small></button>
+          {canCashBook && <button onClick={()=>onOpen('receipt-create')}><span className="quickIcon">🧾</span><b>Create Receipt</b><small>Record a customer receipt</small></button>}
         </div>
       </div>
       <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Recent Activity</h3><p>Latest document records</p></div></div>

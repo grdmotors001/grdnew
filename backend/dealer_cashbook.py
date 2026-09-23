@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import inspect, text
-from models import db, Dealer, Vehicle, OldRickshaw, LoanWorkflow
+from models import db, Dealer, Vehicle, OldRickshaw, LoanWorkflow, DeliveryChallan, TaxInvoice
 from auth import require_dealer_auth
 
 dealer_cashbook_bp = Blueprint("dealer_cashbook", __name__)
@@ -219,6 +219,51 @@ def cash_customers():
         r.customer_id = customer.id
     if legacy:
         db.session.commit()
+
+    # Backfill customers for vehicles this dealer already billed (Tax Invoice)
+    # before the customer register existed in the app — these never went
+    # through a cash receipt, so the legacy backfill above never sees them.
+    billed = (db.session.query(DeliveryChallan, TaxInvoice)
+              .join(TaxInvoice, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+              .filter(
+                  DeliveryChallan.dealer_id == g.current_dealer_id,
+                  DeliveryChallan.cancelled.is_(False),
+                  TaxInvoice.cancelled.is_(False),
+              ).all())
+    if billed:
+        existing_phones = {c.phone for c in DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id).all() if c.phone}
+        created_any = False
+        for dc, ti in billed:
+            name = (ti.buyer_name or "").strip()
+            phone = (ti.buyer_mobile or "").strip() or None
+            if not name:
+                continue
+            if phone:
+                if phone in existing_phones:
+                    continue
+            else:
+                # No phone to dedupe on: fall back to name + vehicle no so
+                # re-running this on every request doesn't create duplicates.
+                dup = DealerCashCustomer.query.filter_by(
+                    dealer_id=g.current_dealer_id, full_name=name, vehicle_no=ti.vehicle_reg_no
+                ).first()
+                if dup:
+                    continue
+            db.session.add(DealerCashCustomer(
+                dealer_id=g.current_dealer_id,
+                full_name=name,
+                phone=phone,
+                vehicle_no=ti.vehicle_reg_no,
+                sale_amount=ti.sale_amount or 0,
+                loan_amount=ti.hypothecation_amount or 0,
+                financer=ti.financer_name,
+            ))
+            if phone:
+                existing_phones.add(phone)
+            created_any = True
+        if created_any:
+            db.session.commit()
+
     q = str(request.args.get("q") or "").strip().lower()
     rows = DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id).order_by(DealerCashCustomer.id.desc()).all()
     if q:
