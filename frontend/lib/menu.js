@@ -33,7 +33,6 @@ export const MENU = {
     ['repair-service-voucher', 'Repair & Service Voucher'],
   ],
   Expenses: [
-    ['dealer-cash-receipt', 'Dealer Cash Receipt'],
     ['insurance-rto', 'Insurance / RTO Expense'],
   ],
   Stock: [
@@ -129,7 +128,6 @@ export const NAV_GROUPS = {
     ['old-rickshaw', 'Old Rickshaw'], ['vahan-inventory', 'Vahan Inventory'],
   ],
   Expenses: [
-    ['dealer-cash-receipt', 'Dealer Cash Receipt'],
     ['expense-payment-voucher', 'Expense Payment Voucher'],
     ['cash-at-dealer', 'Showroom Branch'],
     ['insurance-rto', 'Insurance / RTO Expense'],
