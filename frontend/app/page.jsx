@@ -37,6 +37,7 @@ import {
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
+import { ProfilePage } from '../components/ProfilePage';
 import { BalanceSheetPage, ProfitLossPage } from '../components/FinancialReportsPage';
 import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { SIMPLE_MASTERS } from '../lib/menu';
@@ -61,7 +62,7 @@ const CUSTOM_PAGES = {
   'chassis-master': () => <ChassisMasterPage />,
   user: (ctx) => <UserPage setActive={ctx.setActive} setOptionUserId={ctx.setOptionUserId} />,
   'option-setting': (ctx) => <OptionSettingPage userId={ctx.optionUserId} />,
-  password: () => <PasswordPage />,
+  password: () => <PasswordPage />,\n  profile: (ctx) => <ProfilePage user={ctx.user} />,
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
   'vahan-inventory': () => <VahanInventoryPage />,
