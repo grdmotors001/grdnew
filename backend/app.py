@@ -1313,7 +1313,7 @@ def ser_product(p):
 def ser_simple(row):
     return {"id": row.id, "kind": row.kind, "name": row.name, "code": row.code,
             "address": row.address, "mobile": row.mobile, "account_no": row.account_no,
-            "is_default": row.is_default, "ifsc": row.ifsc, "extra": row.extra,
+            "is_default": row.is_default, "ifsc": row.ifsc, "extra": row.extra, "sub_category": getattr(row, "sub_category", None),
             "color_hex": getattr(row, "color_hex", None), "color_hex2": getattr(row, "color_hex2", None),
             "is_double_tone": bool(getattr(row, "is_double_tone", False))}
 
@@ -3034,7 +3034,7 @@ def _ensure_simple_master_columns():
             inspector=inspect(conn)
             if not inspector.has_table("simple_master"): return
             columns={x["name"] for x in inspector.get_columns("simple_master")}
-            additions={"color_hex":"VARCHAR(20)","color_hex2":"VARCHAR(20)","is_double_tone":"BOOLEAN DEFAULT FALSE"}
+            additions={"color_hex":"VARCHAR(20)","color_hex2":"VARCHAR(20)","is_double_tone":"BOOLEAN DEFAULT FALSE","sub_category":"VARCHAR(50)"}
             for name,sql_type in additions.items():
                 if name not in columns:
                     if db.engine.dialect.name=="postgresql":
@@ -3045,6 +3045,12 @@ def _ensure_simple_master_columns():
         db.session.rollback()
         return str(exc)
     return None
+
+ACCOUNT_SUBCATEGORIES = (
+    "Current Asset", "Fixed Asset", "Other / Non-Current Asset",
+    "Current Liability", "Long Term Liability", "Capital & Reserves",
+    "Direct Expense", "Indirect Expense", "Direct Income", "Indirect Income",
+)
 
 SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour", "salesman", "expense-head", "ledger"}
 
@@ -3159,6 +3165,13 @@ def _save_simple_master(kind, data, row_id=None):
     row.account_no = data.get("account_no")
     row.ifsc = data.get("ifsc")
     row.extra = data.get("extra")
+    if kind == "expense-head":
+        sub_category = (data.get("sub_category") or "").strip()
+        if sub_category not in ACCOUNT_SUBCATEGORIES:
+            raise ValueError("Valid Sub Category is required for Account Head")
+        row.sub_category = sub_category
+    elif hasattr(row, "sub_category") and kind != "expense-head":
+        row.sub_category = data.get("sub_category") or getattr(row, "sub_category", None)
     if kind == "colour":
         row.color_hex = (data.get("color_hex") or "").strip() or None
         row.is_double_tone = bool(data.get("is_double_tone"))
@@ -3187,7 +3200,10 @@ def simple_masters(kind):
 
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
-        row = _save_simple_master(kind, data)
+        try:
+            row = _save_simple_master(kind, data)
+        except ValueError as exc:
+            return _err(str(exc), 422)
         return jsonify(ser_simple(row)), 201
 
     # Salesman Master is seeded/synchronised from both sources already
@@ -3236,7 +3252,10 @@ def simple_masters_detail(kind, row_id):
         denied = _production_voucher_write_access()
         if denied: return denied
         data = request.get_json(silent=True) or {}
-        row = _save_simple_master(kind, data, row_id=row_id)
+        try:
+            row = _save_simple_master(kind, data, row_id=row_id)
+        except ValueError as exc:
+            return _err(str(exc), 422)
         return jsonify(ser_simple(row))
 
     row = SimpleMaster.query.get_or_404(row_id)
