@@ -126,20 +126,19 @@ export const NAV_GROUPS = {
   ],
   'Sales & Billing': [
     ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
-    ['old-rickshaw', 'Old Rickshaw'],
+    ['old-rickshaw', 'Old Rickshaw'], ['vahan-inventory', 'Vahan Inventory'],
   ],
   Expenses: [
-    ['expense-head', 'Expense Head'], ['dealer-cash-receipt', 'Dealer Cash Receipt'],
+    ['dealer-cash-receipt', 'Dealer Cash Receipt'],
+    ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['cash-at-dealer', 'Showroom Branch'],
     ['insurance-rto', 'Insurance / RTO Expense'],
   ],
   Accounts: [
-    ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'],
-    ['expense-payment-voucher', 'Expense Payment Voucher'], ['cash-at-dealer', 'Cash at Dealer'], ['day-book', 'Day Book'],
+    ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'], ['day-book', 'Day Book'],
     ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
   ],
   Inventory: [
-    ['vahan-inventory', 'Vahan Inventory'],
-
     ['closing-stock-premises', 'Closing Stock - Premises'], ['closing-stock-dealers', 'Closing Stock - Dealers'],
     ['closing-stock-raw', 'Closing Stock - Raw Material'], ['stock-ledger-premises', 'Stock Ledger - Premises'],
     ['stock-ledger-dealers', 'Stock Ledger - Dealers'],
@@ -154,7 +153,7 @@ export const NAV_GROUPS = {
     ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
   ],
   System: [
-    ['backup-restore', 'Backup / Restore'], ['password', 'Password'],
+    ['profile', 'My Profile'], ['password', 'Password'],
   ],
 };
 
