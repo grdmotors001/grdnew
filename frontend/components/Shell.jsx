@@ -41,7 +41,7 @@ const ICONS = {
   'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText,
   'payment-receivable-report': Wallet, 'subsidy-report': Gift, ledger: BookOpen,
   'day-book': Calendar, 'ledger-v': BookOpen, password: Key,
-  'backup-restore': Database, 'hr-attendance': Users,
+  'backup-restore': Database, 'hr-attendance': Users, profile: UserCog,
 };
 
 export function Login({ onLogin }) {
