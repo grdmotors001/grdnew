@@ -153,7 +153,7 @@ export function DealerPortal({ dealer, onLogout }) {
       .dealerOldSaleCount{min-width:30px!important;width:30px;height:30px;border-radius:50%;display:grid!important;place-items:center;background:#edf4ff;color:#2563eb!important;font-weight:800}
       .dealerOldSaleTableWrap,.dealerOldStockTableWrap{overflow-x:auto}.dealerOldSaleTable,.dealerOldStockTable{min-width:720px}
       .dealerOldSaleStatus{display:inline-flex!important;padding:5px 8px;border-radius:999px;background:#fff7df;color:#8a6500!important;font-size:10px!important;font-weight:800}.dealerOldSaleEnter{white-space:nowrap}
-      .dealerOldSaleModal{z-index:3000;padding:16px;overflow:auto;align-items:center}.dealerOldSaleModalBox{width:min(760px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:20px;border-radius:18px;box-sizing:border-box}
+      .dealerOldSaleModal{z-index:99999;padding:16px;overflow:auto;align-items:center;isolation:isolate}.dealerOldSaleModalBox{width:min(760px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:20px;border-radius:18px;box-sizing:border-box;position:relative;z-index:1}
       .dealerOldSaleModalHead{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:14px}.dealerOldSaleModalHead h2{margin:2px 0 4px;font-size:22px}.dealerOldSaleModalHead p{margin:0;color:#748297;font-size:12px}
       .dealerOldSaleClose{border:1px solid #dbe2ea;background:#fff;border-radius:10px;width:38px;height:38px;font-size:24px;line-height:1;cursor:pointer;color:#516174}
       .dealerOldSaleSummary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:16px}.dealerOldSaleSummary>div{background:#f7faff;border:1px solid #e3ebf5;border-radius:10px;padding:10px 12px;min-width:0}.dealerOldSaleSummary span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#7b8a9c}.dealerOldSaleSummary b{display:block;margin-top:3px;font-size:12px;color:#21364d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -397,7 +397,7 @@ function DealerOldRickshawSales({dealer,onBack}) {
   const [rows,setRows]=useState([]),[edit,setEdit]=useState(null),[form,setForm]=useState({}),[error,setError]=useState(''),[saving,setSaving]=useState(false);
   const load=async()=>{try{setError('');const r=await get('/dealer/old-rickshaw-challans');setRows(r.challans||[])}catch(e){setError(e.message||'Could not load Old Rickshaw Sale records.')}};
   useEffect(()=>{load()},[]);
-  const open=(r)=>{setEdit(r);setError('');setForm({sale_amount:r.sale_amount||'',file_charge:r.file_charge||'',loan_amount:r.loan_amount||'',down_payment:r.down_payment||'',sale_customer:r.sale_customer||'',sale_mobile:r.sale_mobile||'',sold_at:r.sold_at||new Date().toISOString().slice(0,10)})};
+  const open=(r)=>{setMobileNav(false);setEdit(r);setError('');setForm({sale_amount:r.sale_amount||'',file_charge:r.file_charge||'',loan_amount:r.loan_amount||'',down_payment:r.down_payment||'',sale_customer:r.sale_customer||'',sale_mobile:r.sale_mobile||'',sold_at:r.sold_at||new Date().toISOString().slice(0,10)})};
   const save=async(e)=>{e.preventDefault();if(!edit)return;setSaving(true);setError('');try{await post('/billing/old-rickshaw-challans/'+edit.id+'/sale',form);setEdit(null);await load()}catch(e){setError(e.message||'Could not save sale data.')}finally{setSaving(false)}};
   const pending=rows.filter(r=>['PENDING_SALE','APPROVED','VERIFIED'].includes(String(r.status||'').toUpperCase()));
   return <div className="dealerPage dealerOldSalePage">
