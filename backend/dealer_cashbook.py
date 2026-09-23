@@ -49,6 +49,21 @@ class DealerCashCustomer(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class DealerDealCancellation(db.Model):
+    """Auditable dealer-side booking cancellation and customer refund."""
+    __tablename__ = "dealer_deal_cancellation"
+    id = db.Column(db.Integer, primary_key=True)
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey("dealer_cash_customer.id"), nullable=False, unique=True, index=True)
+    cancellation_no = db.Column(db.String(40), unique=True, nullable=False, index=True)
+    cancelled_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    reason = db.Column(db.String(500), nullable=False)
+    refund_amount = db.Column(db.Float, nullable=False, default=0)
+    refund_date = db.Column(db.Date, nullable=False, default=date.today)
+    refund_mode = db.Column(db.String(20), nullable=False, default="cash")
+    refund_reference = db.Column(db.String(80))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 class DealerCustomerDelivery(db.Model):
     """Showroom customer delivery register. One customer can be delivered once."""
     __tablename__ = "dealer_customer_delivery"
@@ -186,7 +201,13 @@ def _customer(c):
     return {"id":c.id,"page_no":c.page_no,"name":c.full_name,"phone":c.phone,
             "financer":c.financer,"vehicle_no":c.vehicle_no,
             "sale_amount":round(float(c.sale_amount or 0),2),"loan_amount":round(float(c.loan_amount or 0),2),
-            "paid_amount":round(float(paid),2),"balance":balance}
+            "paid_amount":round(float(paid),2),"balance":balance,
+            "status":status,
+            "status_label":{"VEHICLE_PENDING":"Vehicle Pending","BILLED":"Billed","DEALER_CANCEL":"Dealer Cancel"}[status],
+            "cancelled_at":cancellation.cancelled_at.isoformat() if cancellation else None,
+            "cancel_reason":cancellation.reason if cancellation else None,
+            "refund_amount":round(float(cancellation.refund_amount or 0),2) if cancellation else 0,
+            "refund_date":cancellation.refund_date.isoformat() if cancellation else None}
 
 def _expense(e):
     return {"id":e.id,"expense_no":e.expense_no,"date":e.expense_date.isoformat(),
@@ -286,6 +307,71 @@ def update_cash_customer(customer_id):
     if not c.full_name: return jsonify({"error":"Customer name is required."}),400
     db.session.commit()
     return jsonify({"success":True,"customer":_customer(c)})
+
+@dealer_cashbook_bp.route("/cash-book/customers/<int:customer_id>/cancel", methods=["POST"])
+@require_dealer_auth
+def cancel_customer_booking(customer_id):
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Booking cancellation is available only for showroom/branch accounts."}),403
+
+    customer = DealerCashCustomer.query.filter_by(
+        id=customer_id, dealer_id=g.current_dealer_id
+    ).first()
+    if not customer:
+        return jsonify({"error":"Customer not found."}),404
+
+    if DealerDealCancellation.query.filter_by(
+        customer_id=customer.id, dealer_id=g.current_dealer_id
+    ).first():
+        return jsonify({"error":"This booking is already marked as Dealer Cancel."}),409
+
+    if _has_active_tax_invoice(customer):
+        return jsonify({"error":"This customer is already Billed. A billed sale cannot be cancelled from the booking screen."}),409
+
+    if DealerCustomerDelivery.query.filter_by(
+        customer_id=customer.id, dealer_id=g.current_dealer_id
+    ).first():
+        return jsonify({"error":"This customer already has a delivery record. Cancel the delivery/billing workflow first."}),409
+
+    d = request.get_json(silent=True) or {}
+    reason = str(d.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"error":"Cancellation reason is required."}),400
+
+    paid = db.session.query(db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0)).filter(
+        DealerCashReceipt.dealer_id == g.current_dealer_id,
+        DealerCashReceipt.customer_id == customer.id,
+    ).scalar() or 0
+    paid = round(float(paid), 2)
+    refund_amount = _amt(d.get("refund_amount", paid))
+    if refund_amount < 0 or refund_amount > paid:
+        return jsonify({"error":f"Refund amount cannot exceed paid amount ₹{paid:,.2f}."}),400
+
+    refund_date = _date(d.get("refund_date")) or date.today()
+    refund_mode = str(d.get("refund_mode") or "cash").strip().lower()
+    if refund_mode not in PAYMENT_MODES:
+        return jsonify({"error":"Invalid refund mode."}),400
+
+    row = DealerDealCancellation(
+        dealer_id=g.current_dealer_id,
+        customer_id=customer.id,
+        cancellation_no=_no(DealerDealCancellation, "DCC"),
+        cancelled_at=datetime.utcnow(),
+        reason=reason,
+        refund_amount=refund_amount,
+        refund_date=refund_date,
+        refund_mode=refund_mode,
+        refund_reference=str(d.get("refund_reference") or "").strip() or None,
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({"success":True,"cancellation":{
+        "id":row.id,"cancellation_no":row.cancellation_no,"customer_id":row.customer_id,
+        "cancelled_at":row.cancelled_at.isoformat(),"reason":row.reason,
+        "refund_amount":row.refund_amount,"refund_date":row.refund_date.isoformat(),
+        "refund_mode":row.refund_mode,"refund_reference":row.refund_reference
+    },"customer":_customer(customer)}),201
 
 @dealer_cashbook_bp.route("/cash-book/all-receipts", methods=["GET"])
 @require_dealer_auth
@@ -519,6 +605,11 @@ def cash_book():
         DealerCashExpense.dealer_id == did,
         DealerCashExpense.expense_date < start,
     ).scalar() or 0
+    prior_refunds = db.session.query(db.func.coalesce(db.func.sum(DealerDealCancellation.refund_amount), 0)).filter(
+        DealerDealCancellation.dealer_id == did,
+        DealerDealCancellation.refund_date < start,
+        DealerDealCancellation.refund_mode == "cash",
+    ).scalar() or 0
     prior_handover = db.session.query(db.func.coalesce(db.func.sum(DealerCashHandover.amount), 0)).filter(
         DealerCashHandover.dealer_id == did,
         DealerCashHandover.handover_date < start,
@@ -531,7 +622,7 @@ def cash_book():
     return jsonify({"success":True,"from":start.isoformat(),"to":end.isoformat(),
         "receipts":[_receipt(r) for r in rs],"expenses":[_expense(e) for e in es],"handovers":[_handover(h) for h in hs],
         "summary":{"total_receipts":round(sum(r.amount for r in rs),2),"cash_received":round(cash,2),
-                    "expenses":round(expenses,2),"ho_handover":round(handover,2),
+                    "expenses":round(expenses,2),"refunds":round(refunds,2),"ho_handover":round(handover,2),
                     "opening_balance":opening_balance,"net_movement":net_movement,
                     "closing_balance":closing_balance},
         "expense_categories":EXPENSE_CATEGORIES,"payment_modes":PAYMENT_MODES})
