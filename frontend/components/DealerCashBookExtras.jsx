@@ -34,21 +34,126 @@ export function DealerAllReceiptsPage() {
 export function DealerAllCustomersPage() {
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
+  const [tab, setTab] = useState('ALL');
   const [editing, setEditing] = useState(null);
+  const [cancelling, setCancelling] = useState(null);
+  const [cancelForm, setCancelForm] = useState({ reason: '', refund_amount: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const load = (q = '') => get('/dealer/cash-book/customers?q=' + encodeURIComponent(q)).then((d) => setCustomers(d.customers || [])).catch((e) => setError(e.message || 'Could not load customers'));
-  useEffect(() => { load(); }, []);
+  const load = (q = search) => get('/dealer/cash-book/customers?q=' + encodeURIComponent(q || ''))
+    .then((d) => setCustomers(d.customers || []))
+    .catch((e) => setError(e.message || 'Could not load customers'));
+  useEffect(() => { load(''); }, []);
+
+  const filtered = customers.filter((c) => {
+    if (tab !== 'ALL' && c.status !== tab) return false;
+    const q = search.trim().toLowerCase();
+    return !q || [c.page_no, c.name, c.phone, c.vehicle_no].join(' ').toLowerCase().includes(q);
+  });
+  const counts = {
+    ALL: customers.length,
+    VEHICLE_PENDING: customers.filter((c) => c.status === 'VEHICLE_PENDING').length,
+    BILLED: customers.filter((c) => c.status === 'BILLED').length,
+    DEALER_CANCEL: customers.filter((c) => c.status === 'DEALER_CANCEL').length,
+  };
+  const tabs = [
+    ['ALL', 'All Customers'],
+    ['VEHICLE_PENDING', 'Vehicle Pending'],
+    ['BILLED', 'Billed'],
+    ['DEALER_CANCEL', 'Dealer Cancel'],
+  ];
+
+  const openCancel = (c) => {
+    setCancelling(c);
+    setCancelForm({ reason: '', refund_amount: String(c.paid_amount || 0) });
+    setError('');
+  };
+  const submitCancel = async () => {
+    if (!cancelling) return;
+    setSaving(true); setError('');
+    try {
+      await post('/dealer/cash-book/customers/' + cancelling.id + '/cancel', {
+        reason: cancelForm.reason,
+        refund_amount: Number(cancelForm.refund_amount || 0),
+        refund_date: today(),
+        refund_mode: 'cash',
+      });
+      setCancelling(null);
+      await load(search);
+    } catch (e) {
+      setError(e.message || 'Could not cancel booking');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="card">
-      <div className="pageHeader"><div><h2>All Customers</h2><p className="muted">Showroom customer register — includes anyone billed, even before a receipt is recorded.</p></div><button className="btn" onClick={() => load(search)}>↻ Refresh</button></div>
+      <div className="pageHeader">
+        <div><h2>Customer Register</h2><p className="muted">All Customers is the master register. Tax Invoice controls Billed; a refunded booking stays in history as Dealer Cancel.</p></div>
+        <button className="btn" onClick={() => load(search)}>↻ Refresh</button>
+      </div>
       {error && <div className="error">{error}</div>}
+
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
+        {tabs.map(([key, label]) => (
+          <button key={key} className={tab === key ? 'btn primary' : 'btn'} onClick={() => setTab(key)}>
+            {label} ({counts[key]})
+          </button>
+        ))}
+      </div>
+
       <input className="input" placeholder="Search page no. / name / mobile / vehicle no." value={search} onChange={(e) => { setSearch(e.target.value); load(e.target.value); }} />
-      <div className="tablewrap dealerTable" style={{ marginTop: 12 }}><table className="table">
-        <thead><tr><th>Page No.</th><th>Name</th><th>Phone</th><th>Financer</th><th>Vehicle No.</th><th>Sale Amount</th><th>Loan</th><th>Balance</th><th></th></tr></thead>
-        <tbody>{customers.map((c) => <tr key={c.id}><td>{c.page_no || '—'}</td><td><b>{c.name}</b></td><td>{c.phone || '—'}</td><td>{c.financer || '—'}</td><td>{c.vehicle_no || '—'}</td><td>{money(c.sale_amount)}</td><td>{money(c.loan_amount)}</td><td><b>{money(c.balance)}</b></td><td><button className="btn" onClick={() => setEditing({ ...c })}>Edit</button></td></tr>)}{!customers.length && <tr><td colSpan="9" className="muted">No customers found.</td></tr>}</tbody>
-      </table></div>
-      {editing && <div className="card" style={{ marginTop: 12 }}><h2>Edit Customer</h2><div className="grid">{field('Page No.', 'page_no', editing, setEditing)}{field('Name', 'name', editing, setEditing)}{field('Phone No.', 'phone', editing, setEditing)}</div><div className="actions"><button className="btn primary" disabled={saving} onClick={async () => { setSaving(true); try { await put('/dealer/cash-book/customers/' + editing.id, editing); setEditing(null); await load(search); } catch (e) { setError(e.message || 'Could not update customer'); } finally { setSaving(false); } }}>Save Customer</button><button className="btn" onClick={() => setEditing(null)}>Cancel</button></div></div>}
+
+      <div className="tablewrap dealerTable" style={{ marginTop: 12 }}>
+        <table className="table">
+          <thead><tr><th>Page No.</th><th>Name</th><th>Phone</th><th>Financer</th><th>Vehicle No.</th><th>Status</th><th>Sale Amount</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
+          <tbody>
+            {filtered.map((c) => (
+              <tr key={c.id}>
+                <td>{c.page_no || '—'}</td>
+                <td><b>{c.name}</b></td>
+                <td>{c.phone || '—'}</td>
+                <td>{c.financer || '—'}</td>
+                <td>{c.vehicle_no || '—'}</td>
+                <td><b>{c.status_label || c.status}</b>{c.status === 'DEALER_CANCEL' && <div className="muted">{c.cancel_reason || ''}</div>}</td>
+                <td>{money(c.sale_amount)}</td>
+                <td>{money(c.paid_amount)}</td>
+                <td><b>{money(c.balance)}</b></td>
+                <td>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button className="btn" onClick={() => setEditing({ ...c })}>Edit</button>
+                    {c.status === 'VEHICLE_PENDING' && <button className="btn" onClick={() => openCancel(c)}>Dealer Cancel</button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {!filtered.length && <tr><td colSpan="10" className="muted">No customers found.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {editing && <div className="card" style={{ marginTop: 12 }}>
+        <h2>Edit Customer</h2>
+        <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}{field('Name', 'name', editing, setEditing)}{field('Phone No.', 'phone', editing, setEditing)}</div>
+        <div className="actions">
+          <button className="btn primary" disabled={saving} onClick={async () => { setSaving(true); try { await put('/dealer/cash-book/customers/' + editing.id, editing); setEditing(null); await load(search); } catch (e) { setError(e.message || 'Could not update customer'); } finally { setSaving(false); } }}>Save Customer</button>
+          <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
+        </div>
+      </div>}
+
+      {cancelling && <div className="card" style={{ marginTop: 12, border: '1px solid currentColor' }}>
+        <div className="pageHeader">
+          <div><h2 style={{ margin:0 }}>Dealer Cancel — {cancelling.name}</h2><p className="muted">This keeps the booking/customer history. The refund is recorded separately from the original receipt.</p></div>
+          <button className="btn" onClick={() => setCancelling(null)}>Close</button>
+        </div>
+        <div className="grid">
+          {field('Refund Amount', 'refund_amount', cancelForm, setCancelForm, 'number')}
+          {field('Cancellation Reason', 'reason', cancelForm, setCancelForm)}
+        </div>
+        <div className="muted" style={{ margin:'8px 0 12px' }}>Maximum refund: {money(cancelling.paid_amount)}. Refund mode: Cash.</div>
+        <button className="btn primary" disabled={saving || !cancelForm.reason.trim()} onClick={submitCancel}>{saving ? 'Saving…' : 'Confirm Dealer Cancel & Refund'}</button>
+      </div>}
     </div>
   );
 }
