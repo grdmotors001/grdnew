@@ -39,7 +39,7 @@ export function OldRickshawChallanPage(){
  <Field label="Vehicle No." value={form.vehicle_no} onChange={v=>setForm({...form,vehicle_no:v})} required/>
  <Field label="Colour" value={form.colour} onChange={v=>setForm({...form,colour:v})}/>
  <Field label="Tool Kit" value={form.toolkit} onChange={v=>setForm({...form,toolkit:v})}/>
- <Field label="Parked / Sale To" type="select" value={form.dealer_id} options={[{value:'',label:'GRD Factory'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]} onChange={v=>setForm({...form,dealer_id:v})}/>
+ <Field label="Parked / Sale To" type="select" value={form.dealer_id} options={[{value:'',label:'GRD Factory'},...dealers.map(d=>({value:d.id,label:d.name}))]} onChange={v=>setForm({...form,dealer_id:v})}/>
  <Field label="Source" type="select" value={form.source} options={[{value:'manual',label:'Manual'},{value:'chfpl',label:'CHFPL Seized'}]} onChange={v=>setForm({...form,source:v})}/>
  <Field label="CHFPL Reference" value={form.source_ref} onChange={v=>setForm({...form,source_ref:v})}/>
  <div className="muted" style={{gridColumn:'1/-1'}}>Dealer is prefilled from the existing parked location. Select <b>GRD Factory</b> if the vehicle is moved to factory before the challan is made.</div>
