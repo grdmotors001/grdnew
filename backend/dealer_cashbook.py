@@ -591,6 +591,10 @@ def cash_book():
     es = DealerCashExpense.query.filter_by(dealer_id=did).filter(DealerCashExpense.expense_date.between(start,end)).order_by(DealerCashExpense.expense_date.desc(),DealerCashExpense.id.desc()).all()
     hs = DealerCashHandover.query.filter_by(dealer_id=did).filter(DealerCashHandover.handover_date.between(start,end),DealerCashHandover.status != "rejected").order_by(DealerCashHandover.handover_date.desc(),DealerCashHandover.id.desc()).all()
     cash = sum(r.amount for r in rs if r.payment_mode == "cash")
+    refunds = sum(x.refund_amount for x in DealerDealCancellation.query.filter_by(dealer_id=did).filter(
+        DealerDealCancellation.refund_date.between(start,end),
+        DealerDealCancellation.refund_mode == "cash"
+    ).all())
     expenses = sum(e.amount for e in es)
     handover = sum(h.amount for h in hs)
 
@@ -615,8 +619,8 @@ def cash_book():
         DealerCashHandover.handover_date < start,
         DealerCashHandover.status != "rejected",
     ).scalar() or 0
-    opening_balance = round(float(prior_receipts) - float(prior_expenses) - float(prior_handover), 2)
-    net_movement = round(float(cash) - float(expenses) - float(handover), 2)
+    opening_balance = round(float(prior_receipts) - float(prior_expenses) - float(prior_handover) - float(prior_refunds), 2)
+    net_movement = round(float(cash) - float(expenses) - float(handover) - float(refunds), 2)
     closing_balance = round(opening_balance + net_movement, 2)
 
     return jsonify({"success":True,"from":start.isoformat(),"to":end.isoformat(),
