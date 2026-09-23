@@ -160,6 +160,39 @@ export const NAV_GROUPS = {
   ],
 };
 
+// Central routing registry: every menu key gets a stable client route.
+// Menu placement and page rendering stay separate, so an item can be moved,
+// duplicated in another group, or renamed without changing its page component.
+export const ROUTES = {
+  dashboard: { path: '/dashboard', title: 'Dashboard' },
+  ...Object.fromEntries(
+    Object.values(NAV_GROUPS).flat().map(([key, label]) => [
+      key,
+      { path: '/' + key, title: label },
+    ])
+  ),
+  'showroom-new-stock': { path: '/showroom/new-stock', title: 'New Stock' },
+  'showroom-old-stock': { path: '/showroom/old-stock', title: 'Old Stock' },
+  'showroom-battery-stock': { path: '/showroom/battery-stock', title: 'Battery Stock' },
+  'showroom-seized-vehicle': { path: '/showroom/seized-vehicle', title: 'Seized Vehicle' },
+  'showroom-all-customers': { path: '/showroom/all-customers', title: 'All Customers' },
+  'showroom-all-receipt': { path: '/showroom/all-receipt', title: 'All Receipt' },
+  'showroom-expenses-reports': { path: '/showroom/expenses-reports', title: 'Expenses Reports' },
+  'showroom-cashbook': { path: '/showroom/cashbook', title: 'Cashbook' },
+  'showroom-cash-handover': { path: '/showroom/cash-handover', title: 'Cash Handover' },
+  'showroom-online-payment': { path: '/showroom/online-payment', title: 'Online Payment' },
+};
+
+export function routeForKey(key) {
+  return ROUTES[key] || { path: '/' + key, title: key };
+}
+
+export function keyForPath(path) {
+  const clean = String(path || '').split('?')[0].replace(/\\/+$/, '') || '/';
+  const found = Object.entries(ROUTES).find(([, route]) => route.path === clean);
+  return found ? found[0] : 'dashboard';
+}
+
 export function groupForKey(key) {
   for (const [group, items] of Object.entries(NAV_GROUPS)) {
     if (items.some(([k]) => k === key)) return group;
