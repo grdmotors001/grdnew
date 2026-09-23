@@ -640,6 +640,62 @@ class CreditNote(db.Model):
     vehicle = db.relationship("Vehicle", foreign_keys=[vehicle_id])
 
 
+class DebitNote(db.Model):
+    """Debit Note for returning raw-material purchases to a supplier."""
+    id = db.Column(db.Integer, primary_key=True)
+    debit_note_no = db.Column(db.String(40), unique=True, index=True, nullable=False)
+    date = db.Column(db.Date, nullable=False)
+    party_name = db.Column(db.String(200), nullable=False)
+    party_gst_no = db.Column(db.String(30))
+    party_state_code = db.Column(db.String(10), default="07")
+    original_bill_no = db.Column(db.String(50))
+    reason = db.Column(db.String(500), nullable=False)
+    remarks = db.Column(db.String(500))
+    taxable_amount = db.Column(db.Float, default=0)
+    tax_amount = db.Column(db.Float, default=0)
+    total_amount = db.Column(db.Float, default=0)
+    status = db.Column(db.String(20), default="ACTIVE", index=True)
+    created_by = db.Column(db.String(120))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    items = db.relationship("DebitNoteItem", backref="debit_note", cascade="all, delete-orphan")
+
+
+class DebitNoteItem(db.Model):
+    """Raw-material-only line in a Debit Note."""
+    id = db.Column(db.Integer, primary_key=True)
+    debit_note_id = db.Column(db.Integer, db.ForeignKey("debit_note.id"), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey("product.id"), nullable=True, index=True)
+    item_name = db.Column(db.String(200), nullable=False)
+    hsn_code = db.Column(db.String(20))
+    qty = db.Column(db.Float, default=1)
+    rate = db.Column(db.Float, default=0)
+    gst_rate = db.Column(db.Float, default=0)
+
+    @property
+    def taxable_amt(self):
+        return round((self.qty or 0) * (self.rate or 0), 2)
+
+    @property
+    def is_inter_state(self):
+        return bool(self.debit_note and self.debit_note.party_state_code) and self.debit_note.party_state_code != "07"
+
+    @property
+    def igst_amt(self):
+        return round(self.taxable_amt * (self.gst_rate or 0) / 100, 2) if self.is_inter_state else 0
+
+    @property
+    def cgst_amt(self):
+        return round(self.taxable_amt * (self.gst_rate or 0) / 200, 2) if not self.is_inter_state else 0
+
+    @property
+    def sgst_amt(self):
+        return self.cgst_amt if not self.is_inter_state else 0
+
+    @property
+    def tax_amt(self):
+        return self.igst_amt if self.is_inter_state else (self.cgst_amt + self.sgst_amt)
+
+
 class PurchaseBill(db.Model):
     """
     Purchase Bill (Vouchers > C) — recording a raw-material purchase from a
