@@ -171,6 +171,12 @@ export const ROUTES = {
       { path: '/' + key, title: label },
     ])
   ),
+  ...Object.fromEntries(
+    SHOWROOM_SECTIONS.flatMap(section => section.items).map(([key, label]) => [
+      key,
+      { path: '/' + key, title: label },
+    ])
+  ),
   'showroom-new-stock': { path: '/showroom/new-stock', title: 'New Stock' },
   'showroom-old-stock': { path: '/showroom/old-stock', title: 'Old Stock' },
   'showroom-battery-stock': { path: '/showroom/battery-stock', title: 'Battery Stock' },
