@@ -1812,6 +1812,10 @@ def dealer_seized_vehicles():
         return _err("CHFPL repossession service is temporarily unavailable", 502)
     if status >= 400:
         detail = payload.get("error") if isinstance(payload, dict) else None
+        # Preserve the real upstream status/error in server logs. The dealer
+        # endpoint intentionally returns 502 to the browser, but logs must
+        # show whether CHFPL returned 401/409/500 and why.
+        print(f"[CHFPL dealer seized] upstream_status={status} payload={payload}")
         return _err(detail or "Could not load seized vehicles", 502)
     # CHFPL has already filtered by the stable GRD dealer identity.
     # Do not re-filter by dealer name/code here; those labels can differ
