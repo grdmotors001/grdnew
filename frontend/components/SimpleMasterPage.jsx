@@ -144,8 +144,8 @@ export function SimpleMasterPage({ kind, setActive }) {
             <h2>{editingId ? `Edit ${meta.label}` : `Add ${meta.label}`}</h2>
             <ErrorBanner message={error} />
             <div className="formgrid">
-              {meta.fields.map(([f, l, type]) => (
-                <Field key={f} label={l} type={type} value={form[f]} onChange={(v) => setForm({ ...form, [f]: v })} required={f === 'name'} />
+              {meta.fields.map(([f, l, type, options]) => (
+                <Field key={f} label={l} type={type} options={options} value={form[f]} onChange={(v) => setForm({ ...form, [f]: v })} required={f === 'name'} />
               
               ))}
             </div>
