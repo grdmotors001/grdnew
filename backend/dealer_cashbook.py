@@ -194,7 +194,11 @@ def _receipt(r):
             "reference_no":r.reference_no,"remarks":r.remarks}
 
 def _has_active_tax_invoice(c):
-    """Tax Invoice is the source of truth for the Billed bucket."""
+    """Tax Invoice is the source of truth for the Billed bucket.
+
+    This helper is kept for single-customer operations such as cancellation.
+    The customer-list endpoint uses _customer_rows() below to avoid N+1 queries.
+    """
     invoices = (db.session.query(TaxInvoice)
                 .join(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
                 .filter(DeliveryChallan.dealer_id == c.dealer_id,
@@ -216,6 +220,20 @@ def _has_active_tax_invoice(c):
             return ti
     return None
 
+def _customer_payload(c, paid, cancellation=None, invoice=None):
+    status = "DEALER_CANCEL" if cancellation else ("BILLED" if invoice else "VEHICLE_PENDING")
+    balance = round(float(c.sale_amount or 0) - float(c.loan_amount or 0) - float(paid or 0), 2)
+    return {"id":c.id,"page_no":c.page_no,"name":c.full_name,"phone":c.phone,
+            "financer":c.financer,"vehicle_no":c.vehicle_no,
+            "sale_amount":round(float(c.sale_amount or 0),2),"loan_amount":round(float(c.loan_amount or 0),2),
+            "paid_amount":round(float(paid or 0),2),"balance":balance,
+            "status":status,
+            "status_label":{"VEHICLE_PENDING":"Vehicle Pending","BILLED":"Billed","DEALER_CANCEL":"Dealer Cancel"}[status],
+            "cancelled_at":cancellation.cancelled_at.isoformat() if cancellation else None,
+            "cancel_reason":cancellation.reason if cancellation else None,
+            "refund_amount":round(float(cancellation.refund_amount or 0),2) if cancellation else 0,
+            "refund_date":cancellation.refund_date.isoformat() if cancellation else None}
+
 def _customer(c):
     paid = db.session.query(db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0)).filter(
         DealerCashReceipt.dealer_id == c.dealer_id,
@@ -225,18 +243,69 @@ def _customer(c):
         dealer_id=c.dealer_id, customer_id=c.id
     ).first()
     invoice = None if cancellation else _has_active_tax_invoice(c)
-    status = "DEALER_CANCEL" if cancellation else ("BILLED" if invoice else "VEHICLE_PENDING")
-    balance = round(float(c.sale_amount or 0) - float(c.loan_amount or 0) - float(paid), 2)
-    return {"id":c.id,"page_no":c.page_no,"name":c.full_name,"phone":c.phone,
-            "financer":c.financer,"vehicle_no":c.vehicle_no,
-            "sale_amount":round(float(c.sale_amount or 0),2),"loan_amount":round(float(c.loan_amount or 0),2),
-            "paid_amount":round(float(paid),2),"balance":balance,
-            "status":status,
-            "status_label":{"VEHICLE_PENDING":"Vehicle Pending","BILLED":"Billed","DEALER_CANCEL":"Dealer Cancel"}[status],
-            "cancelled_at":cancellation.cancelled_at.isoformat() if cancellation else None,
-            "cancel_reason":cancellation.reason if cancellation else None,
-            "refund_amount":round(float(cancellation.refund_amount or 0),2) if cancellation else 0,
-            "refund_date":cancellation.refund_date.isoformat() if cancellation else None}
+    return _customer_payload(c, paid, cancellation, invoice)
+
+def _customer_rows(customers):
+    """Build a customer register in bulk instead of querying once per customer."""
+    if not customers:
+        return []
+
+    dealer_id = customers[0].dealer_id
+    customer_ids = [c.id for c in customers]
+
+    paid_rows = (db.session.query(
+                    DealerCashReceipt.customer_id,
+                    db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0))
+                 .filter(DealerCashReceipt.dealer_id == dealer_id,
+                         DealerCashReceipt.customer_id.in_(customer_ids))
+                 .group_by(DealerCashReceipt.customer_id).all())
+    paid_by_customer = {int(cid): float(amount or 0) for cid, amount in paid_rows}
+
+    cancellation_rows = DealerDealCancellation.query.filter(
+        DealerDealCancellation.dealer_id == dealer_id,
+        DealerDealCancellation.customer_id.in_(customer_ids)
+    ).all()
+    cancellation_by_customer = {int(x.customer_id): x for x in cancellation_rows}
+
+    # Load active invoices once and build the same matching keys used by the
+    # single-customer helper. This removes the per-customer invoice query.
+    invoice_rows = (db.session.query(DeliveryChallan, TaxInvoice)
+                    .join(TaxInvoice, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+                    .filter(DeliveryChallan.dealer_id == dealer_id,
+                            DeliveryChallan.cancelled.is_(False),
+                            TaxInvoice.cancelled.is_(False))
+                    .all())
+    invoice_by_name_phone = {}
+    invoice_by_name_vehicle = {}
+    invoice_by_name = {}
+    for dc, ti in invoice_rows:
+        name = str(ti.buyer_name or "").strip().casefold()
+        phone = str(ti.buyer_mobile or "").strip()
+        vehicle = str(getattr(ti, "vehicle_reg_no", None) or getattr(ti, "vehicle_no", None) or "").strip().casefold()
+        if not name:
+            continue
+        if phone:
+            invoice_by_name_phone[(name, phone)] = ti
+        if vehicle:
+            invoice_by_name_vehicle[(name, vehicle)] = ti
+        invoice_by_name.setdefault(name, ti)
+
+    result = []
+    for c in customers:
+        cancellation = cancellation_by_customer.get(c.id)
+        invoice = None
+        if not cancellation:
+            name = str(c.full_name or "").strip().casefold()
+            phone = str(c.phone or "").strip()
+            vehicle = str(c.vehicle_no or "").strip().casefold()
+            if phone and name:
+                invoice = invoice_by_name_phone.get((name, phone))
+            if not invoice and not phone and name and vehicle:
+                invoice = invoice_by_name_vehicle.get((name, vehicle))
+            if not invoice and not phone and not vehicle and name:
+                invoice = invoice_by_name.get(name)
+        result.append(_customer_payload(c, paid_by_customer.get(c.id, 0), cancellation, invoice))
+    return result
 
 def _expense(e):
     return {"id":e.id,"expense_no":e.expense_no,"date":e.expense_date.isoformat(),
@@ -254,16 +323,31 @@ def cash_customers():
     dealer = Dealer.query.get(g.current_dealer_id)
     if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
         return jsonify({"error":"Customer Register is available only for showroom/branch accounts."}),403
-    # Backfill customer records from older receipts created before the register existed.
-    legacy = DealerCashReceipt.query.filter_by(dealer_id=g.current_dealer_id, customer_id=None).order_by(DealerCashReceipt.id.asc()).all()
+
+    # Backfill customer records from older receipts in bulk. The previous
+    # implementation queried dealer_cash_customer once for every legacy receipt,
+    # which became a timeout risk as the register grew.
+    legacy = (DealerCashReceipt.query
+              .filter_by(dealer_id=g.current_dealer_id, customer_id=None)
+              .order_by(DealerCashReceipt.id.asc()).all())
+    existing_customers = DealerCashCustomer.query.filter_by(
+        dealer_id=g.current_dealer_id
+    ).all()
+    by_phone = {str(c.phone).strip(): c for c in existing_customers if c.phone}
     for r in legacy:
-        customer = None
-        if r.customer_phone:
-            customer = DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id, phone=r.customer_phone).first()
+        customer = by_phone.get(str(r.customer_phone).strip()) if r.customer_phone else None
         if not customer:
-            customer = DealerCashCustomer(dealer_id=g.current_dealer_id, full_name=r.customer_name, phone=r.customer_phone, page_no=r.dealer_register_page_no)
+            customer = DealerCashCustomer(
+                dealer_id=g.current_dealer_id,
+                full_name=r.customer_name,
+                phone=r.customer_phone,
+                page_no=r.dealer_register_page_no
+            )
             db.session.add(customer)
             db.session.flush()
+            existing_customers.append(customer)
+            if customer.phone:
+                by_phone[str(customer.phone).strip()] = customer
         elif r.dealer_register_page_no and not customer.page_no:
             customer.page_no = r.dealer_register_page_no
         r.customer_id = customer.id
@@ -271,8 +355,8 @@ def cash_customers():
         db.session.commit()
 
     # Backfill customers for vehicles this dealer already billed (Tax Invoice)
-    # before the customer register existed in the app — these never went
-    # through a cash receipt, so the legacy backfill above never sees them.
+    # before the customer register existed in the app. Load existing customer
+    # keys once so this path also stays bounded as invoice history grows.
     billed = (db.session.query(DeliveryChallan, TaxInvoice)
               .join(TaxInvoice, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
               .filter(
@@ -281,47 +365,60 @@ def cash_customers():
                   TaxInvoice.cancelled.is_(False),
               ).all())
     if billed:
-        existing_phones = {c.phone for c in DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id).all() if c.phone}
+        existing_phones = {str(c.phone).strip() for c in existing_customers if c.phone}
+        existing_name_vehicle = {
+            (str(c.full_name or "").strip(), str(c.vehicle_no or "").strip())
+            for c in existing_customers
+            if not c.phone
+        }
         created_any = False
         for dc, ti in billed:
             name = (ti.buyer_name or "").strip()
             phone = (ti.buyer_mobile or "").strip() or None
+            vehicle_no = str(getattr(ti, "vehicle_reg_no", None) or "").strip() or None
             if not name:
                 continue
             if phone:
                 if phone in existing_phones:
                     continue
             else:
-                # No phone to dedupe on: fall back to name + vehicle no so
-                # re-running this on every request doesn't create duplicates.
-                dup = DealerCashCustomer.query.filter_by(
-                    dealer_id=g.current_dealer_id, full_name=name, vehicle_no=ti.vehicle_reg_no
-                ).first()
-                if dup:
+                key = (name, vehicle_no or "")
+                if key in existing_name_vehicle:
                     continue
             db.session.add(DealerCashCustomer(
                 dealer_id=g.current_dealer_id,
                 full_name=name,
                 phone=phone,
-                vehicle_no=ti.vehicle_reg_no,
+                vehicle_no=vehicle_no,
                 sale_amount=ti.sale_amount or 0,
                 loan_amount=ti.hypothecation_amount or 0,
                 financer=ti.financer_name,
             ))
             if phone:
                 existing_phones.add(phone)
+            else:
+                existing_name_vehicle.add((name, vehicle_no or ""))
             created_any = True
         if created_any:
             db.session.commit()
 
     q = str(request.args.get("q") or "").strip().lower()
     status_filter = str(request.args.get("status") or "").strip().upper()
-    rows = DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id).order_by(DealerCashCustomer.id.desc()).all()
-    if status_filter in {"VEHICLE_PENDING","BILLED","DEALER_CANCEL"}:
-        rows = [x for x in rows if _customer(x)["status"] == status_filter]
+    rows = (DealerCashCustomer.query
+            .filter_by(dealer_id=g.current_dealer_id)
+            .order_by(DealerCashCustomer.id.desc()).all())
+
     if q:
-        rows = [x for x in rows if q in " ".join([str(x.page_no or ''),str(x.full_name or ''),str(x.phone or ''),str(x.vehicle_no or '')]).lower()]
-    return jsonify({"success":True,"customers":[_customer(x) for x in rows]})
+        rows = [x for x in rows if q in " ".join([
+            str(x.page_no or ''), str(x.full_name or ''),
+            str(x.phone or ''), str(x.vehicle_no or '')
+        ]).lower()]
+
+    customer_rows = _customer_rows(rows)
+    if status_filter in {"VEHICLE_PENDING","BILLED","DEALER_CANCEL"}:
+        customer_rows = [x for x in customer_rows if x["status"] == status_filter]
+
+    return jsonify({"success":True,"customers":customer_rows})
 
 @dealer_cashbook_bp.route("/cash-book/customers/<int:customer_id>", methods=["PUT"])
 @require_dealer_auth
