@@ -33,7 +33,6 @@ export const MENU = {
     ['repair-service-voucher', 'Repair & Service Voucher'],
   ],
   Expenses: [
-    ['dealer-cash-receipt', 'Dealer Cash Receipt'],
     ['insurance-rto', 'Insurance / RTO Expense'],
   ],
   Stock: [
@@ -109,36 +108,42 @@ export const SHOWROOM_SECTIONS = [
 ];
 
 export const NAV_GROUPS = {
-  Showroom: SHOWROOM_SECTIONS.flatMap(section => section.items),
+  // Showroom is a separate dealer/showroom portal. It must not appear as a
+  // staff/admin sidebar group; staff access is controlled by allowed_modules.
   Masters: [
-    ['company', 'Company Details'], ['dealer', 'Dealer Master'], ['party', 'Party Master'],
-    ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
-    ['rto', 'RTO Master'], ['financer', 'Financer Master'], ['production-formula', 'Production Formula'],
+    ['dealer', 'Dealer Master'], ['party', 'Party Master'],
+    ['product', 'Product Master'], ['chassis-master', 'Chassis Master'],
+    ['production-formula', 'Production Formula'],
     ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
-    ['user', 'User Master'],
   ],
   Factory: [
+    ['debit-note', 'Debit Note'],
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
-    ['battery-delivery-challan', 'Battery Delivery Challan'],
-    ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'], ['battery-addition', 'Battery Fit to Rickshaw'],
+  ],
+  Battery: [
+    ['battery-maker', 'Battery Maker'],
+    ['battery-delivery-challan', 'Battery Challan'],
+    ['battery-withdrawal', 'Battery Remove'],
+    ['battery-swap', 'Battery Swap'],
+    ['battery-addition', 'Battery Fit'],
   ],
   'Sales & Billing': [
-    ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
-    ['old-rickshaw', 'Old Rickshaw'],
+    ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
+    ['old-rickshaw', 'Old Rickshaw'], ['vahan-inventory', 'Vahan Inventory'],
+    ['rto', 'RTO Master'], ['financer', 'Financer Master'],
   ],
   Expenses: [
-    ['expense-head', 'Expense Head'], ['dealer-cash-receipt', 'Dealer Cash Receipt'],
+    ['expense-head', 'Account Head Master'],
+    ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['cash-at-dealer', 'Showroom Branch'],
     ['insurance-rto', 'Insurance / RTO Expense'],
   ],
   Accounts: [
-    ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'],
-    ['expense-payment-voucher', 'Expense Payment Voucher'], ['cash-at-dealer', 'Cash at Dealer'], ['day-book', 'Day Book'],
+    ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'], ['day-book', 'Day Book'],
     ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
   ],
   Inventory: [
-    ['vahan-inventory', 'Vahan Inventory'],
-
     ['closing-stock-premises', 'Closing Stock - Premises'], ['closing-stock-dealers', 'Closing Stock - Dealers'],
     ['closing-stock-raw', 'Closing Stock - Raw Material'], ['stock-ledger-premises', 'Stock Ledger - Premises'],
     ['stock-ledger-dealers', 'Stock Ledger - Dealers'],
@@ -153,9 +158,48 @@ export const NAV_GROUPS = {
     ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
   ],
   System: [
-    ['backup-restore', 'Backup / Restore'], ['password', 'Password'],
+    ['profile', 'My Profile'], ['password', 'Password'],
   ],
 };
+
+// Central routing registry: every menu key gets a stable client route.
+// Menu placement and page rendering stay separate, so an item can be moved,
+// duplicated in another group, or renamed without changing its page component.
+export const ROUTES = {
+  dashboard: { path: '/dashboard', title: 'Dashboard' },
+  ...Object.fromEntries(
+    Object.values(NAV_GROUPS).flat().map(([key, label]) => [
+      key,
+      { path: '/' + key, title: label },
+    ])
+  ),
+  ...Object.fromEntries(
+    SHOWROOM_SECTIONS.flatMap(section => section.items).map(([key, label]) => [
+      key,
+      { path: '/' + key, title: label },
+    ])
+  ),
+  'showroom-new-stock': { path: '/showroom/new-stock', title: 'New Stock' },
+  'showroom-old-stock': { path: '/showroom/old-stock', title: 'Old Stock' },
+  'showroom-battery-stock': { path: '/showroom/battery-stock', title: 'Battery Stock' },
+  'showroom-seized-vehicle': { path: '/showroom/seized-vehicle', title: 'Seized Vehicle' },
+  'showroom-all-customers': { path: '/showroom/all-customers', title: 'All Customers' },
+  'showroom-all-receipt': { path: '/showroom/all-receipt', title: 'All Receipt' },
+  'showroom-expenses-reports': { path: '/showroom/expenses-reports', title: 'Expenses Reports' },
+  'showroom-cashbook': { path: '/showroom/cashbook', title: 'Cashbook' },
+  'showroom-cash-handover': { path: '/showroom/cash-handover', title: 'Cash Handover' },
+  'showroom-online-payment': { path: '/showroom/online-payment', title: 'Online Payment' },
+};
+
+export function routeForKey(key) {
+  return ROUTES[key] || { path: '/' + key, title: key };
+}
+
+export function keyForPath(path) {
+  const clean = String(path || '').split('?')[0].replace(/\\/+$/, '') || '/';
+  const found = Object.entries(ROUTES).find(([, route]) => route.path === clean);
+  return found ? found[0] : 'dashboard';
+}
 
 export function groupForKey(key) {
   for (const [group, items] of Object.entries(NAV_GROUPS)) {
@@ -183,5 +227,16 @@ export const SIMPLE_MASTERS = {
   salesman: { label: 'Salesman Master', fields: [['name', 'Salesman Name', 'text']] },
   fabricator: { label: 'Fabricator Master', fields: [['name', 'Fabricator Name', 'text']] },
   bank: { label: 'Bank Details', fields: [['name', 'Bank Name', 'text'], ['account_no', 'Account No.', 'text'], ['ifsc', 'IFSC', 'text'], ['is_default', 'Default (auto-fills on new Invoices)', 'checkbox']] },
+  'expense-head': {
+    label: 'Account Head Master',
+    fields: [
+      ['name', 'Account Head', 'text'],
+      ['sub_category', 'Sub Category', 'select', [
+        'Current Asset', 'Fixed Asset', 'Other / Non-Current Asset',
+        'Current Liability', 'Long Term Liability', 'Capital & Reserves',
+        'Direct Expense', 'Indirect Expense', 'Direct Income', 'Indirect Income'
+      ].map(v => ({ value: v, label: v }))]
+    ]
+  },
   colour: { label: 'Colour Master', fields: [['name', 'Colour', 'text'], ['code', 'Colour Code', 'text'], ['color_hex', 'RGB / HEX', 'color'], ['color_hex2', 'Second Tone RGB / HEX', 'color'], ['is_double_tone', 'Double Tone', 'checkbox']] },
 };

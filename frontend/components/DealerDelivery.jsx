@@ -7,7 +7,12 @@ const money = v => `₹${Number(v || 0).toLocaleString('en-IN',{maximumFractionD
 const today = () => new Date().toISOString().slice(0,10);
 
 export function DealerDelivery({ onBack }) {
-  const [data,setData]=useState({customers:[],new_stock:[],old_stock:[],battery_stock:[],do_numbers:[]});
+  const [data,setData]=useState({customers:[],new_stock:[],old_stock:[],battery_stock:[],do_numbers:[],approved_loans:[]});
+  const [saleAmount,setSaleAmount]=useState('');
+  const [loanAmount,setLoanAmount]=useState('');
+  const [loanWorkflowId,setLoanWorkflowId]=useState('');
+  const [fileCharge,setFileCharge]=useState('');
+  const [miscCharge,setMiscCharge]=useState('');
   const [customerId,setCustomerId]=useState('');
   const [type,setType]=useState('new');
   const [vehicleId,setVehicleId]=useState('');
@@ -38,42 +43,29 @@ export function DealerDelivery({ onBack }) {
   },[data.customers,search]);
 
   const customer=(data.customers||[]).find(c=>String(c.id)===String(customerId));
+  useEffect(()=>{
+    if(customer){ setSaleAmount(String(customer.sale_amount||0)); setLoanAmount(String(customer.loan_amount||0)); setLoanWorkflowId(''); }
+    else { setSaleAmount(''); setLoanAmount(''); setLoanWorkflowId(''); }
+  },[customerId]);
   const isLoan=Number(customer?.loan_amount||0)>0;
   const stock=type==='new' ? data.new_stock||[] : data.old_stock||[];
+  const approvedLoans=(data.approved_loans||[]).filter(x=>!customerId || String(x.customer_id)===String(customerId));
 
   async function submit(e){
     e.preventDefault(); setSaving(true); setError(''); setMessage('');
     try{
-      const payload={customer_id:customerId,delivery_type:type,date,remarks,do_no:isLoan?doNo:''};
+      const payload={customer_id:customerId,delivery_type:type,date,remarks,do_no:isLoan?doNo:'',sale_amount:saleAmount,loan_amount:loanAmount,file_charge:fileCharge,misc_charge:miscCharge,loan_workflow_id:Number(loanWorkflowId)||null};
       if(type==='new') payload.vehicle_id=vehicleId;
       if(type==='old') payload.old_rickshaw_id=oldId;
       const d=await post('/dealer/delivery',payload);
       setMessage(`Delivery ${d.delivery.delivery_no} saved successfully.`);
-      setCustomerId(''); setVehicleId(''); setOldId(''); setSearch(''); setRemarks(''); setDoNo('');
+      setCustomerId(''); setVehicleId(''); setOldId(''); setSearch(''); setRemarks(''); setDoNo(''); setSaleAmount(''); setLoanAmount(''); setLoanWorkflowId(''); setFileCharge(''); setMiscCharge('');
       await load();
     }catch(e){setError(e.message || 'Could not save delivery')}
     finally{setSaving(false)}
   }
 
-  return <div className="dealerPage grdFormPage">
-    <style>{`
-      .grdFormPage{padding:12px}
-      .grdFormPage .dealerPanel{background:#fff;border:1px solid #e4e9ef;border-radius:14px;box-shadow:0 5px 18px rgba(31,55,79,.06);padding:16px}
-      .grdFormPage .dealerPanelHead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
-      .grdFormPage .dealerPanelHead h3{margin:0;font-size:18px;color:#172b45}
-      .grdFormPage .dealerPanelHead p{margin:3px 0 0;color:#748297;font-size:11px}
-      .grdFormPage .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
-      .grdFormPage .grid>div{min-width:0}
-      .grdFormPage .muted{font-size:11px;color:#65758a}
-      .grdFormPage .input{width:100%;min-height:40px;border:1px solid #d7e0e9;border-radius:8px;background:#fff;box-sizing:border-box;padding:9px 11px;font-size:12px;color:#24384d}
-      .grdFormPage .input:focus{outline:none;border-color:#2d79df;box-shadow:0 0 0 2px rgba(45,121,223,.10)}
-      .grdFormPage .card{border:1px solid #e2e8ef;border-radius:10px;background:#fbfdff}
-      .grdFormPage .btn{border:1px solid #d8e0e8;border-radius:8px;background:#fff;color:#33475b;padding:8px 13px;font-size:11px;font-weight:700;cursor:pointer}
-      .grdFormPage .btn.primary{border-color:#246fe8;background:#246fe8;color:#fff}
-      .grdFormPage .error{border:1px solid #f3cccc;background:#fff3f3;color:#a52b2b;border-radius:8px;padding:8px 10px;font-size:11px}
-      .grdFormPage .actions{display:flex;gap:8px}
-      @media(max-width:700px){.grdFormPage{padding:0}.grdFormPage .dealerPanel{border-radius:0 0 12px 12px;padding:13px}.grdFormPage .grid{grid-template-columns:1fr;gap:11px}.grdFormPage .dealerPanelHead h3{font-size:15px}.grdFormPage .dealerPanelHead p{font-size:10px}.grdFormPage .input{min-height:38px;font-size:11px}.grdFormPage .btn{font-size:10px;padding:7px 11px}.grdFormPage .card{padding:10px!important}}
-    `}</style>
+  return <div className="dealerLoanPage">
     <div className="dealerPanel" style={{maxWidth:980}}>
       <div className="dealerPanelHead">
         <div>
@@ -145,12 +137,23 @@ export function DealerDelivery({ onBack }) {
         </div>
 
         {customer&&<div className="card" style={{marginTop:14,padding:14}}>
-          <div className="muted">Customer financial details — already maintained in Customer Register</div>
+          <div className="muted">Customer financial details — editable for this delivery</div>
           <div className="grid" style={{marginTop:8}}>
-            <div><small className="muted">Sale Amount</small><div><b>{money(customer.sale_amount)}</b></div></div>
-            <div><small className="muted">Loan Amount</small><div><b>{money(customer.loan_amount)}</b></div></div>
+            <div><label className="muted">Sale Amount<input className="input" type="number" min="0" step="0.01" value={saleAmount} onChange={e=>setSaleAmount(e.target.value)} placeholder={String(customer.sale_amount||0)}/></label></div>
+            <div><label className="muted">Loan Amount<input className="input" type="number" min="0" step="0.01" value={loanAmount} onChange={e=>{setLoanAmount(e.target.value);if(!Number(e.target.value))setLoanWorkflowId('')}} placeholder={String(customer.loan_amount||0)}/></label></div>
+            <div><label className="muted">File Charge<input className="input" type="number" min="0" step="0.01" value={fileCharge} onChange={e=>setFileCharge(e.target.value)} placeholder="0"/></label></div>
+            <div><label className="muted">Misc Charge<input className="input" type="number" min="0" step="0.01" value={miscCharge} onChange={e=>setMiscCharge(e.target.value)} placeholder="0"/></label></div>
+          </div>
+          {Number(loanAmount)>0&&<div style={{marginTop:12}}>
+            <label className="muted">Approved Loan</label>
+            <select className="input" value={loanWorkflowId} onChange={e=>setLoanWorkflowId(e.target.value)} required>
+              <option value="">Select approved loan application</option>
+              {approvedLoans.map(x=><option key={x.id} value={x.id}>{x.application_no} · {x.do_no||'No DO'} · {x.customer_name||'Customer'} · {x.status}</option>)}
+            </select>
+          </div>}
+          <div className="grid" style={{marginTop:8}}>
             <div><small className="muted">Down Payment</small><div><b>{money(customer.paid_amount)}</b></div></div>
-            <div><small className="muted">Balance</small><div><b>{money(customer.balance)}</b></div></div>
+            <div><small className="muted">Current Balance</small><div><b>{money(Number(saleAmount||customer.sale_amount||0)-Number(loanAmount||customer.loan_amount||0)-Number(customer.paid_amount||0))}</b></div></div>
           </div>
         </div>}
 

@@ -1,115 +1,116 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 import { Money, Field, ErrorBanner } from './ui';
 
+const today=()=>new Date().toISOString().slice(0,10);
+
 export function DealerCashReceiptPage() {
-  const [data, setData] = useState({ pending_handovers: [], dealers: [] });
-  const [form, setForm] = useState({ dealer_id: '', handover_id: '', date: new Date().toISOString().slice(0,10), amount: '', received_by: '', remarks: '' });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [receipt, setReceipt] = useState(null);
+  const [customers,setCustomers]=useState([]);
+  const [type,setType]=useState('new_booking');
+  const [form,setForm]=useState({
+    date:today(), customer_id:'', customer_name:'', customer_phone:'',
+    sale_amount:'', booking_for:'new', loan_amount:'', amount:'',
+    payment_mode:'cash', reference_no:'', remarks:''
+  });
+  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState(''),[receipt,setReceipt]=useState(null);
 
-  const load = () => {
-    setLoading(true);
-    get('/cashier/dealer-cash-receipts')
-      .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+  const loadCustomers=async()=>{
+    setLoading(true); setError('');
+    try{
+      const r=await get('/dealer/cash-book/customers');
+      setCustomers(r.customers||[]);
+    }catch(e){setError(e.message||'Could not load previous customers')}
+    finally{setLoading(false)}
   };
-  useEffect(() => { load(); }, []);
+  useEffect(()=>{loadCustomers()},[]);
 
-  const acceptHandover = (h) => {
-    setForm({
-      dealer_id: String(h.dealer_id),
-      handover_id: String(h.id),
-      date: h.date || new Date().toISOString().slice(0,10),
-      amount: h.amount,
-      received_by: '',
-      remarks: h.remarks || ''
-    });
-    setReceipt(null);
-  };
+  const selected=useMemo(()=>customers.find(x=>String(x.id)===String(form.customer_id)),[customers,form.customer_id]);
+  const balance=Number(selected?.balance||0);
 
-  const submit = async (e) => {
-    e.preventDefault();
-    setSaving(true); setError(''); setReceipt(null);
-    try {
-      const r = await post('/cashier/dealer-cash-receipts', {
-        ...form,
-        dealer_id: Number(form.dealer_id),
-        handover_id: form.handover_id ? Number(form.handover_id) : null,
-        amount: Number(form.amount)
-      });
-      setReceipt(r);
-      setForm({ dealer_id: '', handover_id: '', date: new Date().toISOString().slice(0,10), amount: '', received_by: '', remarks: '' });
-      load();
-    } catch (e) {
-      setError(e.message);
-    } finally { setSaving(false); }
+  const set=(k,v)=>setForm(x=>({...x,[k]:v}));
+  const changeType=v=>{
+    setType(v);
+    setForm(x=>({...x,customer_id:'',customer_name:'',customer_phone:'',sale_amount:'',booking_for:'new',loan_amount:'',amount:'',reference_no:'',remarks:''}));
+    setReceipt(null);setError('');
   };
 
-  return (
-    <div className="page">
-      <div className="pageHeader">
-        <div>
-          <h2>Dealer Cash Receipt</h2>
-          <p className="muted">Cashier accepts cash received from a dealer. The receipt is posted to that dealer's ledger / Day Book.</p>
-        </div>
-        <button className="btn" onClick={load}>↻ Refresh</button>
+  const submit=async e=>{
+    e.preventDefault(); setSaving(true); setError(''); setReceipt(null);
+    try{
+      const payload=type==='balance_payment'
+        ? {receipt_type:type,date:form.date,customer_id:Number(form.customer_id),amount:Number(form.amount),payment_mode:form.payment_mode,reference_no:form.reference_no,remarks:form.remarks}
+        : {receipt_type:type,date:form.date,customer_name:form.customer_name,customer_phone:form.customer_phone,
+           sale_amount:Number(form.sale_amount),booking_for:form.booking_for,loan_amount:Number(form.loan_amount||0),
+           amount:Number(form.amount),payment_mode:form.payment_mode,reference_no:form.reference_no,remarks:form.remarks};
+      const r=await post('/dealer/cash-book/receipt',payload);
+      setReceipt(r.receipt); await loadCustomers();
+      setForm(x=>({...x,customer_id:'',customer_name:'',customer_phone:'',sale_amount:'',loan_amount:'',amount:'',reference_no:'',remarks:''}));
+    }catch(e){setError(e.message||'Could not create receipt')}
+    finally{setSaving(false)}
+  };
+
+  return <div className="dealerLoanPage">
+    <div className="dealerPanel" style={{maxWidth:980}}>
+      <div className="dealerPanelHead">
+        <div><h3>Customer Cash Receipt</h3><p>Booking aur customer balance payment ki receipt yahin se banegi.</p></div>
+        <button type="button" className="btn" onClick={loadCustomers}>↻ Refresh</button>
+      </div>
+      <ErrorBanner message={error}/>
+      {receipt&&<div className="card" style={{padding:12,marginBottom:14}}>
+        <b>Receipt Created: {receipt.receipt_no}</b><div className="muted" style={{marginTop:5}}>{receipt.customer_name} · ₹ {Number(receipt.amount||0).toLocaleString('en-IN')} · {receipt.date}</div>
+        <button type="button" className="btn primary" style={{marginTop:9}} onClick={()=>window.print()}>Print Receipt</button>
+      </div>}
+
+      <div className="actions" style={{marginBottom:12}}>
+        <button type="button" className={'btn '+(type==='new_booking'?'primary':'')} onClick={()=>changeType('new_booking')}>New Booking</button>
+        <button type="button" className={'btn '+(type==='balance_payment'?'primary':'')} onClick={()=>changeType('balance_payment')}>Balance Payment</button>
       </div>
 
-      <ErrorBanner message={error} />
-
-      {receipt && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <h3 style={{ marginTop: 0 }}>Receipt Created</h3>
-          <div><b>{receipt.receipt_no}</b> &nbsp; | &nbsp; {receipt.dealer_name} &nbsp; | &nbsp; <Money value={receipt.amount} /></div>
-          <div className="muted" style={{ marginTop: 6 }}>{receipt.date} · Received by {receipt.received_by}</div>
-          <button className="btn primary" style={{ marginTop: 10 }} onClick={() => window.print()}>Print Receipt</button>
-        </div>
-      )}
-
-      <div className="card" style={{ marginBottom: 14 }}>
-        <h3 style={{ marginTop: 0 }}>Direct Cash Received at Head Office</h3>
-        <form onSubmit={submit}>
-          <div className="formgrid">
-            <Field label="Dealer" type="select" value={form.dealer_id} options={[
-              { value: '', label: 'Select Dealer' },
-              ...data.dealers.map(d => ({ value: d.id, label: `${d.code ? d.code + ' — ' : ''}${d.name}` }))
-            ]} onChange={v => setForm({ ...form, dealer_id: v, handover_id: '' })} required />
-            <Field label="Date" type="date" value={form.date} onChange={v => setForm({ ...form, date: v })} required />
-            <Field label="Amount" type="number" value={form.amount} onChange={v => setForm({ ...form, amount: v })} required />
-            <Field label="Received By (Cashier)" value={form.received_by} onChange={v => setForm({ ...form, received_by: v })} required />
-            <Field label="Remarks" value={form.remarks} onChange={v => setForm({ ...form, remarks: v })} />
+      <form onSubmit={submit}>
+        {type==='balance_payment' ? <>
+          <div className="grid">
+            <Field label="Previous Customer" type="select" value={form.customer_id}
+              options={[{value:'',label:'Select Previous Customer'},...customers.map(c=>({value:c.id,label:`${c.name} — ${c.phone||'No Mobile'} — Balance ₹${Number(c.balance||0).toLocaleString('en-IN')}`}))]}
+              onChange={v=>set('customer_id',v)} required/>
+            <Field label="Date" type="date" value={form.date} onChange={v=>set('date',v)} required/>
+            <div className="card" style={{padding:10}}><small className="muted">Sale Amount</small><b>₹ {Number(selected?.sale_amount||0).toLocaleString('en-IN')}</b></div>
+            <div className="card" style={{padding:10}}><small className="muted">Loan Amount</small><b>₹ {Number(selected?.loan_amount||0).toLocaleString('en-IN')}</b></div>
+            <div className="card" style={{padding:10}}><small className="muted">Paid</small><b>₹ {Number(selected?.paid_amount||0).toLocaleString('en-IN')}</b></div>
+            <div className="card" style={{padding:10}}><small className="muted">Outstanding Balance</small><b>₹ {balance.toLocaleString('en-IN')}</b></div>
+            <Field label="Receipt Amount" type="number" value={form.amount} onChange={v=>set('amount',v)} required/>
+            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b></div>
+            <Field label="Reference No." value={form.reference_no} onChange={v=>set('reference_no',v)}/>
+            <Field label="Remarks" value={form.remarks} onChange={v=>set('remarks',v)}/>
           </div>
-          <button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Receive Cash & Create Receipt'}</button>
-        </form>
-      </div>
-
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>Dealer Cash Sent to Head Office — Pending Acceptance</h3>
-        {loading ? <div className="muted">Loading…</div> : data.pending_handovers.length === 0 ? (
-          <div className="muted">No pending cash handovers.</div>
-        ) : (
-          <div className="tablewrap">
-            <table className="table">
-              <thead><tr><th>Date</th><th>Handover No.</th><th>Dealer</th><th>Amount</th><th>Sent To</th><th></th></tr></thead>
-              <tbody>
-                {data.pending_handovers.map(h => (
-                  <tr key={h.id}>
-                    <td>{h.date}</td><td>{h.handover_no}</td><td>{h.dealer_name}</td>
-                    <td><Money value={h.amount} /></td><td>{h.sent_to || 'Head Office'}</td>
-                    <td><button className="btn primary" onClick={() => acceptHandover(h)}>Accept & Receipt</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        </> : <>
+          <div className="grid">
+            <Field label="Customer Name" value={form.customer_name} onChange={v=>set('customer_name',v)} required/>
+            <Field label="Mobile No." value={form.customer_phone} onChange={v=>set('customer_phone',v)} required/>
+            <Field label="Date" type="date" value={form.date} onChange={v=>set('date',v)} required/>
+            <Field label="Sale Amount" type="number" value={form.sale_amount} onChange={v=>set('sale_amount',v)} required/>
+            <Field label="Vehicle / Booking Type" type="select" value={form.booking_for} options={[
+              {value:'new',label:'New'}, {value:'old',label:'Old'}, {value:'battery',label:'Battery'}
+            ]} onChange={v=>set('booking_for',v)}/>
+            <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>set('loan_amount',v)}/>
+            <Field label="Receipt Amount" type="number" value={form.amount} onChange={v=>set('amount',v)} required/>
+            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b></div>
+            <Field label="Reference No." value={form.reference_no} onChange={v=>set('reference_no',v)}/>
+            <Field label="Remarks" value={form.remarks} onChange={v=>set('remarks',v)}/>
           </div>
-        )}
-      </div>
+          <div className="muted" style={{margin:'8px 0'}}>New Booking: Sale Amount − Loan Amount = customer balance. Receipt Amount is the payment received today.</div>
+        </>}
+        <button className="btn primary" disabled={saving} style={{marginTop:12}}>{saving?'Saving…':'Create Receipt'}</button>
+      </form>
     </div>
-  );
+
+    <div className="dealerPanel" style={{maxWidth:980,marginTop:14}}>
+      <div className="dealerPanelHead"><div><h3>Previous Customers</h3><p>Balance Payment ke liye customer yahin se select hoga.</p></div></div>
+      {loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Customer</th><th>Mobile</th><th>Type</th><th>Sale</th><th>Loan</th><th>Paid</th><th>Balance</th></tr></thead><tbody>
+        {customers.map(c=><tr key={c.id}><td><b>{c.name}</b></td><td>{c.phone||'—'}</td><td>{c.vehicle_no||'—'}</td><td>₹ {Number(c.sale_amount||0).toLocaleString('en-IN')}</td><td>₹ {Number(c.loan_amount||0).toLocaleString('en-IN')}</td><td>₹ {Number(c.paid_amount||0).toLocaleString('en-IN')}</td><td><b>₹ {Number(c.balance||0).toLocaleString('en-IN')}</b></td></tr>)}
+        {!customers.length&&<tr><td colSpan="7" className="muted">No previous customers found.</td></tr>}
+      </tbody></table></div>}
+    </div>
+  </div>;
 }

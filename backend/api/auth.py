@@ -119,8 +119,10 @@ def verify_otp():
 @app.post("/api/backend/auth/dealer-login")
 def dealer_login():
     try:
-        err=ensure_dealer_columns()
-        if err: return jsonify({"error":f"Dealer login database setup failed: {err}"}),500
+        # Dealer columns are part of the Dealer model and are migrated outside
+        # the login request. Do not run inspect()/ALTER TABLE during login:
+        # on Supabase this can wait on a schema/DDL lock and make the Vercel
+        # function hang until its timeout. Login should only read the dealer.
         data=request.get_json(silent=True) or {}
         login_id=(data.get("userid") or "").strip()
         password=data.get("password") or ""

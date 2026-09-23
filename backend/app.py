@@ -31,6 +31,7 @@ from datetime import date, datetime as dt, timedelta
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from sqlalchemy.orm import joinedload
+from sqlalchemy.pool import NullPool
 from sqlalchemy import or_, text, inspect
 
 # Load backend/.env if present (local dev convenience — e.g. DATABASE_URL,
@@ -45,7 +46,7 @@ except ImportError:
 from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicle, User,
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
-                     DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem,
+                     DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem, DebitNote, DebitNoteItem,
                      OldRickshaw, OldRickshawChallan, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_auth_or_dealer, require_super_user, _serializer
@@ -64,7 +65,7 @@ if db_url.startswith("postgresql") and "supabase" in db_url and "sslmode=" not i
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 300}
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"poolclass": NullPool, "pool_pre_ping": True}
 
 db.init_app(app)
 
@@ -238,6 +239,98 @@ def dealer_loan_masters():
         ],
     })
 
+
+# ---------------------------------------------------------------------------
+# Dealer Ledger Master — create ledger accounts from the dealer portal
+# ---------------------------------------------------------------------------
+LEDGER_ACCOUNT_TYPES = [
+    {"id":"dealer","name":"Dealer"},
+    {"id":"salesman","name":"Salesman"},
+    {"id":"financer","name":"Finance"},
+    {"id":"rto_expense","name":"RTO Expense"},
+    {"id":"insurance_expense","name":"Insurance Expense"},
+    {"id":"party","name":"Party / Supplier"},
+    {"id":"mechanic","name":"Mechanic"},
+    {"id":"fabricator","name":"Fabricator"},
+    {"id":"expense_head","name":"Expense Head"},
+    {"id":"other","name":"Other"},
+]
+
+@app.get("/api/dealer/ledger-masters")
+@require_dealer_auth
+def dealer_ledger_masters():
+    dealers = Dealer.query.filter(Dealer.blocked.is_(False)).order_by(Dealer.name.asc()).all()
+    def rows(kind):
+        return [{"id":x.id,"code":x.code,"name":x.name,"mobile":x.mobile,
+                 "account_no":x.account_no,"ifsc":x.ifsc,"address":x.address}
+                for x in SimpleMaster.query.filter_by(kind=kind).order_by(SimpleMaster.name.asc()).all()]
+    salesman = rows("salesman")
+    financers = rows("financer")
+    rto = rows("rto")
+    parties = rows("party")
+    mechanics = rows("mechanic")
+    fabricators = rows("fabricator")
+    expense_heads = rows("expense-head")
+    return jsonify({
+        "types": LEDGER_ACCOUNT_TYPES,
+        "dealers": [{"id":d.id,"code":d.code,"name":d.name,"mobile":d.mobile} for d in dealers],
+        "salesmen": salesman, "financers": financers, "rtos": rto,
+        "parties": parties, "mechanics": mechanics, "fabricators": fabricators,
+        "expense_heads": expense_heads,
+    })
+
+@app.get("/api/dealer/ledger-accounts")
+@require_dealer_auth
+def dealer_ledger_accounts():
+    rows = SimpleMaster.query.filter_by(kind="ledger").order_by(SimpleMaster.name.asc()).all()
+    out=[]
+    for x in rows:
+        extra={}
+        try: extra=_json.loads(x.extra or "{}")
+        except Exception: extra={}
+        out.append({"id":x.id,"name":x.name,"code":x.code,"address":x.address,
+                    "mobile":x.mobile,"account_no":x.account_no,"ifsc":x.ifsc,
+                    "account_type":extra.get("account_type") or x.code or "other",
+                    "opening_balance":_f(extra.get("opening_balance"),0),
+                    "opening_type":extra.get("opening_type") or "dr",
+                    "notes":extra.get("notes") or ""})
+    return jsonify({"accounts":out})
+
+@app.post("/api/dealer/ledger-accounts")
+@require_dealer_auth
+def create_dealer_ledger_account():
+    d=request.get_json(silent=True) or {}
+    account_type=str(d.get("account_type") or "").strip().lower()
+    if account_type not in {x["id"] for x in LEDGER_ACCOUNT_TYPES}:
+        return _err("Valid ledger account type is required.")
+    name=str(d.get("name") or "").strip()
+    if account_type=="dealer":
+        dealer=Dealer.query.filter_by(id=_i(d.get("dealer_id"),0)).first()
+        if not dealer: return _err("Select a valid dealer.")
+        name=dealer.name
+        code=dealer.code
+        mobile=dealer.mobile
+    else:
+        code=str(d.get("code") or "").strip() or None
+        mobile=str(d.get("mobile") or "").strip() or None
+    if not name: return _err("Ledger name is required.")
+    opening=_f(d.get("opening_balance"),0)
+    if opening < 0: return _err("Opening balance cannot be negative.")
+    row=SimpleMaster(kind="ledger", name=name, code=code,
+                     address=str(d.get("address") or "").strip() or None,
+                     mobile=mobile,
+                     account_no=str(d.get("account_no") or "").strip() or None,
+                     ifsc=str(d.get("ifsc") or "").strip() or None,
+                     extra=_json.dumps({
+                         "account_type":account_type,
+                         "opening_balance":opening,
+                         "opening_type":str(d.get("opening_type") or "dr").lower(),
+                         "notes":str(d.get("notes") or "").strip()
+                     }))
+    db.session.add(row); db.session.commit()
+    return jsonify({"success":True,"account":{"id":row.id,"name":row.name,"code":row.code,
+        "account_type":account_type,"opening_balance":opening,
+        "opening_type":str(d.get("opening_type") or "dr").lower()}}),201
 
 # ---------------------------------------------------------------------------
 # Dealer customer + CHFPL loan bridge
@@ -510,8 +603,9 @@ def repair_service_vouchers():
     d = request.get_json(silent=True) or {}
     customer = (d.get("customer_name") or "").strip()
     if not customer: return _err("Customer Name is required")
+    vehicle_no = (d.get("vehicle_no") or "").strip()
+    if not vehicle_no: return _err("Vehicle No. is required")
     mobile = (d.get("customer_mobile") or "").strip()
-    vehicle_no = (d.get("vehicle_no") or "").strip() or None
     chassis_no = (d.get("chassis_no") or "").strip() or None
     raw_items = d.get("items") if isinstance(d.get("items"), list) else []
     if not raw_items: return _err("At least one item/service line is required")
@@ -1220,7 +1314,7 @@ def ser_product(p):
 def ser_simple(row):
     return {"id": row.id, "kind": row.kind, "name": row.name, "code": row.code,
             "address": row.address, "mobile": row.mobile, "account_no": row.account_no,
-            "is_default": row.is_default, "ifsc": row.ifsc, "extra": row.extra,
+            "is_default": row.is_default, "ifsc": row.ifsc, "extra": row.extra, "sub_category": getattr(row, "sub_category", None),
             "color_hex": getattr(row, "color_hex", None), "color_hex2": getattr(row, "color_hex2", None),
             "is_double_tone": bool(getattr(row, "is_double_tone", False))}
 
@@ -1244,6 +1338,8 @@ def ser_user(u):
     return {"id": u.id, "username": u.username, "mobile": u.mobile, "is_super_user": u.is_super_user,
             "permissions": u.permissions,
             "department": u.department or "Admin",
+            "full_name": u.full_name, "email": u.email, "address": u.address,
+            "date_of_birth": _iso(u.date_of_birth) if u.date_of_birth else None,
             "assigned_dealer_ids": u.get_assigned_dealer_ids(),
             "allowed_modules": (u.allowed_modules or "").split(",") if u.allowed_modules else []}
 
@@ -1476,6 +1572,10 @@ def _ensure_auth_columns():
                 "department": 'VARCHAR(30) DEFAULT \'Admin\'',
                 "assigned_dealer_ids": 'TEXT',
                 "mobile": 'VARCHAR(30)',
+                "full_name": 'VARCHAR(120)',
+                "email": 'VARCHAR(120)',
+                "address": 'TEXT',
+                "date_of_birth": 'DATE',
             }
             for name, sql_type in additions.items():
                 if name not in columns:
@@ -1933,6 +2033,53 @@ def me():
     if not user:
         return _err("User not found", 404)
     return jsonify(ser_user(user))
+
+
+@app.route("/api/auth/profile", methods=["POST"])
+@require_auth
+def update_own_profile():
+    """Self-service profile update — any logged-in user can fill in / edit
+    their own details (full name, mobile, email, address, DOB). This is
+    separate from /api/users, which is admin-only and manages other users."""
+    _ensure_auth_columns()
+    user = User.query.get(g.current_user_payload["uid"])
+    if not user:
+        return _err("User not found", 404)
+    d = request.get_json(silent=True) or {}
+    if "full_name" in d:
+        user.full_name = (d.get("full_name") or "").strip() or None
+    if "mobile" in d:
+        user.mobile = (d.get("mobile") or "").strip() or None
+    if "email" in d:
+        user.email = (d.get("email") or "").strip() or None
+    if "address" in d:
+        user.address = (d.get("address") or "").strip() or None
+    if "date_of_birth" in d:
+        user.date_of_birth = _parse_date(d.get("date_of_birth"))
+    db.session.commit()
+    return jsonify({"updated": True, "user": ser_user(user)})
+
+
+@app.route("/api/auth/change-password", methods=["POST"])
+@require_auth
+def change_own_password():
+    """Self-service password change — requires the current password, unlike
+    the admin-only /api/users/<id>/password reset."""
+    _ensure_auth_columns()
+    user = User.query.get(g.current_user_payload["uid"])
+    if not user:
+        return _err("User not found", 404)
+    d = request.get_json(silent=True) or {}
+    current_password = d.get("current_password") or ""
+    new_password = d.get("new_password") or ""
+    confirm_password = d.get("confirm_password") or ""
+    if not user.check_password(current_password):
+        return _err("Current password is incorrect.")
+    if not new_password or new_password != confirm_password:
+        return _err("New password and confirm password must match and not be blank.")
+    user.set_password(new_password)
+    db.session.commit()
+    return jsonify({"updated": True})
 
 
 @app.route("/api/menu")
@@ -2941,7 +3088,7 @@ def _ensure_simple_master_columns():
             inspector=inspect(conn)
             if not inspector.has_table("simple_master"): return
             columns={x["name"] for x in inspector.get_columns("simple_master")}
-            additions={"color_hex":"VARCHAR(20)","color_hex2":"VARCHAR(20)","is_double_tone":"BOOLEAN DEFAULT FALSE"}
+            additions={"color_hex":"VARCHAR(20)","color_hex2":"VARCHAR(20)","is_double_tone":"BOOLEAN DEFAULT FALSE","sub_category":"VARCHAR(50)"}
             for name,sql_type in additions.items():
                 if name not in columns:
                     if db.engine.dialect.name=="postgresql":
@@ -2953,7 +3100,13 @@ def _ensure_simple_master_columns():
         return str(exc)
     return None
 
-SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour", "salesman", "expense-head"}
+ACCOUNT_SUBCATEGORIES = (
+    "Current Asset", "Fixed Asset", "Other / Non-Current Asset",
+    "Current Liability", "Long Term Liability", "Capital & Reserves",
+    "Direct Expense", "Indirect Expense", "Direct Income", "Indirect Income",
+)
+
+SIMPLE_KINDS = {"party", "battery-maker", "rto", "financer", "mechanic", "fabricator", "bank", "colour", "salesman", "expense-head", "ledger"}
 
 # Representative colour shades for the Colour Master. These are intentionally
 # editable in the master later; they are only used to fill currently blank
@@ -3066,6 +3219,13 @@ def _save_simple_master(kind, data, row_id=None):
     row.account_no = data.get("account_no")
     row.ifsc = data.get("ifsc")
     row.extra = data.get("extra")
+    if kind == "expense-head":
+        sub_category = (data.get("sub_category") or "").strip()
+        if sub_category not in ACCOUNT_SUBCATEGORIES:
+            raise ValueError("Valid Sub Category is required for Account Head")
+        row.sub_category = sub_category
+    elif hasattr(row, "sub_category") and kind != "expense-head":
+        row.sub_category = data.get("sub_category") or getattr(row, "sub_category", None)
     if kind == "colour":
         row.color_hex = (data.get("color_hex") or "").strip() or None
         row.is_double_tone = bool(data.get("is_double_tone"))
@@ -3094,7 +3254,10 @@ def simple_masters(kind):
 
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
-        row = _save_simple_master(kind, data)
+        try:
+            row = _save_simple_master(kind, data)
+        except ValueError as exc:
+            return _err(str(exc), 422)
         return jsonify(ser_simple(row)), 201
 
     # Salesman Master is seeded/synchronised from both sources already
@@ -3143,7 +3306,10 @@ def simple_masters_detail(kind, row_id):
         denied = _production_voucher_write_access()
         if denied: return denied
         data = request.get_json(silent=True) or {}
-        row = _save_simple_master(kind, data, row_id=row_id)
+        try:
+            row = _save_simple_master(kind, data, row_id=row_id)
+        except ValueError as exc:
+            return _err(str(exc), 422)
         return jsonify(ser_simple(row))
 
     row = SimpleMaster.query.get_or_404(row_id)
@@ -4278,6 +4444,98 @@ def tax_invoice_update_payment(invoice_id):
     ti.vehicle_reg_no = data.get("vehicle_reg_no")
     db.session.commit()
     return jsonify(ser_ti(ti))
+
+
+def ser_debit_note_item(x):
+    return {
+        "id": x.id, "product_id": x.product_id, "item_name": x.item_name,
+        "hsn_code": x.hsn_code, "qty": x.qty, "rate": x.rate, "gst_rate": x.gst_rate,
+        "taxable_amt": x.taxable_amt, "cgst_amt": x.cgst_amt,
+        "sgst_amt": x.sgst_amt, "igst_amt": x.igst_amt, "tax_amt": x.tax_amt,
+    }
+
+
+def ser_debit_note(x):
+    return {
+        "id": x.id, "debit_note_no": x.debit_note_no, "date": _iso(x.date),
+        "party_name": x.party_name, "party_gst_no": x.party_gst_no,
+        "party_state_code": x.party_state_code, "original_bill_no": x.original_bill_no,
+        "reason": x.reason, "remarks": x.remarks, "taxable_amount": x.taxable_amount,
+        "tax_amount": x.tax_amount, "total_amount": x.total_amount,
+        "status": x.status, "created_by": x.created_by,
+        "items": [ser_debit_note_item(i) for i in x.items],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Factory > Debit Note — raw-material purchase return
+# ---------------------------------------------------------------------------
+@app.route("/api/debit-notes", methods=["GET", "POST"])
+@require_auth
+def debit_notes():
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        party_name = (data.get("party_name") or "").strip()
+        reason = (data.get("reason") or "").strip()
+        items = data.get("items") or []
+        if not party_name: return _err("Supplier / Party Name is required.")
+        if not reason: return _err("Debit Note reason is required.")
+        if not items: return _err("At least one raw item is required.")
+
+        dn = DebitNote(
+            debit_note_no="TEMP",
+            date=_parse_date(data.get("date")) or date.today(),
+            party_name=party_name,
+            party_gst_no=(data.get("party_gst_no") or "").strip() or None,
+            party_state_code=(data.get("party_state_code") or "07").strip(),
+            original_bill_no=(data.get("original_bill_no") or "").strip() or None,
+            reason=reason, remarks=(data.get("remarks") or "").strip() or None,
+            status="ACTIVE",
+            created_by=str(getattr(g, "current_user_payload", {}).get("username") or
+                           getattr(g, "current_user_payload", {}).get("user_id") or "user"),
+        )
+        db.session.add(dn)
+        db.session.flush()
+
+        taxable = tax = total = 0
+        for raw in items:
+            pid = _i(raw.get("product_id"), 0)
+            product = Product.query.get(pid) if pid else None
+            if not product or (product.fro or "").strip().upper() != "R":
+                db.session.rollback()
+                return _err("Debit Note can contain only Raw Material items.", 422)
+            qty = _f(raw.get("qty"), 0)
+            rate = _f(raw.get("rate"), 0)
+            if qty <= 0 or rate < 0:
+                db.session.rollback()
+                return _err("Each raw item must have a valid quantity and rate.", 422)
+            gst_rate = _f(raw.get("gst_rate"), product.gst_rate or 0)
+            item = DebitNoteItem(
+                debit_note_id=dn.id, product_id=product.id, item_name=product.name,
+                hsn_code=product.hsn_code, qty=qty, rate=rate, gst_rate=gst_rate
+            )
+            db.session.add(item)
+            db.session.flush()
+            taxable += item.taxable_amt
+            tax += item.tax_amt
+            total += item.taxable_amt + item.tax_amt
+
+        dn.taxable_amount = round(taxable, 2)
+        dn.tax_amount = round(tax, 2)
+        dn.total_amount = round(total, 2)
+        dn.debit_note_no = f"DN/{dn.date.strftime('%Y')}/{dn.id:06d}"
+        db.session.commit()
+        return jsonify(ser_debit_note(dn)), 201
+
+    q = DebitNote.query.order_by(DebitNote.date.desc(), DebitNote.id.desc())
+    search = (request.args.get("search") or "").strip()
+    if search:
+        like = f"%{search}%"
+        q = q.filter(db.or_(DebitNote.debit_note_no.ilike(like),
+                            DebitNote.party_name.ilike(like),
+                            DebitNote.original_bill_no.ilike(like)))
+    rows = q.limit(500).all()
+    return jsonify({"debit_notes": [ser_debit_note(x) for x in rows]})
 
 
 # ---------------------------------------------------------------------------

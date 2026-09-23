@@ -18,7 +18,7 @@ export function RepairServiceVoucherPage(){
   const [filter,setFilter]=useState('');
   const [form,setForm]=useState({
     date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',
-    items:[{item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]
+    items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]
   });
   const [receipt,setReceipt]=useState({date:today(),voucher_id:'',amount:'',payment_mode:'cash',reference_no:'',remarks:''});
 
@@ -37,7 +37,7 @@ export function RepairServiceVoucherPage(){
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const updateItem=(i,k,v)=>setForm(x=>({...x,items:x.items.map((it,n)=>n===i?{...it,[k]:v}:it)}));
-  const addItem=()=>setForm(x=>({...x,items:[...x.items,{item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]}));
+  const addItem=()=>setForm(x=>({...x,items:[...x.items,{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]}));
   const removeItem=i=>setForm(x=>({...x,items:x.items.length>1?x.items.filter((_,n)=>n!==i):x.items}));
   const total=useMemo(()=>form.items.reduce((s,x)=>s+Number(x.qty||0)*Number(x.rate||0),0),[form.items]);
   const lookupVehicle=async(value)=>{
@@ -60,12 +60,13 @@ export function RepairServiceVoucherPage(){
   async function saveVoucher(e){
     e.preventDefault();setSaving(true);setError('');setMsg('');
     try{
+      if(!form.vehicle_no.trim())throw new Error('Vehicle No. is required.');
       if(!form.customer_name.trim())throw new Error('Customer Name is required.');
       const clean=form.items.map(x=>({...x,qty:Number(x.qty),rate:Number(x.rate)}));
       if(clean.some(x=>!x.item_name.trim()||x.qty<=0||x.rate<0))throw new Error('Raw Item, Qty and Rate correctly fill karein.');
       const r=await post('/repair-service-vouchers',{...form,items:clean});
       setMsg('Repair / Service Voucher '+r.voucher.voucher_no+' created. GST: ₹0');
-      setForm({date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',items:[{item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]});
+      setForm({date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]});
       await load();
     }catch(e){setError(e.message||'Could not save voucher')}finally{setSaving(false)}
   }
@@ -101,7 +102,10 @@ export function RepairServiceVoucherPage(){
       <h2>New Repair / Service Voucher</h2>
       <div className="grid">
         <input className="input" type="date" value={form.date} onChange={e=>set('date',e.target.value)} required/>
-        <input className="input" placeholder="Vehicle No." value={vehicleSearch||form.vehicle_no} onChange={e=>setVehicleSearch(e.target.value)} onBlur={e=>lookupVehicle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();lookupVehicle(e.currentTarget.value)}}} required/>
+        <div>
+          <input className="input" placeholder="Vehicle No. *" value={vehicleSearch||form.vehicle_no} onChange={e=>setVehicleSearch(e.target.value)} onBlur={e=>lookupVehicle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();lookupVehicle(e.currentTarget.value)}}} required/>
+          <small className="muted">{form.vehicle_id?'Existing record found — details auto-filled below.':vehicleSearch||form.vehicle_no?'No existing record for this vehicle — fill details below as new.':'Enter Vehicle No. and press Tab/Enter to pull existing details, or fill as new.'}</small>
+        </div>
         <input className="input" placeholder="Customer Name" value={form.customer_name} onChange={e=>set('customer_name',e.target.value)} required/>
         <input className="input" placeholder="Mobile No." value={form.customer_mobile} onChange={e=>set('customer_mobile',e.target.value)}/>
         <input className="input" placeholder="Chassis No." value={form.chassis_no} onChange={e=>set('chassis_no',e.target.value)} />
@@ -113,7 +117,12 @@ export function RepairServiceVoucherPage(){
         <div className="tablewrap"><table className="table"><thead><tr><th>Item / Service</th><th>Qty</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
           <tbody>{form.items.map((it,i)=><tr key={i}>
             <td>
-              <select className="input" value={it.item_code||''} onChange={e=>{const p=rawItems.find(x=>String(x.id)===String(e.target.value)); updateItem(i,'item_code',p?.code||''); updateItem(i,'item_name',p?.name||''); updateItem(i,'unit',p?.unit||'PCS')}}>
+              {/* Bug fix: the <select>'s controlled value was bound to
+                  it.item_code (e.g. "RM045") while each <option value>
+                  was the raw item's numeric id — they never matched, so
+                  the dropdown always snapped back to "Select Raw Item"
+                  right after picking something. Now both use item_id. */}
+              <select className="input" value={it.item_id||''} onChange={e=>{const p=rawItems.find(x=>String(x.id)===String(e.target.value)); updateItem(i,'item_id',e.target.value); updateItem(i,'item_code',p?.code||''); updateItem(i,'item_name',p?.name||''); updateItem(i,'unit',p?.unit||'PCS')}}>
                 <option value="">Select Raw Item</option>
                 {rawItems.map(p=><option key={p.id} value={p.id}>{p.name} — Stock {Number(p.stock_qty||0).toLocaleString('en-IN')}</option>)}
               </select>
