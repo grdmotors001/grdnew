@@ -63,7 +63,8 @@ const CUSTOM_PAGES = {
   'chassis-master': () => <ChassisMasterPage />,
   user: (ctx) => <UserPage setActive={ctx.setActive} setOptionUserId={ctx.setOptionUserId} />,
   'option-setting': (ctx) => <OptionSettingPage userId={ctx.optionUserId} />,
-  password: () => <PasswordPage />,\n  profile: (ctx) => <ProfilePage user={ctx.user} />,
+  password: () => <PasswordPage />,
+  profile: (ctx) => <ProfilePage user={ctx.user} />,
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
   'vahan-inventory': () => <VahanInventoryPage />,
@@ -72,7 +73,8 @@ const CUSTOM_PAGES = {
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
   'tax-invoice': () => <TaxInvoicePage />,
-  'credit-note': () => <CreditNotePage />,\n  'debit-note': () => <DebitNotePage />,
+  'credit-note': () => <CreditNotePage />,
+  'debit-note': () => <DebitNotePage />,
   'old-rickshaw': () => <OldRickshawPage />,
   'battery-swap': () => <BatterySwapVoucherPage />,
   'battery-withdrawal': () => <BatteryWithdrawalPage />,
@@ -119,7 +121,25 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [checkedAuth, setCheckedAuth] = useState(false);
   const [active, setActive] = useState('dashboard');
-  const [optionUserId, setOptionUserId] = useState(null);\n\n  // URL-hash routing: direct links, browser Back/Forward and refresh now keep\n  // the selected module. The menu still uses the same stable module keys.\n  useEffect(() => {\n    const syncFromUrl = () => {\n      const key = keyForPath(window.location.hash.replace(/^#/, '') || '/dashboard');\n      setActive(key);\n    };\n    syncFromUrl();\n    window.addEventListener('hashchange', syncFromUrl);\n    return () => window.removeEventListener('hashchange', syncFromUrl);\n  }, []);\n\n  const navigate = (key) => {\n    const path = routeForKey(key).path;\n    if (window.location.hash.replace(/^#/, '') === path) setActive(key);\n    else window.location.hash = path;\n  };
+  const [optionUserId, setOptionUserId] = useState(null);
+
+  // URL-hash routing: direct links, browser Back/Forward and refresh now keep
+  // the selected module. The menu still uses the same stable module keys.
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const key = keyForPath(window.location.hash.replace(/^#/, '') || '/dashboard');
+      setActive(key);
+    };
+    syncFromUrl();
+    window.addEventListener('hashchange', syncFromUrl);
+    return () => window.removeEventListener('hashchange', syncFromUrl);
+  }, []);
+
+  const navigate = (key) => {
+    const path = routeForKey(key).path;
+    if (window.location.hash.replace(/^#/, '') === path) setActive(key);
+    else window.location.hash = path;
+  };
 
   useEffect(() => {
     const token = getToken();

@@ -196,7 +196,7 @@ export function routeForKey(key) {
 }
 
 export function keyForPath(path) {
-  const clean = String(path || '').split('?')[0].replace(/\\/+$/, '') || '/';
+  const clean = String(path || '').split('?')[0].replace(/\/+$/, '') || '/';
   const found = Object.entries(ROUTES).find(([, route]) => route.path === clean);
   return found ? found[0] : 'dashboard';
 }

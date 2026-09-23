@@ -184,7 +184,8 @@ export function DealerPage() {
               <Field label="Bank Account No." value={form.bank_account_no} onChange={(v) => setForm({ ...form, bank_account_no: v })} />
               <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
               <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => ({ value: u.name, label: u.name }))]} />
-              <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />\n              <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access && form.registration_type !== 'unregistered'} disabled={form.registration_type === 'unregistered'} onChange={(v) => setForm({ ...form, purchase_access: form.registration_type === 'unregistered' ? false : v })} />
+              <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />
+              <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access && form.registration_type !== 'unregistered'} disabled={form.registration_type === 'unregistered'} onChange={(v) => setForm({ ...form, purchase_access: form.registration_type === 'unregistered' ? false : v })} />
               <div className="field" style={{gridColumn:'1/-1'}}>
                 <label>Dealer Portal Permissions</label>
                 <div style={{display:'flex',gap:12,flexWrap:'wrap',padding:'10px 0'}}>

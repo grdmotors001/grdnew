@@ -59,7 +59,8 @@ export function BillingPendingSalesPage(){
     </div>
 
     <ShowroomDeliveryBillingSection rows={showroomDeliveries} doOptions={doOptions} onSaved={load}/>
-    <ApprovedShowroomBillingSection rows={approvedShowroomDeliveries} onSaved={load}/>\n    <OldRickshawBillingSection rows={oldChallans} onSaved={load}/>
+    <ApprovedShowroomBillingSection rows={approvedShowroomDeliveries} onSaved={load}/>
+    <OldRickshawBillingSection rows={oldChallans} onSaved={load}/>
     <div className="card" style={{marginBottom:14}}>
       <h3 style={{marginTop:0}}>Pending for Bill — Approved CHFPL Loans</h3>
       <p className="muted">CHFPL me loan approve hone ke baad yahan Pending for Bill me live dikhega. Billing staff isi application ko sale/billing process me use karega.</p>
