@@ -120,8 +120,12 @@ export const NAV_GROUPS = {
   Factory: [
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
-    ['battery-delivery-challan', 'Battery Delivery Challan'],
-    ['battery-swap', 'Battery Swap / Exchange'], ['battery-withdrawal', 'Battery Withdrawal'], ['battery-addition', 'Battery Fit to Rickshaw'],
+  ],
+  Battery: [
+    ['battery-delivery-challan', 'Battery Challan'],
+    ['battery-withdrawal', 'Battery Remove'],
+    ['battery-swap', 'Battery Swap'],
+    ['battery-addition', 'Battery Fit'],
   ],
   'Sales & Billing': [
     ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
