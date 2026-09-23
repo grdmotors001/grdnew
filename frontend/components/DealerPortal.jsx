@@ -16,7 +16,7 @@ import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 import { DealerAllReceiptsPage, DealerAllCustomersPage, DealerExpenseCreatePage, DealerHandoverCreatePage } from './DealerCashBookExtras';
 
 const dealerHeaderSections = [
-  {label:'Stock', items:[['stock','New Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
+  {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Rickshaw Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
   {label:'Report', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['incentive','Incentive Record'],['expenses-reports','Expenses Reports']]},
   {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['expenses-create','Expenses Create'],['handover-create','Record Handover'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
@@ -51,6 +51,7 @@ const nav = [
   ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
   ['incentive', '₹', 'Incentive'],
   ['receipt-create', '🧾', 'Create Receipt'],
+  ['create-sale', '＋', 'Create Sale'],
 ];
 
 // Old Rickshaw Stock, Battery Stock and Seized Vehicles are no longer
@@ -131,6 +132,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
 
   const standaloneForm =
+    tab === 'create-sale' ? <DealerCreateSaleForm stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
     tab === 'newloan' ? <DealerNewLoanForm onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-withdrawal' && canBatteryWithdrawal) ? <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-swap' && canBatterySwap) ? <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} /> :
@@ -178,6 +180,14 @@ export function DealerPortal({ dealer, onLogout }) {
       .grdFormPage .error{border:1px solid #f3cccc;background:#fff3f3;color:#a52b2b;border-radius:8px;padding:8px 10px;font-size:11px;margin-bottom:12px}
       .grdFormPage .actions{display:flex;gap:8px;margin-top:14px}
       @media(max-width:700px){.grdFormPage{padding:0}.grdFormPage .dealerPanel{border-radius:0 0 12px 12px;padding:13px}.grdFormPage .grid{grid-template-columns:1fr;gap:11px}.grdFormPage .dealerPanelHead h3{font-size:15px}.grdFormPage .input{min-height:38px;font-size:11px}}
+      .dealerCreateSalePage{padding:12px}
+      .dealerCreateSalePanel{max-width:760px}
+      .dealerCreateSaleGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+      .dealerCreateSaleGrid label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:800;color:#30445b}
+      .dealerCreateSaleGrid input,.dealerCreateSaleGrid select{width:100%;min-height:42px;box-sizing:border-box}
+      .dealerCreateSaleItemField{grid-column:1/-1}
+      .dealerCreateSaleActions{justify-content:flex-end}
+      @media(max-width:620px){.dealerCreateSalePage{padding:0}.dealerCreateSalePanel{border-radius:0 0 12px 12px;padding:13px}.dealerCreateSaleGrid{grid-template-columns:1fr}.dealerCreateSaleItemField{grid-column:auto}.dealerCreateSaleActions{position:sticky;bottom:0;background:#fff;padding-top:12px}}
       .dealerPortalHeaderNav{display:flex;gap:8px;align-items:stretch;overflow-x:auto;border-bottom:1px solid #e3e8f0;background:#fff;padding:7px 0 8px;scrollbar-width:none;min-height:50px}
       .dealerPortalHeaderNav::-webkit-scrollbar{display:none}
       .dealerPortalHeaderGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;padding:0 8px}
@@ -283,6 +293,60 @@ export function DealerPortal({ dealer, onLogout }) {
   </div>;
 }
 
+function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
+  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const [type,setType]=useState('');
+  const [item,setItem]=useState('');
+
+  const newItems=stock?.vehicles||[];
+  const oldItems=oldStock?.rickshaws||[];
+  const batteryItems=batteryStock?.batteries||[];
+
+  const options=type==='new' ? newItems : type==='old' ? oldItems : type==='battery' ? batteryItems : [];
+  const optionValue=(v)=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '');
+  const optionLabel=(v)=>{
+    if(type==='new') return [v.chassis_no,v.model_name,v.motor_no].filter(Boolean).join(' · ') || 'New Rickshaw';
+    if(type==='old') return [v.vehicle_reg_no,v.model_name,v.owner_name].filter(Boolean).join(' · ') || 'Old Rickshaw';
+    return [v.battery_no,v.battery_maker].filter(Boolean).join(' · ') || 'Battery';
+  };
+
+  return <div className="grdFormPage dealerCreateSalePage">
+    <div className="dealerPanel dealerCreateSalePanel">
+      <div className="dealerPanelHead">
+        <div><h3>Create Sale</h3><p>Select the sale date, stock type and item.</p></div>
+        <button type="button" className="btn" onClick={onBack}>Back</button>
+      </div>
+
+      <div className="dealerCreateSaleGrid">
+        <label>Date
+          <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)} />
+        </label>
+
+        <label>Sale Type
+          <select className="input" value={type} onChange={e=>{setType(e.target.value);setItem('')}}>
+            <option value="">Select Type</option>
+            <option value="new">New Rickshaw</option>
+            <option value="old">Old Rickshaw</option>
+            <option value="battery">Battery</option>
+          </select>
+        </label>
+
+        <label className="dealerCreateSaleItemField">Select {type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'Stock Item'}
+          <select className="input" value={item} onChange={e=>setItem(e.target.value)} disabled={!type}>
+            <option value="">{type ? 'Select item' : 'First select sale type'}</option>
+            {options.map(v=><option key={optionValue(v)} value={optionValue(v)}>{optionLabel(v)}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="actions dealerCreateSaleActions">
+        <button type="button" className="btn" onClick={onBack}>Cancel</button>
+        <button type="button" className="btn primary" disabled={!date || !type || !item}>Save</button>
+      </div>
+    </div>
+  </div>;
+}
+
 function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook}) {
   const cards=[
     ['Current Stock',stockCount??'—','Vehicles currently assigned','stock','▣'],
@@ -301,6 +365,7 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
           <button onClick={()=>onOpen('challans')}><span className="quickIcon">▤</span><b>Delivery Challans</b><small>View challan history</small></button>
           <button onClick={()=>onOpen('cashbook')}><span className="quickIcon">₹</span><b>Bahikhata</b><small>Ledger & handover entries</small></button>
           {canCashBook && <button onClick={()=>onOpen('receipt-create')}><span className="quickIcon">🧾</span><b>Create Receipt</b><small>Record a customer receipt</small></button>}
+          <button onClick={()=>onOpen('create-sale')}><span className="quickIcon">＋</span><b>Create Sale</b><small>Create sale from available stock</small></button>
         </div>
       </div>
       <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Recent Activity</h3><p>Latest document records</p></div></div>
