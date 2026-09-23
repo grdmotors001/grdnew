@@ -180,6 +180,14 @@ export function DealerPortal({ dealer, onLogout }) {
       .grdFormPage .error{border:1px solid #f3cccc;background:#fff3f3;color:#a52b2b;border-radius:8px;padding:8px 10px;font-size:11px;margin-bottom:12px}
       .grdFormPage .actions{display:flex;gap:8px;margin-top:14px}
       @media(max-width:700px){.grdFormPage{padding:0}.grdFormPage .dealerPanel{border-radius:0 0 12px 12px;padding:13px}.grdFormPage .grid{grid-template-columns:1fr;gap:11px}.grdFormPage .dealerPanelHead h3{font-size:15px}.grdFormPage .input{min-height:38px;font-size:11px}}
+      .dealerCreateSalePage{padding:12px}
+      .dealerCreateSalePanel{max-width:760px}
+      .dealerCreateSaleGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+      .dealerCreateSaleGrid label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:800;color:#30445b}
+      .dealerCreateSaleGrid input,.dealerCreateSaleGrid select{width:100%;min-height:42px;box-sizing:border-box}
+      .dealerCreateSaleItemField{grid-column:1/-1}
+      .dealerCreateSaleActions{justify-content:flex-end}
+      @media(max-width:620px){.dealerCreateSalePage{padding:0}.dealerCreateSalePanel{border-radius:0 0 12px 12px;padding:13px}.dealerCreateSaleGrid{grid-template-columns:1fr}.dealerCreateSaleItemField{grid-column:auto}.dealerCreateSaleActions{position:sticky;bottom:0;background:#fff;padding-top:12px}}
       .dealerPortalHeaderNav{display:flex;gap:8px;align-items:stretch;overflow-x:auto;border-bottom:1px solid #e3e8f0;background:#fff;padding:7px 0 8px;scrollbar-width:none;min-height:50px}
       .dealerPortalHeaderNav::-webkit-scrollbar{display:none}
       .dealerPortalHeaderGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;padding:0 8px}
