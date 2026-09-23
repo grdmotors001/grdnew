@@ -140,6 +140,7 @@ def _ensure_cashbook_schema():
         DealerCashReceipt.__table__.create(db.engine, checkfirst=True)
         DealerCashExpense.__table__.create(db.engine, checkfirst=True)
         DealerCashHandover.__table__.create(db.engine, checkfirst=True)
+        DealerDealCancellation.__table__.create(db.engine, checkfirst=True)
         DealerCustomerDelivery.__table__.create(db.engine, checkfirst=True)
     except Exception as exc:
         print(f"[cash-book] table ensure failed: {exc}")
@@ -192,11 +193,39 @@ def _receipt(r):
             "payment_mode":r.payment_mode,"payment_mode_label":PAYMENT_MODES.get(r.payment_mode,r.payment_mode),
             "reference_no":r.reference_no,"remarks":r.remarks}
 
+def _has_active_tax_invoice(c):
+    """Tax Invoice is the source of truth for the Billed bucket."""
+    invoices = (db.session.query(TaxInvoice)
+                .join(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+                .filter(DeliveryChallan.dealer_id == c.dealer_id,
+                        DeliveryChallan.cancelled.is_(False),
+                        TaxInvoice.cancelled.is_(False))
+                .all())
+    name = str(c.full_name or "").strip().casefold()
+    phone = str(c.phone or "").strip()
+    vehicle_no = str(c.vehicle_no or "").strip().casefold()
+    for ti in invoices:
+        ti_name = str(ti.buyer_name or "").strip().casefold()
+        ti_phone = str(ti.buyer_mobile or "").strip()
+        ti_vehicle = str(getattr(ti, "vehicle_reg_no", None) or getattr(ti, "vehicle_no", None) or "").strip().casefold()
+        if phone and ti_phone and phone == ti_phone and name == ti_name:
+            return ti
+        if not phone and name == ti_name and vehicle_no and ti_vehicle and vehicle_no == ti_vehicle:
+            return ti
+        if not phone and not vehicle_no and name and name == ti_name:
+            return ti
+    return None
+
 def _customer(c):
     paid = db.session.query(db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0)).filter(
         DealerCashReceipt.dealer_id == c.dealer_id,
         DealerCashReceipt.customer_id == c.id,
     ).scalar() or 0
+    cancellation = DealerDealCancellation.query.filter_by(
+        dealer_id=c.dealer_id, customer_id=c.id
+    ).first()
+    invoice = None if cancellation else _has_active_tax_invoice(c)
+    status = "DEALER_CANCEL" if cancellation else ("BILLED" if invoice else "VEHICLE_PENDING")
     balance = round(float(c.sale_amount or 0) - float(c.loan_amount or 0) - float(paid), 2)
     return {"id":c.id,"page_no":c.page_no,"name":c.full_name,"phone":c.phone,
             "financer":c.financer,"vehicle_no":c.vehicle_no,
@@ -286,7 +315,10 @@ def cash_customers():
             db.session.commit()
 
     q = str(request.args.get("q") or "").strip().lower()
+    status_filter = str(request.args.get("status") or "").strip().upper()
     rows = DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id).order_by(DealerCashCustomer.id.desc()).all()
+    if status_filter in {"VEHICLE_PENDING","BILLED","DEALER_CANCEL"}:
+        rows = [x for x in rows if _customer(x)["status"] == status_filter]
     if q:
         rows = [x for x in rows if q in " ".join([str(x.page_no or ''),str(x.full_name or ''),str(x.phone or ''),str(x.vehicle_no or '')]).lower()]
     return jsonify({"success":True,"customers":[_customer(x) for x in rows]})
