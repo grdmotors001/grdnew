@@ -16,7 +16,7 @@ import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 import { DealerAllReceiptsPage, DealerAllCustomersPage, DealerExpenseCreatePage, DealerHandoverCreatePage } from './DealerCashBookExtras';
 
 const dealerHeaderSections = [
-  {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
+  {label:'Stock', items:[['stock','New Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
   {label:'Report', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['incentive','Incentive Record'],['expenses-reports','Expenses Reports']]},
   {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['expenses-create','Expenses Create'],['handover-create','Record Handover'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
@@ -24,7 +24,7 @@ const dealerHeaderSections = [
 ];
 
 const dealerHeaderSectionByTab = {
-  stock:'Stock','old-stock':'Stock','battery-stock':'Stock','seized-vehicles':'Stock',
+  stock:'Stock','battery-stock':'Stock','seized-vehicles':'Stock',
   challans:'Report',invoices:'Report',incentive:'Report','expenses-reports':'Report',
   cashbook:'Bahikhata','all-customers':'Bahikhata','all-receipt':'Bahikhata','all-expenses':'Bahikhata','expenses-create':'Bahikhata','handover-create':'Bahikhata','cash-handover':'Bahikhata',payments:'Bahikhata',
   'pending-sales':'Pending Sales','old-rickshaw-sales':'Pending Sales',ledger:'Pending Sales',
@@ -394,26 +394,131 @@ function DealerBatterySwap({dealer,onBack}){
 
 
 function DealerOldRickshawSales({dealer,onBack}) {
-  const [rows,setRows]=useState([]),[edit,setEdit]=useState(null),[form,setForm]=useState({}),[error,setError]=useState(''),[saving,setSaving]=useState(false);
-  const load=async()=>{try{setError('');const r=await get('/dealer/old-rickshaw-challans');setRows(r.challans||[])}catch(e){setError(e.message||'Could not load Old Rickshaw Sale records.')}};
+  const [rows,setRows]=useState([]),[stock,setStock]=useState([]),[edit,setEdit]=useState(null),[form,setForm]=useState({}),[error,setError]=useState(''),[saving,setSaving]=useState(false);
+  const load=async()=>{
+    try{
+      setError('');
+      const [challanData,stockData]=await Promise.all([
+        get('/dealer/old-rickshaw-challans'),
+        get('/dealer/old-rickshaws')
+      ]);
+      setRows(challanData.challans||[]);
+      setStock(stockData.rickshaws||[]);
+    }catch(e){
+      setError(e.message||'Could not load Old Rickshaw records.');
+    }
+  };
   useEffect(()=>{load()},[]);
-  const open=(r)=>{setMobileNav(false);setEdit(r);setError('');setForm({sale_amount:r.sale_amount||'',file_charge:r.file_charge||'',loan_amount:r.loan_amount||'',down_payment:r.down_payment||'',sale_customer:r.sale_customer||'',sale_mobile:r.sale_mobile||'',sold_at:r.sold_at||new Date().toISOString().slice(0,10)})};
-  const save=async(e)=>{e.preventDefault();if(!edit)return;setSaving(true);setError('');try{await post('/billing/old-rickshaw-challans/'+edit.id+'/sale',form);setEdit(null);await load()}catch(e){setError(e.message||'Could not save sale data.')}finally{setSaving(false)}};
+  const open=(r)=>{
+    setMobileNav(false);
+    setEdit(r);
+    setError('');
+    setForm({
+      sale_amount:r.sale_amount||'',
+      file_charge:r.file_charge||'',
+      loan_amount:r.loan_amount||'',
+      down_payment:r.down_payment||'',
+      sale_customer:r.sale_customer||'',
+      sale_mobile:r.sale_mobile||'',
+      sold_at:r.sold_at||new Date().toISOString().slice(0,10)
+    });
+  };
+  const save=async(e)=>{
+    e.preventDefault();
+    if(!edit)return;
+    setSaving(true);
+    setError('');
+    try{
+      await post('/dealer/old-rickshaw-challans/'+edit.id+'/sale',form);
+      setEdit(null);
+      await load();
+    }catch(e){
+      setError(e.message||'Could not save sale data.');
+    }finally{
+      setSaving(false);
+    }
+  };
   const pending=rows.filter(r=>['PENDING_SALE','APPROVED','VERIFIED'].includes(String(r.status||'').toUpperCase()));
+  const availableStock=stock.filter(r=>String(r.status||'').toLowerCase()==='available');
+  const soldStock=stock.filter(r=>String(r.status||'').toLowerCase()==='sold');
+  const challanForStock=(s)=>pending.find(r=>String(r.vehicle_no||'').trim().toLowerCase()===String(s.vehicle_reg_no||'').trim().toLowerCase());
   return <div className="dealerPage dealerOldSalePage">
-    <div className="dealerOldSaleHeader"><div><div className="dealerOldSaleKicker">PENDING SALES</div><h2>Old Rickshaw Sale</h2><p>Factory se dealer ko aaye Old Rickshaw ko customer sale ke liye complete karein.</p></div><div className="dealerOldSaleActions"><button type="button" className="btn" onClick={load}>↻ Refresh</button><button type="button" className="btn" onClick={onBack}>← Back</button></div></div>
+    <div className="dealerOldSaleHeader">
+      <div><div className="dealerOldSaleKicker">OLD RICKSHAW</div><h2>Old Rickshaw Sale</h2><p>Factory challan se dealer ko aaye Old Rickshaw ka stock aur resale ek hi module se manage karein.</p></div>
+      <div className="dealerOldSaleActions"><button type="button" className="btn" onClick={load}>↻ Refresh</button><button type="button" className="btn" onClick={onBack}>← Back</button></div>
+    </div>
     {error&&<div className="error dealerOldSaleError">{error}</div>}
-    <div className="card dealerOldSaleCard"><div className="dealerOldSaleSectionTitle"><div><strong>Pending Old Rickshaw</strong><span>Enter sale details only after the vehicle is received in your Old Rickshaw Stock.</span></div><span className="dealerOldSaleCount">{pending.length}</span></div>
-      <div className="tablewrap dealerTable dealerOldSaleTableWrap"><table className="table dealerOldSaleTable"><thead><tr><th>Challan</th><th>Model</th><th>Vehicle No.</th><th>Colour</th><th>Status</th><th>Action</th></tr></thead><tbody>
-        {pending.map(r=><tr key={r.id}><td data-label="Challan"><b>{r.challan_no||'—'}</b></td><td data-label="Model">{r.model_name||'—'}</td><td data-label="Vehicle No."><b>{r.vehicle_no||'—'}</b></td><td data-label="Colour">{r.colour||'—'}</td><td data-label="Status"><span className="dealerOldSaleStatus">{r.status||'PENDING_SALE'}</span></td><td data-label="Action"><button type="button" className="btn primary dealerOldSaleEnter" onClick={()=>open(r)}>Enter Sale Data</button></td></tr>)}
-        {!pending.length&&<tr><td colSpan="6"><div className="dealerEmpty">No pending Old Rickshaw challans.</div></td></tr>}
-      </tbody></table></div></div>
-    {edit&&<div className="modal dealerOldSaleModal" onClick={()=>!saving&&setEdit(null)}><form className="modalbox dealerOldSaleModalBox" onSubmit={save} onClick={e=>e.stopPropagation()}>
-      <div className="dealerOldSaleModalHead"><div><div className="dealerOldSaleKicker">SALE DETAILS</div><h2>Old Rickshaw Sale</h2><p>{edit.challan_no||'—'} · {edit.vehicle_no||'—'} · {edit.model_name||'—'}</p></div><button type="button" className="dealerOldSaleClose" onClick={()=>setEdit(null)} aria-label="Close">×</button></div>
-      <div className="dealerOldSaleSummary"><div><span>Vehicle</span><b>{edit.vehicle_no||'—'}</b></div><div><span>Model</span><b>{edit.model_name||'—'}</b></div><div><span>Challan</span><b>{edit.challan_no||'—'}</b></div></div>
-      <div className="formgrid dealerOldSaleFormGrid"><div className="field"><label>Sale Amount</label><input className="input" type="number" inputMode="numeric" min="0" value={form.sale_amount} onChange={e=>setForm({...form,sale_amount:e.target.value})} required /></div><div className="field"><label>File Charge</label><input className="input" type="number" inputMode="numeric" min="0" value={form.file_charge} onChange={e=>setForm({...form,file_charge:e.target.value})} /></div><div className="field"><label>Loan Amount</label><input className="input" type="number" inputMode="numeric" min="0" value={form.loan_amount} onChange={e=>setForm({...form,loan_amount:e.target.value})} /></div><div className="field"><label>Down Payment</label><input className="input" type="number" inputMode="numeric" min="0" value={form.down_payment} onChange={e=>setForm({...form,down_payment:e.target.value})} /></div><div className="field"><label>Customer Name</label><input className="input" value={form.sale_customer} onChange={e=>setForm({...form,sale_customer:e.target.value})} required /></div><div className="field"><label>Mobile</label><input className="input" inputMode="numeric" maxLength="10" value={form.sale_mobile} onChange={e=>setForm({...form,sale_mobile:e.target.value.replace(/\D/g,'').slice(0,10)})} required /></div></div>
-      <div className="dealerOldSaleModalFooter"><button type="button" className="btn dealerOldSaleCancel" onClick={()=>setEdit(null)} disabled={saving}>Cancel</button><button type="submit" className="btn primary dealerOldSaleSave" disabled={saving}>{saving?'Saving…':'Save Sale'}</button></div>
-    </form></div>}
+
+    <div className="dealerOldStockGrid">
+      <div className="dealerOldStockStat"><span>Total Stock</span><b>{stock.length}</b></div>
+      <div className="dealerOldStockStat"><span>Available</span><b>{availableStock.length}</b></div>
+      <div className="dealerOldStockStat"><span>Sold</span><b>{soldStock.length}</b></div>
+    </div>
+
+    <div className="card dealerOldSaleCard" style={{marginBottom:14}}>
+      <div className="dealerOldSaleSectionTitle">
+        <div><strong>Old Rickshaw Stock</strong><span>Factory challan se banne wala stock isi module me dikhega. Sale ke liye pending challan ke saath linked record par action milega.</span></div>
+        <span className="dealerOldSaleCount">{availableStock.length}</span>
+      </div>
+      <div className="tablewrap dealerTable dealerOldStockTableWrap">
+        <table className="table dealerOldStockTable">
+          <thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Colour</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {availableStock.map(v=>{
+              const linked=challanForStock(v);
+              return <tr key={v.id}>
+                <td data-label="Date">{formatDate(v.date||v.sale_date)}</td>
+                <td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td>
+                <td data-label="Model">{v.model_name||'—'}</td>
+                <td data-label="Colour">{v.colour||'—'}</td>
+                <td data-label="Status"><span className="dealerOldStockStatus available">AVAILABLE</span></td>
+                <td data-label="Action">{linked?<button type="button" className="btn primary dealerOldSaleEnter" onClick={()=>open(linked)}>Enter Sale Data</button>:<span className="muted">Challan pending</span>}</td>
+              </tr>;
+            })}
+            {!availableStock.length&&<tr><td colSpan="6"><div className="dealerEmpty">No Old Rickshaw available in stock.</div></td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div className="card dealerOldSaleCard">
+      <div className="dealerOldSaleSectionTitle">
+        <div><strong>Pending Old Rickshaw Sale</strong><span>Enter customer and sale details. Saving will mark the linked Old Rickshaw stock as SOLD.</span></div>
+        <span className="dealerOldSaleCount">{pending.length}</span>
+      </div>
+      <div className="tablewrap dealerTable dealerOldSaleTableWrap">
+        <table className="table dealerOldSaleTable">
+          <thead><tr><th>Challan</th><th>Model</th><th>Vehicle No.</th><th>Colour</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody>
+            {pending.map(r=><tr key={r.id}>
+              <td data-label="Challan"><b>{r.challan_no||'—'}</b></td>
+              <td data-label="Model">{r.model_name||'—'}</td>
+              <td data-label="Vehicle No."><b>{r.vehicle_no||'—'}</b></td>
+              <td data-label="Colour">{r.colour||'—'}</td>
+              <td data-label="Status"><span className="dealerOldSaleStatus">{r.status||'PENDING_SALE'}</span></td>
+              <td data-label="Action"><button type="button" className="btn primary dealerOldSaleEnter" onClick={()=>open(r)}>Enter Sale Data</button></td>
+            </tr>)}
+            {!pending.length&&<tr><td colSpan="6"><div className="dealerEmpty">No pending Old Rickshaw challans.</div></td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {edit&&<div className="modal dealerOldSaleModal" onClick={()=>!saving&&setEdit(null)}>
+      <form className="modalbox dealerOldSaleModalBox" onSubmit={save} onClick={e=>e.stopPropagation()}>
+        <div className="dealerOldSaleModalHead"><div><div className="dealerOldSaleKicker">SALE DETAILS</div><h2>Old Rickshaw Sale</h2><p>{edit.challan_no||'—'} · {edit.vehicle_no||'—'} · {edit.model_name||'—'}</p></div><button type="button" className="dealerOldSaleClose" onClick={()=>setEdit(null)} aria-label="Close">×</button></div>
+        <div className="dealerOldSaleSummary"><div><span>Vehicle</span><b>{edit.vehicle_no||'—'}</b></div><div><span>Model</span><b>{edit.model_name||'—'}</b></div><div><span>Challan</span><b>{edit.challan_no||'—'}</b></div></div>
+        <div className="formgrid dealerOldSaleFormGrid">
+          <div className="field"><label>Sale Amount</label><input className="input" type="number" inputMode="numeric" min="0" value={form.sale_amount} onChange={e=>setForm({...form,sale_amount:e.target.value})} required /></div>
+          <div className="field"><label>File Charge</label><input className="input" type="number" inputMode="numeric" min="0" value={form.file_charge} onChange={e=>setForm({...form,file_charge:e.target.value})} /></div>
+          <div className="field"><label>Loan Amount</label><input className="input" type="number" inputMode="numeric" min="0" value={form.loan_amount} onChange={e=>setForm({...form,loan_amount:e.target.value})} /></div>
+          <div className="field"><label>Down Payment</label><input className="input" type="number" inputMode="numeric" min="0" value={form.down_payment} onChange={e=>setForm({...form,down_payment:e.target.value})} /></div>
+          <div className="field"><label>Customer Name</label><input className="input" value={form.sale_customer} onChange={e=>setForm({...form,sale_customer:e.target.value})} required /></div>
+          <div className="field"><label>Mobile</label><input className="input" inputMode="numeric" maxLength="10" value={form.sale_mobile} onChange={e=>setForm({...form,sale_mobile:e.target.value.replace(/\D/g,'').slice(0,10)})} required /></div>
+        </div>
+        <div className="dealerOldSaleModalFooter"><button type="button" className="btn dealerOldSaleCancel" onClick={()=>setEdit(null)} disabled={saving}>Cancel</button><button type="submit" className="btn primary dealerOldSaleSave" disabled={saving}>{saving?'Saving…':'Save Sale'}</button></div>
+      </form>
+    </div>}
   </div>;
 }
 function DealerAllExpenses(){
