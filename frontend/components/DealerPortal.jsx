@@ -187,7 +187,14 @@ export function DealerPortal({ dealer, onLogout }) {
       .dealerCreateSaleGrid input,.dealerCreateSaleGrid select{width:100%;min-height:42px;box-sizing:border-box}
       .dealerCreateSaleItemField{grid-column:1/-1}
       .dealerCreateSaleActions{justify-content:flex-end}
-      @media(max-width:620px){.dealerCreateSalePage{padding:0}.dealerCreateSalePanel{border-radius:0 0 12px 12px;padding:13px}.dealerCreateSaleGrid{grid-template-columns:1fr}.dealerCreateSaleItemField{grid-column:auto}.dealerCreateSaleActions{position:sticky;bottom:0;background:#fff;padding-top:12px}}
+      .dealerCreateSalePreview{margin-top:16px;border:1px solid #dfe7f0;border-radius:12px;background:#f8fbff;overflow:hidden}
+      .dealerCreateSalePreviewHead{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid #e5ebf2;color:#24384d;font-size:12px}
+      .dealerCreateSalePreviewHead span{font-size:10px;font-weight:800;color:#246fe8}
+      .dealerCreateSalePreviewGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:13px}
+      .dealerCreateSalePreviewGrid>div{min-width:0}
+      .dealerCreateSalePreviewGrid span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.45px;color:#718096;font-weight:800}
+      .dealerCreateSalePreviewGrid b{display:block;margin-top:3px;font-size:12px;color:#24384d;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      @media(max-width:620px){.dealerCreateSalePage{padding:0}.dealerCreateSalePanel{border-radius:0 0 12px 12px;padding:13px}.dealerCreateSaleGrid{grid-template-columns:1fr}.dealerCreateSaleItemField{grid-column:auto}.dealerCreateSaleActions{position:sticky;bottom:0;background:#fff;padding-top:12px}.dealerCreateSalePreviewGrid{grid-template-columns:1fr 1fr}.dealerCreateSalePreviewGrid>div:last-child{grid-column:1/-1}}
       .dealerPortalHeaderNav{display:flex;gap:8px;align-items:stretch;overflow-x:auto;border-bottom:1px solid #e3e8f0;background:#fff;padding:7px 0 8px;scrollbar-width:none;min-height:50px}
       .dealerPortalHeaderNav::-webkit-scrollbar{display:none}
       .dealerPortalHeaderGroup{display:flex;flex-direction:column;gap:3px;flex:0 0 auto;padding:0 8px}
@@ -304,10 +311,11 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
 
   const options=type==='new' ? newItems : type==='old' ? oldItems : type==='battery' ? batteryItems : [];
   const optionValue=(v)=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '');
+  const selected=options.find(v=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '')===String(item));
   const optionLabel=(v)=>{
-    if(type==='new') return [v.chassis_no,v.model_name,v.motor_no].filter(Boolean).join(' · ') || 'New Rickshaw';
-    if(type==='old') return [v.vehicle_reg_no,v.model_name,v.owner_name].filter(Boolean).join(' · ') || 'Old Rickshaw';
-    return [v.battery_no,v.battery_maker].filter(Boolean).join(' · ') || 'Battery';
+    if(type==='new') return [v.chassis_no,v.model_name,v.colour].filter(Boolean).join(' · ') || 'New Rickshaw';
+    if(type==='old') return [v.model_name,v.battery_name,v.vehicle_reg_no].filter(Boolean).join(' · ') || 'Old Rickshaw';
+    return [v.battery_maker,v.battery_no].filter(Boolean).join(' · ') || 'Battery';
   };
 
   return <div className="grdFormPage dealerCreateSalePage">
@@ -338,6 +346,26 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
           </select>
         </label>
       </div>
+
+      {selected && <div className="dealerCreateSalePreview">
+        <div className="dealerCreateSalePreviewHead"><strong>Preview</strong><span>{type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':'Battery'}</span></div>
+        <div className="dealerCreateSalePreviewGrid">
+          {type==='new' && <>
+            <div><span>Chassis</span><b>{selected.chassis_no||'—'}</b></div>
+            <div><span>Model</span><b>{selected.model_name||'—'}</b></div>
+            <div><span>Colour</span><b>{selected.colour||'—'}</b></div>
+          </>}
+          {type==='old' && <>
+            <div><span>Model</span><b>{selected.model_name||'—'}</b></div>
+            <div><span>Battery Name</span><b>{selected.battery_name||selected.battery_maker||'—'}</b></div>
+            <div><span>Vehicle No.</span><b>{selected.vehicle_reg_no||'—'}</b></div>
+          </>}
+          {type==='battery' && <>
+            <div><span>Battery Make</span><b>{selected.battery_maker||'—'}</b></div>
+            <div><span>Battery No.</span><b>{selected.battery_no||'—'}</b></div>
+          </>}
+        </div>
+      </div>}
 
       <div className="actions dealerCreateSaleActions">
         <button type="button" className="btn" onClick={onBack}>Cancel</button>
