@@ -16,8 +16,8 @@ import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 import { DealerAllReceiptsPage, DealerAllCustomersPage, DealerExpenseCreatePage, DealerHandoverCreatePage } from './DealerCashBookExtras';
 
 const dealerHeaderSections = [
-  {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock']]},
-  {label:'Record', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['seized-vehicles','Seized Vehicle']]},
+  {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
+  {label:'Record', items:[['challans','Delivery Challan'],['invoices','Tax Invoice']]},
   {label:'Report', items:[['all-customers','All Customers'],['all-receipt','All Receipt'],['expenses-reports','Expenses Reports'],['all-expenses','All Expenses'],['incentive','Incentive Record']]},
   {label:'Daybook', items:[['cashbook','Cashbook'],['receipt-create','Customer Receipt'],['expenses-create','Expenses Create'],['handover-create','Record Handover'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
@@ -25,8 +25,8 @@ const dealerHeaderSections = [
 ];
 
 const dealerHeaderSectionByTab = {
-  stock:'Stock','old-stock':'Stock','battery-stock':'Stock',
-  challans:'Record',invoices:'Record','seized-vehicles':'Record',
+  stock:'Stock','old-stock':'Stock','battery-stock':'Stock','seized-vehicles':'Stock',
+  challans:'Record',invoices:'Record',
   'all-customers':'Report','all-receipt':'Report','expenses-reports':'Report','all-expenses':'Report',incentive:'Report',
   cashbook:'Daybook','receipt-create':'Daybook','expenses-create':'Daybook','handover-create':'Daybook','cash-handover':'Daybook',payments:'Daybook',
   'pending-sales':'Pending Sales','old-rickshaw-sales':'Pending Sales',ledger:'Pending Sales',
@@ -53,6 +53,12 @@ const nav = [
   ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
   ['incentive', '₹', 'Incentive Record'],
 ];
+
+// Old Rickshaw Stock, Battery Stock and Seized Vehicles are no longer
+// separate side-nav entries — they live as tabs inside "My Stock" (see
+// dealerHeaderSections' Stock group below). Kept in `nav` above so page
+// titles/icons still resolve by key; just hidden from the side/mobile menus.
+const SIDEBAR_HIDDEN_KEYS = new Set(['old-stock', 'battery-stock', 'seized-vehicles']);
 
 export function DealerPortal({ dealer, onLogout }) {
   const [stock, setStock] = useState(null);
@@ -152,7 +158,7 @@ export function DealerPortal({ dealer, onLogout }) {
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
-      <nav className="dealerSideNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label]) =>
+      <nav className="dealerSideNav">{nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label]) =>
         <button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>setTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
       <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
@@ -192,7 +198,7 @@ export function DealerPortal({ dealer, onLogout }) {
         })()}
       </nav>}
 
-      {mobileNav && <div className="dealerMobileNav">{nav.filter(([key]) => (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
+      {mobileNav && <div className="dealerMobileNav">{nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) && (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales)).map(([key,icon,label])=><button key={key} className={'dealerNavItem'+(tab===key?' active':'')} onClick={()=>{setTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
       {error && <div className="error dealerError">{error}</div>}
 
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
