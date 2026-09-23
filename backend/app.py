@@ -5104,6 +5104,67 @@ def billing_old_rickshaw_challan_sale(row_id):
     db.session.commit()
     return jsonify(ser_old_rickshaw_challan(row))
 
+@app.post("/api/dealer/old-rickshaw-challans/<int:row_id>/sale")
+@require_dealer_auth
+def dealer_old_rickshaw_challan_sale(row_id):
+    """Dealer completes the resale against the factory challan.
+
+    Factory challan creation already creates the matching OldRickshaw stock row.
+    This endpoint keeps the two records in one transaction so the dealer's
+    Old Rickshaw Sale screen is the single working resale flow.
+    """
+    _ensure_old_rickshaw_challan_table()
+    row=OldRickshawChallan.query.get_or_404(row_id)
+    if int(row.dealer_id or 0) != int(g.current_dealer_id or 0):
+        return _err("This Old Rickshaw does not belong to your dealer.",403)
+    if row.status not in ("PENDING_SALE","APPROVED","VERIFIED"):
+        return _err("This Old Rickshaw is no longer pending.",409)
+
+    d=request.get_json(silent=True) or {}
+    for field in ("sale_amount","file_charge","loan_amount","down_payment"):
+        if field in d:
+            setattr(row,field,_f(d.get(field),getattr(row,field) or 0))
+    if "sale_customer" in d:
+        row.sale_customer=(d.get("sale_customer") or "").strip() or None
+    if "sale_mobile" in d:
+        row.sale_mobile=(d.get("sale_mobile") or "").strip() or None
+    if "sold_at" in d:
+        row.sold_at=_parse_date(d.get("sold_at")) or row.sold_at or date.today()
+
+    stock=OldRickshaw.query.filter(
+        db.or_(
+            db.and_(OldRickshaw.chfpl_ref_no==row.source_ref, OldRickshaw.dealer_id==row.dealer_id),
+            db.and_(OldRickshaw.vehicle_reg_no==row.vehicle_no, OldRickshaw.dealer_id==row.dealer_id)
+        )
+    ).order_by(OldRickshaw.id.desc()).first()
+
+    if not stock:
+        return _err("Matching Old Rickshaw stock record was not found.",409)
+    if stock.status != "available":
+        return _err("This Old Rickshaw is already sold.",409)
+
+    stock.model_name=row.model_name or stock.model_name
+    stock.vehicle_reg_no=row.vehicle_no or stock.vehicle_reg_no
+    stock.colour=row.colour or stock.colour
+    stock.toolkit=row.toolkit or stock.toolkit
+    stock.dealer_id=row.dealer_id
+    stock.sale_dealer_id=row.dealer_id
+    stock.sale_date=row.sold_at or date.today()
+    stock.sale_amount=row.sale_amount or 0
+    stock.file_charge=row.file_charge or 0
+    stock.loan_amount=row.loan_amount or 0
+    stock.down_payment=row.down_payment or 0
+    stock.sold_to=row.sale_customer
+    stock.sale_type="finance" if (row.loan_amount or 0)>0 else "cash"
+    stock.status="sold"
+    stock.out_name=row.sale_customer
+    stock.sale_ref_no=row.challan_no
+    stock.remarks1="Sold from Dealer Old Rickshaw Sale"
+    row.status="VERIFIED"
+
+    db.session.commit()
+    return jsonify({"success":True,"challan":ser_old_rickshaw_challan(row),"stock":ser_old_rickshaw(stock)})
+    
 @app.post("/api/billing/old-rickshaw-challans/<int:row_id>/approve")
 @require_auth
 def billing_old_rickshaw_challan_approve(row_id):
