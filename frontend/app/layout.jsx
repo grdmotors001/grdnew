@@ -1,6 +1,7 @@
 import Script from 'next/script';
 import './globals.css';
 export const metadata={title:'G.R.D. Motors eBill',description:'Modern eBill administration'};
+export const viewport={width:'device-width',initialScale:1,viewportFit:'cover'};
 
 // Sets data-theme on <html> before React hydrates/paints, so a saved "dark"
 // preference doesn't flash light-mode for a frame on reload.
