@@ -17,6 +17,7 @@ import {
 const GROUP_ICONS = {
   Masters: Sliders,
   Factory: Factory,
+  Battery: BatteryCharging,
   'Sales & Billing': Receipt,
   Expenses: Wallet,
   Accounts: CreditCard,
