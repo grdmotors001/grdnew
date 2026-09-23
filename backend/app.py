@@ -1800,7 +1800,13 @@ def dealer_seized_vehicles():
     if not dealer:
         return _err("Dealer not found", 404)
     try:
-        status, payload = _chfpl_bridge_get("/api/grd/repossessed?status=SEIZED")
+        # GRD dealer.id is the cross-system identity. CHFPL resolves it
+        # through dealer_master.grd_dealer_id -> dealer_master.id before
+        # applying parked_dealer_id, so GRD id 23 is never confused with
+        # CHFPL's local dealer id 310 (for Keshavpur, for example).
+        status, payload = _chfpl_bridge_get(
+            f"/api/grd/repossessed?status=SEIZED&dealer_id={int(dealer.id)}"
+        )
     except Exception as exc:
         print(f"[CHFPL dealer seized] {exc}")
         return _err("CHFPL repossession service is temporarily unavailable", 502)
