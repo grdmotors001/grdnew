@@ -71,7 +71,7 @@ const CUSTOM_PAGES = {
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
   'tax-invoice': () => <TaxInvoicePage />,
-  'credit-note': () => <CreditNotePage />,
+  'credit-note': () => <CreditNotePage />,\n  'debit-note': () => <PlaceholderPage label="Debit Note - Raw Items" />,
   'old-rickshaw': () => <OldRickshawPage />,
   'battery-swap': () => <BatterySwapVoucherPage />,
   'battery-withdrawal': () => <BatteryWithdrawalPage />,
