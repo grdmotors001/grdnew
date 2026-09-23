@@ -117,6 +117,7 @@ export const NAV_GROUPS = {
     ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
   ],
   Factory: [
+    ['debit-note', 'Debit Note'],
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
   ],
@@ -128,7 +129,7 @@ export const NAV_GROUPS = {
     ['battery-addition', 'Battery Fit'],
   ],
   'Sales & Billing': [
-    ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
+    ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
     ['old-rickshaw', 'Old Rickshaw'], ['vahan-inventory', 'Vahan Inventory'],
     ['rto', 'RTO Master'], ['financer', 'Financer Master'],
   ],
