@@ -1813,17 +1813,11 @@ def dealer_seized_vehicles():
     if status >= 400:
         detail = payload.get("error") if isinstance(payload, dict) else None
         return _err(detail or "Could not load seized vehicles", 502)
+    # CHFPL has already filtered by the stable GRD dealer identity.
+    # Do not re-filter by dealer name/code here; those labels can differ
+    # between systems and were the source of the old Keshavpur mismatch.
     vehicles = payload.get("vehicles", []) if isinstance(payload, dict) else []
-    name = (dealer.name or "").strip().lower()
-    code = (dealer.code or "").strip().lower()
-    rows = []
-    for v in vehicles:
-        parked = v.get("dealer_master") or {}
-        parked_name = str(parked.get("dealer_name") or "").strip().lower()
-        parked_code = str(parked.get("dealer_code") or "").strip().lower()
-        if (name and parked_name == name) or (code and parked_code == code):
-            rows.append(v)
-    return jsonify({"vehicles": rows, "count": len(rows), "status": "HOLD"})
+    return jsonify({"vehicles": vehicles, "count": len(vehicles), "status": "HOLD"})
 
 
 @app.get("/api/dealer/loan-status")
