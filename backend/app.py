@@ -46,7 +46,7 @@ except ImportError:
 from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicle, User,
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
-                     DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem,
+                     DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem, DebitNote, DebitNoteItem,
                      OldRickshaw, OldRickshawChallan, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_auth_or_dealer, require_super_user, _serializer
@@ -4390,6 +4390,98 @@ def tax_invoice_update_payment(invoice_id):
     ti.vehicle_reg_no = data.get("vehicle_reg_no")
     db.session.commit()
     return jsonify(ser_ti(ti))
+
+
+def ser_debit_note_item(x):
+    return {
+        "id": x.id, "product_id": x.product_id, "item_name": x.item_name,
+        "hsn_code": x.hsn_code, "qty": x.qty, "rate": x.rate, "gst_rate": x.gst_rate,
+        "taxable_amt": x.taxable_amt, "cgst_amt": x.cgst_amt,
+        "sgst_amt": x.sgst_amt, "igst_amt": x.igst_amt, "tax_amt": x.tax_amt,
+    }
+
+
+def ser_debit_note(x):
+    return {
+        "id": x.id, "debit_note_no": x.debit_note_no, "date": _iso(x.date),
+        "party_name": x.party_name, "party_gst_no": x.party_gst_no,
+        "party_state_code": x.party_state_code, "original_bill_no": x.original_bill_no,
+        "reason": x.reason, "remarks": x.remarks, "taxable_amount": x.taxable_amount,
+        "tax_amount": x.tax_amount, "total_amount": x.total_amount,
+        "status": x.status, "created_by": x.created_by,
+        "items": [ser_debit_note_item(i) for i in x.items],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Factory > Debit Note — raw-material purchase return
+# ---------------------------------------------------------------------------
+@app.route("/api/debit-notes", methods=["GET", "POST"])
+@require_auth
+def debit_notes():
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        party_name = (data.get("party_name") or "").strip()
+        reason = (data.get("reason") or "").strip()
+        items = data.get("items") or []
+        if not party_name: return _err("Supplier / Party Name is required.")
+        if not reason: return _err("Debit Note reason is required.")
+        if not items: return _err("At least one raw item is required.")
+
+        dn = DebitNote(
+            debit_note_no="TEMP",
+            date=_parse_date(data.get("date")) or date.today(),
+            party_name=party_name,
+            party_gst_no=(data.get("party_gst_no") or "").strip() or None,
+            party_state_code=(data.get("party_state_code") or "07").strip(),
+            original_bill_no=(data.get("original_bill_no") or "").strip() or None,
+            reason=reason, remarks=(data.get("remarks") or "").strip() or None,
+            status="ACTIVE",
+            created_by=str(getattr(g, "current_user_payload", {}).get("username") or
+                           getattr(g, "current_user_payload", {}).get("user_id") or "user"),
+        )
+        db.session.add(dn)
+        db.session.flush()
+
+        taxable = tax = total = 0
+        for raw in items:
+            pid = _i(raw.get("product_id"), 0)
+            product = Product.query.get(pid) if pid else None
+            if not product or (product.fro or "").strip().upper() != "R":
+                db.session.rollback()
+                return _err("Debit Note can contain only Raw Material items.", 422)
+            qty = _f(raw.get("qty"), 0)
+            rate = _f(raw.get("rate"), 0)
+            if qty <= 0 or rate < 0:
+                db.session.rollback()
+                return _err("Each raw item must have a valid quantity and rate.", 422)
+            gst_rate = _f(raw.get("gst_rate"), product.gst_rate or 0)
+            item = DebitNoteItem(
+                debit_note_id=dn.id, product_id=product.id, item_name=product.name,
+                hsn_code=product.hsn_code, qty=qty, rate=rate, gst_rate=gst_rate
+            )
+            db.session.add(item)
+            db.session.flush()
+            taxable += item.taxable_amt
+            tax += item.tax_amt
+            total += item.taxable_amt + item.tax_amt
+
+        dn.taxable_amount = round(taxable, 2)
+        dn.tax_amount = round(tax, 2)
+        dn.total_amount = round(total, 2)
+        dn.debit_note_no = f"DN/{dn.date.strftime('%Y')}/{dn.id:06d}"
+        db.session.commit()
+        return jsonify(ser_debit_note(dn)), 201
+
+    q = DebitNote.query.order_by(DebitNote.date.desc(), DebitNote.id.desc())
+    search = (request.args.get("search") or "").strip()
+    if search:
+        like = f"%{search}%"
+        q = q.filter(db.or_(DebitNote.debit_note_no.ilike(like),
+                            DebitNote.party_name.ilike(like),
+                            DebitNote.original_bill_no.ilike(like)))
+    rows = q.limit(500).all()
+    return jsonify({"debit_notes": [ser_debit_note(x) for x in rows]})
 
 
 # ---------------------------------------------------------------------------
