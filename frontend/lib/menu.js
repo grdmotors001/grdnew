@@ -111,17 +111,17 @@ export const NAV_GROUPS = {
   // Showroom is a separate dealer/showroom portal. It must not appear as a
   // staff/admin sidebar group; staff access is controlled by allowed_modules.
   Masters: [
-    ['company', 'Company Details'], ['dealer', 'Dealer Master'], ['party', 'Party Master'],
-    ['product', 'Product Master'], ['chassis-master', 'Chassis Master'], ['battery-maker', 'Battery Maker'],
-    ['rto', 'RTO Master'], ['financer', 'Financer Master'], ['production-formula', 'Production Formula'],
+    ['dealer', 'Dealer Master'], ['party', 'Party Master'],
+    ['product', 'Product Master'], ['chassis-master', 'Chassis Master'],
+    ['production-formula', 'Production Formula'],
     ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
-    ['user', 'User Master'],
   ],
   Factory: [
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
   ],
   Battery: [
+    ['battery-maker', 'Battery Maker'],
     ['battery-delivery-challan', 'Battery Challan'],
     ['battery-withdrawal', 'Battery Remove'],
     ['battery-swap', 'Battery Swap'],
@@ -130,6 +130,7 @@ export const NAV_GROUPS = {
   'Sales & Billing': [
     ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'],
     ['old-rickshaw', 'Old Rickshaw'], ['vahan-inventory', 'Vahan Inventory'],
+    ['rto', 'RTO Master'], ['financer', 'Financer Master'],
   ],
   Expenses: [
     ['expense-payment-voucher', 'Expense Payment Voucher'],
