@@ -2041,6 +2041,24 @@ def dealer_tax_invoices():
     return jsonify({"invoices": [ser_ti(i) for i in rows]})
 
 
+@app.route("/api/dealer/tax-invoices/<int:invoice_id>", methods=["PUT"])
+@require_dealer_auth
+def dealer_tax_invoice_update(invoice_id):
+    """Allow a showroom dealer to edit only their Tax Invoice register page number."""
+    ti = TaxInvoice.query.get_or_404(invoice_id)
+    if ti.cancelled:
+        return _err("Cancelled Tax Invoice cannot be edited.", 400)
+    if not (ti.dealer_id == g.current_dealer_id or
+            (ti.delivery_challan and ti.delivery_challan.dealer_id == g.current_dealer_id)):
+        return _err("Tax Invoice does not belong to this dealer.", 403)
+    data = request.get_json(silent=True) or {}
+    if "dealer_page_no" not in data:
+        return _err("Dealer Page No. is required.", 400)
+    ti.dealer_page_no = (str(data.get("dealer_page_no") or "").strip() or None)
+    db.session.commit()
+    return jsonify({"invoice": ser_ti(ti)})
+
+
 @app.route("/api/auth/me")
 @require_auth
 def me():
