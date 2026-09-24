@@ -36,25 +36,43 @@ export function DealerAllCustomersPage() {
   const [billedCustomers, setBilledCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('ALL');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 35;
   const [editing, setEditing] = useState(null);
   const [cancelling, setCancelling] = useState(null);
   const [cancelForm, setCancelForm] = useState({ reason: '', refund_amount: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
   const load = (q = search) => Promise.all([
     get('/dealer/cash-book/customers?q=' + encodeURIComponent(q || '')),
     get('/dealer/cash-book/customers?status=BILLED&q=' + encodeURIComponent(q || '')),
   ])
-    .then(([all, billed]) => { setCustomers(all.customers || []); setBilledCustomers(billed.customers || []); })
+    .then(([all, billed]) => {
+      setCustomers(all.customers || []);
+      setBilledCustomers(billed.customers || []);
+      setPage(1);
+    })
     .catch((e) => setError(e.message || 'Could not load customers'));
+
   useEffect(() => { load(''); }, []);
 
   const sourceRows = tab === 'BILLED' ? billedCustomers : customers;
   const filtered = sourceRows.filter((c) => {
     if (tab !== 'ALL' && tab !== 'BILLED' && c.status !== tab) return false;
     const q = search.trim().toLowerCase();
-    return !q || [c.page_no, c.name, c.phone, c.vehicle_no].join(' ').toLowerCase().includes(q);
+    if (q && ![c.page_no, c.name, c.phone, c.vehicle_no].join(' ').toLowerCase().includes(q)) return false;
+    if (fromDate && String(c.date || '') < fromDate) return false;
+    if (toDate && String(c.date || '') > toDate) return false;
+    return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visibleRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   const counts = {
     ALL: customers.length,
     VEHICLE_PENDING: customers.filter((c) => c.status === 'VEHICLE_PENDING').length,
@@ -68,11 +86,18 @@ export function DealerAllCustomersPage() {
     ['DEALER_CANCEL', 'Dealer Cancel'],
   ];
 
+  const clearDates = () => {
+    setFromDate('');
+    setToDate('');
+    setPage(1);
+  };
+
   const openCancel = (c) => {
     setCancelling(c);
     setCancelForm({ reason: '', refund_amount: String(c.paid_amount || 0) });
     setError('');
   };
+
   const submitCancel = async () => {
     if (!cancelling) return;
     setSaving(true); setError('');
@@ -102,21 +127,48 @@ export function DealerAllCustomersPage() {
 
       <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
         {tabs.map(([key, label]) => (
-          <button key={key} className={tab === key ? 'btn primary' : 'btn'} onClick={() => setTab(key)}>
+          <button key={key} className={tab === key ? 'btn primary' : 'btn'} onClick={() => { setTab(key); setPage(1); }}>
             {label} ({counts[key]})
           </button>
         ))}
       </div>
 
-      <input className="input" placeholder="Search page no. / name / mobile / vehicle no." value={search} onChange={(e) => { setSearch(e.target.value); load(e.target.value); }} />
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+        <input
+          className="input"
+          style={{ flex:'1 1 280px' }}
+          placeholder="Search page no. / name / mobile / vehicle no."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); load(e.target.value); }}
+        />
+        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:700 }}>
+          From
+          <input className="input" type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} />
+        </label>
+        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:700 }}>
+          To
+          <input className="input" type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1); }} />
+        </label>
+        {(fromDate || toDate) && <button className="btn" onClick={clearDates}>Clear Date</button>}
+      </div>
 
-      <div className="tablewrap dealerTable" style={{ marginTop: 12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:10, marginBottom:8 }}>
+        <span className="muted">Showing {visibleRows.length} of {filtered.length} records · 35 per page</span>
+        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+          <button className="btn" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>← Prev</button>
+          <span className="muted">Page {currentPage} / {totalPages}</span>
+          <button className="btn" disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>Next →</button>
+        </div>
+      </div>
+
+      <div className="tablewrap dealerTable">
         <table className="table">
-          <thead><tr><th>Page No.</th><th>Name</th><th>Phone</th><th>Vehicle No.</th><th>Status</th><th>Sale Amount</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
+          <thead><tr><th>Page No.</th><th>Date</th><th>Name</th><th>Phone</th><th>Vehicle No.</th><th>Status</th><th>Sale Amount</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
           <tbody>
-            {filtered.map((c) => (
+            {visibleRows.map((c) => (
               <tr key={c.id}>
                 <td>{c.page_no || '—'}</td>
+                <td>{c.date || '—'}</td>
                 <td><b>{c.name}</b></td>
                 <td>{c.phone || '—'}</td>
                 <td>{c.vehicle_no || '—'}</td>
@@ -133,7 +185,7 @@ export function DealerAllCustomersPage() {
                 </td>
               </tr>
             ))}
-            {!filtered.length && <tr><td colSpan="9" className="muted">No customers found.</td></tr>}
+            {!visibleRows.length && <tr><td colSpan="10" className="muted">No customers found.</td></tr>}
           </tbody>
         </table>
       </div>
