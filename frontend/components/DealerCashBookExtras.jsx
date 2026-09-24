@@ -209,7 +209,8 @@ export function DealerAllCustomersPage() {
           </>
         ) : (
           <>
-            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}{field('Name', 'name', editing, setEditing)}{field('Phone No.', 'phone', editing, setEditing)}</div>
+            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}{field('Name', 'name', editing, setEditing)}{field('Phone No.', 'phone', editing, setEditing)}
+            {field('Sale Amount', 'sale_amount', editing, setEditing, 'number')}{field('Loan Amount', 'loan_amount', editing, setEditing, 'number')}</div>
             <div className="actions">
               <button className="btn primary" disabled={saving} onClick={async () => { setSaving(true); try { await put('/dealer/cash-book/customers/' + editing.id, editing); setEditing(null); await load(search); } catch (e) { setError(e.message || 'Could not update customer'); } finally { setSaving(false); } }}>Save Customer</button>
               <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
