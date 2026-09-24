@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { get, post } from '../lib/api';
 
 const blankPerson = {
@@ -43,7 +43,7 @@ export function DealerNewLoanForm({ onBack }) {
   const [customerId,setCustomerId]=useState('');
   const [customerSearch,setCustomerSearch]=useState('');
   const [customers,setCustomers]=useState([]);
-  const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',vehicle_price:'0',down_payment:'0',loan_amount_requested:'80000',tenure_months:'36',financer_id:''});
+  const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',loan_amount_requested:'80000',tenure_months:'36'});
   const [loanType,setLoanType]=useState('NEW');
   const [loanMasters,setLoanMasters]=useState({models:[],financers:[],loan_types:[]});
   const [sale,setSale]=useState({sale_amount:'150000',file_charge:'3000',booking_amount:'10000',register_page_no:'DEMO-001'});
@@ -61,7 +61,6 @@ export function DealerNewLoanForm({ onBack }) {
       setVehicleLoan(prev=>({
         ...prev,
         vehicle_model_id:prev.vehicle_model_id || String(masters.models?.[0]?.id || ''),
-        financer_id:prev.financer_id || String(masters.financers?.[0]?.id || ''),
       }));
     }).catch(()=>{});
     return()=>{cancelled=true};
@@ -82,13 +81,8 @@ export function DealerNewLoanForm({ onBack }) {
   }
 
   function setVehicle(k,v){
-    const next={...vehicleLoan,[k]:v};
-    if(k==='vehicle_price'||k==='down_payment') next.loan_amount_requested=Math.max((Number(next.vehicle_price)||0)-(Number(next.down_payment)||0),0);
-    setVehicleLoan(next);
+    setVehicleLoan(prev=>({...prev,[k]:v}));
   }
-
-  const totalDeal=useMemo(()=>Math.max((Number(sale.sale_amount)||0)+(Number(sale.file_charge)||0),0),[sale]);
-  const balance=useMemo(()=>Math.max(totalDeal-(Number(vehicleLoan.loan_amount_requested)||0)-(Number(sale.booking_amount)||0),0),[totalDeal,vehicleLoan.loan_amount_requested,sale.booking_amount]);
 
   async function submit(){
     setError('');
@@ -102,10 +96,8 @@ export function DealerNewLoanForm({ onBack }) {
       const d=await post('/dealer/submit-loan',{
         customer_id:customerId||null,borrower,guarantor,co_borrower:coBorrower,vehicle_loan:vehicleLoan,
         loan_type:loanType,
-        dealer_register_page_no:sale.register_page_no,
         customer_photo:customerPhoto ? {name:customerPhoto.name,type:customerPhoto.type,data_url:await fileToDataUrl(customerPhoto)} : null,
-        documents:await Promise.all(documents.map(async f=>({name:f.name,type:f.type,data_url:await fileToDataUrl(f)}))),
-        sale_details:{sale_amount:Number(sale.sale_amount)||0,file_charge:Number(sale.file_charge)||0,total_deal_amount:totalDeal,booking_amount:Number(sale.booking_amount)||0,balance_before_billing:balance}
+        documents:await Promise.all(documents.map(async f=>({name:f.name,type:f.type,data_url:await fileToDataUrl(f)})))
       });
       setSuccess(d);
     }catch(e){setError(e.message||'Loan application save nahi hui.')}
@@ -114,7 +106,7 @@ export function DealerNewLoanForm({ onBack }) {
 
   if(success) return <div className="dealerLoanPage"><div className="dealerSuccessCard">
     <div className="dealerSuccessIcon">✓</div><span className="dealerFormEyebrow">APPLICATION SAVED</span><h1>Loan Application Submitted</h1>
-    <div className="dealerSuccessGrid"><div><small>Customer</small><b>{success.customer?.full_name||borrower.full_name}</b></div><div><small>Application No.</small><b>{success.application_no||'Pending CHFPL sync'}</b></div><div><small>Dealer Register Page</small><b>{sale.register_page_no||'—'}</b></div><div><small>Balance Before Billing</small><b>₹ {balance.toLocaleString('en-IN')}</b></div></div>
+    <div className="dealerSuccessGrid"><div><small>Customer</small><b>{success.customer?.full_name||borrower.full_name}</b></div><div><small>Application No.</small><b>{success.application_no||'Pending CHFPL sync'}</b></div></div>
     <p className="muted">Borrower, Guaranter aur Co-Borrower details submission ke saath linked hain.</p><button className="btn primary" onClick={onBack}>Back to Dealer Dashboard</button>
   </div></div>;
 
@@ -122,11 +114,11 @@ export function DealerNewLoanForm({ onBack }) {
     ['borrower','01','Borrower','Customer / Applicant'],
     ['guarantor','02','Guaranter','Required party details'],
     ['coBorrower','03','Co-Borrower','Optional party details'],
-    ['loan','04','Loan & Sale','Vehicle, booking & register']
+    ['loan','04','Loan','Vehicle & loan details']
   ];
 
   return <div className="dealerLoanPage">
-    <div className="dealerLoanTop"><div><button className="dealerBackBtn" onClick={onBack}>← Back to Dashboard</button><span className="dealerFormEyebrow">DEALER WORKSPACE</span><h1>New Loan Application</h1><p>Create/select customer, enter sale & loan details, then submit once.</p></div><div className="dealerDraftBadge">Dealer Form</div></div>
+    <div className="dealerLoanTop"><div><button className="dealerBackBtn" onClick={onBack}>← Back to Dashboard</button><span className="dealerFormEyebrow">DEALER WORKSPACE</span><h1>New Loan Application</h1><p>Create/select customer, enter loan details, then submit once.</p></div><div className="dealerDraftBadge">Dealer Form</div></div>
 
     <div className="dealerStepBar">{steps.map(([key,no,label,sub])=><button key={key} className={'dealerStep'+(step===key?' active':'')+(steps.findIndex(x=>x[0]===step)>steps.findIndex(x=>x[0]===key)?' done':'')} onClick={()=>setStep(key)}><span>{no}</span><div><b>{label}</b><small>{sub}</small></div></button>)}</div>
 
@@ -143,7 +135,7 @@ export function DealerNewLoanForm({ onBack }) {
         {step==='borrower'&&<><PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/><div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">KYC DOCUMENTS</span><h2>Photo & Documents</h2></div></div><div className="dealerPersonGrid"><label>Customer Photo *<input className="input" type="file" accept="image/*" capture="environment" onChange={e=>setCustomerPhoto(e.target.files?.[0]||null)} required/><small className="muted">Customer photo required</small></label><label className="dealerSpan2">Documents *<input className="input" type="file" multiple accept="image/*,.pdf" onChange={e=>{const files=Array.from(e.target.files||[]);setDocuments(files);setDocumentPreviews(files.map(f=>f.name));}} required/><small className="muted">KYC/other required documents upload karein</small>{documentPreviews.length>0&&<div className="muted" style={{marginTop:6}}>{documentPreviews.join(' • ')}</div>}</label></div></div></>}
         {step==='guarantor'&&<PersonFields value={guarantor} setValue={setGuarantor} title="Guaranter" relationLabel="Relation with Borrower"/>}
         {step==='coBorrower'&&<PersonFields value={coBorrower} setValue={setCoBorrower} title="Co-Borrower" relationLabel="Relation with Borrower" compact/>}
-        {step==='loan'&&<LoanAndSale vehicleLoan={vehicleLoan} setVehicle={setVehicle} sale={sale} setSale={setSale} totalDeal={totalDeal} balance={balance} loanType={loanType} setLoanType={setLoanType} loanMasters={loanMasters}/>}
+        {step==='loan'&&<LoanDetails vehicleLoan={vehicleLoan} setVehicle={setVehicle} loanType={loanType} setLoanType={setLoanType} loanMasters={loanMasters}/>}
 
         {error&&<div className="error dealerError">{error}</div>}
         <div className="dealerFormFooter"><button className="btn" type="button" onClick={onBack}>Cancel</button><div className="dealerFooterRight">
@@ -158,35 +150,23 @@ export function DealerNewLoanForm({ onBack }) {
           <div className="dealerSummaryRow"><span>Phone</span><b>{borrower.phone||'—'}</b></div>
           
           <div className="dealerSummaryRow"><span>Loan Amount</span><b>₹ {(Number(vehicleLoan.loan_amount_requested)||0).toLocaleString('en-IN')}</b></div>
-          <div className="dealerSummaryRow"><span>Total Deal</span><b>₹ {totalDeal.toLocaleString('en-IN')}</b></div>
-          <div className="dealerSummaryRow"><span>Booking</span><b>₹ {(Number(sale.booking_amount)||0).toLocaleString('en-IN')}</b></div>
-          <div className="dealerSummaryTotal"><span>Balance Before Billing</span><strong>₹ {balance.toLocaleString('en-IN')}</strong></div>
+          <div className="dealerSummaryRow"><span>Tenure</span><b>{vehicleLoan.tenure_months ? `${vehicleLoan.tenure_months} Months` : '—'}</b></div>
         </div>
-        <div className="dealerSideCard dealerTip"><b>Important</b><p>Dealer Register Page No. physical register ke page number ko represent karta hai. Ye system Application No. se alag hai.</p></div>
+        <div className="dealerSideCard dealerTip"><b>Important</b><p>Model Name, loan amount aur tenure submit ke saath CHFPL loan application mein linked honge.</p></div>
       </aside>
     </div>
   </div>;
 }
 
-function LoanAndSale({vehicleLoan,setVehicle,sale,setSale,totalDeal,balance,loanType,setLoanType,loanMasters}){
-  const setV=(k,v)=>{const next={...vehicleLoan,[k]:v};if(k==='vehicle_price'||k==='down_payment')next.loan_amount_requested=Math.max((Number(next.vehicle_price)||0)-(Number(next.down_payment)||0),0);setVehicle(k,v)};
-  const setS=(k,v)=>setSale({...sale,[k]:v});
+function LoanDetails({vehicleLoan,setVehicle,loanType,setLoanType,loanMasters}){
+  const setV=(k,v)=>setVehicle(k,v);
   return <div className="dealerLoanDetails">
     <div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">VEHICLE & LOAN</span><h2>Loan Details</h2></div></div>
       <div className="dealerPersonGrid"><label>Loan Type *<select className="input" value={loanType} onChange={e=>setLoanType(e.target.value)}><option value="NEW">NEW MODEL</option><option value="OLD">OLD MODEL</option></select></label>
-      <label>Vehicle Model *<select className="input" value={vehicleLoan.vehicle_model_id} onChange={e=>setV('vehicle_model_id',e.target.value)}><option value="">Select model</option>{(loanMasters.models||[]).map(m=><option key={m.id} value={m.id}>{m.name}{m.code?' · '+m.code:''}</option>)}</select></label>
-      <label>Financer *<select className="input" value={vehicleLoan.financer_id} onChange={e=>setV('financer_id',e.target.value)}><option value="">Select financer</option>{(loanMasters.financers||[]).map(f=><option key={f.id} value={f.id}>{f.name}{f.code?' · '+f.code:''}</option>)}</select></label>
+      <label>Model Name *<select className="input" value={vehicleLoan.vehicle_model_id} onChange={e=>setV('vehicle_model_id',e.target.value)}><option value="">Select model</option>{(loanMasters.models||[]).map(m=><option key={m.id} value={m.id}>{m.name}{m.code?' · '+m.code:''}</option>)}</select></label>
       <label>Loan Amount Requested *<input className="input" type="number" min="1" placeholder="₹ Loan amount" value={vehicleLoan.loan_amount_requested} onChange={e=>setV('loan_amount_requested',e.target.value)}/></label>
       <label>Tenure (Months) *<select className="input" value={vehicleLoan.tenure_months} onChange={e=>setV('tenure_months',e.target.value)}><option value="">Select tenure</option>{[12,18,24,30,36,48].map(x=><option key={x}>{x}</option>)}</select></label>
       </div>
-    </div>
-    <div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">SALE / BOOKING REGISTER</span><h2>Deal & Booking</h2></div><span className="dealerFormula">Sale + File Charge = Total Deal</span></div>
-      <div className="dealerPersonGrid"><label>Sale Amount<input className="input" type="number" min="0" placeholder="₹ 150000" value={sale.sale_amount} onChange={e=>setS('sale_amount',e.target.value)}/></label>
-      <label>File Charge<input className="input" type="number" min="0" placeholder="₹ 3000" value={sale.file_charge} onChange={e=>setS('file_charge',e.target.value)}/></label>
-      <label>Booking Amount<input className="input" type="number" min="0" placeholder="₹ 10000" value={sale.booking_amount} onChange={e=>setS('booking_amount',e.target.value)}/></label>
-      <label>Dealer Record / Register Page No.<input className="input" maxLength={50} placeholder="Physical register page no." value={sale.register_page_no} onChange={e=>setS('register_page_no',e.target.value)}/></label>
-      </div>
-      <div className="dealerDealSummary"><div><span>Total Deal Amount</span><b>₹ {totalDeal.toLocaleString('en-IN')}</b></div><div><span>Loan Amount</span><b>₹ {(Number(vehicleLoan.loan_amount_requested)||0).toLocaleString('en-IN')}</b></div><div><span>Booking Received</span><b>₹ {(Number(sale.booking_amount)||0).toLocaleString('en-IN')}</b></div><div className="balance"><span>Balance Before Billing</span><strong>₹ {balance.toLocaleString('en-IN')}</strong></div></div>
     </div>
   </div>;
 }
