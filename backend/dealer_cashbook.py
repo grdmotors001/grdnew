@@ -284,26 +284,51 @@ def _customer_rows(customers):
     # when a showroom has a large customer register.
     phones = sorted({str(c.phone).strip() for c in customers if c.phone})
     names = sorted({str(c.full_name or "").strip().casefold() for c in customers if c.full_name})
-    # One database query instead of up to 8 chunked invoice queries.
-    # This keeps the register fast when a showroom has hundreds of customers.
+    # Keep invoice matching in bounded chunks. A single huge IN(lower(name))
+    # query becomes slow for large dealer registers and can hit the API timeout.
+    # Prefer phone matches; only use name matching for rows without a phone.
     invoice_rows = []
-    match_filters = []
-    if phones:
-        match_filters.append(TaxInvoice.buyer_mobile.in_(phones))
-    if names:
-        match_filters.append(db.func.lower(TaxInvoice.buyer_name).in_(names))
+    chunk_size = 150
 
-    if match_filters:
-        invoice_rows = (
-            db.session.query(TaxInvoice)
-            .join(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
-            .filter(
-                DeliveryChallan.dealer_id == dealer_id,
-                DeliveryChallan.cancelled.is_(False),
-                TaxInvoice.cancelled.is_(False),
-                or_(*match_filters),
-            ).all()
-        )
+    def load_invoice_chunk(column, values):
+        if not values:
+            return []
+        found = []
+        for i in range(0, len(values), chunk_size):
+            chunk = values[i:i + chunk_size]
+            found.extend(
+                db.session.query(TaxInvoice)
+                .join(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+                .filter(
+                    DeliveryChallan.dealer_id == dealer_id,
+                    DeliveryChallan.cancelled.is_(False),
+                    TaxInvoice.cancelled.is_(False),
+                    column.in_(chunk),
+                ).all()
+            )
+        return found
+
+    invoice_rows.extend(load_invoice_chunk(TaxInvoice.buyer_mobile, phones))
+
+    no_phone_names = sorted({
+        str(c.full_name or "").strip().casefold()
+        for c in customers if c.full_name and not c.phone
+    })
+    if no_phone_names:
+        name_rows = []
+        for i in range(0, len(no_phone_names), chunk_size):
+            chunk = no_phone_names[i:i + chunk_size]
+            name_rows.extend(
+                db.session.query(TaxInvoice)
+                .join(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+                .filter(
+                    DeliveryChallan.dealer_id == dealer_id,
+                    DeliveryChallan.cancelled.is_(False),
+                    TaxInvoice.cancelled.is_(False),
+                    db.func.lower(TaxInvoice.buyer_name).in_(chunk),
+                ).all()
+            )
+        invoice_rows.extend(name_rows)
 
     invoice_by_name_phone = {}
     invoice_by_name_vehicle = {}
