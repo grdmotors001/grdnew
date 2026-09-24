@@ -401,59 +401,10 @@ def cash_customers():
         if legacy:
             db.session.commit()
 
-        # Bootstrap old billed customers only for a genuinely empty register.
-        billed = (db.session.query(DeliveryChallan, TaxInvoice)
-                  .join(TaxInvoice, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
-                  .filter(
-                      DeliveryChallan.dealer_id == g.current_dealer_id,
-                      DeliveryChallan.cancelled.is_(False),
-                      TaxInvoice.cancelled.is_(False),
-                  ).all())
-
-        if billed:
-            existing_customers = DealerCashCustomer.query.filter_by(
-                dealer_id=g.current_dealer_id
-            ).all()
-            existing_phones = {str(c.phone).strip() for c in existing_customers if c.phone}
-            existing_name_vehicle = {
-                (str(c.full_name or "").strip(), str(c.vehicle_no or "").strip())
-                for c in existing_customers if not c.phone
-            }
-            created_any = False
-
-            for dc, ti in billed:
-                name = (ti.buyer_name or "").strip()
-                phone = (ti.buyer_mobile or "").strip() or None
-                vehicle_no = str(getattr(ti, "vehicle_reg_no", None) or "").strip() or None
-                if not name:
-                    continue
-
-                if phone:
-                    if phone in existing_phones:
-                        continue
-                else:
-                    key = (name, vehicle_no or "")
-                    if key in existing_name_vehicle:
-                        continue
-
-                db.session.add(DealerCashCustomer(
-                    dealer_id=g.current_dealer_id,
-                    full_name=name,
-                    phone=phone,
-                    vehicle_no=vehicle_no,
-                    sale_amount=ti.sale_amount or 0,
-                    loan_amount=ti.hypothecation_amount or 0,
-                    financer=ti.financer_name,
-                ))
-                if phone:
-                    existing_phones.add(phone)
-                else:
-                    existing_name_vehicle.add((name, vehicle_no or ""))
-                created_any = True
-
-            if created_any:
-                db.session.commit()
-
+        # Do not bootstrap historical Tax Invoices into the master register
+        # during a live GET. Billed has its own direct TaxInvoice endpoint below.
+        # This avoids a timeout for dealers with a large invoice history while
+        # keeping All Customers as the dealer's actual cash-book register.
         rows = (DealerCashCustomer.query
                 .filter_by(dealer_id=g.current_dealer_id)
                 .order_by(DealerCashCustomer.id.desc()).all())
