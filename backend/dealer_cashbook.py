@@ -811,6 +811,17 @@ def create_showroom_delivery():
             return jsonify({"error":"Battery number and quantity are required."}),400
         return jsonify({"error":"Battery delivery will be enabled in the next step."}),400
 
+    # The approved loan is the authoritative customer/loan source for
+    # a financed sale. Keep the dealer billing/customer register aligned
+    # before creating the delivery row.
+    if loan_amount > 0 and approved_loan:
+        customer.full_name = approved_loan.customer.full_name if approved_loan.customer else customer.full_name
+        customer.phone = approved_loan.customer.phone if approved_loan.customer else customer.phone
+        customer.sale_amount = sale_amount
+        customer.loan_amount = loan_amount
+        customer.vehicle_no = delivery_type
+        db.session.add(customer)
+
     row = DealerCustomerDelivery(
         dealer_id=g.current_dealer_id, customer_id=customer.id,
         delivery_no=_no(DealerCustomerDelivery, "DEL"),
