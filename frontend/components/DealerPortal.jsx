@@ -296,7 +296,9 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
       </>}
       </>}
-    </maifunction DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
+    </main>
+
+function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [customers,setCustomers]=useState([]);
   const [customerId,setCustomerId]=useState('');
