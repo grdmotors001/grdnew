@@ -177,7 +177,7 @@ export function TaxInvoicePage() {
       <ErrorBanner message={!open ? error : ''} />
 
       <form onSubmit={runSearch} className="actions" style={{ marginBottom: 12 }}>
-        <input className="input" placeholder="Search bill no., chassis no. or buyer name"
+        <input className="input" placeholder="Search bill no., chassis no., buyer name or dealer"
                value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 320 }} />
         <button className="btn" type="submit">Search</button>
         {search && (
