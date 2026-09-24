@@ -297,6 +297,8 @@ export function DealerPortal({ dealer, onLogout }) {
       </>}
       </>}
     </main>
+  </div>;
+}
 
 function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
