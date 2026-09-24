@@ -129,7 +129,7 @@ export const NAV_GROUPS = {
     ['battery-addition', 'Battery Fit'],
   ],
   'Sales & Billing': [
-    ['purchase-bills', 'Purchase Bills'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
+    ['purchase-bills', 'Purchase Bills'], ['loan-application-view', 'Loan Application'], ['billing-pending-sales', 'Pending Bills / Billing'], ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
     ['old-rickshaw', 'Old Rickshaw'], ['vahan-inventory', 'Vahan Inventory'],
     ['rto', 'RTO Master'], ['financer', 'Financer Master'],
   ],
