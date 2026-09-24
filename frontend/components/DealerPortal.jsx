@@ -423,9 +423,6 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
     </div>
   </div>;
 }
-iv>
-  </div>;
-}
 
 function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook}) {
   const cards=[
