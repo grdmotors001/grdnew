@@ -19,7 +19,7 @@ export function DealerCashReceiptPage() {
   const loadCustomers=async()=>{
     setLoading(true); setError('');
     try{
-      const r=await get('/dealer/cash-book/customers');
+      const r=await get('/dealer/cash-book/customers?payable_only=1');
       setCustomers(r.customers||[]);
     }catch(e){setError(e.message||'Could not load previous customers')}
     finally{setLoading(false)}
