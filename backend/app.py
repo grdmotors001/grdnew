@@ -1446,7 +1446,7 @@ def ser_ti(i):
             "buyer_gst_no": i.buyer_gst_no, "buyer_pan": i.buyer_pan, "buyer_aadhar": i.buyer_aadhar,
             "buyer_mobile": i.buyer_mobile, "buyer_state": i.buyer_state,
             "buyer_state_code": i.buyer_state_code, "state_type": i.state_type,
-            "buyer_dob": _iso(i.buyer_dob), "dealer_name": i.dealer_name,
+            "buyer_dob": _iso(i.buyer_dob), "dealer_id": i.dealer_id, "dealer_name": i.dealer_name, "dealer_page_no": i.dealer_page_no,
             "product_name": i.product_name, "chassis_no": i.chassis_no, "motor_no": i.motor_no,
             "controller_no": i.controller_no, "other_desc": i.other_desc, "colour": i.colour,
             "sale_amount": i.sale_amount, "gst_sale_amount": i.gst_sale_amount,
@@ -2804,6 +2804,7 @@ def billing_showroom_delivery_generate_bill(delivery_id):
     ti=TaxInvoice(
         bill_no=None,date=date.today(),delivery_challan_id=challan.id,vehicle_id=vehicle.id,
         buyer_name=customer.full_name if customer else None,buyer_mobile=customer.phone if customer else None,
+        dealer_id=challan.dealer_id, dealer_page_no=challan.dealer_page_no,
         dealer_name=challan.dealer.name if challan.dealer else None,product_name=challan.product_name,
         chassis_no=challan.chassis_no,motor_no=challan.motor_no,controller_no=challan.controller_no,
         other_desc=challan.other,colour=challan.colour,sale_amount=sale,gst_sale_amount=sale,
@@ -2865,6 +2866,7 @@ def billing_pending_sale_generate_bill(row_id):
         delivery_challan_id=challan.id,vehicle_id=challan.vehicle_id,
         buyer_name=customer.full_name if customer else None,buyer_mobile=customer.phone if customer else None,
         buyer_address=customer.address if customer else None,buyer_state=customer.state if customer else None,
+        dealer_id=challan.dealer_id, dealer_page_no=challan.dealer_page_no,
         dealer_name=challan.dealer.name if challan.dealer else None,product_name=challan.product_name,
         chassis_no=challan.chassis_no,motor_no=challan.motor_no,controller_no=challan.controller_no,
         other_desc=challan.other,colour=challan.colour,sale_amount=sale,gst_sale_amount=sale,
@@ -4379,6 +4381,8 @@ def tax_invoices():
             buyer_aadhar=data.get("buyer_aadhar"), buyer_mobile=data.get("buyer_mobile"),
             buyer_state=data.get("buyer_state"), buyer_state_code=data.get("buyer_state_code"),
             state_type=data.get("state_type") or "I", buyer_dob=_parse_date(data.get("buyer_dob")),
+            dealer_id=(challan.dealer_id if challan else (chfpl_bill.dealer_id if chfpl_bill else None)),
+            dealer_page_no=((data.get("dealer_page_no") or "").strip() or (challan.dealer_page_no if challan else None)),
             dealer_name=chfpl_bill.dealer_name if chfpl_bill else (challan.dealer.name if challan.dealer else None),
             product_name=product_name, chassis_no=(data.get("chassis_no") or (challan.chassis_no if challan else None)),
             motor_no=(challan.motor_no if challan else None), controller_no=(challan.controller_no if challan else None),
@@ -4527,7 +4531,7 @@ def tax_invoice_detail(invoice_id):
                   "buyer_state_code", "state_type", "financer_name", "rto_name", "vehicle_reg_no",
                   "despatch_through", "eway_bill_no", "mode_term", "bank_name", "bank_account_no",
                   "bank_ifsc", "cvr_no", "license_no", "cancelled_cheque_no", "remarks",
-                  "voucher_no", "chassis_record_no", "ledger_no"):
+                  "voucher_no", "chassis_record_no", "ledger_no", "dealer_page_no"):
         if field in data:
             setattr(ti, field, data[field])
     for field in ("sale_amount", "gst_sale_amount", "discount", "gst_rate", "insurance_amount",
@@ -6967,6 +6971,29 @@ def _seed_defaults():
 
     db.create_all()
     _auto_migrate()
+
+    # Backfill stable dealer identity/page for existing Tax Invoices from their
+    # Delivery Challan. Existing dealer_name is retained as the historical snapshot.
+    if db.engine.dialect.name == "postgresql":
+        with db.engine.begin() as conn:
+            conn.execute(text("""
+                UPDATE tax_invoice ti
+                   SET dealer_id = dc.dealer_id,
+                       dealer_page_no = COALESCE(ti.dealer_page_no, dc.dealer_page_no)
+                  FROM delivery_challan dc
+                 WHERE ti.delivery_challan_id = dc.id
+                   AND (ti.dealer_id IS NULL OR ti.dealer_page_no IS NULL)
+            """))
+    else:
+        db.session.execute(text("""
+            UPDATE tax_invoice ti
+               SET dealer_id = dc.dealer_id,
+                   dealer_page_no = COALESCE(ti.dealer_page_no, dc.dealer_page_no)
+              FROM delivery_challan dc
+             WHERE ti.delivery_challan_id = dc.id
+               AND (ti.dealer_id IS NULL OR ti.dealer_page_no IS NULL)
+        """))
+        db.session.commit()
 
     # Seed the standalone Chassis Master from the supplied coding sheet.
     if ChassisMonthCode.query.count() == 0:
