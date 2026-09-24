@@ -282,11 +282,11 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
         {tab==='pending-sales' && <DealerPendingSalesPage/>}
-        {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
+        {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
 {tab==='old-stock' && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div><div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Total</span><b>{filteredOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='available').length}</b></div><div className="dealerOldStockStat"><span>Sold</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='sold').length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody>{filteredOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{String(v.status||'available').toUpperCase()}</span></td></tr>)}{!filteredOldStock.length&&<tr><td colSpan="6"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div></div>}
-        {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
-        {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
-        {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
+        {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
+        {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
+        {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
         {tab==='all-receipt' && <DealerAllReceiptsPage />}
         {tab==='all-customers' && <DealerAllCustomersPage />}
         {tab==='expenses-create' && <DealerExpenseCreatePage />}
@@ -403,8 +403,36 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
   </div>;
 }
 
-function DealerTable({headers,rows,row}) {
-  return <div className="tablewrap dealerTable"><table className="table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((item,i)=><tr key={item.id??i}>{row(item)}</tr>)}{!rows.length&&<tr><td colSpan={headers.length}><div className="dealerEmpty">No records found.</div></td></tr>}</tbody></table></div>;
+function DealerTable({headers,rows,row,dateKey='date',pageSize=35}) {
+  const [from,setFrom]=useState('');
+  const [to,setTo]=useState('');
+  const [page,setPage]=useState(1);
+  const filtered=(rows||[]).filter(item=>{
+    const d=String(item?.[dateKey]||'').slice(0,10);
+    return (!from || d>=from) && (!to || d<=to);
+  });
+  const totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  const safePage=Math.min(page,totalPages);
+  const visible=filtered.slice((safePage-1)*pageSize,safePage*pageSize);
+  useEffect(()=>{setPage(1)},[from,to,rows]);
+  return <div>
+    <div className="actions" style={{marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+      <label style={{display:'flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700}}>
+        From <input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)} style={{width:145}} />
+      </label>
+      <label style={{display:'flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700}}>
+        To <input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)} style={{width:145}} />
+      </label>
+      {(from||to) && <button className="btn" onClick={()=>{setFrom('');setTo('')}}>Clear Date</button>}
+      <span className="muted" style={{fontSize:11,marginLeft:'auto'}}>{filtered.length} records</span>
+    </div>
+    <div className="tablewrap dealerTable"><table className="table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{visible.map((item,i)=><tr key={item.id??i}>{row(item)}</tr>)}{!visible.length&&<tr><td colSpan={headers.length}><div className="dealerEmpty">No records found.</div></td></tr>}</tbody></table></div>
+    {filtered.length>pageSize && <div className="actions" style={{justifyContent:'center',alignItems:'center'}}>
+      <button className="btn" disabled={safePage<=1} onClick={()=>setPage(safePage-1)}>← Prev</button>
+      <span className="muted">Page {safePage} of {totalPages}</span>
+      <button className="btn" disabled={safePage>=totalPages} onClick={()=>setPage(safePage+1)}>Next →</button>
+    </div>}
+  </div>;
 }
 
 function DealerPurchases({onInvoice}) {
