@@ -141,7 +141,7 @@ export function DealerPortal({ dealer, onLogout }) {
     (tab === 'customer-invoice' && canPurchase) ? <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} /> :
     (tab === 'delivery' && canDelivery) ? <DealerDelivery onBack={() => setTab('dashboard')} /> : null;
 
-  return <div className="dealerShell">
+  return (<div className="dealerShell">
     <style>{`
       .dealerOldSalePage{padding:4px 0 80px}
       .dealerOldSaleHeader,.dealerOldStockHead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;padding:4px 2px}
@@ -297,7 +297,7 @@ export function DealerPortal({ dealer, onLogout }) {
       </>}
       </>}
     </main>
-  </div>;
+  </div>);
 }
 
 function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
