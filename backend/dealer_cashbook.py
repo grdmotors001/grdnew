@@ -736,14 +736,43 @@ def create_showroom_delivery():
     file_charge = _amt(d.get("file_charge"))
     misc_charge = _amt(d.get("misc_charge"))
     loan_workflow_id = int(d.get("loan_workflow_id") or 0) or None
+    loan_application_no = str(d.get("loan_application_no") or "").strip() or None
     if loan_amount > 0:
-        if not loan_workflow_id:
+        if not loan_workflow_id and not loan_application_no:
             return jsonify({"error":"Approved loan selection is required when Loan Amount is entered."}),400
-        approved_loan = LoanWorkflow.query.filter(LoanWorkflow.id == loan_workflow_id,
+
+        loan_q = LoanWorkflow.query.filter(
             LoanWorkflow.dealer_id == g.current_dealer_id,
-            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"])).first()
+            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"])
+        )
+        if loan_workflow_id:
+            loan_q = loan_q.filter(LoanWorkflow.id == loan_workflow_id)
+        else:
+            loan_q = loan_q.filter(LoanWorkflow.application_no == loan_application_no)
+        approved_loan = loan_q.first()
         if not approved_loan:
             return jsonify({"error":"Selected approved loan was not found for this dealer."}),400
+
+        if DealerCustomerDelivery.query.filter_by(
+            dealer_id=g.current_dealer_id, loan_workflow_id=approved_loan.id
+        ).first():
+            return jsonify({"error":"This approved loan is already used in a sale."}),409
+
+        expected_name = str(approved_loan.customer.full_name if approved_loan.customer else "").strip().casefold()
+        actual_name = str(customer.full_name or "").strip().casefold()
+        if expected_name != actual_name:
+            return jsonify({"error":"Customer name does not match the approved loan."}),409
+
+        expected_amount = round(float(approved_loan.loan_amount or 0),2)
+        if expected_amount <= 0 or round(loan_amount,2) != expected_amount:
+            return jsonify({"error":f"Loan amount must match the approved loan amount ₹{expected_amount:,.2f}."}),409
+
+        selected_type = delivery_type
+        expected_type = str(approved_loan.loan_vehicle_type or "new").strip().lower()
+        if expected_type != selected_type:
+            return jsonify({"error":"Vehicle type does not match the approved loan."}),409
+
+        loan_workflow_id = approved_loan.id
     paid_amount = db.session.query(
         db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0)
     ).filter(
