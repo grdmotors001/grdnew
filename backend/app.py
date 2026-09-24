@@ -48,7 +48,7 @@ from models import (db, Company, SimpleMaster, Dealer, Customer, Product, Vehicl
                      ChassisMonthCode, ChassisYearCode, ChassisRule,
                      ProductionFormula, ProductionVoucher, ProductionVoucherItem, LoanWorkflow, LoanWorkflowLog,
                      DeliveryChallan, TaxInvoice, CreditNote, PurchaseBill, PurchaseBillItem, DebitNote, DebitNoteItem,
-                     OldRickshaw, OldRickshawChallan, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt)
+                     OldRickshaw, OldRickshawChallan, BatteryDeliveryChallan, BatteryStockMovement, BatterySwapVoucher, JournalStock, DayBook, ExpensePaymentVoucher, ManualPendingBill, ChfplBillingQueue, RepairServiceVoucher, RepairServiceItem, RepairServicePaymentReceipt, DealerPayment)
 from menu_config import MENU, find_item, all_items
 from auth import issue_token, issue_pending_token, issue_dealer_token, require_auth, require_dealer_auth, require_auth_or_dealer, require_super_user, _serializer
 from hr_attendance import hr_bp
@@ -3473,8 +3473,14 @@ def _dealer_current():
     return Dealer.query.get(did) if did else None
 
 def _dealer_payment_json(p):
+    try:
+        allocation = _json.loads(p.allocation_json or "[]")
+        if not isinstance(allocation, list):
+            allocation = []
+    except (TypeError, ValueError):
+        allocation = []
     return {"id":p.id,"order_id":p.order_id,"amount":p.amount,"allocation_type":p.allocation_type,
-            "allocation":_json.loads(p.allocation_json or "[]"),"status":p.status,"cf_payment_id":p.cf_payment_id,
+            "allocation":allocation,"status":p.status,"cf_payment_id":p.cf_payment_id,
             "payment_method":p.payment_method,"created_at":p.created_at.isoformat() if p.created_at else None,
             "paid_at":p.paid_at.isoformat() if p.paid_at else None}
 
@@ -3523,8 +3529,16 @@ def dealer_customer_invoice():
 def dealer_payments():
     d=_dealer_current();
     if not d: return _err("Dealer not found",404)
-    rows=DealerPayment.query.filter_by(dealer_id=d.id).order_by(DealerPayment.id.desc()).limit(100).all()
-    return jsonify({"payments":[_dealer_payment_json(x) for x in rows]})
+    # DealerPayment is part of the current model set; create the table
+    # defensively for older local/production databases before querying it.
+    try:
+        DealerPayment.__table__.create(db.engine, checkfirst=True)
+        rows=DealerPayment.query.filter_by(dealer_id=d.id).order_by(DealerPayment.id.desc()).limit(100).all()
+        return jsonify({"payments":[_dealer_payment_json(x) for x in rows]})
+    except Exception as exc:
+        db.session.rollback()
+        print(f"[dealer payments] load failed: {exc}")
+        return _err("Could not load dealer payment history",500)
 
 @app.post("/api/dealer/payment/create")
 @require_dealer_auth
