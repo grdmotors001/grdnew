@@ -132,7 +132,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
 
   const standaloneForm =
-    tab === 'create-sale' ? <DealerCreateSaleForm stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
+    tab === 'create-sale' ? <DealerCreateSaleForm dealer={dealer} stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
     tab === 'newloan' ? <DealerNewLoanForm onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-withdrawal' && canBatteryWithdrawal) ? <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-swap' && canBatterySwap) ? <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} /> :
@@ -296,14 +296,27 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
       </>}
       </>}
-    </main>
-  </div>;
-}
-
-function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
+    </maifunction DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const [customers,setCustomers]=useState([]);
+  const [customerId,setCustomerId]=useState('');
+  const [customerError,setCustomerError]=useState('');
   const [type,setType]=useState('');
   const [item,setItem]=useState('');
+
+  useEffect(()=>{
+    // Customer Register -> Vehicle Pending is the source for this dropdown.
+    // The customer endpoint is available to showroom/branch dealer accounts.
+    get('/dealer/cash-book/customers?status=VEHICLE_PENDING')
+      .then(r=>{
+        setCustomers(r.customers || []);
+        setCustomerError('');
+      })
+      .catch(e=>{
+        setCustomers([]);
+        setCustomerError(e.message || 'Could not load vehicle-pending customers');
+      });
+  },[]);
 
   const newItems=stock?.vehicles||[];
   const oldItems=oldStock?.rickshaws||[];
@@ -312,22 +325,43 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const options=type==='new' ? newItems : type==='old' ? oldItems : type==='battery' ? batteryItems : [];
   const optionValue=(v)=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '');
   const selected=options.find(v=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '')===String(item));
+  const selectedCustomer=customers.find(c=>String(c.id)===String(customerId));
   const optionLabel=(v)=>{
     if(type==='new') return [v.chassis_no,v.model_name,v.colour].filter(Boolean).join(' · ') || 'New Rickshaw';
     if(type==='old') return [v.model_name,v.battery_name,v.vehicle_reg_no].filter(Boolean).join(' · ') || 'Old Rickshaw';
     return [v.battery_maker,v.battery_no].filter(Boolean).join(' · ') || 'Battery';
   };
 
+  const customerLabel=(c)=>[
+    c.name,
+    c.phone,
+    c.vehicle_no ? `Vehicle: ${c.vehicle_no}` : '',
+    c.page_no ? `Page: ${c.page_no}` : ''
+  ].filter(Boolean).join(' · ');
+
   return <div className="grdFormPage dealerCreateSalePage">
     <div className="dealerPanel dealerCreateSalePanel">
       <div className="dealerPanelHead">
-        <div><h3>Create Sale</h3><p>Select the sale date, stock type and item.</p></div>
+        <div><h3>Create Sale</h3><p>Select customer, sale type, date and stock item.</p></div>
         <button type="button" className="btn" onClick={onBack}>Back</button>
       </div>
 
       <div className="dealerCreateSaleGrid">
         <label>Date
           <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)} />
+        </label>
+
+        <label>Customer
+          <select
+            className="input"
+            value={customerId}
+            onChange={e=>setCustomerId(e.target.value)}
+          >
+            <option value="">
+              {customerError ? 'Unable to load customers' : customers.length ? 'Select Customer' : 'No Vehicle Pending Customer'}
+            </option>
+            {customers.map(c=><option key={c.id} value={c.id}>{customerLabel(c)}</option>)}
+          </select>
         </label>
 
         <label>Sale Type
@@ -346,6 +380,15 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
           </select>
         </label>
       </div>
+
+      {selectedCustomer && <div className="dealerCreateSalePreview">
+        <div className="dealerCreateSalePreviewHead"><strong>Customer</strong><span>Vehicle Pending</span></div>
+        <div className="dealerCreateSalePreviewGrid">
+          <div><span>Name</span><b>{selectedCustomer.name||'—'}</b></div>
+          <div><span>Phone</span><b>{selectedCustomer.phone||'—'}</b></div>
+          <div><span>Vehicle No.</span><b>{selectedCustomer.vehicle_no||'—'}</b></div>
+        </div>
+      </div>}
 
       {selected && <div className="dealerCreateSalePreview">
         <div className="dealerCreateSalePreviewHead"><strong>Preview</strong><span>{type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':'Battery'}</span></div>
@@ -367,11 +410,16 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
         </div>
       </div>}
 
+      {customerError && <div className="error" style={{marginTop:12}}>{customerError}</div>}
+
       <div className="actions dealerCreateSaleActions">
         <button type="button" className="btn" onClick={onBack}>Cancel</button>
-        <button type="button" className="btn primary" disabled={!date || !type || !item}>Save</button>
+        <button type="button" className="btn primary" disabled={!date || !customerId || !type || !item}>Save</button>
       </div>
     </div>
+  </div>;
+}
+iv>
   </div>;
 }
 
