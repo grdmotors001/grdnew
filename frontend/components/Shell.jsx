@@ -48,7 +48,7 @@ const ICONS = {
   'repair-service-voucher': Wrench, 'old-rickshaw-challan': Truck, 'vahan-inventory': ClipboardList,
   'closing-stock-premises': Warehouse, 'closing-stock-dealers': Store, 'closing-stock-raw': Boxes,
   'stock-ledger-premises': ClipboardList, 'stock-ledger-dealers': ClipboardList,
-  'loan-workflow': ClipboardList,
+  'loan-workflow': ClipboardList, 'loan-application-view': ClipboardList,
   'purchase-register': FileText, 'production-register': FileText, 'delivery-challan-register': FileText,
   'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText,
   'payment-receivable-report': Wallet, 'subsidy-report': Gift, ledger: BookOpen,
@@ -177,7 +177,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     ? (Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0] || 'Dashboard')
     : groupForKey(active);
   const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);
-  const allowedFor = (items) => user?.is_super_user ? items : items.filter(([key]) => (user?.allowed_modules || []).includes(key));
+  const allowedFor = (items) => user?.is_super_user ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : (user?.allowed_modules || []).includes(key));
 
   return (
     <div className="app">
