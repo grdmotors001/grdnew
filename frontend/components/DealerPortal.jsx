@@ -323,6 +323,9 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
 
   const load=async()=>{
     try{
+      // Refresh live CHFPL status first; GRD mirrors the approved loan details
+      // locally so the sale screen can safely match amount/customer/type.
+      await get('/dealer/loan-status', {timeoutMs:60000, noClientCache:true});
       const r=await get('/dealer/delivery/options');
       setCustomers(r.customers||[]);
       setApprovedLoans((r.approved_loans||[]).filter(x=>!x.used));
