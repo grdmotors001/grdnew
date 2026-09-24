@@ -459,6 +459,51 @@ def cash_customers():
     q = str(request.args.get("q") or "").strip().lower()
     status_filter = str(request.args.get("status") or "").strip().upper()
 
+    # Billed is sourced directly from Tax Invoice. Do not copy invoices into
+    # dealer_cash_customer; the invoice is the authoritative billed record.
+    if status_filter == "BILLED":
+        invoice_q = (db.session.query(TaxInvoice)
+                     .outerjoin(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+                     .filter(
+                         TaxInvoice.cancelled.is_(False),
+                         db.or_(TaxInvoice.dealer_id == g.current_dealer_id,
+                               DeliveryChallan.dealer_id == g.current_dealer_id)
+                     ))
+        if q:
+            like = f"%{q}%"
+            invoice_q = invoice_q.filter(db.or_(
+                TaxInvoice.dealer_page_no.ilike(like),
+                TaxInvoice.buyer_name.ilike(like),
+                TaxInvoice.buyer_mobile.ilike(like),
+                TaxInvoice.vehicle_reg_no.ilike(like),
+                TaxInvoice.chassis_no.ilike(like),
+            ))
+        invoices = invoice_q.order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc()).all()
+        billed = []
+        for ti in invoices:
+            paid = float(ti.amount_received or 0)
+            sale = float(ti.sale_amount or 0)
+            loan = float(ti.hypothecation_amount or 0)
+            billed.append({
+                "id": ti.id,
+                "page_no": ti.dealer_page_no,
+                "name": ti.buyer_name,
+                "phone": ti.buyer_mobile,
+                "financer": ti.financer_name,
+                "vehicle_no": ti.vehicle_reg_no,
+                "sale_amount": round(sale, 2),
+                "loan_amount": round(loan, 2),
+                "paid_amount": round(paid, 2),
+                "balance": round(sale - loan - paid, 2),
+                "status": "BILLED",
+                "status_label": "Billed",
+                "invoice_id": ti.id,
+                "bill_no": ti.bill_no,
+                "dealer_id": ti.dealer_id,
+            })
+        return jsonify({"success": True, "customers": billed})
+
+
     if q:
         rows = [x for x in rows if q in " ".join([
             str(x.page_no or ''), str(x.full_name or ''),
