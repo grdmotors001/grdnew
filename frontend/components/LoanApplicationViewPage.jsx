@@ -107,6 +107,8 @@ export function LoanApplicationViewPage({ user }) {
     ['tvr', 'AT TVR', counts.tvr],
   ];
 
+  if (!isAdmin) return <div className="error">Admin access required.</div>;
+
   return (
     <div className="loanApplicationViewPage">
       <style>{`
