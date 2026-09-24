@@ -525,6 +525,12 @@ def cash_customers():
     if status_filter in {"VEHICLE_PENDING","BILLED","DEALER_CANCEL"}:
         customer_rows = [x for x in customer_rows if x["status"] == status_filter]
 
+    # Receipt screen can request only customers with an actual outstanding
+    # balance. Keep this server-side too, so an old/stale frontend cannot
+    # accidentally show zero-balance customers in Balance Payment.
+    if str(request.args.get("payable_only") or "").strip().lower() in {"1", "true", "yes"}:
+        customer_rows = [x for x in customer_rows if float(x.get("balance") or 0) > 0]
+
     return jsonify({"success":True,"customers":customer_rows})
 
 @dealer_cashbook_bp.route("/cash-book/customers/<int:customer_id>", methods=["PUT"])
