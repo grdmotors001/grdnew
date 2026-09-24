@@ -33,6 +33,7 @@ export function DealerAllReceiptsPage() {
 
 export function DealerAllCustomersPage() {
   const [customers, setCustomers] = useState([]);
+  const [billedCustomers, setBilledCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('ALL');
   const [editing, setEditing] = useState(null);
@@ -40,20 +41,24 @@ export function DealerAllCustomersPage() {
   const [cancelForm, setCancelForm] = useState({ reason: '', refund_amount: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const load = (q = search) => get('/dealer/cash-book/customers?q=' + encodeURIComponent(q || ''))
-    .then((d) => setCustomers(d.customers || []))
+  const load = (q = search) => Promise.all([
+    get('/dealer/cash-book/customers?q=' + encodeURIComponent(q || '')),
+    get('/dealer/cash-book/customers?status=BILLED&q=' + encodeURIComponent(q || '')),
+  ])
+    .then(([all, billed]) => { setCustomers(all.customers || []); setBilledCustomers(billed.customers || []); })
     .catch((e) => setError(e.message || 'Could not load customers'));
   useEffect(() => { load(''); }, []);
 
-  const filtered = customers.filter((c) => {
-    if (tab !== 'ALL' && c.status !== tab) return false;
+  const sourceRows = tab === 'BILLED' ? billedCustomers : customers;
+  const filtered = sourceRows.filter((c) => {
+    if (tab !== 'ALL' && tab !== 'BILLED' && c.status !== tab) return false;
     const q = search.trim().toLowerCase();
     return !q || [c.page_no, c.name, c.phone, c.vehicle_no].join(' ').toLowerCase().includes(q);
   });
   const counts = {
     ALL: customers.length,
     VEHICLE_PENDING: customers.filter((c) => c.status === 'VEHICLE_PENDING').length,
-    BILLED: customers.filter((c) => c.status === 'BILLED').length,
+    BILLED: billedCustomers.length,
     DEALER_CANCEL: customers.filter((c) => c.status === 'DEALER_CANCEL').length,
   };
   const tabs = [
@@ -122,7 +127,7 @@ export function DealerAllCustomersPage() {
                 <td><b>{money(c.balance)}</b></td>
                 <td>
                   <div style={{ display:'flex', gap:6 }}>
-                    <button className="btn" onClick={() => setEditing({ ...c })}>Edit</button>
+                    {c.status !== 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c })}>Edit</button>}
                     {c.status === 'VEHICLE_PENDING' && <button className="btn" onClick={() => openCancel(c)}>Dealer Cancel</button>}
                   </div>
                 </td>
