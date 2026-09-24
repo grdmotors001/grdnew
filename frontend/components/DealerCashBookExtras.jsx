@@ -128,6 +128,7 @@ export function DealerAllCustomersPage() {
                 <td>
                   <div style={{ display:'flex', gap:6 }}>
                     {c.status !== 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c })}>Edit</button>}
+                    {c.status === 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c })}>Edit Page No.</button>}
                     {c.status === 'VEHICLE_PENDING' && <button className="btn" onClick={() => openCancel(c)}>Dealer Cancel</button>}
                   </div>
                 </td>
@@ -139,12 +140,31 @@ export function DealerAllCustomersPage() {
       </div>
 
       {editing && <div className="card" style={{ marginTop: 12 }}>
-        <h2>Edit Customer</h2>
-        <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}{field('Name', 'name', editing, setEditing)}{field('Phone No.', 'phone', editing, setEditing)}</div>
-        <div className="actions">
-          <button className="btn primary" disabled={saving} onClick={async () => { setSaving(true); try { await put('/dealer/cash-book/customers/' + editing.id, editing); setEditing(null); await load(search); } catch (e) { setError(e.message || 'Could not update customer'); } finally { setSaving(false); } }}>Save Customer</button>
-          <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
-        </div>
+        <h2>{editing.status === 'BILLED' ? 'Edit Billed Page No.' : 'Edit Customer'}</h2>
+        {editing.status === 'BILLED' ? (
+          <>
+            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}</div>
+            <div className="actions">
+              <button className="btn primary" disabled={saving} onClick={async () => {
+                setSaving(true); setError('');
+                try {
+                  await put('/dealer/tax-invoices/' + editing.invoice_id, { dealer_page_no: editing.page_no });
+                  setEditing(null); await load(search);
+                } catch (e) { setError(e.message || 'Could not update page number'); }
+                finally { setSaving(false); }
+              }}>{saving ? 'Saving…' : 'Save Page No.'}</button>
+              <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}{field('Name', 'name', editing, setEditing)}{field('Phone No.', 'phone', editing, setEditing)}</div>
+            <div className="actions">
+              <button className="btn primary" disabled={saving} onClick={async () => { setSaving(true); try { await put('/dealer/cash-book/customers/' + editing.id, editing); setEditing(null); await load(search); } catch (e) { setError(e.message || 'Could not update customer'); } finally { setSaving(false); } }}>Save Customer</button>
+              <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
+            </div>
+          </>
+        )}
       </div>}
 
       {cancelling && <div className="card" style={{ marginTop: 12, border: '1px solid currentColor' }}>
