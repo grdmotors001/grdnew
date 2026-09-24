@@ -2035,8 +2035,8 @@ def dealer_tax_invoices():
     rows = (TaxInvoice.query
             .outerjoin(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
             .filter(TaxInvoice.cancelled.is_(False))
-            .filter(db.or_(DeliveryChallan.dealer_id == g.current_dealer_id,
-                           TaxInvoice.dealer_name == Dealer.query.get_or_404(g.current_dealer_id).name))
+            .filter(db.or_(TaxInvoice.dealer_id == g.current_dealer_id,
+                           DeliveryChallan.dealer_id == g.current_dealer_id))
             .order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc()).all())
     return jsonify({"invoices": [ser_ti(i) for i in rows]})
 
