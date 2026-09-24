@@ -660,12 +660,25 @@ def showroom_delivery_options():
                   "date":r.sale_date.isoformat() if r.sale_date else None}
                  for r in old_rows if r.id not in delivered_old_ids]
 
-    approved_loans = (LoanWorkflow.query.filter(LoanWorkflow.dealer_id == g.current_dealer_id)
-        .filter(LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"]))
-        .order_by(LoanWorkflow.id.desc()).limit(500).all())
-    approved_loan_rows = [{"id":r.id,"application_no":r.application_no,"do_no":r.do_no,
-        "customer_name":r.customer.full_name if r.customer else "","customer_id":r.customer_id,"status":r.status}
-        for r in approved_loans]
+    used_loan_ids = {
+        int(x[0]) for x in db.session.query(DealerCustomerDelivery.loan_workflow_id)
+        .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+                DealerCustomerDelivery.loan_workflow_id.isnot(None)).all()
+    }
+    approved_loans = (LoanWorkflow.query.filter(
+            LoanWorkflow.dealer_id == g.current_dealer_id,
+            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"]),
+            LoanWorkflow.loan_amount > 0
+        ).order_by(LoanWorkflow.id.desc()).limit(500).all())
+    approved_loan_rows = [{
+        "id":r.id, "application_no":r.application_no, "do_no":r.do_no,
+        "customer_name":r.customer.full_name if r.customer else "",
+        "customer_id":r.customer_id, "status":("USED" if r.id in used_loan_ids else "APPROVED"),
+        "loan_amount":round(float(r.loan_amount or 0),2),
+        "vehicle_model_name":r.loan_model_name,
+        "vehicle_type":r.loan_vehicle_type or "new",
+        "used":r.id in used_loan_ids,
+    } for r in approved_loans]
     return jsonify({"success":True,"customers":customer_rows,"new_stock":new_stock,"old_stock":old_stock,
                     "battery_stock":[],"approved_loans":approved_loan_rows})
 
