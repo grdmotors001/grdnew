@@ -2487,6 +2487,38 @@ def loan_workflow_list():
     return jsonify({"success": True, "applications": result})
 
 
+@app.get("/api/loan-application-view")
+@require_auth
+def loan_application_view_list():
+    _ensure_loan_workflow_tables()
+    user = _workflow_user()
+    dept = (getattr(user, "department", None) or "").strip().lower() if user else ""
+    if not user or (not user.is_super_user and dept != "admin"):
+        return _err("Admin access required", 403)
+    rows = LoanWorkflow.query.order_by(LoanWorkflow.id.desc()).limit(500).all()
+    return jsonify({"success": True, "applications": [_ser_workflow(row) for row in rows]})
+
+
+@app.get("/api/loan-application-view/<int:row_id>/history")
+@require_auth
+def loan_application_view_history(row_id):
+    _ensure_loan_workflow_tables()
+    user = _workflow_user()
+    dept = (getattr(user, "department", None) or "").strip().lower() if user else ""
+    if not user or (not user.is_super_user and dept != "admin"):
+        return _err("Admin access required", 403)
+    row = LoanWorkflow.query.get_or_404(row_id)
+    logs = (LoanWorkflowLog.query
+            .filter_by(application_id=row.id)
+            .order_by(LoanWorkflowLog.created_at.asc(), LoanWorkflowLog.id.asc())
+            .all())
+    return jsonify({"success": True, "application": _ser_workflow(row), "history": [{
+        "id": x.id, "action": x.action, "from_status": x.from_status,
+        "to_status": x.to_status, "user_id": x.user_id, "remark": x.remark,
+        "details": x.details, "created_at": _iso(x.created_at)
+    } for x in logs]})
+
+
 @app.get("/api/loan-workflow/<int:row_id>/history")
 @require_auth
 def loan_workflow_history(row_id):
