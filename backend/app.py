@@ -4447,6 +4447,7 @@ def tax_invoices():
             TaxInvoice.bill_no.ilike(like),
             TaxInvoice.chassis_no.ilike(like),
             TaxInvoice.buyer_name.ilike(like),
+            TaxInvoice.dealer_name.ilike(like),
         ))
     query = query.order_by(TaxInvoice.date.desc(), TaxInvoice.id.desc())
 
