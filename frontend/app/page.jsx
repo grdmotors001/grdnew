@@ -26,15 +26,8 @@ import { VahanInventoryPage } from '../components/VahanInventoryPage';
 import { OldRickshawChallanPage } from '../components/OldRickshawChallanPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
-import {
-  ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage,
-  StockLedgerPremisesPage, StockLedgerDealersPage,
-} from '../components/StockPages';
-import {
-  PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage,
-  GstRegisterPage, HypothecationRegisterPage, PaymentReceivablePage, SubsidyReportPage,
-  LedgerPage, DayBookPage, LedgerVPage,
-} from '../components/ReportPages';
+import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage, StockLedgerPremisesPage, StockLedgerDealersPage } from '../components/StockPages';
+import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage, GstRegisterPage, HypothecationRegisterPage, PaymentReceivablePage, SubsidyReportPage, LedgerPage, DayBookPage, LedgerVPage } from '../components/ReportPages';
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { DebitNotePage } from '../components/DebitNotePage';
 import { DealerPortal } from '../components/DealerPortal';
@@ -42,10 +35,10 @@ import { HRAttendancePage } from '../components/HRAttendancePage';
 import { ProfilePage } from '../components/ProfilePage';
 import { BalanceSheetPage, ProfitLossPage } from '../components/FinancialReportsPage';
 import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
+import { LoanApplicationViewPage } from '../components/LoanApplicationViewPage';
 import { SIMPLE_MASTERS, keyForPath, routeForKey } from '../lib/menu';
 
 const CUSTOM_PAGES = {
-  // Showroom navigation aliases
   'showroom-new-stock': () => <ClosingStockPremisesPage />,
   'showroom-old-stock': () => <OldRickshawPage />,
   'showroom-battery-stock': () => <PlaceholderPage label="Battery Stock" />,
@@ -56,7 +49,6 @@ const CUSTOM_PAGES = {
   'showroom-cashbook': () => <DayBookPage />,
   'showroom-cash-handover': () => <CashAtDealerPage />,
   'showroom-online-payment': () => <PlaceholderPage label="Online Payment" />,
-
   company: () => <CompanyMasterPage />,
   dealer: () => <DealerPage />,
   product: () => <ProductPage />,
@@ -92,6 +84,7 @@ const CUSTOM_PAGES = {
   'stock-ledger-premises': () => <StockLedgerPremisesPage />,
   'stock-ledger-dealers': () => <StockLedgerDealersPage />,
   'loan-workflow': (ctx) => <LoanWorkflowPage user={ctx.user} />,
+  'loan-application-view': (ctx) => <LoanApplicationViewPage user={ctx.user} />,
   'purchase-register': () => <PurchaseRegisterPage />,
   'production-register': () => <ProductionRegisterPage />,
   'delivery-challan-register': () => <DeliveryChallanRegisterPage />,
@@ -125,13 +118,8 @@ export default function App() {
   const [active, setActive] = useState('dashboard');
   const [optionUserId, setOptionUserId] = useState(null);
 
-  // URL-hash routing: direct links, browser Back/Forward and refresh now keep
-  // the selected module. The menu still uses the same stable module keys.
   useEffect(() => {
-    const syncFromUrl = () => {
-      const key = keyForPath(window.location.hash.replace(/^#/, '') || '/dashboard');
-      setActive(key);
-    };
+    const syncFromUrl = () => setActive(keyForPath(window.location.hash.replace(/^#/, '') || '/dashboard'));
     syncFromUrl();
     window.addEventListener('hashchange', syncFromUrl);
     return () => window.removeEventListener('hashchange', syncFromUrl);
@@ -146,45 +134,34 @@ export default function App() {
   useEffect(() => {
     const token = getToken();
     if (!token) { setCheckedAuth(true); return; }
-
-    // Keep the portal type beside the token so a browser refresh can restore
-    // the correct dashboard directly instead of probing the other auth system.
     const portal = getPortalKind();
     const savedDealer = typeof window !== 'undefined'
       ? (() => { try { return JSON.parse(window.localStorage.getItem('grd_dealer_profile') || 'null'); } catch { return null; } })()
       : null;
 
     const restore = portal === 'dealer'
-      ? get('/dealer/me', { preserveAuthOn401: true })
-          .then((dealer) => {
-            window.localStorage.setItem('grd_dealer_profile', JSON.stringify(dealer));
-            setUser({ ...dealer, is_dealer: true });
-          })
-          .catch(() => {
-            // Keep the dealer portal visible through a temporary /dealer/me
-            // failure. The bearer token remains intact because this request
-            // uses preserveAuthOn401.
-            if (savedDealer) setUser({ ...savedDealer, is_dealer: true });
-            else throw new Error('Dealer session could not be restored');
-          })
+      ? get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => {
+          window.localStorage.setItem('grd_dealer_profile', JSON.stringify(dealer));
+          setUser({ ...dealer, is_dealer: true });
+        }).catch(() => {
+          if (savedDealer) setUser({ ...savedDealer, is_dealer: true });
+          else throw new Error('Dealer session could not be restored');
+        })
       : portal === 'staff'
         ? get('/auth/me', { preserveAuthOn401: true }).then(setUser)
-        : get('/auth/me', { preserveAuthOn401: true })
-            .then(setUser)
+        : get('/auth/me', { preserveAuthOn401: true }).then(setUser)
             .catch(() => get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => {
               setPortalKind('dealer');
               window.localStorage.setItem('grd_dealer_profile', JSON.stringify(dealer));
               setUser({ ...dealer, is_dealer: true });
             }));
 
-    restore
-      .catch(() => {
-        setToken(null);
-        setPortalKind(null);
-        window.localStorage.removeItem('grd_dealer_profile');
-        setUser(null);
-      })
-      .finally(() => setCheckedAuth(true));
+    restore.catch(() => {
+      setToken(null);
+      setPortalKind(null);
+      window.localStorage.removeItem('grd_dealer_profile');
+      setUser(null);
+    }).finally(() => setCheckedAuth(true));
   }, []);
 
   if (!checkedAuth) return <div className="appLoadingScreen"><div className="appLoadingCard"><div className="appLoadingMark">G</div><b>G.R.D. MOTORS</b><span>Restoring your session…</span></div></div>;
