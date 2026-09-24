@@ -127,6 +127,11 @@ class DealerCashHandover(db.Model):
 
 @dealer_cashbook_bp.before_request
 def _ensure_cashbook_schema():
+    # The customer register is already present in production. Avoid running
+    # information_schema/table-existence checks on every customer-list read.
+    if request.endpoint == "dealer_cashbook.cash_customers":
+        return
+
     """Ensure the showroom cash/customer tables exist before ORM queries run.
 
     Older production databases predate the customer register columns.  Keep
@@ -347,7 +352,6 @@ def _expense(e):
 def _handover(h):
     return {"id":h.id,"handover_no":h.handover_no,"date":h.handover_date.isoformat(),
             "amount":h.amount,"sent_to":h.sent_to,"remarks":h.remarks,"status":h.status}
-
 
 @dealer_cashbook_bp.route("/cash-book/customers", methods=["GET"])
 @require_dealer_auth
@@ -697,7 +701,6 @@ def create_showroom_delivery():
             return jsonify({"error":"Selected chassis is not in this showroom's stock."}),409
         if DealerCustomerDelivery.query.filter_by(dealer_id=g.current_dealer_id, vehicle_id=vehicle.id).first():
             return jsonify({"error":"This chassis is already delivered."}),409
-
     elif delivery_type == "old":
         old_rickshaw_id = int(d.get("old_rickshaw_id") or 0)
         old = OldRickshaw.query.filter_by(
