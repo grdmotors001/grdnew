@@ -77,7 +77,7 @@ export function LoanApplicationViewPage({ user }) {\n  const isAdmin = !!user?.i
         tab === 'bill' ? isPendingBill(r) :
         tab === 'fe' ? stageOf(r) === 'FE' :
         tab === 'do' ? stageOf(r) === 'DO' :
-        r.status === 'TVR_PENDING';
+        stageOf(r) === 'TVR';
       if (!matchTab) return false;
       if (!q) return true;
       return [
