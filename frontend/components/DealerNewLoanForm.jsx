@@ -45,8 +45,7 @@ export function DealerNewLoanForm({ onBack }) {
   const [customers,setCustomers]=useState([]);
   const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',loan_amount_requested:'80000',tenure_months:'36'});
   const [loanType,setLoanType]=useState('NEW');
-  const [loanMasters,setLoanMasters]=useState({models:[],financers:[],loan_types:[]});
-  const [sale,setSale]=useState({sale_amount:'150000',file_charge:'3000',booking_amount:'10000',register_page_no:'DEMO-001'});
+  const [loanMasters,setLoanMasters]=useState({models:[],loan_types:[]});
   const [saving,setSaving]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(null);
   const [customerPhoto,setCustomerPhoto]=useState(null);
   const [documents,setDocuments]=useState([]);
