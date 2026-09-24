@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from flask import Blueprint, request, jsonify, g
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, or_
 from models import db, Dealer, Vehicle, OldRickshaw, LoanWorkflow, DeliveryChallan, TaxInvoice
 from auth import require_dealer_auth
 
@@ -277,32 +277,24 @@ def _customer_rows(customers):
     # when a showroom has a large customer register.
     phones = sorted({str(c.phone).strip() for c in customers if c.phone})
     names = sorted({str(c.full_name or "").strip().casefold() for c in customers if c.full_name})
+    # One database query instead of up to 8 chunked invoice queries.
+    # This keeps the register fast when a showroom has hundreds of customers.
     invoice_rows = []
+    match_filters = []
+    if phones:
+        match_filters.append(TaxInvoice.buyer_mobile.in_(phones))
+    if names:
+        match_filters.append(db.func.lower(TaxInvoice.buyer_name).in_(names))
 
-    chunk_size = 250
-    for i in range(0, len(phones), chunk_size):
-        phone_chunk = phones[i:i + chunk_size]
-        invoice_rows.extend(
-            db.session.query(DeliveryChallan, TaxInvoice)
-            .join(TaxInvoice, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
+    if match_filters:
+        invoice_rows = (
+            db.session.query(TaxInvoice)
+            .join(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
             .filter(
                 DeliveryChallan.dealer_id == dealer_id,
                 DeliveryChallan.cancelled.is_(False),
                 TaxInvoice.cancelled.is_(False),
-                TaxInvoice.buyer_mobile.in_(phone_chunk),
-            ).all()
-        )
-
-    for i in range(0, len(names), chunk_size):
-        name_chunk = names[i:i + chunk_size]
-        invoice_rows.extend(
-            db.session.query(DeliveryChallan, TaxInvoice)
-            .join(TaxInvoice, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
-            .filter(
-                DeliveryChallan.dealer_id == dealer_id,
-                DeliveryChallan.cancelled.is_(False),
-                TaxInvoice.cancelled.is_(False),
-                db.func.lower(TaxInvoice.buyer_name).in_(name_chunk),
+                or_(*match_filters),
             ).all()
         )
 
@@ -310,7 +302,7 @@ def _customer_rows(customers):
     invoice_by_name_vehicle = {}
     invoice_by_name = {}
     seen_invoice_ids = set()
-    for dc, ti in invoice_rows:
+    for ti in invoice_rows:
         if ti.id in seen_invoice_ids:
             continue
         seen_invoice_ids.add(ti.id)
@@ -347,7 +339,6 @@ def _customer_rows(customers):
             c, paid_by_customer.get(c.id, 0), cancellation, invoice
         ))
     return result
-
 def _expense(e):
     return {"id":e.id,"expense_no":e.expense_no,"date":e.expense_date.isoformat(),
             "category":e.category,"category_label":EXPENSE_CATEGORIES.get(e.category,e.category),
@@ -697,7 +688,6 @@ def create_showroom_delivery():
     old_rickshaw_id = None
     battery_no = None
     battery_qty = 0
-
     if delivery_type == "new":
         vehicle_id = int(d.get("vehicle_id") or 0)
         vehicle = Vehicle.query.filter_by(id=vehicle_id).first()
