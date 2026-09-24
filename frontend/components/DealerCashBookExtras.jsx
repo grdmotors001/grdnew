@@ -139,7 +139,7 @@ export function DealerAllCustomersPage() {
           style={{ flex:'1 1 280px' }}
           placeholder="Search page no. / name / mobile / vehicle no."
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); load(e.target.value); }}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
         />
         <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:700 }}>
           From
