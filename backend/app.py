@@ -3489,6 +3489,7 @@ def dealer_customer_invoice():
       vehicle_id=challan.vehicle_id,buyer_name=buyer_name,buyer_relation=data.get("buyer_relation") or "S/o",buyer_father_name=data.get("buyer_father_name"),
       buyer_address=data.get("buyer_address"),buyer_gst_no=data.get("buyer_gst_no"),buyer_pan=data.get("buyer_pan"),buyer_aadhar=data.get("buyer_aadhar"),
       buyer_mobile=data.get("buyer_mobile"),buyer_state=data.get("buyer_state"),buyer_state_code=data.get("buyer_state_code"),state_type=data.get("state_type") or "I",
+      dealer_id=challan.dealer_id, dealer_page_no=((data.get("dealer_page_no") or "").strip() or challan.dealer_page_no),
       dealer_name=d.name,product_name=challan.product_name,chassis_no=challan.chassis_no,motor_no=challan.motor_no,controller_no=challan.controller_no,
       other_desc=challan.other,colour=challan.colour,sale_amount=_f(data.get("sale_amount"),challan.sale_value or 0),
       gst_sale_amount=_f(data.get("gst_sale_amount"),_f(data.get("sale_amount"),challan.sale_value or 0)),discount=_f(data.get("discount")),gst_rate=_f(data.get("gst_rate"),default_gst or 5),
