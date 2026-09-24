@@ -28,6 +28,8 @@ export function DealerCashReceiptPage() {
 
   const selected=useMemo(()=>customers.find(x=>String(x.id)===String(form.customer_id)),[customers,form.customer_id]);
   const balance=Number(selected?.balance||0);
+  // Balance Payment dropdown me sirf outstanding customers.
+  const payableCustomers=useMemo(()=>customers.filter(c=>Number(c.balance||0)>0),[customers]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const changeType=v=>{
@@ -72,7 +74,7 @@ export function DealerCashReceiptPage() {
         {type==='balance_payment' ? <>
           <div className="grid">
             <Field label="Previous Customer" type="select" value={form.customer_id}
-              options={[{value:'',label:'Select Previous Customer'},...customers.map(c=>({value:c.id,label:`${c.name} — ${c.phone||'No Mobile'} — Balance ₹${Number(c.balance||0).toLocaleString('en-IN')}`}))]}
+              options={[{value:'',label:'Select Previous Customer'},...payableCustomers.map(c=>({value:c.id,label:`${c.name} — ${c.phone||'No Mobile'} — Balance ₹${Number(c.balance||0).toLocaleString('en-IN')}`}))]}
               onChange={v=>set('customer_id',v)} required/>
             <Field label="Date" type="date" value={form.date} onChange={v=>set('date',v)} required/>
             <div className="card" style={{padding:10}}><small className="muted">Sale Amount</small><b>₹ {Number(selected?.sale_amount||0).toLocaleString('en-IN')}</b></div>
