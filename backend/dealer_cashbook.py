@@ -228,12 +228,14 @@ def _has_active_tax_invoice(c):
 def _customer_payload(c, paid, cancellation=None, invoice=None):
     status = "DEALER_CANCEL" if cancellation else ("BILLED" if invoice else "VEHICLE_PENDING")
     balance = round(float(c.sale_amount or 0) - float(c.loan_amount or 0) - float(paid or 0), 2)
+    register_date = cancellation.cancelled_at if cancellation else c.created_at
     return {"id":c.id,"page_no":c.page_no,"name":c.full_name,"phone":c.phone,
             "financer":c.financer,"vehicle_no":c.vehicle_no,
             "sale_amount":round(float(c.sale_amount or 0),2),"loan_amount":round(float(c.loan_amount or 0),2),
             "paid_amount":round(float(paid or 0),2),"balance":balance,
             "status":status,
             "status_label":{"VEHICLE_PENDING":"Vehicle Pending","BILLED":"Billed","DEALER_CANCEL":"Dealer Cancel"}[status],
+            "date":register_date.date().isoformat() if register_date else None,
             "cancelled_at":cancellation.cancelled_at.isoformat() if cancellation else None,
             "cancel_reason":cancellation.reason if cancellation else None,
             "refund_amount":round(float(cancellation.refund_amount or 0),2) if cancellation else 0,
@@ -542,10 +544,11 @@ def cash_customers():
     if page_rows:
         deduped = list(page_rows.values())
         page_less = [c for c in rows if not str(c.page_no or "").strip()]
-        # Once page-based records exist, the register is defined by pages.
-        # Keep legacy page-less rows only when there are no page-based rows at
-        # all, preventing old duplicates from inflating the register count.
-        rows = deduped if deduped else page_less
+        # Keep page-based rows unique by Page No., but never discard legacy
+        # register rows that do not yet have a Page No.  The previous logic
+        # dropped all page-less rows as soon as one page-based row existed,
+        # which could collapse a 700+ customer register down to a single row.
+        rows = deduped + page_less
     
     q = str(request.args.get("q") or "").strip().lower()
     status_filter = str(request.args.get("status") or "").strip().upper()
@@ -588,6 +591,7 @@ def cash_customers():
                 "balance": round(sale - loan - paid, 2),
                 "status": "BILLED",
                 "status_label": "Billed",
+                "date": ti.date.isoformat() if getattr(ti, "date", None) else None,
                 "invoice_id": ti.id,
                 "bill_no": ti.bill_no,
                 "dealer_id": ti.dealer_id,
