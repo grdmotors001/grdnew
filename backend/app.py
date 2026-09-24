@@ -2041,7 +2041,7 @@ def dealer_tax_invoices():
     return jsonify({"invoices": [ser_ti(i) for i in rows]})
 
 
-@app.route("/api/dealer/tax-invoices/<int:invoice_id>", methods=["PUT"])
+@app.route("/api/dealer/tax-invoices/<int:invoice_id>", methods=["PUT", "POST"])
 @require_dealer_auth
 def dealer_tax_invoice_update(invoice_id):
     """Allow a showroom dealer to edit only their Tax Invoice register page number."""
