@@ -102,6 +102,7 @@ export function TaxInvoicePage() {
       // actual retail Customer — it's no longer auto-filled into buyer_name,
       // since Buyer/Customer and Dealer are different people/entities.
       _dealer_name: c?.dealer_name || '',
+      dealer_page_no: c?.dealer_page_no || '',
       sale_amount: c?.sale_value || '',
       gst_sale_amount: c?.sale_value || '',
       _chassis_no: c?.chassis_no || '',
@@ -314,6 +315,7 @@ export function TaxInvoicePage() {
                     <span className="muted">Approved / Pending for Bill loans</span>
                   </div>
                   <div className="formgrid">
+                  <Field label="Dealer Page No." value={form.dealer_page_no} onChange={(v) => setForm({ ...form, dealer_page_no: v })} />
                   <Field label="Customer Name" value={form.buyer_name} onChange={(v) => setForm({ ...form, buyer_name: v })} required />
                   <Field label="Buyer Relation" value={form.buyer_relation} onChange={(v) => setForm({ ...form, buyer_relation: v })} />
                   <Field label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={(v) => setForm({ ...form, buyer_father_name: v })} />
