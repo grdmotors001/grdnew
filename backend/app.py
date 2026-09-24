@@ -1831,23 +1831,33 @@ def dealer_loan_status():
     dealer = Dealer.query.get(g.current_dealer_id)
     if not dealer:
         return _err("Dealer not found", 404)
+
+    # CHFPL is the source of truth for the live loan workflow status.
+    # Do not return the old GRD LoanWorkflow rows first, because they can
+    # remain at "submitted" after CHFPL moves an application to FI/decision.
+    try:
+        status, payload = _chfpl_bridge_get(f"/api/grd-dealer-loans?grd_dealer_id={dealer.id}")
+    except Exception as exc:
+        print(f"[CHFPL loan status] {exc}")
+        status, payload = 0, None
+
+    if status == 200 and isinstance(payload, dict):
+        return jsonify(payload)
+
+    # Keep the local workflow as a fallback if CHFPL is temporarily unavailable.
     local = (LoanWorkflow.query.filter_by(dealer_id=dealer.id)
              .order_by(LoanWorkflow.id.desc()).limit(200).all())
     if local:
         return jsonify({
             "success": True,
-            "source": "GRD",
+            "source": "GRD_FALLBACK",
             "applications": [_ser_workflow(x) for x in local],
         })
-    try:
-        status, payload = _chfpl_bridge_get(f"/api/grd-dealer-loans?grd_dealer_id={dealer.id}")
-    except Exception as exc:
-        print(f"[CHFPL loan status] {exc}")
-        return _err("Loan status service is temporarily unavailable", 502)
+
     if status >= 400:
         detail = payload.get("error") if isinstance(payload, dict) else None
         return _err(detail or "Could not load loan status from CHFPL", 502)
-    return jsonify(payload if isinstance(payload, dict) else {"applications": []})
+    return _err("Loan status service is temporarily unavailable", 502)
 
 
 @app.get("/api/billing/approved-loans")
