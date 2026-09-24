@@ -1747,7 +1747,14 @@ def _chfpl_bridge_get(path):
     )
     try:
         with urllib.request.urlopen(req, timeout=12) as response:
-            return int(response.status or 200), _json.loads(response.read().decode("utf-8") or "{}")
+            raw = response.read().decode("utf-8", errors="replace").strip()
+            if not raw:
+                return int(response.status or 200), {}
+            try:
+                return int(response.status or 200), _json.loads(raw)
+            except Exception:
+                print(f"[CHFPL bridge GET] invalid JSON response from {target}")
+                return int(response.status or 200), {"error": "Invalid JSON response from CHFPL"}
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         try:
