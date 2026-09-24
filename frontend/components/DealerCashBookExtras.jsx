@@ -112,14 +112,13 @@ export function DealerAllCustomersPage() {
 
       <div className="tablewrap dealerTable" style={{ marginTop: 12 }}>
         <table className="table">
-          <thead><tr><th>Page No.</th><th>Name</th><th>Phone</th><th>Financer</th><th>Vehicle No.</th><th>Status</th><th>Sale Amount</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
+          <thead><tr><th>Page No.</th><th>Name</th><th>Phone</th><th>Vehicle No.</th><th>Status</th><th>Sale Amount</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
           <tbody>
             {filtered.map((c) => (
               <tr key={c.id}>
                 <td>{c.page_no || '—'}</td>
                 <td><b>{c.name}</b></td>
                 <td>{c.phone || '—'}</td>
-                <td>{c.financer || '—'}</td>
                 <td>{c.vehicle_no || '—'}</td>
                 <td><b>{c.status_label || c.status}</b>{c.status === 'DEALER_CANCEL' && <div className="muted">{c.cancel_reason || ''}</div>}</td>
                 <td>{money(c.sale_amount)}</td>
@@ -134,7 +133,7 @@ export function DealerAllCustomersPage() {
                 </td>
               </tr>
             ))}
-            {!filtered.length && <tr><td colSpan="10" className="muted">No customers found.</td></tr>}
+            {!filtered.length && <tr><td colSpan="9" className="muted">No customers found.</td></tr>}
           </tbody>
         </table>
       </div>
