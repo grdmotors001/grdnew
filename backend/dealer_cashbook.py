@@ -458,98 +458,14 @@ def cash_customers():
                 .filter_by(dealer_id=g.current_dealer_id)
                 .order_by(DealerCashCustomer.id.desc()).all())
 
-    # Dealer Register rule: one register page = one vehicle/customer record.
-    # Tax Invoice rows are allowed to be multiple for the same customer, so
-    # they must never be used as a one-row-per-customer source.  However, an
-    # invoice that carries a dealer page number must ensure that page exists
-    # in the master register.  The same applies to legacy cash receipts.
-    # This makes All Customers page-based: one unique Page No. = one record.
-    page_rows = {}
-    for c in rows:
-        page = str(c.page_no or "").strip()
-        if page:
-            page_rows.setdefault(page.casefold(), c)
+    # All Customers is the master DealerCashCustomer register.
+    # Do not collapse it by Page No. and do not backfill it from Tax Invoice.
+    # Billed is a separate direct TaxInvoice view below. This keeps the
+    # historical master-register count intact (for example 754 customers
+    # can coexist with 966 billed invoices).
+    # Page No. is an editable field on the master customer and on Tax Invoice;
+    # it is not the identity key of the customer row.
 
-    # Backfill missing register pages from active Tax Invoices.  This is a
-    # single query per dealer and is intentionally keyed only by dealer page;
-    # multiple invoices with the same page do not create multiple customers.
-    invoice_source = (
-        db.session.query(TaxInvoice)
-        .outerjoin(DeliveryChallan, TaxInvoice.delivery_challan_id == DeliveryChallan.id)
-        .filter(
-            TaxInvoice.cancelled.is_(False),
-            db.or_(TaxInvoice.dealer_id == g.current_dealer_id,
-                   DeliveryChallan.dealer_id == g.current_dealer_id),
-            TaxInvoice.dealer_page_no.isnot(None),
-            db.func.trim(TaxInvoice.dealer_page_no) != "",
-        )
-        .order_by(TaxInvoice.date.asc(), TaxInvoice.id.asc())
-        .all()
-    )
-
-    created_pages = False
-    for ti in invoice_source:
-        page = str(ti.dealer_page_no or "").strip()
-        key = page.casefold()
-        if not page or key in page_rows:
-            continue
-        customer = DealerCashCustomer(
-            dealer_id=g.current_dealer_id,
-            page_no=page,
-            full_name=(ti.buyer_name or "").strip() or "Customer",
-            phone=(ti.buyer_mobile or "").strip() or None,
-            vehicle_no=(getattr(ti, "vehicle_reg_no", None) or "").strip() or None,
-            sale_amount=ti.sale_amount or 0,
-            loan_amount=ti.hypothecation_amount or 0,
-            financer=ti.financer_name,
-        )
-        db.session.add(customer)
-        db.session.flush()
-        page_rows[key] = customer
-        rows.append(customer)
-        created_pages = True
-
-    receipt_source = (
-        DealerCashReceipt.query
-        .filter(
-            DealerCashReceipt.dealer_id == g.current_dealer_id,
-            DealerCashReceipt.dealer_register_page_no.isnot(None),
-        )
-        .order_by(DealerCashReceipt.receipt_date.asc(), DealerCashReceipt.id.asc())
-        .all()
-    )
-    for r in receipt_source:
-        page = str(r.dealer_register_page_no or "").strip()
-        key = page.casefold()
-        if not page or key in page_rows:
-            continue
-        customer = DealerCashCustomer(
-            dealer_id=g.current_dealer_id,
-            page_no=page,
-            full_name=(r.customer_name or "").strip() or "Customer",
-            phone=(r.customer_phone or "").strip() or None,
-        )
-        db.session.add(customer)
-        db.session.flush()
-        page_rows[key] = customer
-        rows.append(customer)
-        created_pages = True
-
-    if created_pages:
-        db.session.commit()
-
-    # Collapse any historical duplicate customer rows that share the same
-    # dealer register page.  The newest row is used as the display record;
-    # this does not delete historical rows or receipts.
-    if page_rows:
-        deduped = list(page_rows.values())
-        page_less = [c for c in rows if not str(c.page_no or "").strip()]
-        # Keep page-based rows unique by Page No., but never discard legacy
-        # register rows that do not yet have a Page No.  The previous logic
-        # dropped all page-less rows as soon as one page-based row existed,
-        # which could collapse a 700+ customer register down to a single row.
-        rows = deduped + page_less
-    
     q = str(request.args.get("q") or "").strip().lower()
     status_filter = str(request.args.get("status") or "").strip().upper()
 
