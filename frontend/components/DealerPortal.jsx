@@ -108,7 +108,7 @@ export function DealerPortal({ dealer, onLogout }) {
     Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
       .then(([s, o, b, c, i]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); })
       .catch((e) => setError(e.message));
-    get('/dealer/loan-status')
+    get('/dealer/loan-status', { timeoutMs: 60000 })
       .then((l) => setLoans(l.applications || []))
       .catch(() => setLoans([]));
     get('/dealer/seized-vehicles')
