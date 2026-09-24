@@ -1842,6 +1842,32 @@ def dealer_loan_status():
         status, payload = 0, None
 
     if status == 200 and isinstance(payload, dict):
+        # Mirror CHFPL's live decision/details into the local workflow so the
+        # dealer sale screen can match an approved loan safely.
+        try:
+            changed = False
+            for remote in payload.get("applications", []) or []:
+                app_no = str(remote.get("application_no") or "").strip()
+                if not app_no:
+                    continue
+                local = LoanWorkflow.query.filter_by(
+                    application_no=app_no, dealer_id=dealer.id
+                ).first()
+                if not local:
+                    continue
+                local_status = str(remote.get("status") or "").strip()
+                if local_status:
+                    local.status = local_status.upper()
+                    changed = True
+                local.loan_amount = _f(remote.get("loan_amount_requested"), 0)
+                local.loan_model_name = remote.get("vehicle_model_name")
+                local.loan_vehicle_type = "new"
+                changed = True
+            if changed:
+                db.session.commit()
+        except Exception as sync_exc:
+            db.session.rollback()
+            print(f"[CHFPL loan status sync] {sync_exc}")
         return jsonify(payload)
 
     # Keep the local workflow as a fallback if CHFPL is temporarily unavailable.
