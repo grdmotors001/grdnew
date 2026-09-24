@@ -90,7 +90,13 @@ def require_auth(fn):
         auth_header = request.headers.get("Authorization", "")
         token = auth_header[7:] if auth_header.startswith("Bearer ") else None
         payload = _decode(token) if token else None
-        if not payload or payload.get("scope") != "staff":
+        if not payload:
+            return jsonify({"error": "Staff authentication required"}), 401
+        if payload.get("scope") != "staff":
+            # A valid dealer token hitting a staff-only endpoint is an
+            # authorization error, not an expired/invalid session.
+            if payload.get("scope") == "dealer":
+                return jsonify({"error": "Staff access required"}), 403
             return jsonify({"error": "Staff authentication required"}), 401
         g.current_user_payload = payload
         g.current_user_id = payload.get("uid")
