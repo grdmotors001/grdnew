@@ -136,6 +136,10 @@ class LoanWorkflow(db.Model):
     billing_approved_by = db.Column(db.String(120))
     billing_approved_at = db.Column(db.DateTime)
     billing_invoice_id = db.Column(db.Integer, index=True)
+    # Loan details mirrored from CHFPL for dealer sale matching.
+    loan_amount = db.Column(db.Float, default=0)
+    loan_model_name = db.Column(db.String(200))
+    loan_vehicle_type = db.Column(db.String(20), default="new")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
