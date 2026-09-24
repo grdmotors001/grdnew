@@ -33,7 +33,7 @@ function stageOf(row) {
   return '';
 }
 
-export function LoanApplicationViewPage({ user }) {
+export function LoanApplicationViewPage({ user }) {\n  const isAdmin = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
   const [rows, setRows] = useState([]);
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
@@ -46,7 +46,7 @@ export function LoanApplicationViewPage({ user }) {
     setLoading(true);
     try {
       setError('');
-      const data = await get('/loan-workflow', { noClientCache: true });
+      const data = await get('/loan-application-view', { noClientCache: true });
       setRows(data.applications || []);
     } catch (e) {
       setError(e.message || 'Could not load loan applications.');
@@ -59,7 +59,7 @@ export function LoanApplicationViewPage({ user }) {
     load();
     const timer = setInterval(load, 15000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isAdmin]);
 
   const counts = useMemo(() => ({
     all: rows.length,
@@ -91,7 +91,7 @@ export function LoanApplicationViewPage({ user }) {
   const open = async (row) => {
     setSelected(row);
     try {
-      const data = await get('/loan-workflow/' + row.id + '/history', { noClientCache: true });
+      const data = await get('/loan-application-view/' + row.id + '/history', { noClientCache: true });
       setHistory(data.history || []);
     } catch {
       setHistory([]);
