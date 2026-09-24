@@ -97,7 +97,7 @@ export function DealerNewLoanForm({ onBack }) {
         loan_type:loanType,
         customer_photo:customerPhoto ? {name:customerPhoto.name,type:customerPhoto.type,data_url:await fileToDataUrl(customerPhoto)} : null,
         documents:await Promise.all(documents.map(async f=>({name:f.name,type:f.type,data_url:await fileToDataUrl(f)})))
-      });
+      }, { timeoutMs: 60000 });
       setSuccess(d);
     }catch(e){setError(e.message||'Loan application save nahi hui.')}
     finally{setSaving(false);}
