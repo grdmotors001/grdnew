@@ -322,9 +322,8 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const [error,setError]=useState('');
 
   const load=async()=>{
-    // Delivery/customer options must not depend on the live CHFPL loan-status
-    // call. If CHFPL is slow or returns an invalid/empty response, the sale
-    // screen must still load customers and stock.
+    // Create Sale uses GRD's local delivery options/approved-loan mirror.
+    // CHFPL remains the loan master, but its live API must never block this screen.
     try{
       const r=await get('/dealer/delivery/options', {noClientCache:true});
       setCustomers(r.customers||[]);
@@ -334,19 +333,6 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
       setCustomers([]);
       setApprovedLoans([]);
       setCustomerError(e.message||'Could not load sale options');
-    }
-
-    try{
-      await get('/dealer/loan-status', {timeoutMs:60000, noClientCache:true});
-      // Refresh local approved-loan rows after the live sync completes.
-      const r=await get('/dealer/delivery/options', {noClientCache:true});
-      setCustomers(r.customers||[]);
-      setApprovedLoans((r.approved_loans||[]).filter(x=>!x.used));
-      setCustomerError('');
-    }catch(e){
-      // Keep the already loaded customer/stock options. Loan matching can
-      // continue using locally synced approvals when CHFPL is unavailable.
-      console.warn('[Create Sale] live loan status unavailable:', e?.message || e);
     }
   };
 
