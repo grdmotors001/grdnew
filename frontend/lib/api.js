@@ -80,8 +80,12 @@ export async function api(path, options = {}) {
         signal: controller.signal,
       });
       if (r.status === 401) {
-        if (!preserveAuthOn401) setToken(null);
-        const err = new Error('Session expired — please sign in again.');
+        // A single endpoint must never destroy the active session. Some
+        // pages intentionally call staff-only APIs while a dealer session
+        // is active; those 401 responses are endpoint-level access errors,
+        // not proof that the dealer token is invalid.
+        // Session state is cleared only by an explicit logout/login flow.
+        const err = new Error('Authentication required for this request.');
         err.authError = true;
         throw err;
       }
