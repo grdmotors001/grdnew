@@ -27,13 +27,14 @@ function isPendingBill(row) {
 }
 
 function stageOf(row) {
-  if (row.status === 'FE_ASSIGNED' || row.status === 'TVR_PENDING') return 'FE';
+  if (row.status === 'FE_ASSIGNED') return 'FE';
   if (row.status === 'FE_APPROVED' || row.status === 'FE_SUBMITTED' || row.status === 'DISBURSEMENT_PENDING' || row.status === 'DO_APPROVED') return 'DO';
   if (row.status === 'TVR_PENDING') return 'TVR';
   return '';
 }
 
-export function LoanApplicationViewPage({ user }) {\n  const isAdmin = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
+export function LoanApplicationViewPage({ user }) {
+  const isAdmin = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
   const [rows, setRows] = useState([]);
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
