@@ -3,6 +3,39 @@
 import { useState } from 'react';
 import { post, setToken, setPortalKind } from '../lib/api';
 
+const SocialIcon = {
+  Instagram: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+      <line x1="17.5" y1="6.5" x2="17.5" y2="6.5" />
+    </svg>
+  ),
+  Facebook: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="#fff">
+      <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+    </svg>
+  ),
+  WhatsApp: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  ),
+  Website: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  ),
+  'Google Maps': (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  ),
+};
+
 export function GRDLogin({ onLogin }) {
   const [mode, setMode] = useState('staff');
   const [userid, setUserid] = useState('');
@@ -51,11 +84,11 @@ export function GRDLogin({ onLogin }) {
   };
 
   const socialLinks = [
-    ['Instagram', 'https://www.instagram.com/grdmotorsofficial/', '◎'],
-    ['Facebook', 'https://www.facebook.com/davratherickshaw/', 'f'],
-    ['WhatsApp', 'https://wa.me/917678171836', '◉'],
-    ['Website', 'https://davrath.com/', '◎'],
-    ['Google Maps', 'https://maps.app.goo.gl/6zKJLUG7Yyf28dKT8', '●'],
+    ['Instagram', 'https://www.instagram.com/grdmotorsofficial/'],
+    ['Facebook', 'https://www.facebook.com/davratherickshaw/'],
+    ['WhatsApp', 'https://wa.me/917678171836'],
+    ['Website', 'https://davrath.com/'],
+    ['Google Maps', 'https://maps.app.goo.gl/6zKJLUG7Yyf28dKT8'],
   ];
 
   return (
@@ -97,14 +130,9 @@ export function GRDLogin({ onLogin }) {
         }
       `}</style>
 
-      <div className="brand" aria-label="G.R.D. Motors"><svg className="brandLogo" viewBox="0 0 760 190" role="img" aria-label="G.R.D. Motors Manufacturer of E-Rickshaw and E-Cart">
-        <defs><linearGradient id="logoBlueGreen" x1="0" x2="1"><stop stopColor="#087ce8"/><stop offset=".55" stopColor="#12a86a"/><stop offset="1" stopColor="#1a9d34"/></linearGradient><linearGradient id="logoBlack" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#4a4a4a"/><stop offset=".45" stopColor="#080808"/><stop offset="1" stopColor="#202020"/></linearGradient></defs>
-        <path d="M250 20c28-35 66-30 88-4-29-7-51 1-72 24-12 13-25 28-37 52 2-27 8-51 21-72z" fill="#39b92f"/>
-        <circle cx="345" cy="12" r="10" fill="#087ce8"/><circle cx="315" cy="25" r="12" fill="#19a9df"/><circle cx="348" cy="45" r="15" fill="#36b52f"/><circle cx="307" cy="57" r="15" fill="#087ce8"/><circle cx="365" cy="75" r="13" fill="#21a72d"/>
-        <text x="8" y="112" fontFamily="Arial,Helvetica,sans-serif" fontSize="91" fontWeight="900" fontStyle="italic" letterSpacing="-5" fill="url(#logoBlack)">G.R.D. MOTORS</text>
-        <path d="M8 128 Q380 112 752 128" fill="none" stroke="url(#logoBlueGreen)" strokeWidth="5"/><path d="M350 128l18-18" stroke="#fff" strokeWidth="8"/>
-        <text x="35" y="162" fontFamily="Arial,Helvetica,sans-serif" fontSize="25" fontWeight="800" letterSpacing="1.2" fill="#111">MANUFACTURER OF E-RICKSHAW &amp; E-CART</text>
-      </svg></div>
+      <div className="brand" aria-label="G.R.D. Motors">
+        <img className="brandLogo" src="/grdlogo.png" alt="G.R.D. Motors — Manufacturer of E-Rickshaw &amp; E-Cart" />
+      </div>
       <div className="mobilityBadge"><span className="leaf">↗</span><span>ELECTRIC<br/>MOBILITY<br/>FOR A BETTER<br/>INDIA 🇮🇳</span></div>
 
       <div className="tag">CLEAN &nbsp; • &nbsp; GREEN &nbsp; • &nbsp; FUTURE READY</div>
@@ -148,7 +176,7 @@ export function GRDLogin({ onLogin }) {
       </section>
 
       <nav className="footer" aria-label="G.R.D. Motors social links">
-        {socialLinks.map(([name,href,icon])=><a key={name} className="social" href={href} target="_blank" rel="noopener noreferrer"><span className="socialIcon">{icon}</span><span>{name}</span></a>)}
+        {socialLinks.map(([name,href])=><a key={name} className="social" href={href} target="_blank" rel="noopener noreferrer"><span className="socialIcon">{SocialIcon[name]}</span><span>{name}</span></a>)}
       </nav>
     </main>
   );
