@@ -491,8 +491,18 @@ function DealerPurchases({onInvoice}) {
 }
 
 
-function DealerLoanStatusTable({rows}) {
-  const statusLabel = (s) => String(s || 'submitted').replace(/_/g,' ').replace(/\b\w/g, m => m.toUpperCase());
+function DealerLoanStatusTable({rows, onRefresh}) {
+  const STATUS_LABELS = {
+    draft: 'Draft',
+    submitted: 'Submitted',
+    fi_pending: 'FI Pending — FE Assigned',
+    fi_done: 'FI Done — FE Verification Complete',
+    approved: 'Approved',
+    rejected: 'Rejected',
+    sanctioned: 'Sanctioned',
+    disbursed: 'Disbursed',
+  };
+  const statusLabel = (s) => STATUS_LABELS[String(s || 'submitted').toLowerCase()] || String(s || 'submitted').replace(/_/g,' ').replace(/\b\w/g, m => m.toUpperCase());
   const statusClass = (s) => {
     const v=String(s||'').toLowerCase();
     if(v==='approved'||v==='sanctioned'||v==='disbursed') return 'loanStatus approved';
@@ -502,7 +512,7 @@ function DealerLoanStatusTable({rows}) {
   };
   return <div>
     <div className="dealerPanel" style={{marginBottom:14}}>
-      <div className="dealerPanelHead"><div><h3>My Loan Applications</h3><p>Live status from CHFPL</p></div></div>
+      <div className="dealerPanelHead"><div><h3>My Loan Applications</h3><p>Live status from CHFPL</p></div><button className="btn" type="button" onClick={onRefresh}>↻ Refresh</button></div>
       {!rows.length ? <div className="dealerEmpty">No loan applications found.</div> :
       <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Application</th><th>Customer</th><th>Vehicle</th><th>Loan Amount</th><th>Status</th><th>Submitted</th></tr></thead>
       <tbody>{rows.map(r=><tr key={r.id||r.application_no}>
