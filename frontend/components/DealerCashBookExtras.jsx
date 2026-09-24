@@ -199,7 +199,7 @@ export function DealerAllCustomersPage() {
               <button className="btn primary" disabled={saving} onClick={async () => {
                 setSaving(true); setError('');
                 try {
-                  await put('/dealer/tax-invoices/' + editing.invoice_id, { dealer_page_no: editing.page_no });
+                  await post('/dealer/tax-invoices/' + editing.invoice_id, { dealer_page_no: editing.page_no });
                   setEditing(null); await load(search);
                 } catch (e) { setError(e.message || 'Could not update page number'); }
                 finally { setSaving(false); }
