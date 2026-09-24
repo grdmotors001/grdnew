@@ -310,33 +310,54 @@ export function DealerPortal({ dealer, onLogout }) {
 function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [customers,setCustomers]=useState([]);
+  const [approvedLoans,setApprovedLoans]=useState([]);
   const [customerId,setCustomerId]=useState('');
   const [customerError,setCustomerError]=useState('');
   const [type,setType]=useState('');
   const [item,setItem]=useState('');
+  const [saleAmount,setSaleAmount]=useState('');
+  const [loanAmount,setLoanAmount]=useState('');
+  const [loanSelection,setLoanSelection]=useState('');
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState('');
 
-  useEffect(()=>{
-    // Customer Register -> Vehicle Pending is the source for this dropdown.
-    // The customer endpoint is available to showroom/branch dealer accounts.
-    get('/dealer/cash-book/customers?status=VEHICLE_PENDING')
-      .then(r=>{
-        setCustomers(r.customers || []);
-        setCustomerError('');
-      })
-      .catch(e=>{
-        setCustomers([]);
-        setCustomerError(e.message || 'Could not load vehicle-pending customers');
-      });
-  },[]);
+  const load=async()=>{
+    try{
+      const r=await get('/dealer/delivery/options');
+      setCustomers(r.customers||[]);
+      setApprovedLoans((r.approved_loans||[]).filter(x=>!x.used));
+      setCustomerError('');
+    }catch(e){
+      setCustomers([]);
+      setApprovedLoans([]);
+      setCustomerError(e.message||'Could not load sale options');
+    }
+  };
+
+  useEffect(()=>{load()},[]);
 
   const newItems=stock?.vehicles||[];
   const oldItems=oldStock?.rickshaws||[];
   const batteryItems=batteryStock?.batteries||[];
-
   const options=type==='new' ? newItems : type==='old' ? oldItems : type==='battery' ? batteryItems : [];
   const optionValue=(v)=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '');
   const selected=options.find(v=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '')===String(item));
   const selectedCustomer=customers.find(c=>String(c.id)===String(customerId));
+
+  useEffect(()=>{
+    if(selectedCustomer){
+      const bookedType=String(selectedCustomer.vehicle_no||'').trim().toLowerCase();
+      if(['new','old','battery'].includes(bookedType)){
+        setType(bookedType);
+        setItem('');
+      }
+    }else{
+      setType('');
+      setItem('');
+    }
+    setLoanSelection('');
+  },[selectedCustomer?.id,selectedCustomer?.vehicle_no]);
+
   const optionLabel=(v)=>{
     if(type==='new') return [v.chassis_no,v.model_name,v.colour].filter(Boolean).join(' · ') || 'New Rickshaw';
     if(type==='old') return [v.model_name,v.battery_name,v.vehicle_reg_no].filter(Boolean).join(' · ') || 'Old Rickshaw';
@@ -346,37 +367,59 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const customerLabel=(c)=>[
     c.name,
     c.phone,
-    c.vehicle_no ? `Vehicle: ${c.vehicle_no}` : '',
-    c.page_no ? `Page: ${c.page_no}` : ''
+    c.vehicle_no ? ('Type: '+String(c.vehicle_no).toUpperCase()) : ''
   ].filter(Boolean).join(' · ');
+
+  const matchingLoans=approvedLoans.filter(l=>{
+    const sameCustomer=String(l.customer_name||'').trim().toLowerCase()===String(selectedCustomer?.name||'').trim().toLowerCase();
+    const sameType=String(l.vehicle_type||'new').toLowerCase()===String(type||'').toLowerCase();
+    const sameAmount=Number(l.loan_amount||0)>0 && Number(l.loan_amount||0)===Number(loanAmount||0);
+    return sameCustomer && sameType && sameAmount;
+  });
+
+  const save=async()=>{
+    if(!selectedCustomer || !selected || !type) return;
+    setSaving(true); setError('');
+    try{
+      const payload={
+        date, customer_id:selectedCustomer.id, delivery_type:type,
+        vehicle_id:type==='new'?Number(selected.id):null,
+        old_rickshaw_id:type==='old'?Number(selected.id):null,
+        battery_no:type==='battery'?selected.battery_no:null,
+        battery_qty:type==='battery'?1:0,
+        sale_amount:Number(saleAmount||0),
+        loan_amount:Number(loanAmount||0),
+        loan_application_no:loanSelection||null,
+      };
+      await post('/dealer/delivery',payload);
+      alert('Sale saved successfully.');
+      onBack();
+    }catch(e){setError(e.message||'Could not save sale')}
+    finally{setSaving(false)}
+  };
 
   return <div className="grdFormPage dealerCreateSalePage">
     <div className="dealerPanel dealerCreateSalePanel">
       <div className="dealerPanelHead">
-        <div><h3>Create Sale</h3><p>Select customer, sale type, date and stock item.</p></div>
+        <div><h3>Create Sale</h3><p>Select customer, then use the same booking type and approved loan details.</p></div>
         <button type="button" className="btn" onClick={onBack}>Back</button>
       </div>
 
+      {error&&<div className="error" style={{marginBottom:12}}>{error}</div>}
       <div className="dealerCreateSaleGrid">
         <label>Date
           <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)} />
         </label>
 
         <label>Customer
-          <select
-            className="input"
-            value={customerId}
-            onChange={e=>setCustomerId(e.target.value)}
-          >
-            <option value="">
-              {customerError ? 'Unable to load customers' : customers.length ? 'Select Customer' : 'No Vehicle Pending Customer'}
-            </option>
+          <select className="input" value={customerId} onChange={e=>setCustomerId(e.target.value)}>
+            <option value="">{customerError ? 'Unable to load customers' : customers.length ? 'Select Customer' : 'No Vehicle Pending Customer'}</option>
             {customers.map(c=><option key={c.id} value={c.id}>{customerLabel(c)}</option>)}
           </select>
         </label>
 
         <label>Sale Type
-          <select className="input" value={type} onChange={e=>{setType(e.target.value);setItem('')}}>
+          <select className="input" value={type} disabled>
             <option value="">Select Type</option>
             <option value="new">New Rickshaw</option>
             <option value="old">Old Rickshaw</option>
@@ -386,23 +429,40 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
 
         <label className="dealerCreateSaleItemField">Select {type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'Stock Item'}
           <select className="input" value={item} onChange={e=>setItem(e.target.value)} disabled={!type}>
-            <option value="">{type ? 'Select item' : 'First select sale type'}</option>
+            <option value="">{type ? 'Select item' : 'Select customer first'}</option>
             {options.map(v=><option key={optionValue(v)} value={optionValue(v)}>{optionLabel(v)}</option>)}
           </select>
         </label>
+
+        <label>Sale Amount
+          <input className="input" type="number" min="0" value={saleAmount} onChange={e=>setSaleAmount(e.target.value)} />
+        </label>
+
+        <label>Loan Amount
+          <input className="input" type="number" min="0" value={loanAmount} onChange={e=>{setLoanAmount(e.target.value);setLoanSelection('')}} />
+        </label>
+
+        {Number(loanAmount||0)>0 && <label style={{gridColumn:'1 / -1'}}>Approved Loan — Unused
+          <select className="input" value={loanSelection} onChange={e=>setLoanSelection(e.target.value)} disabled={!matchingLoans.length}>
+            <option value="">{matchingLoans.length ? 'Select matching approved loan' : 'No matching unused approved loan'}</option>
+            {matchingLoans.map(l=><option key={l.id} value={l.application_no}>
+              {l.application_no} · ₹{Number(l.loan_amount||0).toLocaleString('en-IN')} · {l.customer_name}
+            </option>)}
+          </select>
+          {matchingLoans.length>0 && <small className="muted">Loan amount, vehicle type and customer name match ho raha hai.</small>}
+        </label>}
       </div>
 
       {selectedCustomer && <div className="dealerCreateSalePreview">
-        <div className="dealerCreateSalePreviewHead"><strong>Customer</strong><span>Vehicle Pending</span></div>
+        <div className="dealerCreateSalePreviewHead"><strong>Customer</strong><span>{String(type||'').toUpperCase()}</span></div>
         <div className="dealerCreateSalePreviewGrid">
           <div><span>Name</span><b>{selectedCustomer.name||'—'}</b></div>
           <div><span>Phone</span><b>{selectedCustomer.phone||'—'}</b></div>
-          <div><span>Vehicle No.</span><b>{selectedCustomer.vehicle_no||'—'}</b></div>
         </div>
       </div>}
 
       {selected && <div className="dealerCreateSalePreview">
-        <div className="dealerCreateSalePreviewHead"><strong>Preview</strong><span>{type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':'Battery'}</span></div>
+        <div className="dealerCreateSalePreviewHead"><strong>Vehicle</strong><span>{type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':'Battery'}</span></div>
         <div className="dealerCreateSalePreviewGrid">
           {type==='new' && <>
             <div><span>Chassis</span><b>{selected.chassis_no||'—'}</b></div>
@@ -421,11 +481,9 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
         </div>
       </div>}
 
-      {customerError && <div className="error" style={{marginTop:12}}>{customerError}</div>}
-
       <div className="actions dealerCreateSaleActions">
         <button type="button" className="btn" onClick={onBack}>Cancel</button>
-        <button type="button" className="btn primary" disabled={!date || !customerId || !type || !item}>Save</button>
+        <button type="button" className="btn primary" disabled={saving || !date || !selectedCustomer || !type || !item || (Number(loanAmount||0)>0 && !loanSelection)} onClick={save}>{saving?'Saving…':'Save'}</button>
       </div>
     </div>
   </div>;
