@@ -104,13 +104,20 @@ export function DealerPortal({ dealer, onLogout }) {
   const isBatteryAdjustmentActive = BATTERY_ADJUSTMENT_KEYS.includes(tab);
   const goToSidebarTab = (key) => setTab(key === 'battery-adjustment' ? defaultBatteryTab : key);
 
+  const loadLoanStatus = async () => {
+    try {
+      const l = await get('/dealer/loan-status', { timeoutMs: 60000, noClientCache: true });
+      setLoans(l.applications || []);
+    } catch {
+      setLoans([]);
+    }
+  };
+
   useEffect(() => {
     Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
       .then(([s, o, b, c, i]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); })
       .catch((e) => setError(e.message));
-    get('/dealer/loan-status', { timeoutMs: 60000 })
-      .then((l) => setLoans(l.applications || []))
-      .catch(() => setLoans([]));
+    loadLoanStatus();
     get('/dealer/seized-vehicles')
       .then((r) => setSeizedVehicles(r.vehicles || []))
       .catch(() => setSeizedVehicles([]));
@@ -292,7 +299,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='expenses-create' && <DealerExpenseCreatePage />}
         {tab==='handover-create' && <DealerHandoverCreatePage />}
         {!['cashbook','receipt-create','expenses-create','handover-create','cash-handover','all-receipt','all-customers','delivery','purchases','payments','ledger','pending-sales','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
-        {tab==='loan-status' && <DealerLoanStatusTable rows={loans}/>}
+        {tab==='loan-status' && <DealerLoanStatusTable rows={loans} onRefresh={loadLoanStatus}/>}
         {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
       </>}
       </>}
