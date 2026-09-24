@@ -134,7 +134,14 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   useEffect(() => {
     get('/nav-config').then((d) => setCustomTabs(d?.custom ? d.tabs : null)).catch(() => setCustomTabs(null));
   }, []);
-  const builtNav = buildNavGroups(customTabs);\n  const navGroups = { ...builtNav.groups };\n  const iconByGroup = { ...builtNav.iconByGroup };\n  const isAdmin = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';\n  if (isAdmin && !Object.values(navGroups).flat().some(([key]) => key === 'loan-application-view')) {\n    const targetGroup = navGroups['Sales & Billing'] ? 'Sales & Billing' : 'Loan Applications';\n    navGroups[targetGroup] = [...(navGroups[targetGroup] || []), ['loan-application-view', 'Loan Application']];\n  }
+  const builtNav = buildNavGroups(customTabs);
+  const navGroups = { ...builtNav.groups };
+  const iconByGroup = { ...builtNav.iconByGroup };
+  const isAdmin = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
+  if (isAdmin && !Object.values(navGroups).flat().some(([key]) => key === 'loan-application-view')) {
+    const targetGroup = navGroups['Sales & Billing'] ? 'Sales & Billing' : 'Loan Applications';
+    navGroups[targetGroup] = [...(navGroups[targetGroup] || []), ['loan-application-view', 'Loan Application']];
+  }
 
   const palette = [
     '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
