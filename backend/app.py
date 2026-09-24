@@ -2372,6 +2372,9 @@ def _ensure_loan_workflow_tables():
                 "disbursed_at":"TIMESTAMP",
                 "disbursed_by":"INTEGER",
                 "disbursement_remark":"TEXT",
+                "loan_amount":"DOUBLE PRECISION DEFAULT 0",
+                "loan_model_name":"VARCHAR(200)",
+                "loan_vehicle_type":"VARCHAR(20) DEFAULT 'new'",
             }
             for name,sql_type in additions.items():
                 if name not in columns:
@@ -2420,6 +2423,9 @@ def _ser_workflow(row):
         "billing_approved_by": getattr(row,"billing_approved_by",None),
         "billing_approved_at": _iso(getattr(row,"billing_approved_at",None)),
         "billing_invoice_id": getattr(row,"billing_invoice_id",None),
+        "loan_amount": getattr(row,"loan_amount",0) or 0,
+        "loan_model_name": getattr(row,"loan_model_name",None),
+        "loan_vehicle_type": getattr(row,"loan_vehicle_type","new") or "new",
         "created_at": _iso(row.created_at), "updated_at": _iso(row.updated_at),
     }
 
