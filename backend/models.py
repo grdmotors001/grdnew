@@ -463,6 +463,8 @@ class TaxInvoice(db.Model):
 
     delivery_challan_id = db.Column(db.Integer, db.ForeignKey("delivery_challan.id"), unique=True)
     delivery_challan = db.relationship("DeliveryChallan")
+    dealer_id = db.Column(db.Integer, db.ForeignKey("dealer.id"), index=True)
+    dealer_page_no = db.Column(db.String(40), index=True)
 
     vehicle_id = db.Column(db.Integer, db.ForeignKey("vehicle.id"), unique=True)
     vehicle = db.relationship("Vehicle")
