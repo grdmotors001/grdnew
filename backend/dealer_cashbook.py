@@ -31,6 +31,7 @@ class DealerCashReceipt(db.Model):
     reference_no = db.Column(db.String(80))
     remarks = db.Column(db.String(500))
     customer_id = db.Column(db.Integer, db.ForeignKey("dealer_cash_customer.id"), nullable=True, index=True)
+    request_id = db.Column(db.String(100), index=True, unique=True, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
@@ -159,6 +160,18 @@ def _ensure_cashbook_schema():
                 ))
     except Exception as exc:
         print(f"[cash-book] page column migration failed: {exc}")
+    try:
+        cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
+        if "request_id" not in cols:
+            with db.engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE dealer_cash_receipt ADD COLUMN request_id VARCHAR(100)"
+                ))
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_dealer_cash_receipt_request_id ON dealer_cash_receipt(request_id)"
+                ))
+    except Exception as exc:
+        print(f"[cash-book] request id migration failed: {exc}")
 
     try:
         cols = {c["name"] for c in inspect(db.engine).get_columns("dealer_cash_receipt")}
@@ -855,6 +868,16 @@ def create_receipt():
         return jsonify({"error":"Booking Receipt is available only for showroom/branch accounts."}),403
 
     d=request.get_json(silent=True) or {}
+    request_id=str(d.get("request_id") or "").strip() or None
+    # Idempotency: a browser retry after a timeout must return the already-created
+    # receipt instead of creating a second booking/receipt.
+    if request_id:
+        existing=DealerCashReceipt.query.filter_by(
+            dealer_id=g.current_dealer_id, request_id=request_id
+        ).first()
+        if existing:
+            return jsonify({"success":True,"duplicate":True,"receipt":_receipt(existing),
+                             "customer":_customer(existing.customer) if existing.customer else None}),200
     receipt_type=str(d.get("receipt_type") or "new_booking").strip().lower()
     if receipt_type not in {"new_booking","balance_payment"}:
         return jsonify({"error":"Select New Booking or Balance Payment."}),400
@@ -911,6 +934,7 @@ def create_receipt():
     r=DealerCashReceipt(
         dealer_id=g.current_dealer_id, customer_id=customer.id,
         receipt_no=_no(DealerCashReceipt,"DRC"), receipt_date=rd,
+        request_id=request_id,
         customer_name=name, customer_phone=phone,
         application_no=str(d.get("application_no") or "").strip() or None,
         dealer_register_page_no=page_no or customer.page_no,
