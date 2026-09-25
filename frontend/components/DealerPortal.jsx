@@ -279,7 +279,7 @@ export function DealerPortal({ dealer, onLogout }) {
               {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
                 <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
                 <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
-                {pendingTheme===theme.id && <span className="themeApplyButton">✓</span>}
+                {pendingTheme===theme.id && <span role="button" className="themeApplyButton" onClick={(e) => { e.stopPropagation(); applySelectedTheme(); }}>Apply</span>}
               </button>)}
             </div>}
           </div>
