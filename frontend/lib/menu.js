@@ -216,23 +216,29 @@ export const NAV_ICON_NAMES = [
 // { [tabLabel]: [[key,label], ...] } — falling back to the static layout.
 // Also returns iconByGroup, a { [tabLabel]: iconName } map for custom tabs.
 export function buildNavGroups(customTabs) {
-  // Custom tabs are additive. Never replace the built-in navigation when an
-  // admin creates/configures a custom tab. This keeps every existing module
-  // reachable while allowing admins to add a focused tab for a workflow.
+  // Built-in groups can now be persisted in NavTab rows so admins can
+  // rename, hide, reorder and edit their modules. Truly custom tabs remain
+  // additive and never remove the standard groups that are not configured.
+  const configured = customTabs || [];
+  const configuredBuiltIns = new Set(
+    configured.filter((tab) => Object.prototype.hasOwnProperty.call(NAV_GROUPS, tab.key)).map((tab) => tab.key)
+  );
   const groups = Object.fromEntries(
-    Object.entries(NAV_GROUPS).map(([group, items]) => [group, [...items]])
+    Object.entries(NAV_GROUPS)
+      .filter(([group]) => !configuredBuiltIns.has(group))
+      .map(([group, items]) => [group, [...items]])
   );
   const iconByGroup = {};
 
-  for (const tab of (customTabs || [])) {
+  for (const tab of configured) {
     if (tab.hidden || !String(tab.label || '').trim()) continue;
 
-    // A custom tab is an additional top-level tab. If its name happens to
-    // match a built-in group, merge its modules instead of replacing the
-    // built-in group, so no existing menu disappears.
     const label = String(tab.label).trim();
     const items = (tab.items || []).map((key) => [key, labelFor(key)]);
-    if (groups[label]) {
+
+    if (Object.prototype.hasOwnProperty.call(NAV_GROUPS, tab.key)) {
+      groups[label] = items;
+    } else if (groups[label]) {
       const existingKeys = new Set(groups[label].map(([key]) => key));
       groups[label] = [
         ...groups[label],
@@ -245,15 +251,13 @@ export function buildNavGroups(customTabs) {
     if (tab.icon) iconByGroup[label] = tab.icon;
   }
 
-  // Always keep System reachable so Menu / Tabs Settings cannot disappear
-  // because of a custom navigation configuration.
+  // Always keep System reachable so Menu / Tabs Settings cannot disappear.
   if (!Object.values(groups).flat().some(([key]) => key === 'nav-settings')) {
     groups.System = NAV_GROUPS.System;
   }
 
   return { groups, iconByGroup };
 }
-
 export function routeForKey(key) {
   return ROUTES[key] || { path: '/' + key, title: key };
 }
