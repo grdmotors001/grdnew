@@ -358,28 +358,26 @@ export function DealerPortal({ dealer, onLogout }) {
 function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [customers,setCustomers]=useState([]);
-  const [approvedLoans,setApprovedLoans]=useState([]);
   const [customerId,setCustomerId]=useState('');
   const [customerError,setCustomerError]=useState('');
   const [type,setType]=useState('');
   const [item,setItem]=useState('');
   const [saleAmount,setSaleAmount]=useState('');
   const [loanAmount,setLoanAmount]=useState('');
-  const [loanSelection,setLoanSelection]=useState('');
+  const [doNo,setDoNo]=useState('');
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
 
   const load=async()=>{
-    // Create Sale uses GRD's local delivery options/approved-loan mirror.
-    // CHFPL remains the loan master, but its live API must never block this screen.
     try{
+      // Create Sale only needs booking/customer + stock data.
+      // Do not load the approved-loan list here; it is slow and is no longer
+      // needed because the backend resolves the approved loan automatically.
       const r=await get('/dealer/delivery/options', {noClientCache:true});
       setCustomers(r.customers||[]);
-      setApprovedLoans((r.approved_loans||[]).filter(x=>!x.used));
       setCustomerError('');
     }catch(e){
       setCustomers([]);
-      setApprovedLoans([]);
       setCustomerError(e.message||'Could not load sale options');
     }
   };
@@ -400,12 +398,20 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
       if(['new','old','battery'].includes(bookedType)){
         setType(bookedType);
         setItem('');
+      }else{
+        setType('');
+        setItem('');
       }
+      setSaleAmount(String(selectedCustomer.sale_amount ?? 0));
+      setLoanAmount(String(selectedCustomer.loan_amount ?? 0));
+      setDoNo('');
     }else{
       setType('');
       setItem('');
+      setSaleAmount('');
+      setLoanAmount('');
+      setDoNo('');
     }
-    setLoanSelection('');
   },[selectedCustomer?.id,selectedCustomer?.vehicle_no]);
 
   const optionLabel=(v)=>{
@@ -415,34 +421,41 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   };
 
   const customerLabel=(c)=>[
+    c.page_no ? ('Page '+c.page_no) : '',
     c.name,
-    c.phone,
-    c.vehicle_no ? ('Type: '+String(c.vehicle_no).toUpperCase()) : ''
+    c.phone
   ].filter(Boolean).join(' · ');
 
-  const matchingLoans=approvedLoans.filter(l=>{
-    const sameCustomer=String(l.customer_name||'').trim().toLowerCase()===String(selectedCustomer?.name||'').trim().toLowerCase();
-    const sameType=String(l.vehicle_type||'new').toLowerCase()===String(type||'').toLowerCase();
-    const sameAmount=Number(l.loan_amount||0)>0 && Number(l.loan_amount||0)===Number(loanAmount||0);
-    return sameCustomer && sameType && sameAmount;
-  });
+  const bookingTypeLabel = type==='new' ? 'New Rickshaw' : type==='old' ? 'Old Rickshaw' : type==='battery' ? 'Battery' : '—';
+  const paidAmount=Number(selectedCustomer?.paid_amount||0);
+  const balance=Number(saleAmount||0)-Number(loanAmount||0)-paidAmount;
 
   const save=async()=>{
     if(!selectedCustomer || !selected || !type) return;
+    if(Number(saleAmount||0)<0 || Number(loanAmount||0)<0){
+      setError('Sale Amount and Loan Amount cannot be negative.');
+      return;
+    }
+    if(Number(loanAmount||0)>Number(saleAmount||0)){
+      setError('Loan Amount cannot be greater than Sale Amount.');
+      return;
+    }
     setSaving(true); setError('');
     try{
       const payload={
-        date, customer_id:selectedCustomer.id, delivery_type:type,
+        date,
+        customer_id:selectedCustomer.id,
+        delivery_type:type,
         vehicle_id:type==='new'?Number(selected.id):null,
         old_rickshaw_id:type==='old'?Number(selected.id):null,
         battery_no:type==='battery'?selected.battery_no:null,
         battery_qty:type==='battery'?1:0,
         sale_amount:Number(saleAmount||0),
         loan_amount:Number(loanAmount||0),
-        loan_application_no:loanSelection||null,
+        do_no:String(doNo||'').trim()||null,
       };
-      await post('/dealer/delivery',payload);
-      alert('Sale saved successfully.');
+      const d=await post('/dealer/delivery',payload);
+      alert(d?.delivery?.delivery_no ? `Sale ${d.delivery.delivery_no} saved successfully.` : 'Sale saved successfully.');
       onBack();
     }catch(e){setError(e.message||'Could not save sale')}
     finally{setSaving(false)}
@@ -451,7 +464,7 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   return <div className="grdFormPage dealerCreateSalePage">
     <div className="dealerPanel dealerCreateSalePanel">
       <div className="dealerPanelHead">
-        <div><h3>Create Sale</h3><p>Select customer, then use the same booking type and approved loan details.</p></div>
+        <div><h3>Create Sale</h3><p>Customer booking details are carried forward automatically. Loan approval is matched in the background.</p></div>
         <button type="button" className="btn" onClick={onBack}>Back</button>
       </div>
 
@@ -468,13 +481,12 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
           </select>
         </label>
 
-        <label>Sale Type
-          <select className="input" value={type} disabled>
-            <option value="">Select Type</option>
-            <option value="new">New Rickshaw</option>
-            <option value="old">Old Rickshaw</option>
-            <option value="battery">Battery</option>
-          </select>
+        <label>Sale Type <span className="muted" style={{fontSize:10,fontWeight:600}}>From Booking</span>
+          <input className="input" value={bookingTypeLabel} readOnly />
+        </label>
+
+        <label>Dealer Page No.
+          <input className="input" value={selectedCustomer?.page_no||''} readOnly placeholder="—" />
         </label>
 
         <label className="dealerCreateSaleItemField">Select {type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'Stock Item'}
@@ -485,34 +497,37 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
         </label>
 
         <label>Sale Amount
-          <input className="input" type="number" min="0" value={saleAmount} onChange={e=>setSaleAmount(e.target.value)} />
+          <input className="input" type="number" min="0" value={saleAmount} readOnly />
         </label>
 
         <label>Loan Amount
-          <input className="input" type="number" min="0" value={loanAmount} onChange={e=>{setLoanAmount(e.target.value);setLoanSelection('')}} />
+          <input className="input" type="number" min="0" value={loanAmount} onChange={e=>setLoanAmount(e.target.value)} />
         </label>
 
-        {Number(loanAmount||0)>0 && <label style={{gridColumn:'1 / -1'}}>Approved Loan — Unused
-          <select className="input" value={loanSelection} onChange={e=>setLoanSelection(e.target.value)} disabled={!matchingLoans.length}>
-            <option value="">{matchingLoans.length ? 'Select matching approved loan' : 'No matching unused approved loan'}</option>
-            {matchingLoans.map(l=><option key={l.id} value={l.application_no}>
-              {l.application_no} · ₹{Number(l.loan_amount||0).toLocaleString('en-IN')} · {l.customer_name}
-            </option>)}
-          </select>
-          {matchingLoans.length>0 && <small className="muted">Loan amount, vehicle type and customer name match ho raha hai.</small>}
-        </label>}
+        <label>DO No. <span className="muted" style={{fontSize:10,fontWeight:600}}>Optional</span>
+          <input className="input" value={doNo} onChange={e=>setDoNo(e.target.value)} placeholder="Enter DO No. (optional)" />
+        </label>
+
+        <label>Paid Amount
+          <input className="input" type="number" value={paidAmount} readOnly />
+        </label>
+
+        <label>Balance
+          <input className="input" type="number" value={balance} readOnly />
+        </label>
       </div>
 
       {selectedCustomer && <div className="dealerCreateSalePreview">
-        <div className="dealerCreateSalePreviewHead"><strong>Customer</strong><span>{String(type||'').toUpperCase()}</span></div>
+        <div className="dealerCreateSalePreviewHead"><strong>Booking Summary</strong><span>{bookingTypeLabel.toUpperCase()}</span></div>
         <div className="dealerCreateSalePreviewGrid">
-          <div><span>Name</span><b>{selectedCustomer.name||'—'}</b></div>
-          <div><span>Phone</span><b>{selectedCustomer.phone||'—'}</b></div>
+          <div><span>Customer</span><b>{selectedCustomer.name||'—'}</b></div>
+          <div><span>Dealer Page No.</span><b>{selectedCustomer.page_no||'—'}</b></div>
+          <div><span>Booking Balance</span><b>₹{balance.toLocaleString('en-IN',{maximumFractionDigits:2})}</b></div>
         </div>
       </div>}
 
       {selected && <div className="dealerCreateSalePreview">
-        <div className="dealerCreateSalePreviewHead"><strong>Vehicle</strong><span>{type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':'Battery'}</span></div>
+        <div className="dealerCreateSalePreviewHead"><strong>Vehicle</strong><span>{bookingTypeLabel}</span></div>
         <div className="dealerCreateSalePreviewGrid">
           {type==='new' && <>
             <div><span>Chassis</span><b>{selected.chassis_no||'—'}</b></div>
@@ -533,7 +548,7 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
 
       <div className="actions dealerCreateSaleActions">
         <button type="button" className="btn" onClick={onBack}>Cancel</button>
-        <button type="button" className="btn primary" disabled={saving || !date || !selectedCustomer || !type || !item || (Number(loanAmount||0)>0 && !loanSelection)} onClick={save}>{saving?'Saving…':'Save'}</button>
+        <button type="button" className="btn primary" disabled={saving || !date || !selectedCustomer || !type || !item} onClick={save}>{saving?'Saving…':'Save'}</button>
       </div>
     </div>
   </div>;
