@@ -621,6 +621,60 @@ def showroom_delivery_do_options():
     return jsonify({"do_numbers":[{"id":r.id,"do_no":r.do_no,"application_no":r.application_no,
         "customer_name":r.customer.full_name if r.customer else ""} for r in rows if r.do_no]})
 
+@dealer_cashbook_bp.route("/delivery/customers", methods=["GET"])
+@require_dealer_auth
+def showroom_delivery_customers():
+    """Fast Create Sale customer list.
+
+    This endpoint intentionally reads only the booking register and receipt
+    totals. It does not load loan workflows, invoices, cancellations or stock.
+    """
+    dealer = Dealer.query.get(g.current_dealer_id)
+    if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
+        return jsonify({"error":"Delivery is available only for showroom/branch accounts."}),403
+
+    delivered = db.session.query(DealerCustomerDelivery.customer_id).filter(
+        DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+        DealerCustomerDelivery.customer_id.isnot(None),
+    ).subquery()
+
+    customers = (DealerCashCustomer.query
+                 .filter(DealerCashCustomer.dealer_id == g.current_dealer_id)
+                 .filter(~DealerCashCustomer.id.in_(db.session.query(delivered.c.customer_id)))
+                 .order_by(DealerCashCustomer.id.desc())
+                 .all())
+
+    if not customers:
+        return jsonify({"success":True,"customers":[]})
+
+    customer_ids = [c.id for c in customers]
+    paid_rows = (db.session.query(
+                    DealerCashReceipt.customer_id,
+                    db.func.coalesce(db.func.sum(DealerCashReceipt.amount), 0))
+                 .filter(DealerCashReceipt.dealer_id == g.current_dealer_id,
+                         DealerCashReceipt.customer_id.in_(customer_ids))
+                 .group_by(DealerCashReceipt.customer_id).all())
+    paid_by_customer = {int(cid): float(amount or 0) for cid, amount in paid_rows}
+
+    rows = []
+    for c in customers:
+        paid = paid_by_customer.get(c.id, 0)
+        sale = round(float(c.sale_amount or 0), 2)
+        loan = round(float(c.loan_amount or 0), 2)
+        rows.append({
+            "id": c.id,
+            "page_no": c.page_no,
+            "name": c.full_name,
+            "phone": c.phone,
+            "vehicle_no": c.vehicle_no,
+            "sale_amount": sale,
+            "loan_amount": loan,
+            "paid_amount": round(paid, 2),
+            "balance": round(sale - loan - paid, 2),
+        })
+    return jsonify({"success":True,"customers":rows})
+
+
 @dealer_cashbook_bp.route("/delivery/options", methods=["GET"])
 @require_dealer_auth
 def showroom_delivery_options():
