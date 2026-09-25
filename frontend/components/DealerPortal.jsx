@@ -374,7 +374,7 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
     try{
       // Create Sale only depends on the local booking/customer register.
       // Do not load CHFPL loan lists here; this keeps the screen fast.
-      const r=await get('/dealer/delivery/options', {noClientCache:true, timeoutMs:20000});
+      const r=await get('/dealer/delivery/customers', {noClientCache:true, timeoutMs:10000});
       setCustomers(r.customers||[]);
       setCustomerError('');
     }catch(e){
