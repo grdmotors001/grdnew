@@ -58,11 +58,32 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
-db_url = os.environ.get("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'ebill.db')}")
+db_url = os.environ.get(
+    "DATABASE_URL",
+    f"sqlite:///{os.path.join(BASE_DIR, 'ebill.db')}"
+)
+
+# Use the installed psycopg2-binary driver for PostgreSQL.
+# Some Vercel/Supabase DATABASE_URL values use the newer psycopg driver
+# prefix, but this backend is deployed with psycopg2-binary.
 if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
+    db_url = db_url.replace(
+        "postgres://",
+        "postgresql+psycopg2://",
+        1
+    )
+
+if db_url.startswith("postgresql+psycopg://"):
+    db_url = db_url.replace(
+        "postgresql+psycopg://",
+        "postgresql+psycopg2://",
+        1
+    )
+
 if db_url.startswith("postgresql") and "supabase" in db_url and "sslmode=" not in db_url:
-    db_url += ("&" if "?" in db_url else "?") + "sslmode=require"
+    db_url += (
+        "&" if "?" in db_url else "?"
+    ) + "sslmode=require"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
