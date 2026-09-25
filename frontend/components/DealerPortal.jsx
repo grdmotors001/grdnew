@@ -273,27 +273,15 @@ export function DealerPortal({ dealer, onLogout }) {
         <div className="grdHeaderActions">
           <button type="button" className="grdHeaderIcon" title="Office Chat" aria-label="Office Chat" onClick={()=>{ if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen(v=>!v); }}>💬</button>
           <button type="button" className="grdHeaderIcon" title="Notifications" aria-label="Notifications">🔔</button>
-          <button className="themeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button>
           <div className="themePaletteWrap">
-            <button type="button" className="themeColorButton" onClick={() => setShowPalette((v) => !v)} title="Change theme colour" style={{ background: accent }}>
-              <span className="palettePreviewDots">
-                {accentPalette.map((color) => <span key={color} style={{ background: color }} />)}
-              </span>
-            </button>
-            {showPalette && (
-              <div className="themePalette" role="listbox" aria-label="Choose theme colour">
-                {accentPalette.map((color) => (
-                  <button
-                    key={color}
-                    className={'themeSwatch' + (accent === color ? ' selected' : '')}
-                    style={{ background: color }}
-                    onClick={() => changeAccent(color)}
-                    title={color}
-                    aria-label={`Use ${color} theme`}
-                  />
-                ))}
-              </div>
-            )}
+            <button type="button" className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><span style={{fontSize:14}}>🎨</span></button>
+            {showPalette && <div className="themeChooser" role="dialog" aria-label="Choose theme">
+              {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
+                <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
+                <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
+                {pendingTheme===theme.id && <span className="themeApplyButton">✓</span>}
+              </button>)}
+            </div>}
           </div>
           <div className="grdHeaderUser"><div className="grdHeaderAvatar">{dealerName.slice(0,1).toUpperCase()}</div><strong>{dealerName}</strong><span>⌄</span></div>
           <button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button>
