@@ -2,14 +2,14 @@
 import { useEffect, useState } from 'react';
 import { get, post, setToken } from '../lib/api';
 import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups } from '../lib/menu';
-import { useDarkMode } from '../lib/theme';
+import { THEMES, useTheme } from '../lib/theme';
 import { ChatWidget } from './ChatWidget';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
   Truck, Receipt, Car, BookOpen, Warehouse, Store, Boxes, ClipboardList, FileText,
   BarChart3, Wallet, Gift, Calendar, Key, Database, LogOut, ChevronLeft, ChevronRight,
-  Sun, Moon, Palette, CreditCard, Settings2, MessageCircle,
+  Palette, CreditCard, Settings2, MessageCircle,
 } from 'lucide-react';
 
 // Lookup used to resolve an admin-picked icon name (stored as a plain
@@ -119,9 +119,9 @@ function NavItem({ icon: Icon, label, active, collapsed, onClick }) {
 
 export function Shell({ active, setActive, user, onLogout, children }) {
   const [collapsed, setCollapsed] = useState(false);
-  const [dark, toggleDark] = useDarkMode();
-  const [accent, setAccent] = useState('#2563eb');
+  const { themeId, changeTheme } = useTheme();
   const [showPalette, setShowPalette] = useState(false);
+  const [pendingTheme, setPendingTheme] = useState(themeId);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profile, setProfile] = useState({});
@@ -145,27 +145,13 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     navGroups[targetGroup] = [...(navGroups[targetGroup] || []), ['loan-application-view', 'Loan Application']];
   }
 
-  const palette = [
-    '#00AD8E', '#832DB4', '#F12549', '#F0D118', '#3554DC',
-    '#f97316', '#06b6d4', '#6366f1', '#ec4899', '#64748b',
-  ];
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem('ebill_accent');
-    if (saved) {
-      setAccent(saved);
-      document.documentElement.style.setProperty('--accent', saved);
-    } else {
-      document.documentElement.style.setProperty('--accent', '#2563eb');
-    }
-  }, []);
+  useEffect(() => { setPendingTheme(themeId); }, [themeId]);
 
   const selectMenu = (key) => { setActive(key); setMobileMenu(false); setCollapsed(false); };
 
-  const changeAccent = (color) => {
-    setAccent(color);
-    window.localStorage.setItem('ebill_accent', color);
-    document.documentElement.style.setProperty('--accent', color);
+  const selectTheme = (id) => {
+    setPendingTheme(id);
+    changeTheme(id);
     setShowPalette(false);
   };
 
@@ -212,34 +198,15 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           )}
           {!collapsed && (
             <div className="brandActions">
-              <button className="themeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
-                {dark ? <Sun size={14} /> : <Moon size={14} />}
-              </button>
               <div className="themePaletteWrap">
-                <button
-                  className="themeColorButton"
-                  onClick={() => setShowPalette((v) => !v)}
-                  title="Change theme colour"
-                  style={{ background: accent }}
-                >
-                  <span className="palettePreviewDots">
-                    {palette.map((color) => <span key={color} style={{ background: color }} />)}
-                  </span>
-                </button>
-                {showPalette && (
-                  <div className="themePalette" role="listbox" aria-label="Choose theme colour">
-                    {palette.map((color) => (
-                      <button
-                        key={color}
-                        className={'themeSwatch' + (accent === color ? ' selected' : '')}
-                        style={{ background: color }}
-                        onClick={() => changeAccent(color)}
-                        title={color}
-                        aria-label={`Use ${color} theme`}
-                      />
-                    ))}
-                  </div>
-                )}
+                <button className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><Palette size={14}/></button>
+                {showPalette && <div className="themeChooser" role="dialog" aria-label="Choose theme">
+                  {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
+                    <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
+                    <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
+                    {pendingTheme===theme.id && <span className="themeApplyButton">✓</span>}
+                  </button>)}
+                </div>}
               </div>
               <button className="sidebarToggle" onClick={toggleCollapsed} title="Collapse">
                 <ChevronLeft size={15} />
@@ -249,33 +216,17 @@ export function Shell({ active, setActive, user, onLogout, children }) {
         </div>
         {collapsed && (
           <>
-            <button className="themeToggle" style={{ margin: '0 auto 8px' }} onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
-              {dark ? <Sun size={14} /> : <Moon size={14} />}
-            </button>
             <div className="themePaletteWrap">
-              <button className="themeColorButton" onClick={() => setShowPalette((v) => !v)} title="Change theme colour" style={{ background: accent }}>
-                <span className="palettePreviewDots">
-                  {palette.map((color) => <span key={color} style={{ background: color }} />)}
-                </span>
-              </button>
-              {showPalette && (
-                <div className="themePalette themePaletteCollapsed" role="listbox" aria-label="Choose theme colour">
-                  {palette.map((color) => (
-                    <button
-                      key={color}
-                      className={'themeSwatch' + (accent === color ? ' selected' : '')}
-                      style={{ background: color }}
-                      onClick={() => changeAccent(color)}
-                      title={color}
-                      aria-label={`Use ${color} theme`}
-                    />
-                  ))}
-                </div>
-              )}
+              <button className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><Palette size={14}/></button>
+              {showPalette && <div className="themeChooser themeChooserCollapsed" role="dialog" aria-label="Choose theme">
+                {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
+                  <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
+                  <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
+                  {pendingTheme===theme.id && <span className="themeApplyButton">✓</span>}
+                </button>)}
+              </div>}
             </div>
-            <button className="sidebarExpand" onClick={toggleCollapsed} title="Expand">
-              <ChevronRight size={15} />
-            </button>
+            <button className="sidebarExpand" onClick={toggleCollapsed} title="Expand"><ChevronRight size={15}/></button>
           </>
         )}
 
