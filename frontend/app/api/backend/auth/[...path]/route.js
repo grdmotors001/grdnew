@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 const backend =
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  'https://grdnew-backend.vercel.app';
+  (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:5000' : 'https://grdnew-backend.vercel.app');
 
 async function proxy(request, context) {
   const { path = [] } = await context.params;

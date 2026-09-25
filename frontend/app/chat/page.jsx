@@ -18,7 +18,7 @@ async function chatJwt(){
   return (await r.json()).token;
 }
 
-export default function ChatPage(){
+export default function ChatPage({onClose}={}){
  const [db,setDb]=useState(null),[me,setMe]=useState(null),[users,setUsers]=useState([]),[convs,setConvs]=useState([]),[parts,setParts]=useState([]),[msgs,setMsgs]=useState([]),[active,setActive]=useState(null),[text,setText]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false),[tab,setTab]=useState("chats"),[profile,setProfile]=useState(false);
  const {call,busy:callBusy,error:callError,startCall,endCall,remoteTracks,localTracks}=useCalls();
  const end=useRef(null);
@@ -52,7 +52,7 @@ export default function ChatPage(){
  async function send(e){e.preventDefault();if(!text.trim()||!active)return;setBusy(true);const {error}=await db.from("messages").insert({conversation_id:active,sender_id:me,body:text.trim()});setBusy(false);if(error)setError(error.message);else setText("")}
  async function sendFile(e){const f=e.target.files?.[0];if(!f||!active)return;if(f.size>10*1024*1024)return setError("File must be smaller than 10 MB");setBusy(true);const path=active+"/"+crypto.randomUUID()+"-"+f.name.replace(/[^\\w.\\-]+/g,"_");const up=await db.storage.from(BUCKET).upload(path,f,{contentType:f.type});if(up.error){setBusy(false);return setError(up.error.message)}const r=await db.from("messages").insert({conversation_id:active,sender_id:me,body:null,file_url:path,file_name:f.name,file_type:f.type});setBusy(false);if(r.error)setError(r.error.message)}
  return <div className="oc">
-  <aside className="oc-listpane"><header><button onClick={()=>location.href="/"}>←</button><h1>Office Chat</h1></header><nav className="oc-tabs"><button className={tab==="chats"?"on":""} onClick={()=>setTab("chats")}>Chats</button><button className={tab==="calls"?"on":""} onClick={()=>setTab("calls")}>Calls</button><button className={tab==="profile"?"on":""} onClick={()=>setTab("profile")}>Profile</button></nav>
+  <aside className="oc-listpane"><header><button onClick={()=>onClose?onClose():(location.href="/")}>←</button><h1>Office Chat</h1></header><nav className="oc-tabs"><button className={tab==="chats"?"on":""} onClick={()=>setTab("chats")}>Chats</button><button className={tab==="calls"?"on":""} onClick={()=>setTab("calls")}>Calls</button><button className={tab==="profile"?"on":""} onClick={()=>setTab("profile")}>Profile</button></nav>
    {error&&<div className="oc-error" onClick={()=>setError("")}>{error}</div>}
    {tab==="chats" && mineUsers.map(u=><button key={u.id} className="oc-user" onClick={()=>openUser(u.id)}><span className="oc-avatar">{(u.name||"?").slice(0,1).toUpperCase()}</span><span><b>{u.name}</b><small>{u.about||"Available"}</small></span></button>)}
    {tab==="chats" && chats.map(c=><button key={c.id} className={"oc-user "+(active===c.id?"on":"")} onClick={()=>setActive(c.id)}><span className="oc-avatar">{(c.name||"?").slice(0,1).toUpperCase()}</span><span><b>{c.name}</b><small>{c.last?.body||"No messages"}</small></span></button>)}

@@ -80,6 +80,16 @@ export async function api(path, options = {}) {
         signal: controller.signal,
       });
       if (r.status === 401) {
+        if (!token) {
+          // No session token was attached to this request (e.g. the
+          // /auth/login or /auth/dealer-login call itself) — a 401 here
+          // is the endpoint's own answer (wrong username/password), not
+          // a stale/invalid session, so surface the backend's real
+          // message instead of the generic one below.
+          const ct = r.headers.get('content-type') || '';
+          const d = ct.includes('application/json') ? await r.json().catch(() => ({})) : null;
+          throw new Error((d && d.error) || 'Invalid Username/Mobile or Password.');
+        }
         // A single endpoint must never destroy the active session. Some
         // pages intentionally call staff-only APIs while a dealer session
         // is active; those 401 responses are endpoint-level access errors,

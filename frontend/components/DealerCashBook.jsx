@@ -19,8 +19,7 @@ export function DealerCashBook(){
   const opening=Number(data.summary?.opening_balance||0);
   const closing=Number(data.summary?.closing_balance??(opening+Number(data.summary?.net_movement||0)));
   const exportDayBook=()=>downloadExcel('/dealer/cash-book?from='+from+'&to='+to,'Cash_Day_Book_'+from+'.xlsx');
-  return <div className="dealerPortal">
-    <div className="dealerPortalHeader"><div><h1>Showroom Cash Book</h1><div className="muted">Cash / Day Book ledger</div></div></div>
+  return <>
     {error&&<div className="error">{error}</div>}
     <div className="grid dealerMetrics">
       <div className="card"><div className="muted">Opening</div><div className="metric">{money(opening)}</div></div>
@@ -41,5 +40,5 @@ export function DealerCashBook(){
       onPrev={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()-1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
       onNext={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()+1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}
       onPrint={()=>window.print()} onExport={exportDayBook}/>
-  </div>;
+  </>;
 }

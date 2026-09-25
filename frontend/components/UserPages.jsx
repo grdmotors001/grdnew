@@ -151,32 +151,83 @@ export function OptionSettingPage({ userId }) {
     setSelected((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
   };
 
+  const toggleGroup = (items, allOn) => {
+    const keys = items.map(([k]) => k);
+    setSelected((s) => allOn ? s.filter((k) => !keys.includes(k)) : Array.from(new Set([...s, ...keys])));
+  };
+
   const save = () => run(async () => { await post(`/users/${userId}/option-setting`, { modules: selected }); });
 
+  const totalModules = Object.values(MENU).reduce((n, items) => n + items.length, 0);
+
   return (
-    <div className="card">
-      <b>Module Access for {data.user.username}</b>
+    <div className="permCard">
+      <style jsx>{`
+        .permCard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;box-shadow:0 2px 10px #00000008}
+        .permHead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+        .permHead h2{margin:0;font-size:19px}
+        .permHead p{margin:4px 0 0;color:var(--muted);font-size:12px}
+        .permProgress{font-size:12px;font-weight:700;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--card));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:999px;padding:6px 14px;white-space:nowrap}
+        .permGroup{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px;background:var(--strip-bg)}
+        .permGroupHead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+        .permGroupHead h4{margin:0;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink)}
+        .permGroupMeta{display:flex;align-items:center;gap:10px}
+        .permGroupMeta span{font-size:11px;color:var(--muted)}
+        .permGroupToggle{border:1px solid var(--line);background:var(--card);color:var(--accent);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700}
+        .permGroupToggle:hover{border-color:var(--accent)}
+        .permGrid{display:flex;flex-wrap:wrap;gap:8px}
+        .permChip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:600;cursor:pointer;transition:.12s}
+        .permChip:hover{border-color:var(--accent)}
+        .permChip.on{background:color-mix(in srgb,var(--accent) 12%,var(--card));border-color:var(--accent);color:var(--accent)}
+        .permCheckbox{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line);display:grid;place-items:center;flex:none;font-size:10px;font-weight:900;color:#fff}
+        .permChip.on .permCheckbox{background:var(--accent);border-color:var(--accent)}
+        .permFooter{position:sticky;bottom:0;background:var(--card);padding-top:16px;margin-top:6px;display:flex;justify-content:flex-end;gap:10px}
+        @media(max-width:700px){.permCard{padding:16px}.permHead{flex-direction:column;align-items:flex-start}}
+      `}</style>
+      <div className="permHead">
+        <div>
+          <h2>Module Access — {data.user.username}</h2>
+          <p>Choose exactly what this user can open. Changes apply after you save.</p>
+        </div>
+        <div className="permProgress">{selected.length} / {totalModules} enabled</div>
+      </div>
       <ErrorBanner message={error} />
       {data.user.is_super_user ? (
         <p className="muted">This is a Super User — they always have access to every module regardless of this setting.</p>
       ) : (
         <>
-          {Object.entries(MENU).map(([group, items]) => (
-            <div key={group} style={{ marginTop: 14 }}>
-              <h4 style={{ marginBottom: 6 }}>{group}</h4>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                {items.map(([key, label]) => (
-                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                    <input type="checkbox" checked={selected.includes(key)} onChange={() => toggle(key)} />
-                    {label}
-                  </label>
-                ))}
+          {Object.entries(MENU).map(([group, items]) => {
+            const groupKeys = items.map(([k]) => k);
+            const onCount = groupKeys.filter((k) => selected.includes(k)).length;
+            const allOn = onCount === groupKeys.length;
+            return (
+              <div key={group} className="permGroup">
+                <div className="permGroupHead">
+                  <h4>{group}</h4>
+                  <div className="permGroupMeta">
+                    <span>{onCount}/{groupKeys.length}</span>
+                    <button type="button" className="permGroupToggle" onClick={() => toggleGroup(items, allOn)}>{allOn ? 'Clear all' : 'Select all'}</button>
+                  </div>
+                </div>
+                <div className="permGrid">
+                  {items.map(([key, label]) => {
+                    const on = selected.includes(key);
+                    return (
+                      <button type="button" key={key} className={'permChip' + (on ? ' on' : '')} onClick={() => toggle(key)}>
+                        <span className="permCheckbox">{on ? '✓' : ''}</span>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
-          <button className="btn primary" style={{ marginTop: 18 }} onClick={save} disabled={busy}>
-            {busy ? 'Saving…' : 'Save Permissions'}
-          </button>
+            );
+          })}
+          <div className="permFooter">
+            <button className="btn primary" onClick={save} disabled={busy}>
+              {busy ? 'Saving…' : 'Save Permissions'}
+            </button>
+          </div>
         </>
       )}
     </div>

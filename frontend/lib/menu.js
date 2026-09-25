@@ -225,6 +225,16 @@ export function buildNavGroups(customTabs) {
     groups[tab.label] = (tab.items || []).map((key) => [key, labelFor(key)]);
     if (tab.icon) iconByGroup[tab.label] = tab.icon;
   }
+  // Safety net: once even one custom tab exists, it fully replaces the
+  // built-in layout above — including the System group that holds this
+  // very "Menu / Tabs Settings" screen. If no custom tab happens to
+  // include 'nav-settings' among its items, an admin could otherwise
+  // lock themselves out of the settings UI entirely. Always keep System
+  // reachable unless an admin has deliberately placed nav-settings
+  // somewhere else.
+  if (!Object.values(groups).flat().some(([key]) => key === 'nav-settings')) {
+    groups['System'] = NAV_GROUPS.System;
+  }
   return { groups, iconByGroup };
 }
 

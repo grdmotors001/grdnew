@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { get, post, setToken } from '../lib/api';
 import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups } from '../lib/menu';
 import { useDarkMode } from '../lib/theme';
+import { ChatWidget } from './ChatWidget';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
@@ -131,6 +132,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   // up (Setup > Menu / Tabs Settings). Falls back to the static NAV_GROUPS
   // layout from lib/menu.js until an admin actually creates one.
   const [customTabs, setCustomTabs] = useState(null);
+  const [chatOpen, setChatOpen] = useState(false);
   useEffect(() => {
     get('/nav-config').then((d) => setCustomTabs(d?.custom ? d.tabs : null)).catch(() => setCustomTabs(null));
   }, []);
@@ -144,8 +146,8 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   }
 
   const palette = [
-    '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4',
-    '#3b82f6', '#2563eb', '#6366f1', '#8b5cf6', '#ec4899', '#64748b',
+    '#00AD8E', '#832DB4', '#F12549', '#F0D118', '#3554DC',
+    '#f97316', '#06b6d4', '#6366f1', '#ec4899', '#64748b',
   ];
 
   useEffect(() => {
@@ -366,7 +368,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             </div>
           ) : null}
           <div className="grdHeaderActions">
-            <button type="button" className="grdHeaderIcon" title="Office Chat" onClick={() => { window.location.href = '/chat'; }}><MessageCircle size={18} /></button>
+            <button type="button" className="grdHeaderIcon" title="Office Chat" onClick={() => { if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen((v) => !v); }}><MessageCircle size={18} /></button>
             <button type="button" className="grdHeaderIcon" title="Notifications">🔔<span>3</span></button>
             <div className="grdHeaderUser"><div className="grdHeaderAvatar">{initial}</div><strong>{user?.username || 'admin'}</strong><span>⌄</span></div>
           </div>
@@ -394,6 +396,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           <Users size={18} /><small>Profile</small>
         </button>
       </nav>
+      <ChatWidget open={chatOpen} onOpenChange={setChatOpen} />
     </div>
   );
 }

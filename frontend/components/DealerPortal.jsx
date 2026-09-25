@@ -14,6 +14,7 @@ import { DealerCustomerInvoicePage } from './DealerCustomerInvoicePage';
 import { DealerLedgerPage } from './DealerLedgerPage';
 import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 import { DealerAllReceiptsPage, DealerAllCustomersPage, DealerExpenseCreatePage, DealerHandoverCreatePage } from './DealerCashBookExtras';
+import { ChatWidget } from './ChatWidget';
 
 const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Rickshaw Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
@@ -79,7 +80,22 @@ export function DealerPortal({ dealer, onLogout }) {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [dark, toggleDark] = useDarkMode();
+  const [accent, setAccent] = useState('#2563eb');
+  const [showPalette, setShowPalette] = useState(false);
+  const accentPalette = ['#00AD8E', '#832DB4', '#F12549', '#F0D118', '#3554DC', '#f97316', '#06b6d4', '#6366f1', '#ec4899', '#64748b'];
+  useEffect(() => {
+    const saved = window.localStorage.getItem('ebill_accent');
+    if (saved) { setAccent(saved); document.documentElement.style.setProperty('--accent', saved); }
+    else document.documentElement.style.setProperty('--accent', '#2563eb');
+  }, []);
+  const changeAccent = (color) => {
+    setAccent(color);
+    window.localStorage.setItem('ebill_accent', color);
+    document.documentElement.style.setProperty('--accent', color);
+    setShowPalette(false);
+  };
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const canPurchase = dealer.purchase_access === true;
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
@@ -152,14 +168,14 @@ export function DealerPortal({ dealer, onLogout }) {
     <style>{`
       .dealerOldSalePage{padding:4px 0 80px}
       .dealerOldSaleHeader,.dealerOldStockHead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px;padding:4px 2px}
-      .dealerOldSaleKicker,.dealerOldStockKicker{font-size:10px;font-weight:900;letter-spacing:1px;color:#2563eb;text-transform:uppercase}
+      .dealerOldSaleKicker,.dealerOldStockKicker{font-size:10px;font-weight:900;letter-spacing:1px;color:var(--accent);text-transform:uppercase}
       .dealerOldSaleHeader h2,.dealerOldStockHead h2{margin:2px 0 4px;font-size:24px;color:#172b45}
       .dealerOldSaleHeader p,.dealerOldStockHead p{margin:0;color:#748297;font-size:12px}
       .dealerOldSaleActions{display:flex;gap:8px;flex-wrap:wrap}
       .dealerOldSaleCard,.dealerOldStockCard{border:1px solid #e4e9ef;border-radius:14px;background:#fff;box-shadow:0 5px 18px rgba(31,55,79,.06);overflow:hidden}
       .dealerOldSaleSectionTitle{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px;border-bottom:1px solid #edf1f5}
       .dealerOldSaleSectionTitle strong{display:block;font-size:15px;color:#1f334a}.dealerOldSaleSectionTitle span{display:block;margin-top:3px;font-size:11px;color:#7b8898}
-      .dealerOldSaleCount{min-width:30px!important;width:30px;height:30px;border-radius:50%;display:grid!important;place-items:center;background:#edf4ff;color:#2563eb!important;font-weight:800}
+      .dealerOldSaleCount{min-width:30px!important;width:30px;height:30px;border-radius:50%;display:grid!important;place-items:center;background:color-mix(in srgb,var(--accent) 12%,white);color:var(--accent)!important;font-weight:800}
       .dealerOldSaleTableWrap,.dealerOldStockTableWrap{overflow-x:auto}.dealerOldSaleTable,.dealerOldStockTable{min-width:720px}
       .dealerOldSaleStatus{display:inline-flex!important;padding:5px 8px;border-radius:999px;background:#fff7df;color:#8a6500!important;font-size:10px!important;font-weight:800}.dealerOldSaleEnter{white-space:nowrap}
       .dealerOldSaleModal{z-index:99999;padding:16px;overflow:auto;align-items:center;isolation:isolate}.dealerOldSaleModalBox{width:min(760px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:20px;border-radius:18px;box-sizing:border-box;position:relative;z-index:1}
@@ -209,7 +225,13 @@ export function DealerPortal({ dealer, onLogout }) {
       .dealerPortalHeaderItems{display:flex;gap:5px}
       .dealerPortalHeaderItem{border:1px solid #e2e8ef;background:#f8fafc;color:#30445b;border-radius:7px;padding:6px 10px;font-size:10px;font-weight:700;white-space:nowrap;cursor:pointer}
       .dealerPortalHeaderItem:hover,.dealerPortalHeaderItem.active{background:#eaf2ff;border-color:#9fc2fa;color:#155dcc}
-      .dealerTopbar{position:sticky;top:0;z-index:20;background:#fff}
+      .dealerTopbar.grdTopHeader{margin:-28px -32px 22px;padding:0 18px;overflow:visible}
+      .dealerTopbar.grdTopHeader .dealerEyebrow{color:#ffffffb0}
+      .dealerTopbar.grdTopHeader h1{color:#fff}
+      .dealerTopTitleBlock{min-width:0;flex:1 1 auto;overflow:hidden}
+      .dealerTopTitleBlock h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      @media(max-width:1100px){.dealerTopbar.grdTopHeader{margin:-24px -24px 20px}}
+      @media(max-width:700px){.dealerTopbar.grdTopHeader{margin:-14px -14px 14px}.dealerTopbar.grdTopHeader .dealerMobileMenu{display:flex;background:#ffffff1a;border-color:#ffffff40;color:#fff;flex:none}.dealerTopbar.grdTopHeader .grdHeaderUser strong{display:none}}
       .dealerBatteryCard{margin-top:6px}
       .dealerBatteryFormGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 16px;align-items:end}
       .dealerBatteryFormGrid label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:800;color:#30445b}
@@ -229,39 +251,64 @@ export function DealerPortal({ dealer, onLogout }) {
     </aside>
 
     <main className="dealerMain">
-      <header className="dealerTopbar">
+      <header className="dealerTopbar grdTopHeader">
         <button className="dealerMobileMenu" onClick={()=>setMobileNav(v=>!v)}>☰</button>
-        <div><div className="dealerEyebrow">DEALER PANEL</div><h1>{tab==='dashboard'?'Dashboard':nav.find(x=>x[0]===tab)?.[2]||'Dealer Panel'}</h1></div>
-        <div className="dealerTopActions"><button className="dealerThemeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button><button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button></div>
-      </header>
-      {activeHeaderSection && <nav className="dealerPortalHeaderNav" aria-label="Dealer module submenu">
-        {(() => {
+        {activeHeaderSection ? (() => {
           const section = dealerHeaderSections.find(s => s.label === activeHeaderSection);
           if (!section) return null;
-          return <div className="dealerPortalHeaderGroup">
-            <div className="dealerPortalHeaderLabel">{section.label}</div>
-            <div className="dealerPortalHeaderItems">
-              {section.items
-                .filter(([key]) =>
-                  (key !== 'incentive' || canCashBook) &&
-                  (key !== 'cashbook' && key !== 'cash-handover' && key !== 'expenses-create' && key !== 'handover-create' || canCashBook) &&
-                  (key !== 'battery-withdrawal' || canBatteryWithdrawal) &&
-                  (key !== 'battery-swap' || canBatterySwap) &&
-                  (key !== 'battery-addition' || canBatteryAddition) &&
-                  (key !== 'old-rickshaw-sales' || canOldRickshawSales)
-                )
-                .map(([key,label]) => (
-                  <button type="button" key={key}
-                    className={'dealerPortalHeaderItem'+(tab===key?' active':'')}
-                    onClick={()=>setTab(key)}>
-                    {label}
-                  </button>
-                ))}
+          const items = section.items.filter(([key]) =>
+            (key !== 'incentive' || canCashBook) &&
+            (key !== 'cashbook' && key !== 'cash-handover' && key !== 'expenses-create' && key !== 'handover-create' || canCashBook) &&
+            (key !== 'battery-withdrawal' || canBatteryWithdrawal) &&
+            (key !== 'battery-swap' || canBatterySwap) &&
+            (key !== 'battery-addition' || canBatteryAddition) &&
+            (key !== 'old-rickshaw-sales' || canOldRickshawSales)
+          );
+          return (
+            <div className="moduleStrip dealerModuleStrip" aria-label={activeHeaderSection}>
+              {items.map(([key,label]) => (
+                <button type="button" key={key}
+                  className={'moduleStripItem'+(tab===key?' active':'')}
+                  onClick={()=>setTab(key)}>
+                  {label}
+                </button>
+              ))}
             </div>
-          </div>;
-        })()}
-      </nav>}
-
+          );
+        })() : (
+          <div className="dealerTopTitleBlock">
+            <h1>{tab==='dashboard'?'Dashboard':nav.find(x=>x[0]===tab)?.[2]||'Dealer Panel'}</h1>
+          </div>
+        )}
+        <div className="grdHeaderActions">
+          <button type="button" className="grdHeaderIcon" title="Office Chat" aria-label="Office Chat" onClick={()=>{ if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen(v=>!v); }}>💬</button>
+          <button type="button" className="grdHeaderIcon" title="Notifications" aria-label="Notifications">🔔</button>
+          <button className="themeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button>
+          <div className="themePaletteWrap">
+            <button type="button" className="themeColorButton" onClick={() => setShowPalette((v) => !v)} title="Change theme colour" style={{ background: accent }}>
+              <span className="palettePreviewDots">
+                {accentPalette.map((color) => <span key={color} style={{ background: color }} />)}
+              </span>
+            </button>
+            {showPalette && (
+              <div className="themePalette" role="listbox" aria-label="Choose theme colour">
+                {accentPalette.map((color) => (
+                  <button
+                    key={color}
+                    className={'themeSwatch' + (accent === color ? ' selected' : '')}
+                    style={{ background: color }}
+                    onClick={() => changeAccent(color)}
+                    title={color}
+                    aria-label={`Use ${color} theme`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="grdHeaderUser"><div className="grdHeaderAvatar">{dealerName.slice(0,1).toUpperCase()}</div><strong>{dealerName}</strong><span>⌄</span></div>
+          <button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button>
+        </div>
+      </header>
       {mobileNav && <div className="dealerMobileNav">{sidebarEntries.map(([key,icon,label])=><button key={key} className={'dealerNavItem'+((key==='battery-adjustment'?isBatteryAdjustmentActive:tab===key)?' active':'')} onClick={()=>{goToSidebarTab(key);setMobileNav(false)}}><span className="dealerNavIcon">{icon}</span>{label}</button>)}</div>}
       {error && <div className="error dealerError">{error}</div>}
 
@@ -304,6 +351,7 @@ export function DealerPortal({ dealer, onLogout }) {
       </>}
       </>}
     </main>
+    <ChatWidget open={chatOpen} onOpenChange={setChatOpen} />
   </div>);
 }
 
@@ -499,16 +547,16 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
     ['Tax Invoices',invoiceCount,'Invoice records','invoices','▥'],
   ];
   return <div className="dealerDashboard">
-    <section className="dealerHero"><div><span className="dealerHeroKicker">G.R.D. MOTORS</span><h2>Dealer Dashboard</h2><p>Manage stock, documents, cash book and loan applications from one place.</p></div><button className="dealerPrimaryAction" onClick={onNewLoan}><span>＋</span> New Loan Application</button></section>
+    <section className="dealerHero"><div><span className="dealerHeroKicker">G.R.D. MOTORS</span><p>Manage stock, documents, cash book and loan applications from one place.</p></div></section>
     <section className="dealerKpis">{cards.map(([label,value,sub,key,icon])=><button className="dealerKpi" key={key} onClick={()=>onOpen(key)}><div className="dealerKpiIcon">{icon}</div><div className="dealerKpiText"><span>{label}</span><strong>{value}</strong><small>{sub}</small></div><i>→</i></button>)}</section>
     <section className="dealerDashboardGrid">
       <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Quick Actions</h3><p>Common dealer work</p></div></div>
         <div className="dealerQuickGrid">
-          <button onClick={onNewLoan}><span className="quickIcon">＋</span><b>New Loan</b><small>Create customer & loan</small></button>
           <button onClick={()=>onOpen('stock')}><span className="quickIcon">▣</span><b>View Stock</b><small>Check available vehicles</small></button>
           <button onClick={()=>onOpen('challans')}><span className="quickIcon">▤</span><b>Delivery Challans</b><small>View challan history</small></button>
           <button onClick={()=>onOpen('cashbook')}><span className="quickIcon">₹</span><b>Bahikhata</b><small>Ledger & handover entries</small></button>
           {canCashBook && <button onClick={()=>onOpen('receipt-create')}><span className="quickIcon">🧾</span><b>Create Receipt</b><small>Record a customer receipt</small></button>}
+          <button onClick={onNewLoan}><span className="quickIcon">＋</span><b>New Loan</b><small>Create customer & loan</small></button>
           <button onClick={()=>onOpen('create-sale')}><span className="quickIcon">＋</span><b>Create Sale</b><small>Create sale from available stock</small></button>
         </div>
       </div>
