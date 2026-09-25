@@ -1,9 +1,15 @@
-:root{--bg:#f5f7fb;--card:#fff;--ink:#182230;--muted:#667085;--line:#e5e7eb;--nav:#111827;--accent:#2563eb;--green:#16a34a;--orange:#d97706;--red:#dc2626;--input-bg:#fff;--th-bg:#f8fafc;--modal-bg:#fff;--strip-bg:#f8fafc}
-[data-theme="dark"]{--bg:#0b1220;--card:#141c2e;--ink:#e7ecf5;--muted:#93a0b8;--line:#26324a;--nav:#0b1220;--accent:#3b82f6;--green:#22c55e;--orange:#f59e0b;--red:#f87171;--input-bg:#0f1729;--th-bg:#101a2e;--modal-bg:#141c2e;--strip-bg:#101a2e}
+:root{--bg:#F3F6EC;--card:#FFFFFF;--ink:#1C2413;--muted:#5F5E5A;--line:#D3D1C7;--nav:#3B6D11;--accent:#3B6D11;--accent-hover:#27500A;--theme-accent:#97C459;--green:#3B6D11;--orange:#EF9F27;--red:#D85A30;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="green-olive"]{--bg:#F3F6EC;--card:#FFFFFF;--ink:#1C2413;--muted:#5F5E5A;--line:#D3D1C7;--accent:#3B6D11;--accent-hover:#27500A;--theme-accent:#97C459;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="grey-white"]{--bg:#F1EFE8;--card:#FFFFFF;--ink:#1C1C1A;--muted:#5F5E5A;--line:#B4B2A9;--accent:#2C2C2A;--accent-hover:#444441;--theme-accent:#B4B2A9;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="white-black"]{--bg:#FFFFFF;--card:#F7F7F5;--ink:#1A1A1A;--muted:#5F5E5A;--line:#D3D1C7;--accent:#2C2C2A;--accent-hover:#000000;--theme-accent:#888780;--input-bg:#F7F7F5;--th-bg:#F7F7F5;--modal-bg:#F7F7F5;--strip-bg:#F7F7F5}
+[data-theme="navy-gold"]{--bg:#F0F5FA;--card:#FFFFFF;--ink:#042C53;--muted:#5F5E5A;--line:#B5D4F4;--accent:#042C53;--accent-hover:#0C447C;--theme-accent:#EF9F27;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="maroon-cream"]{--bg:#FDF6F3;--card:#FFFFFF;--ink:#3A1509;--muted:#5F5E5A;--line:#F0997B;--accent:#4A1B0C;--accent-hover:#712B13;--theme-accent:#D85A30;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="teal-charcoal"]{--bg:#F2F9F6;--card:#FFFFFF;--ink:#04342C;--muted:#5F5E5A;--line:#9FE1CB;--accent:#04342C;--accent-hover:#085041;--theme-accent:#1D9E75;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="purple-lavender"]{--bg:#F5F4FE;--card:#FFFFFF;--ink:#26215C;--muted:#5F5E5A;--line:#CECBF6;--accent:#26215C;--accent-hover:#3C3489;--theme-accent:#7F77DD;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="coral-sand"]{--bg:#FBF6F0;--card:#FFFFFF;--ink:#3A1509;--muted:#5F5E5A;--line:#F5C4B3;--accent:#993C1D;--accent-hover:#D85A30;--theme-accent:#F0997B;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+
 *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink);transition:background .15s,color .15s}button,input,select,textarea{font:inherit}button{cursor:pointer}.app{display:flex;min-height:100vh}
-.themeColorButton{width:26px;height:26px;min-width:26px;border-radius:50%;border:2px solid #ffffff66;color:#fff;display:flex;align-items:center;justify-content:center;padding:0;box-shadow:0 0 0 1px #0002;transition:transform .15s ease,filter .15s ease}.themeColorButton:hover{transform:scale(1.08);filter:brightness(1.08)}.themeColorInput{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.themeToggle{width:26px;height:26px;min-width:26px;border-radius:50%;background:#ffffff1a;border:0;color:#fff;display:flex;align-items:center;justify-content:center;padding:0}
-.themeToggle:hover{background:#ffffff2e}
-.sidebar{width:300px;background:linear-gradient(180deg,var(--accent) 0%,color-mix(in srgb,var(--accent) 78%,black) 42%,color-mix(in srgb,var(--accent) 55%,black) 100%);color:#fff;padding:0 14px 16px;position:fixed;top:0;bottom:0;left:0;overflow:auto;display:flex;flex-direction:column;transition:width .18s ease,background .15s ease;z-index:5;border-radius:0;box-shadow:6px 0 18px #0002}
+.themeColorButton{width:26px;height:26px;min-width:26px;border-radius:50%;border:2px solid #ffffff66;color:#fff;display:flex;align-items:center;justify-content:center;padding:0;box-shadow:0 0 0 1px #0002;transition:transform .15s ease,filter .15s ease}.themeColorButton:hover{transform:scale(1.08);filter:brightness(1.08)}.themeColorInput{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.sidebar{width:300px;background:linear-gradient(180deg,var(--accent) 0%,color-mix(in srgb,var(--accent) 78%,black) 42%,color-mix(in srgb,var(--accent) 55%,black) 100%);color:#fff;padding:0 14px 16px;position:fixed;top:0;bottom:0;left:0;overflow:auto;display:flex;flex-direction:column;transition:width .18s ease,background .15s ease;z-index:5;border-radius:0;box-shadow:6px 0 18px #0002}
 .sidebar.collapsed{width:84px;padding:18px 10px}
 .brand{display:flex;align-items:center;gap:10px;padding:10px 4px;margin:0 -14px 12px;padding-left:18px;padding-right:18px;min-height:60px;border-bottom:1px solid #ffffff26;white-space:nowrap;background:var(--accent)}
 .sidebar.collapsed .brand{justify-content:center;border-bottom:0;margin-bottom:6px;padding-bottom:0}
@@ -132,14 +138,14 @@
   .noprint{display:none !important}
 }
 
-[data-theme="dark"] .chartCol:hover{background:var(--th-bg)}
-[data-theme="dark"] .chartCol.active{background:#1d3a6e33}
-[data-theme="dark"] .pill.m{background:#1d3a6e55;color:#93c5fd}
-[data-theme="dark"] .pill.d{background:#4a2e0e55;color:#fdba74}
-[data-theme="dark"] .pill.t{background:#0f3d2455;color:#86efac}
-[data-theme="dark"] .error{background:#3b1a1a;border-color:#7f1d1d;color:#fca5a5}
-[data-theme="dark"] .table th{border-bottom-color:var(--line)}
-[data-theme="dark"] .btn.primary{color:#fff}
+
+
+
+
+
+
+
+
 
 /* Tax Invoice "New Tax Invoice" modal — wide, fixed header + fixed footer,
    scrollable stepped body in between (Applicant Details / Internal / Amount-Tax) */
@@ -506,7 +512,20 @@
 .loanStatus.rejected{background:#fee2e2;color:#991b1b}
 .loanStatus.review{background:#fef3c7;color:#92400e}
 .loanStatus.submitted{background:#dbeafe;color:#1d4ed8}
-[data-theme="dark"] .loanStatus.approved{background:#123b25;color:#86efac}
-[data-theme="dark"] .loanStatus.rejected{background:#451b1b;color:#fca5a5}
-[data-theme="dark"] .loanStatus.review{background:#49380d;color:#fde68a}
-[data-theme="dark"] .loanStatus.submitted{background:#172f55;color:#93c5fd}
+
+
+
+
+
+
+/* Preset theme chooser: click a theme to apply it; the small check button marks the active choice. */
+.themeChooser{position:absolute;top:38px;right:0;width:min(390px,calc(100vw - 28px));padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 32px #0003;z-index:100}
+.themeChooserCollapsed{top:32px;right:auto;left:34px}
+.themeCard{position:relative;display:flex;align-items:center;gap:9px;text-align:left;min-width:0;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer;transition:.12s ease}
+.themeCard:hover{border-color:var(--accent);transform:translateY(-1px)}
+.themeCard.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.themeCardSwatches{display:flex;gap:3px;flex:none}.themeCardSwatches i{display:block;width:13px;height:13px;border-radius:4px;border:1px solid #0002}
+.themeCardText{min-width:0}.themeCardText b{display:block;font-size:10.5px;line-height:1.2}.themeCardText small{display:block;color:var(--muted);font-size:9px;margin-top:2px}
+.themeApplyButton{position:absolute;right:6px;top:6px;width:17px;height:17px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#fff;font-size:10px;font-weight:900}
+.themeColorButton{background:var(--accent);color:#fff}
+@media(max-width:700px){.themeChooser{position:fixed;top:58px;right:10px;width:min(360px,calc(100vw - 20px));max-height:calc(100vh - 76px);overflow:auto}}
