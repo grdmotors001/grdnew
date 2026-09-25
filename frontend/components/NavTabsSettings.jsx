@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post, put, del } from '../lib/api';
-import { NAV_CATALOG, NAV_ICON_NAMES } from '../lib/menu';
+import { NAV_GROUPS, NAV_CATALOG, NAV_ICON_NAMES } from '../lib/menu';
 import { ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
 // Setup > Menu / Tabs Settings — lets a super user add a new sidebar tab,
@@ -18,7 +18,28 @@ export function NavTabsSettings() {
   const [newIcon, setNewIcon] = useState(NAV_ICON_NAMES[0]);
   const { busy, error, setError, run } = useAsyncAction();
 
-  const load = () => get('/admin/nav-tabs').then(setTabs).catch((e) => setError(e.message));
+  const load = async () => {
+    try {
+      const current = await get('/admin/nav-tabs');
+      const existingKeys = new Set((current || []).map((t) => t.key));
+      const builtIns = Object.entries(NAV_GROUPS).map(([label, items]) => ({
+        key: label,
+        label,
+        items: items.map(([key]) => key),
+        icon: {
+          Masters: 'Sliders', Factory: 'Factory', Battery: 'BatteryCharging',
+          'Sales & Billing': 'Receipt', Expenses: 'Wallet', Accounts: 'CreditCard',
+          Inventory: 'Warehouse', HR: 'Users', Reports: 'BarChart3', System: 'Settings2',
+        }[label] || 'Settings2',
+      }));
+      for (const tab of builtIns) {
+        if (!existingKeys.has(tab.key)) await post('/admin/nav-tabs', tab);
+      }
+      setTabs(await get('/admin/nav-tabs'));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
   useEffect(() => { load(); }, []);
 
   const createTab = (e) => {
@@ -66,9 +87,8 @@ export function NavTabsSettings() {
     <div className="card">
       <b>Menu / Tabs Settings</b>
       <p className="muted" style={{ marginTop: 4 }}>
-        Right side ke sidebar tabs yahan se control karein — naya tab banayein, kisi tab ka naam badlein ya usse
-        hide karein, aur har tab mein kaunse options dikhne hain wo select karein. Koi tab na ho to sidebar apne
-        default layout mein rehta hai.
+        Sidebar ke saare existing tabs yahan dikhte hain — naam badlein, hide/show karein, order change karein,
+        aur har tab mein kaunse options dikhne hain wo select karein. Naya custom tab bhi add kar sakte hain.
       </p>
       <ErrorBanner message={error} />
 
