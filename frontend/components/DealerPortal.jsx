@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
-import { useDarkMode } from '../lib/theme';
+import { THEMES, useTheme } from '../lib/theme';
 import { formatDate } from '../lib/date';
 import { DealerCashBook } from './DealerCashBook';
 import { DealerDelivery } from './DealerDelivery';
@@ -81,21 +81,12 @@ export function DealerPortal({ dealer, onLogout }) {
   const [search, setSearch] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [dark, toggleDark] = useDarkMode();
-  const [accent, setAccent] = useState('#2563eb');
+  const { themeId, changeTheme } = useTheme();
   const [showPalette, setShowPalette] = useState(false);
-  const accentPalette = ['#00AD8E', '#832DB4', '#F12549', '#F0D118', '#3554DC', '#f97316', '#06b6d4', '#6366f1', '#ec4899', '#64748b'];
-  useEffect(() => {
-    const saved = window.localStorage.getItem('ebill_accent');
-    if (saved) { setAccent(saved); document.documentElement.style.setProperty('--accent', saved); }
-    else document.documentElement.style.setProperty('--accent', '#2563eb');
-  }, []);
-  const changeAccent = (color) => {
-    setAccent(color);
-    window.localStorage.setItem('ebill_accent', color);
-    document.documentElement.style.setProperty('--accent', color);
-    setShowPalette(false);
-  };
+  const [pendingTheme, setPendingTheme] = useState(themeId);
+  useEffect(() => { setPendingTheme(themeId); }, [themeId]);
+  const selectTheme = (id) => setPendingTheme(id);
+  const applySelectedTheme = () => { changeTheme(pendingTheme); setShowPalette(false); };
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const canPurchase = dealer.purchase_access === true;
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
@@ -283,27 +274,15 @@ export function DealerPortal({ dealer, onLogout }) {
         <div className="grdHeaderActions">
           <button type="button" className="grdHeaderIcon" title="Office Chat" aria-label="Office Chat" onClick={()=>{ if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen(v=>!v); }}>💬</button>
           <button type="button" className="grdHeaderIcon" title="Notifications" aria-label="Notifications">🔔</button>
-          <button className="themeToggle" onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}>{dark ? '☀' : '☾'}</button>
           <div className="themePaletteWrap">
-            <button type="button" className="themeColorButton" onClick={() => setShowPalette((v) => !v)} title="Change theme colour" style={{ background: accent }}>
-              <span className="palettePreviewDots">
-                {accentPalette.map((color) => <span key={color} style={{ background: color }} />)}
-              </span>
-            </button>
-            {showPalette && (
-              <div className="themePalette" role="listbox" aria-label="Choose theme colour">
-                {accentPalette.map((color) => (
-                  <button
-                    key={color}
-                    className={'themeSwatch' + (accent === color ? ' selected' : '')}
-                    style={{ background: color }}
-                    onClick={() => changeAccent(color)}
-                    title={color}
-                    aria-label={`Use ${color} theme`}
-                  />
-                ))}
-              </div>
-            )}
+            <button type="button" className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><span style={{fontSize:14}}>🎨</span></button>
+            {showPalette && <div className="themeChooser" role="dialog" aria-label="Choose theme">
+              {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
+                <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
+                <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
+                {pendingTheme===theme.id && <span role="button" className="themeApplyButton" onClick={(e) => { e.stopPropagation(); applySelectedTheme(); }}>Apply</span>}
+              </button>)}
+            </div>}
           </div>
           <div className="grdHeaderUser"><div className="grdHeaderAvatar">{dealerName.slice(0,1).toUpperCase()}</div><strong>{dealerName}</strong><span>⌄</span></div>
           <button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button>
