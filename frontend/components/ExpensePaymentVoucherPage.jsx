@@ -7,6 +7,7 @@ const today=()=>new Date().toISOString().slice(0,10);
 
 export function ExpensePaymentVoucherPage(){
   const [masters,setMasters]=useState({expense_types:[],pay_to_types:[],dealers:[],staff:[],mechanics:[],fabricators:[]});
+  const [partyMasters,setPartyMasters]=useState([]);
   const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[bookingRows,setBookingRows]=useState([]),[partyRickshaws,setPartyRickshaws]=useState([]),[selected,setSelected]=useState([]);
   const [rows,setRows]=useState([]),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
   const [error,setError]=useState(''),[msg,setMsg]=useState(''),[statusFilter,setStatusFilter]=useState('');
@@ -15,8 +16,8 @@ export function ExpensePaymentVoucherPage(){
   async function load(){
     setLoading(true);setError('');
     try{
-      const [m,v]=await Promise.all([get('/expense-payment-voucher/masters'),get('/expense-payment-voucher'+(statusFilter?'?status='+statusFilter:'') )]);
-      setMasters(m);setRows(v.vouchers||[]);
+      const [m,v,p]=await Promise.all([get('/expense-payment-voucher/masters'),get('/expense-payment-voucher'+(statusFilter?'?status='+statusFilter:'')),get('/masters/party')]);
+      setMasters(m);setRows(v.vouchers||[]);setPartyMasters(p||[]);
     }catch(e){setError(e.message||'Could not load voucher data')}finally{setLoading(false)}
   }
   useEffect(()=>{load()},[statusFilter]);
@@ -136,7 +137,14 @@ export function ExpensePaymentVoucherPage(){
         {et!=='assembly'&&et!=='fabrication'&&<select className="input" value={form.pay_to_type} onChange={e=>set('pay_to_type',e.target.value)}><option value="dealer">Dealer</option><option value="staff">Staff / Salesman</option><option value="other">Other</option></select>}
         {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='dealer'&&<select className="input" value={form.dealer_id} onChange={e=>onDealer(e.target.value)}><option value="">Select Dealer</option>{masters.dealers.map(d=><option key={d.id} value={d.id}>{d.code?d.code+' — ':''}{d.name}</option>)}</select>}
         {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='staff'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}}><option value="">Select Staff / Salesman</option>{masters.staff.map(x=><option key={x.name} value={x.name}>{x.name}</option>)}</select>}
-        {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='other'&&<input className="input" placeholder="Pay To Name" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)}/>}
+        {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='other'&&(
+          et==='insurance'||et==='rto_expense'
+            ? <select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required>
+                <option value="">Select {et==='insurance'?'Insurance Provider / Agent':'RTO Passing Person / Provider'}</option>
+                {partyMasters.filter(p=>String(p.sub_category||'').toLowerCase()===(et==='insurance'?'insurance':'rto')).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+              </select>
+            : <input className="input" placeholder="Pay To Name" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)}/>
+        )}
         {et==='fabrication'&&<><input className="input" placeholder="Model Name" value={form.work_model_name} onChange={e=>set('work_model_name',e.target.value)} required/><input className="input" type="number" min="1" step="1" placeholder="Qty (rickshaws)" value={form.work_qty} onChange={e=>set('work_qty',e.target.value)} required/><input className="input" type="number" min="0.01" step="0.01" placeholder="Rate per Rickshaw" value={form.rate_per_unit} onChange={e=>set('rate_per_unit',e.target.value)} required/></>}
         {et==='assembly'&&<input className="input" type="number" min="0.01" step="0.01" placeholder="Rate per Rickshaw" value={form.rate_per_unit} onChange={e=>set('rate_per_unit',e.target.value)} required/>}
         {(et==='incentive'||et==='commission')&&<input className="input" type="number" min="0.01" step="0.01" placeholder={et==='commission'?'Commission Amount per Booking':'Incentive Amount per Rickshaw'} value={form.amount} onChange={e=>set('amount',e.target.value)} required/>}
