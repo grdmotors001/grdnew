@@ -85,7 +85,8 @@ export function DealerPortal({ dealer, onLogout }) {
   const [showPalette, setShowPalette] = useState(false);
   const [pendingTheme, setPendingTheme] = useState(themeId);
   useEffect(() => { setPendingTheme(themeId); }, [themeId]);
-  const selectTheme = (id) => { setPendingTheme(id); changeTheme(id); setShowPalette(false); };
+  const selectTheme = (id) => setPendingTheme(id);
+  const applySelectedTheme = () => { changeTheme(pendingTheme); setShowPalette(false); };
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const canPurchase = dealer.purchase_access === true;
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
