@@ -149,11 +149,8 @@ export function Shell({ active, setActive, user, onLogout, children }) {
 
   const selectMenu = (key) => { setActive(key); setMobileMenu(false); setCollapsed(false); };
 
-  const selectTheme = (id) => {
-    setPendingTheme(id);
-    changeTheme(id);
-    setShowPalette(false);
-  };
+  const selectTheme = (id) => setPendingTheme(id);
+  const applySelectedTheme = () => { changeTheme(pendingTheme); setShowPalette(false); };
 
   // Remember the collapsed/expanded state across reloads.
   useEffect(() => {
@@ -204,7 +201,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
                   {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
                     <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
                     <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
-                    {pendingTheme===theme.id && <span className="themeApplyButton">✓</span>}
+                    {pendingTheme===theme.id && <span role="button" className="themeApplyButton" onClick={(e) => { e.stopPropagation(); applySelectedTheme(); }}>Apply</span>}
                   </button>)}
                 </div>}
               </div>
