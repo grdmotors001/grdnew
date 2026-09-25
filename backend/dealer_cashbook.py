@@ -628,60 +628,60 @@ def showroom_delivery_options():
     if not dealer or (getattr(dealer, "dealer_category", "dealer") or "dealer").lower() != "showroom":
         return jsonify({"error":"Delivery is available only for showroom/branch accounts."}),403
 
-    # Only customers who have not received any vehicle yet.
-    delivered_ids = {int(x[0]) for x in db.session.query(DealerCustomerDelivery.customer_id)
-                     .filter_by(dealer_id=g.current_dealer_id).all()}
-    customers = (DealerCashCustomer.query.filter_by(dealer_id=g.current_dealer_id)
+    # Create Sale must stay fast: return only the local booking/customer register
+    # plus stock lists. Do not query the approved-loan list here.
+    delivered_ids = {
+        int(x[0]) for x in db.session.query(DealerCustomerDelivery.customer_id)
+        .filter_by(dealer_id=g.current_dealer_id).all()
+    }
+    customers = (DealerCashCustomer.query
+                 .filter_by(dealer_id=g.current_dealer_id)
                  .order_by(DealerCashCustomer.full_name.asc(), DealerCashCustomer.id.asc()).all())
     customer_rows = [_customer(c) for c in customers if c.id not in delivered_ids]
 
-    # New rickshaw stock: showroom stock already assigned to this dealer,
-    # excluding chassis already used in this delivery register.
-    delivered_vehicle_ids = {int(x[0]) for x in db.session.query(DealerCustomerDelivery.vehicle_id)
-                             .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
-                                     DealerCustomerDelivery.vehicle_id.isnot(None)).all()}
+    delivered_vehicle_ids = {
+        int(x[0]) for x in db.session.query(DealerCustomerDelivery.vehicle_id)
+        .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+                DealerCustomerDelivery.vehicle_id.isnot(None)).all()
+    }
     new_rows = (Vehicle.query
                 .filter(Vehicle.stage == "Delivery Challan")
                 .filter(db.func.lower(db.func.trim(Vehicle.dealer_name)) ==
                         db.func.lower(db.func.trim(dealer.name)))
                 .order_by(Vehicle.chassis_no.asc()).all())
-    new_stock = [{"id":v.id,"chassis_no":v.chassis_no,"model_name":v.model_name,
-                  "date":v.date.isoformat() if v.date else None}
-                 for v in new_rows if v.id not in delivered_vehicle_ids]
+    new_stock = [{
+        "id": v.id,
+        "chassis_no": v.chassis_no,
+        "model_name": v.model_name,
+        "colour": getattr(v, "colour", None),
+        "date": v.date.isoformat() if v.date else None,
+    } for v in new_rows if v.id not in delivered_vehicle_ids]
 
-    delivered_old_ids = {int(x[0]) for x in db.session.query(DealerCustomerDelivery.old_rickshaw_id)
-                         .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
-                                 DealerCustomerDelivery.old_rickshaw_id.isnot(None)).all()}
+    delivered_old_ids = {
+        int(x[0]) for x in db.session.query(DealerCustomerDelivery.old_rickshaw_id)
+        .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
+                DealerCustomerDelivery.old_rickshaw_id.isnot(None)).all()
+    }
     old_rows = (OldRickshaw.query
                 .filter(OldRickshaw.sale_dealer_id == g.current_dealer_id,
                         OldRickshaw.status == "sold")
                 .order_by(OldRickshaw.vehicle_reg_no.asc()).all())
-    old_stock = [{"id":r.id,"vehicle_no":r.vehicle_reg_no,"model_name":r.model_name,
-                  "date":r.sale_date.isoformat() if r.sale_date else None}
-                 for r in old_rows if r.id not in delivered_old_ids]
+    old_stock = [{
+        "id": r.id,
+        "vehicle_reg_no": r.vehicle_reg_no,
+        "vehicle_no": r.vehicle_reg_no,
+        "model_name": r.model_name,
+        "battery_maker": r.battery_maker,
+        "date": r.sale_date.isoformat() if r.sale_date else None,
+    } for r in old_rows if r.id not in delivered_old_ids]
 
-    used_loan_ids = {
-        int(x[0]) for x in db.session.query(DealerCustomerDelivery.loan_workflow_id)
-        .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
-                DealerCustomerDelivery.loan_workflow_id.isnot(None)).all()
-    }
-    approved_loans = (LoanWorkflow.query.filter(
-            LoanWorkflow.dealer_id == g.current_dealer_id,
-            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"]),
-            LoanWorkflow.loan_amount > 0
-        ).order_by(LoanWorkflow.id.desc()).limit(500).all())
-    approved_loan_rows = [{
-        "id":r.id, "application_no":r.application_no, "do_no":r.do_no,
-        "customer_name":r.customer.full_name if r.customer else "",
-        "customer_id":r.customer_id, "status":("USED" if r.id in used_loan_ids else "APPROVED"),
-        "loan_amount":round(float(r.loan_amount or 0),2),
-        "vehicle_model_name":r.loan_model_name,
-        "vehicle_type":r.loan_vehicle_type or "new",
-        "used":r.id in used_loan_ids,
-    } for r in approved_loans]
-    return jsonify({"success":True,"customers":customer_rows,"new_stock":new_stock,"old_stock":old_stock,
-                    "battery_stock":[],"approved_loans":approved_loan_rows})
-
+    return jsonify({
+        "success": True,
+        "customers": customer_rows,
+        "new_stock": new_stock,
+        "old_stock": old_stock,
+        "battery_stock": [],
+    })
 
 @dealer_cashbook_bp.route("/delivery/<int:delivery_id>", methods=["PUT"])
 @require_dealer_auth
