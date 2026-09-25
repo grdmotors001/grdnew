@@ -73,6 +73,12 @@ if db_url.startswith("postgres://"):
         1
     )
 
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace(
+        "postgresql://",
+        "postgresql+psycopg2://",
+        1
+    )
 if db_url.startswith("postgresql+psycopg://"):
     db_url = db_url.replace(
         "postgresql+psycopg://",
