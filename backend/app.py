@@ -7186,7 +7186,7 @@ def _seed_defaults():
 # seed queries can block a serverless invocation long enough to hit Vercel's
 # function limit. Existing production databases are already initialized.
 # Set RUN_DB_BOOTSTRAP=true only when an explicit schema bootstrap is required.
-if os.environ.get("RUN_DB_BOOTSTRAP", "").strip().lower() in {"1", "true", "yes"}:
+if os.environ.get("VERCEL") != "1" or os.environ.get("RUN_DB_BOOTSTRAP", "").strip().lower() in {"1", "true", "yes"}:
     try:
         with app.app_context():
             _seed_defaults()
