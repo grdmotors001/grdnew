@@ -15,9 +15,10 @@ export function InsuranceRtoRegisterPage(){
 
   const et=tab==='insurance'?'insurance':'rto_expense';
   const loadParties=async()=>{
-    const x=await get('/expense-payment-voucher?expense_type='+et+'&status=all');
-    const names=[...new Set((x.vouchers||[]).map(v=>v.pay_to_name).filter(Boolean))];
-    setParties(names);
+    const x=await get('/masters/party');
+    const type=et==='insurance'?'insurance':'rto';
+    const names=(x||[]).filter(p=>String(p.sub_category||'').toLowerCase()===type).map(p=>p.name).filter(Boolean);
+    setParties([...new Set(names)]);
   };
   const load=async()=>{
     setError('');
