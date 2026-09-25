@@ -93,7 +93,17 @@ if db_url.startswith("postgresql") and "supabase" in db_url and "sslmode=" not i
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"poolclass": NullPool, "pool_pre_ping": True}
+# Vercel serverless instances should reuse a small number of healthy connections
+# instead of opening a fresh PostgreSQL connection for every request. This is
+# especially important with the Supabase pooler, where repeated cold-start
+# connections can otherwise make a simple request wait until Vercel's limit.
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+    "pool_size": 1,
+    "max_overflow": 0,
+    "connect_args": {"connect_timeout": 10},
+}
 
 db.init_app(app)
 
@@ -7171,16 +7181,17 @@ def _seed_defaults():
         db.session.commit()
 
 
-# Vercel imports this module as a serverless function — initialize once per
-# warm instance so the first request can use the tables. Schema compatibility
-# is handled here at startup, never inside every API request.
-try:
-    with app.app_context():
-        _seed_defaults()
-except Exception as exc:
-    print(f"[startup] Database initialization skipped/failed: {exc}")
-except Exception as exc:
-    print(f"[startup] Database initialization skipped/failed: {exc}")
+# Vercel imports this module as a serverless function. Do not run the full
+# schema/seed bootstrap on every cold start: db.create_all(), inspection and
+# seed queries can block a serverless invocation long enough to hit Vercel's
+# function limit. Existing production databases are already initialized.
+# Set RUN_DB_BOOTSTRAP=true only when an explicit schema bootstrap is required.
+if os.environ.get("RUN_DB_BOOTSTRAP", "").strip().lower() in {"1", "true", "yes"}:
+    try:
+        with app.app_context():
+            _seed_defaults()
+    except Exception as exc:
+        print(f"[startup] Database initialization skipped/failed: {exc}")
 
 
 if __name__ == "__main__":
