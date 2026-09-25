@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
-import { useDarkMode } from '../lib/theme';
+import { THEMES, useTheme } from '../lib/theme';
 import { formatDate } from '../lib/date';
 import { DealerCashBook } from './DealerCashBook';
 import { DealerDelivery } from './DealerDelivery';
@@ -81,21 +81,11 @@ export function DealerPortal({ dealer, onLogout }) {
   const [search, setSearch] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [dark, toggleDark] = useDarkMode();
-  const [accent, setAccent] = useState('#2563eb');
+  const { themeId, changeTheme } = useTheme();
   const [showPalette, setShowPalette] = useState(false);
-  const accentPalette = ['#00AD8E', '#832DB4', '#F12549', '#F0D118', '#3554DC', '#f97316', '#06b6d4', '#6366f1', '#ec4899', '#64748b'];
-  useEffect(() => {
-    const saved = window.localStorage.getItem('ebill_accent');
-    if (saved) { setAccent(saved); document.documentElement.style.setProperty('--accent', saved); }
-    else document.documentElement.style.setProperty('--accent', '#2563eb');
-  }, []);
-  const changeAccent = (color) => {
-    setAccent(color);
-    window.localStorage.setItem('ebill_accent', color);
-    document.documentElement.style.setProperty('--accent', color);
-    setShowPalette(false);
-  };
+  const [pendingTheme, setPendingTheme] = useState(themeId);
+  useEffect(() => { setPendingTheme(themeId); }, [themeId]);
+  const selectTheme = (id) => { setPendingTheme(id); changeTheme(id); setShowPalette(false); };
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const canPurchase = dealer.purchase_access === true;
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
