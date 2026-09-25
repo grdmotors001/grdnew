@@ -660,25 +660,10 @@ def showroom_delivery_options():
                   "date":r.sale_date.isoformat() if r.sale_date else None}
                  for r in old_rows if r.id not in delivered_old_ids]
 
-    used_loan_ids = {
-        int(x[0]) for x in db.session.query(DealerCustomerDelivery.loan_workflow_id)
-        .filter(DealerCustomerDelivery.dealer_id == g.current_dealer_id,
-                DealerCustomerDelivery.loan_workflow_id.isnot(None)).all()
-    }
-    approved_loans = (LoanWorkflow.query.filter(
-            LoanWorkflow.dealer_id == g.current_dealer_id,
-            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"]),
-            LoanWorkflow.loan_amount > 0
-        ).order_by(LoanWorkflow.id.desc()).limit(500).all())
-    approved_loan_rows = [{
-        "id":r.id, "application_no":r.application_no, "do_no":r.do_no,
-        "customer_name":r.customer.full_name if r.customer else "",
-        "customer_id":r.customer_id, "status":("USED" if r.id in used_loan_ids else "APPROVED"),
-        "loan_amount":round(float(r.loan_amount or 0),2),
-        "vehicle_model_name":r.loan_model_name,
-        "vehicle_type":r.loan_vehicle_type or "new",
-        "used":r.id in used_loan_ids,
-    } for r in approved_loans]
+    # Do not load the full approved-loan list on the Create Sale screen.
+    # It made the customer/options request unnecessarily slow.  The sale save
+    # endpoint resolves the approved loan automatically when a loan amount is
+    # present.
     return jsonify({"success":True,"customers":customer_rows,"new_stock":new_stock,"old_stock":old_stock,
                     "battery_stock":[],"approved_loans":approved_loan_rows})
 
@@ -737,21 +722,47 @@ def create_showroom_delivery():
     misc_charge = _amt(d.get("misc_charge"))
     loan_workflow_id = int(d.get("loan_workflow_id") or 0) or None
     loan_application_no = str(d.get("loan_application_no") or "").strip() or None
-    if loan_amount > 0:
-        if not loan_workflow_id and not loan_application_no:
-            return jsonify({"error":"Approved loan selection is required when Loan Amount is entered."}),400
+    approved_loan = None
 
+    if loan_amount < 0 or loan_amount > sale_amount:
+        return jsonify({"error":"Loan Amount cannot be negative or greater than Sale Amount."}),400
+
+    if loan_amount > 0:
         loan_q = LoanWorkflow.query.filter(
             LoanWorkflow.dealer_id == g.current_dealer_id,
-            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"])
+            LoanWorkflow.status.in_(["APPROVED","approved","SANCTIONED","sanctioned","DISBURSED","disbursed"]),
+            LoanWorkflow.loan_amount > 0,
         )
+
+        # Existing callers may still send an explicit workflow/application id.
+        # Create Sale itself no longer needs the dealer to select one.
         if loan_workflow_id:
             loan_q = loan_q.filter(LoanWorkflow.id == loan_workflow_id)
-        else:
+        elif loan_application_no:
             loan_q = loan_q.filter(LoanWorkflow.application_no == loan_application_no)
-        approved_loan = loan_q.first()
+
+        if not loan_workflow_id and not loan_application_no:
+            expected_type = delivery_type
+            loan_q = loan_q.filter(
+                db.func.lower(db.func.coalesce(LoanWorkflow.loan_vehicle_type, "new")) == expected_type
+            )
+
+        candidates = loan_q.order_by(LoanWorkflow.id.desc()).limit(50).all()
+        actual_name = str(customer.full_name or "").strip().casefold()
+
+        if loan_workflow_id or loan_application_no:
+            approved_loan = candidates[0] if candidates else None
+        else:
+            # Match the booking customer automatically; newest matching
+            # approved/sanctioned/disbursed workflow wins.
+            for candidate in candidates:
+                expected_name = str(candidate.customer.full_name if candidate.customer else "").strip().casefold()
+                if expected_name == actual_name:
+                    approved_loan = candidate
+                    break
+
         if not approved_loan:
-            return jsonify({"error":"Selected approved loan was not found for this dealer."}),400
+            return jsonify({"error":"No approved loan was found automatically for this customer and sale type."}),400
 
         if DealerCustomerDelivery.query.filter_by(
             dealer_id=g.current_dealer_id, loan_workflow_id=approved_loan.id
@@ -759,7 +770,6 @@ def create_showroom_delivery():
             return jsonify({"error":"This approved loan is already used in a sale."}),409
 
         expected_name = str(approved_loan.customer.full_name if approved_loan.customer else "").strip().casefold()
-        actual_name = str(customer.full_name or "").strip().casefold()
         if expected_name != actual_name:
             return jsonify({"error":"Customer name does not match the approved loan."}),409
 
@@ -767,9 +777,8 @@ def create_showroom_delivery():
         if expected_amount <= 0 or round(loan_amount,2) != expected_amount:
             return jsonify({"error":f"Loan amount must match the approved loan amount ₹{expected_amount:,.2f}."}),409
 
-        selected_type = delivery_type
         expected_type = str(approved_loan.loan_vehicle_type or "new").strip().lower()
-        if expected_type != selected_type:
+        if expected_type != delivery_type:
             return jsonify({"error":"Vehicle type does not match the approved loan."}),409
 
         loan_workflow_id = approved_loan.id
