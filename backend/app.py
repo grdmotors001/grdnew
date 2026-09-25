@@ -3878,8 +3878,7 @@ def nav_config():
     tabs = NavTab.query.order_by(NavTab.position, NavTab.id).all()
     if not tabs:
         return jsonify({"custom": False, "tabs": []})
-    visible = [t for t in tabs if not t.hidden]
-    return jsonify({"custom": True, "tabs": [ser_nav_tab(t) for t in visible]})
+    return jsonify({"custom": True, "tabs": [ser_nav_tab(t, include_hidden=True) for t in tabs]})
 
 
 @app.route("/api/admin/nav-tabs", methods=["GET", "POST"])
@@ -3894,9 +3893,11 @@ def admin_nav_tabs():
         if not label:
             return _err("Tab name is required.")
         existing_keys = {t.key for t in NavTab.query.all()}
+        requested_key = str(data.get("key") or "").strip()
+        key = requested_key if requested_key and requested_key not in existing_keys else _slugify_tab_key(label, existing_keys)
         max_pos = db.session.query(db.func.max(NavTab.position)).scalar() or 0
         t = NavTab(
-            key=_slugify_tab_key(label, existing_keys),
+            key=key,
             label=label, icon=data.get("icon") or None,
             position=max_pos + 1, hidden=False,
         )
