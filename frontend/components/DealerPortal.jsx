@@ -358,29 +358,28 @@ export function DealerPortal({ dealer, onLogout }) {
 function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const [date,setDate]=useState(new Date().toISOString().slice(0,10));
   const [customers,setCustomers]=useState([]);
-  const [approvedLoans,setApprovedLoans]=useState([]);
   const [customerId,setCustomerId]=useState('');
   const [customerError,setCustomerError]=useState('');
   const [type,setType]=useState('');
   const [item,setItem]=useState('');
   const [saleAmount,setSaleAmount]=useState('');
   const [loanAmount,setLoanAmount]=useState('');
-  const [loanSelection,setLoanSelection]=useState('');
+  const [balance,setBalance]=useState(0);
+  const [dealerPageNo,setDealerPageNo]=useState('');
+  const [doNo,setDoNo]=useState('');
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
 
   const load=async()=>{
-    // Create Sale uses GRD's local delivery options/approved-loan mirror.
-    // CHFPL remains the loan master, but its live API must never block this screen.
     try{
-      const r=await get('/dealer/delivery/options', {noClientCache:true});
+      // Create Sale only depends on the local booking/customer register.
+      // Do not load CHFPL loan lists here; this keeps the screen fast.
+      const r=await get('/dealer/delivery/customers', {noClientCache:true, timeoutMs:10000});
       setCustomers(r.customers||[]);
-      setApprovedLoans((r.approved_loans||[]).filter(x=>!x.used));
       setCustomerError('');
     }catch(e){
       setCustomers([]);
-      setApprovedLoans([]);
-      setCustomerError(e.message||'Could not load sale options');
+      setCustomerError(e.message||'Could not load booking customers');
     }
   };
 
@@ -391,22 +390,42 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   const batteryItems=batteryStock?.batteries||[];
   const options=type==='new' ? newItems : type==='old' ? oldItems : type==='battery' ? batteryItems : [];
   const optionValue=(v)=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '');
-  const selected=options.find(v=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '')===String(item));
+  const selected=options.find(v=>optionValue(v)===String(item));
   const selectedCustomer=customers.find(c=>String(c.id)===String(customerId));
 
   useEffect(()=>{
-    if(selectedCustomer){
-      const bookedType=String(selectedCustomer.vehicle_no||'').trim().toLowerCase();
-      if(['new','old','battery'].includes(bookedType)){
-        setType(bookedType);
-        setItem('');
-      }
-    }else{
+    if(!selectedCustomer){
       setType('');
       setItem('');
+      setSaleAmount('');
+      setLoanAmount('');
+      setBalance(0);
+      setDealerPageNo('');
+      setDoNo('');
+      return;
     }
-    setLoanSelection('');
-  },[selectedCustomer?.id,selectedCustomer?.vehicle_no]);
+
+    const bookedType=String(selectedCustomer.vehicle_no||'').trim().toLowerCase();
+    setType(['new','old','battery'].includes(bookedType) ? bookedType : '');
+    setItem('');
+
+    // Booking is the source of truth for these values.
+    const bookedSale=Number(selectedCustomer.sale_amount||0);
+    const bookedLoan=Number(selectedCustomer.loan_amount||0);
+    const paid=Number(selectedCustomer.paid_amount||0);
+    setSaleAmount(bookedSale ? String(bookedSale) : '');
+    setLoanAmount(bookedLoan ? String(bookedLoan) : '0');
+    setBalance(Math.max(0, bookedSale - bookedLoan - paid));
+    setDealerPageNo(selectedCustomer.page_no||'');
+    setDoNo('');
+  },[selectedCustomer?.id]);
+
+  useEffect(()=>{
+    const sale=Number(saleAmount||0);
+    const loan=Number(loanAmount||0);
+    const paid=Number(selectedCustomer?.paid_amount||0);
+    setBalance(Math.max(0, sale-loan-paid));
+  },[saleAmount,loanAmount,selectedCustomer?.paid_amount]);
 
   const optionLabel=(v)=>{
     if(type==='new') return [v.chassis_no,v.model_name,v.colour].filter(Boolean).join(' · ') || 'New Rickshaw';
@@ -415,31 +434,28 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   };
 
   const customerLabel=(c)=>[
+    c.page_no ? ('Page: '+c.page_no) : '',
     c.name,
     c.phone,
     c.vehicle_no ? ('Type: '+String(c.vehicle_no).toUpperCase()) : ''
   ].filter(Boolean).join(' · ');
-
-  const matchingLoans=approvedLoans.filter(l=>{
-    const sameCustomer=String(l.customer_name||'').trim().toLowerCase()===String(selectedCustomer?.name||'').trim().toLowerCase();
-    const sameType=String(l.vehicle_type||'new').toLowerCase()===String(type||'').toLowerCase();
-    const sameAmount=Number(l.loan_amount||0)>0 && Number(l.loan_amount||0)===Number(loanAmount||0);
-    return sameCustomer && sameType && sameAmount;
-  });
 
   const save=async()=>{
     if(!selectedCustomer || !selected || !type) return;
     setSaving(true); setError('');
     try{
       const payload={
-        date, customer_id:selectedCustomer.id, delivery_type:type,
+        date,
+        customer_id:selectedCustomer.id,
+        delivery_type:type,
         vehicle_id:type==='new'?Number(selected.id):null,
         old_rickshaw_id:type==='old'?Number(selected.id):null,
         battery_no:type==='battery'?selected.battery_no:null,
         battery_qty:type==='battery'?1:0,
-        sale_amount:Number(saleAmount||0),
+        sale_amount:Number(selectedCustomer.sale_amount||0),
         loan_amount:Number(loanAmount||0),
-        loan_application_no:loanSelection||null,
+        dealer_page_no:dealerPageNo || null,
+        do_no:doNo.trim() || null,
       };
       await post('/dealer/delivery',payload);
       alert('Sale saved successfully.');
@@ -451,7 +467,7 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   return <div className="grdFormPage dealerCreateSalePage">
     <div className="dealerPanel dealerCreateSalePanel">
       <div className="dealerPanelHead">
-        <div><h3>Create Sale</h3><p>Select customer, then use the same booking type and approved loan details.</p></div>
+        <div><h3>Create Sale</h3><p>Customer select karte hi booking ke exact Sale Type aur Sale Amount automatically lock ho jayenge.</p></div>
         <button type="button" className="btn" onClick={onBack}>Back</button>
       </div>
 
@@ -468,13 +484,12 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
           </select>
         </label>
 
+        <label>Dealer Page No.
+          <input className="input" value={dealerPageNo} readOnly />
+        </label>
+
         <label>Sale Type
-          <select className="input" value={type} disabled>
-            <option value="">Select Type</option>
-            <option value="new">New Rickshaw</option>
-            <option value="old">Old Rickshaw</option>
-            <option value="battery">Battery</option>
-          </select>
+          <input className="input" value={type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'—'} readOnly />
         </label>
 
         <label className="dealerCreateSaleItemField">Select {type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'Stock Item'}
@@ -485,29 +500,29 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
         </label>
 
         <label>Sale Amount
-          <input className="input" type="number" min="0" value={saleAmount} onChange={e=>setSaleAmount(e.target.value)} />
+          <input className="input" type="number" min="0" value={saleAmount} readOnly />
         </label>
 
         <label>Loan Amount
-          <input className="input" type="number" min="0" value={loanAmount} onChange={e=>{setLoanAmount(e.target.value);setLoanSelection('')}} />
+          <input className="input" type="number" min="0" max={saleAmount || undefined} value={loanAmount}
+            onChange={e=>setLoanAmount(e.target.value)} disabled={!selectedCustomer} />
         </label>
 
-        {Number(loanAmount||0)>0 && <label style={{gridColumn:'1 / -1'}}>Approved Loan — Unused
-          <select className="input" value={loanSelection} onChange={e=>setLoanSelection(e.target.value)} disabled={!matchingLoans.length}>
-            <option value="">{matchingLoans.length ? 'Select matching approved loan' : 'No matching unused approved loan'}</option>
-            {matchingLoans.map(l=><option key={l.id} value={l.application_no}>
-              {l.application_no} · ₹{Number(l.loan_amount||0).toLocaleString('en-IN')} · {l.customer_name}
-            </option>)}
-          </select>
-          {matchingLoans.length>0 && <small className="muted">Loan amount, vehicle type and customer name match ho raha hai.</small>}
-        </label>}
+        <label>Balance
+          <input className="input" type="number" value={balance} readOnly />
+        </label>
+
+        <label>DO No. (Optional)
+          <input className="input" value={doNo} onChange={e=>setDoNo(e.target.value)} placeholder="Enter DO No. (optional)" />
+        </label>
       </div>
 
       {selectedCustomer && <div className="dealerCreateSalePreview">
-        <div className="dealerCreateSalePreviewHead"><strong>Customer</strong><span>{String(type||'').toUpperCase()}</span></div>
+        <div className="dealerCreateSalePreviewHead"><strong>Booking</strong><span>{String(type||'').toUpperCase()}</span></div>
         <div className="dealerCreateSalePreviewGrid">
           <div><span>Name</span><b>{selectedCustomer.name||'—'}</b></div>
           <div><span>Phone</span><b>{selectedCustomer.phone||'—'}</b></div>
+          <div><span>Booking Paid</span><b>₹ {Number(selectedCustomer.paid_amount||0).toLocaleString('en-IN')}</b></div>
         </div>
       </div>}
 
@@ -533,289 +548,16 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
 
       <div className="actions dealerCreateSaleActions">
         <button type="button" className="btn" onClick={onBack}>Cancel</button>
-        <button type="button" className="btn primary" disabled={saving || !date || !selectedCustomer || !type || !item || (Number(loanAmount||0)>0 && !loanSelection)} onClick={save}>{saving?'Saving…':'Save'}</button>
+        <button type="button" className="btn primary"
+          disabled={saving || !date || !selectedCustomer || !type || !item || Number(loanAmount||0)>Number(saleAmount||0)}
+          onClick={save}>
+          {saving?'Saving…':'Save'}
+        </button>
       </div>
     </div>
   </div>;
 }
 
-function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook}) {
-  const cards=[
-    ['Current Stock',stockCount??'—','Vehicles currently assigned','stock','▣'],
-    ['Loan Applications',loanCount??0,'CHFPL loan status','loan-status','✓'],
-    ['Delivery Challans',challanCount,'Recent challan records','challans','▤'],
-    ['Tax Invoices',invoiceCount,'Invoice records','invoices','▥'],
-  ];
-  return <div className="dealerDashboard">
-    <section className="dealerHero"><div><span className="dealerHeroKicker">G.R.D. MOTORS</span><p>Manage stock, documents, cash book and loan applications from one place.</p></div></section>
-    <section className="dealerKpis">{cards.map(([label,value,sub,key,icon])=><button className="dealerKpi" key={key} onClick={()=>onOpen(key)}><div className="dealerKpiIcon">{icon}</div><div className="dealerKpiText"><span>{label}</span><strong>{value}</strong><small>{sub}</small></div><i>→</i></button>)}</section>
-    <section className="dealerDashboardGrid">
-      <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Quick Actions</h3><p>Common dealer work</p></div></div>
-        <div className="dealerQuickGrid">
-          <button onClick={()=>onOpen('stock')}><span className="quickIcon">▣</span><b>View Stock</b><small>Check available vehicles</small></button>
-          <button onClick={()=>onOpen('challans')}><span className="quickIcon">▤</span><b>Delivery Challans</b><small>View challan history</small></button>
-          <button onClick={()=>onOpen('cashbook')}><span className="quickIcon">₹</span><b>Bahikhata</b><small>Ledger & handover entries</small></button>
-          {canCashBook && <button onClick={()=>onOpen('receipt-create')}><span className="quickIcon">🧾</span><b>Create Receipt</b><small>Record a customer receipt</small></button>}
-          <button onClick={onNewLoan}><span className="quickIcon">＋</span><b>New Loan</b><small>Create customer & loan</small></button>
-          <button onClick={()=>onOpen('create-sale')}><span className="quickIcon">＋</span><b>Create Sale</b><small>Create sale from available stock</small></button>
-        </div>
-      </div>
-      <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>Recent Activity</h3><p>Latest document records</p></div></div>
-        {latest.length?<div className="dealerActivity">{latest.map((x,i)=><div className="dealerActivityRow" key={x.type+x.no+i}><span className="activityDot"></span><div><b>{x.type}</b><small>{x.no||'—'} · {x.text||'—'}</small></div><time>{formatDate(x.date)}</time></div>)}</div>:<div className="dealerEmpty">No recent records available.</div>}
-      </div>
-    </section>
-  </div>;
-}
-
-function DealerTable({headers,rows,row,dateKey='date',pageSize=35}) {
-  const [from,setFrom]=useState('');
-  const [to,setTo]=useState('');
-  const [page,setPage]=useState(1);
-  const filtered=(rows||[]).filter(item=>{
-    const d=String(item?.[dateKey]||'').slice(0,10);
-    return (!from || d>=from) && (!to || d<=to);
-  });
-  const totalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
-  const safePage=Math.min(page,totalPages);
-  const visible=filtered.slice((safePage-1)*pageSize,safePage*pageSize);
-  useEffect(()=>{setPage(1)},[from,to,rows]);
-  return <div>
-    <div className="actions" style={{marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
-      <label style={{display:'flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700}}>
-        From <input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)} style={{width:145}} />
-      </label>
-      <label style={{display:'flex',alignItems:'center',gap:6,fontSize:11,fontWeight:700}}>
-        To <input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)} style={{width:145}} />
-      </label>
-      {(from||to) && <button className="btn" onClick={()=>{setFrom('');setTo('')}}>Clear Date</button>}
-      <span className="muted" style={{fontSize:11,marginLeft:'auto'}}>{filtered.length} records</span>
-    </div>
-    <div className="tablewrap dealerTable"><table className="table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{visible.map((item,i)=><tr key={item.id??i}>{row(item)}</tr>)}{!visible.length&&<tr><td colSpan={headers.length}><div className="dealerEmpty">No records found.</div></td></tr>}</tbody></table></div>
-    {filtered.length>pageSize && <div className="actions" style={{justifyContent:'center',alignItems:'center'}}>
-      <button className="btn" disabled={safePage<=1} onClick={()=>setPage(safePage-1)}>← Prev</button>
-      <span className="muted">Page {safePage} of {totalPages}</span>
-      <button className="btn" disabled={safePage>=totalPages} onClick={()=>setPage(safePage+1)}>Next →</button>
-    </div>}
-  </div>;
-}
-
-function DealerPurchases({onInvoice}) {
-  const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true);
-  useEffect(()=>{get('/dealer/purchases').then(d=>setRows(d.purchases||[])).catch(e=>setError(e.message)).finally(()=>setLoading(false))},[]);
-  return <div><div className="dealerContentToolbar"><div className="dealerPageIntro"><span className="dealerSectionIcon">▣</span><div><strong>Purchases</strong><small>Delivery Challans received from G.R.D. Motors</small></div></div></div>{error&&<div className="error">{error}</div>}{loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Challan</th><th>Chassis</th><th>Model</th><th>Purchase Value</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>{formatDate(x.date)}</td><td>{x.challan_no}</td><td>{x.chassis_no}</td><td>{x.product_name}</td><td>{x.sale_value||0}</td></tr>)}{!rows.length&&<tr><td colSpan="5">No purchases available.</td></tr>}</tbody></table></div>}</div>
-}
-
-
-function DealerLoanStatusTable({rows, onRefresh}) {
-  const STATUS_LABELS = {
-    draft: 'Draft',
-    submitted: 'Submitted',
-    fi_pending: 'FI Pending — FE Assigned',
-    fi_done: 'FI Done — FE Verification Complete',
-    approved: 'Approved',
-    rejected: 'Rejected',
-    sanctioned: 'Sanctioned',
-    disbursed: 'Disbursed',
-  };
-  const statusLabel = (s) => STATUS_LABELS[String(s || 'submitted').toLowerCase()] || String(s || 'submitted').replace(/_/g,' ').replace(/\b\w/g, m => m.toUpperCase());
-  const statusClass = (s) => {
-    const v=String(s||'').toLowerCase();
-    if(v==='approved'||v==='sanctioned'||v==='disbursed') return 'loanStatus approved';
-    if(v==='rejected') return 'loanStatus rejected';
-    if(v==='fi_pending'||v==='fi_done') return 'loanStatus review';
-    return 'loanStatus submitted';
-  };
-  return <div>
-    <div className="dealerPanel" style={{marginBottom:14}}>
-      <div className="dealerPanelHead"><div><h3>My Loan Applications</h3><p>Live status from CHFPL</p></div><button className="btn" type="button" onClick={onRefresh}>↻ Refresh</button></div>
-      {!rows.length ? <div className="dealerEmpty">No loan applications found.</div> :
-      <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Application</th><th>Customer</th><th>Vehicle</th><th>Loan Amount</th><th>Status</th><th>Submitted</th></tr></thead>
-      <tbody>{rows.map(r=><tr key={r.id||r.application_no}>
-        <td data-label="Application"><b>{r.application_no}</b></td>
-        <td data-label="Customer">{r.customer_name||'—'}</td>
-        <td data-label="Vehicle">{r.vehicle_model_name||'—'}</td>
-        <td data-label="Loan Amount">₹ {Number(r.loan_amount_requested||0).toLocaleString('en-IN')}</td>
-        <td data-label="Status"><span className={statusClass(r.status)}>{statusLabel(r.status)}</span></td>
-        <td data-label="Submitted">{r.submitted_at ? formatDate(r.submitted_at) : '—'}</td>
-      </tr>)}</tbody></table></div>}
-    </div>
-  </div>;
-}
-
-
-function DealerBatteryWithdrawal({dealer,onBack}){
-  const [type,setType]=useState('new'),[items,setItems]=useState([]),[rickshawId,setRickshawId]=useState(''),[battery,setBattery]=useState(''),[ref,setRef]=useState(''),[remarks,setRemarks]=useState(''),[error,setError]=useState('');
-  const load=async()=>{try{const r=await get('/dealer/rickshaw-battery-options?dealer_id='+dealer.id+'&type='+type);setItems(r.rickshaws||[]);setRickshawId('');setBattery('')}catch(e){setError(e.message)}};
-  useEffect(()=>{load()},[type]);
-  const current=items.find(x=>String(x.id)===String(rickshawId));
-  const save=async e=>{e.preventDefault();try{await post('/battery-withdrawal',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery,reference_no:ref,remarks});alert('Battery withdrawn successfully');await load();setRef('');setRemarks('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage grdFormPage"><div className="dealerPanel">
-      <div className="dealerPanelHead"><div><h3>Battery Withdrawal</h3><p>Battery rickshaw se remove karke aapke dealer battery stock me jayegi.</p></div><button className="btn" type="button" onClick={onBack}>Back</button></div>
-      {error&&<div className="error">{error}</div>}
-      <form onSubmit={save}><div className="grid">
-        <label>Rickshaw Type<select className="input" value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label>
-        <label>Rickshaw<select className="input" value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label>
-        <label>Battery No.<select className="input" value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{(current?.battery_numbers||[]).map(n=><option key={n}>{n}</option>)}</select></label>
-        <label>Reference No.<input className="input" value={ref} onChange={e=>setRef(e.target.value)}/></label>
-        <label>Remarks<input className="input" value={remarks} onChange={e=>setRemarks(e.target.value)}/></label>
-      </div><div className="actions"><button className="btn primary">Withdraw Battery</button></div></form>
-    </div></div>;
-}
-
-function DealerBatteryAddition({dealer,onBack}){
-  const [type,setType]=useState('new'),[items,setItems]=useState([]),[batteries,setBatteries]=useState([]),[rickshawId,setRickshawId]=useState(''),[battery,setBattery]=useState(''),[error,setError]=useState('');
-  const load=async()=>{try{const [r,b]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealer.id+'&type='+type),get('/battery-addition?dealer_id='+dealer.id)]);setItems((r.rickshaws||[]).filter(x=>!(x.battery_numbers||[]).length));setBatteries(b.batteries||[]);setRickshawId('');setBattery('')}catch(e){setError(e.message)}};
-  useEffect(()=>{load()},[type]);
-  const save=async e=>{e.preventDefault();try{await post('/battery-addition',{date:new Date().toISOString().slice(0,10),location:'dealer',dealer_id:dealer.id,rickshaw_type:type,rickshaw_id:Number(rickshawId),battery_no:battery});alert('Battery fitted successfully');await load()}catch(e){setError(e.message)}};
-  return <div className="dealerPage"><div className="card"><div className="pageHeader"><div><h2>Battery Fit to Rickshaw</h2><p className="muted">Dealer stock ki available battery ko apne rickshaw me fit karein.</p></div><button className="btn" onClick={onBack}>← Back</button></div>{error&&<div className="error">{error}</div>}<form onSubmit={save}><div className="dealerBatteryFormGrid"><label>Rickshaw Type<select value={type} onChange={e=>setType(e.target.value)}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label><label>Rickshaw<select value={rickshawId} onChange={e=>setRickshawId(e.target.value)} required><option value="">Select…</option>{items.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''}</option>)}</select></label><label>Battery No.<select value={battery} onChange={e=>setBattery(e.target.value)} required><option value="">Select…</option>{batteries.map(x=><option key={x.id} value={x.battery_no}>{x.battery_maker||''} — {x.battery_no}</option>)}</select></label></div><button className="btn primary">Fit Battery to Rickshaw</button></form></div></div>;
-}
-
-function DealerBatterySwap({dealer,onBack}){
-  const [type,setType]=useState('new'),[from,setFrom]=useState(''),[to,setTo]=useState(''),[items,setItems]=useState({new:[],old:[]}),[error,setError]=useState('');
-  const load=async()=>{try{const [n,o]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealer.id+'&type=new'),get('/dealer/rickshaw-battery-options?dealer_id='+dealer.id+'&type=old')]);setItems({new:n.rickshaws||[],old:o.rickshaws||[]})}catch(e){setError(e.message)}};
-  useEffect(()=>{load()},[]);
-  const opts=items[type]||[];
-  const save=async e=>{e.preventDefault();try{await post('/battery-swap-vouchers',{date:new Date().toISOString().slice(0,10),dealer_id:dealer.id,from_type:type,from_id:Number(from),to_type:type,to_id:Number(to),remarks:''});alert('Battery swap saved');await load();setFrom('');setTo('')}catch(e){setError(e.message)}};
-  return <div className="dealerPage grdFormPage"><div className="dealerPanel">
-      <div className="dealerPanelHead"><div><h3>Battery Swap / Exchange</h3><p>Dealer ke apne rickshaws ke beech battery swap.</p></div><button className="btn" type="button" onClick={onBack}>Back</button></div>
-      {error&&<div className="error">{error}</div>}
-      <form onSubmit={save}><div className="grid">
-        <label>Rickshaw Type<select className="input" value={type} onChange={e=>{setType(e.target.value);setFrom('');setTo('')}}><option value="new">New Rickshaw</option><option value="old">Old Rickshaw</option></select></label>
-        <label>From Rickshaw<select className="input" value={from} onChange={e=>setFrom(e.target.value)} required><option value="">Select…</option>{opts.map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label>
-        <label>To Rickshaw<select className="input" value={to} onChange={e=>setTo(e.target.value)} required><option value="">Select…</option>{opts.filter(x=>String(x.id)!==String(from)).map(x=><option key={x.id} value={x.id}>{x.reg_no||x.chassis_no} — {x.model_name||''} — {(x.battery_numbers||[]).join(', ')||'No Battery'}</option>)}</select></label>
-      </div><div className="actions"><button className="btn primary">Save Battery Swap</button></div></form>
-    </div></div>;
-}
-
-
-function DealerOldRickshawSales({dealer,onBack}) {
-  const [rows,setRows]=useState([]),[stock,setStock]=useState([]),[edit,setEdit]=useState(null),[form,setForm]=useState({}),[error,setError]=useState(''),[saving,setSaving]=useState(false);
-  const load=async()=>{
-    try{
-      setError('');
-      const [challanData,stockData]=await Promise.all([
-        get('/dealer/old-rickshaw-challans'),
-        get('/dealer/old-rickshaws')
-      ]);
-      setRows(challanData.challans||[]);
-      setStock(stockData.rickshaws||[]);
-    }catch(e){
-      setError(e.message||'Could not load Old Rickshaw records.');
-    }
-  };
-  useEffect(()=>{load()},[]);
-  const open=(r)=>{
-    setMobileNav(false);
-    setEdit(r);
-    setError('');
-    setForm({
-      sale_amount:r.sale_amount||'',
-      file_charge:r.file_charge||'',
-      loan_amount:r.loan_amount||'',
-      down_payment:r.down_payment||'',
-      sale_customer:r.sale_customer||'',
-      sale_mobile:r.sale_mobile||'',
-      sold_at:r.sold_at||new Date().toISOString().slice(0,10)
-    });
-  };
-  const save=async(e)=>{
-    e.preventDefault();
-    if(!edit)return;
-    setSaving(true);
-    setError('');
-    try{
-      await post('/dealer/old-rickshaw-challans/'+edit.id+'/sale',form);
-      setEdit(null);
-      await load();
-    }catch(e){
-      setError(e.message||'Could not save sale data.');
-    }finally{
-      setSaving(false);
-    }
-  };
-  const pending=rows.filter(r=>['PENDING_SALE','APPROVED','VERIFIED'].includes(String(r.status||'').toUpperCase()));
-  const availableStock=stock.filter(r=>String(r.status||'').toLowerCase()==='available');
-  const soldStock=stock.filter(r=>String(r.status||'').toLowerCase()==='sold');
-  const challanForStock=(s)=>pending.find(r=>String(r.vehicle_no||'').trim().toLowerCase()===String(s.vehicle_reg_no||'').trim().toLowerCase());
-  return <div className="dealerPage dealerOldSalePage">
-    <div className="dealerOldSaleHeader">
-      <div><div className="dealerOldSaleKicker">OLD RICKSHAW</div><h2>Old Rickshaw Sale</h2><p>Factory challan se dealer ko aaye Old Rickshaw ka stock aur resale ek hi module se manage karein.</p></div>
-      <div className="dealerOldSaleActions"><button type="button" className="btn" onClick={load}>↻ Refresh</button><button type="button" className="btn" onClick={onBack}>← Back</button></div>
-    </div>
-    {error&&<div className="error dealerOldSaleError">{error}</div>}
-
-    <div className="dealerOldStockGrid">
-      <div className="dealerOldStockStat"><span>Total Stock</span><b>{stock.length}</b></div>
-      <div className="dealerOldStockStat"><span>Available</span><b>{availableStock.length}</b></div>
-      <div className="dealerOldStockStat"><span>Sold</span><b>{soldStock.length}</b></div>
-    </div>
-
-    <div className="card dealerOldSaleCard" style={{marginBottom:14}}>
-      <div className="dealerOldSaleSectionTitle">
-        <div><strong>Old Rickshaw Stock</strong><span>Factory challan se banne wala stock isi module me dikhega. Sale ke liye pending challan ke saath linked record par action milega.</span></div>
-        <span className="dealerOldSaleCount">{availableStock.length}</span>
-      </div>
-      <div className="tablewrap dealerTable dealerOldStockTableWrap">
-        <table className="table dealerOldStockTable">
-          <thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Colour</th><th>Status</th><th>Action</th></tr></thead>
-          <tbody>
-            {availableStock.map(v=>{
-              const linked=challanForStock(v);
-              return <tr key={v.id}>
-                <td data-label="Date">{formatDate(v.date||v.sale_date)}</td>
-                <td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td>
-                <td data-label="Model">{v.model_name||'—'}</td>
-                <td data-label="Colour">{v.colour||'—'}</td>
-                <td data-label="Status"><span className="dealerOldStockStatus available">AVAILABLE</span></td>
-                <td data-label="Action">{linked?<button type="button" className="btn primary dealerOldSaleEnter" onClick={()=>open(linked)}>Enter Sale Data</button>:<span className="muted">Challan pending</span>}</td>
-              </tr>;
-            })}
-            {!availableStock.length&&<tr><td colSpan="6"><div className="dealerEmpty">No Old Rickshaw available in stock.</div></td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div className="card dealerOldSaleCard">
-      <div className="dealerOldSaleSectionTitle">
-        <div><strong>Pending Old Rickshaw Sale</strong><span>Enter customer and sale details. Saving will mark the linked Old Rickshaw stock as SOLD.</span></div>
-        <span className="dealerOldSaleCount">{pending.length}</span>
-      </div>
-      <div className="tablewrap dealerTable dealerOldSaleTableWrap">
-        <table className="table dealerOldSaleTable">
-          <thead><tr><th>Challan</th><th>Model</th><th>Vehicle No.</th><th>Colour</th><th>Status</th><th>Action</th></tr></thead>
-          <tbody>
-            {pending.map(r=><tr key={r.id}>
-              <td data-label="Challan"><b>{r.challan_no||'—'}</b></td>
-              <td data-label="Model">{r.model_name||'—'}</td>
-              <td data-label="Vehicle No."><b>{r.vehicle_no||'—'}</b></td>
-              <td data-label="Colour">{r.colour||'—'}</td>
-              <td data-label="Status"><span className="dealerOldSaleStatus">{r.status||'PENDING_SALE'}</span></td>
-              <td data-label="Action"><button type="button" className="btn primary dealerOldSaleEnter" onClick={()=>open(r)}>Enter Sale Data</button></td>
-            </tr>)}
-            {!pending.length&&<tr><td colSpan="6"><div className="dealerEmpty">No pending Old Rickshaw challans.</div></td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    {edit&&<div className="modal dealerOldSaleModal" onClick={()=>!saving&&setEdit(null)}>
-      <form className="modalbox dealerOldSaleModalBox" onSubmit={save} onClick={e=>e.stopPropagation()}>
-        <div className="dealerOldSaleModalHead"><div><div className="dealerOldSaleKicker">SALE DETAILS</div><h2>Old Rickshaw Sale</h2><p>{edit.challan_no||'—'} · {edit.vehicle_no||'—'} · {edit.model_name||'—'}</p></div><button type="button" className="dealerOldSaleClose" onClick={()=>setEdit(null)} aria-label="Close">×</button></div>
-        <div className="dealerOldSaleSummary"><div><span>Vehicle</span><b>{edit.vehicle_no||'—'}</b></div><div><span>Model</span><b>{edit.model_name||'—'}</b></div><div><span>Challan</span><b>{edit.challan_no||'—'}</b></div></div>
-        <div className="formgrid dealerOldSaleFormGrid">
-          <div className="field"><label>Sale Amount</label><input className="input" type="number" inputMode="numeric" min="0" value={form.sale_amount} onChange={e=>setForm({...form,sale_amount:e.target.value})} required /></div>
-          <div className="field"><label>File Charge</label><input className="input" type="number" inputMode="numeric" min="0" value={form.file_charge} onChange={e=>setForm({...form,file_charge:e.target.value})} /></div>
-          <div className="field"><label>Loan Amount</label><input className="input" type="number" inputMode="numeric" min="0" value={form.loan_amount} onChange={e=>setForm({...form,loan_amount:e.target.value})} /></div>
-          <div className="field"><label>Down Payment</label><input className="input" type="number" inputMode="numeric" min="0" value={form.down_payment} onChange={e=>setForm({...form,down_payment:e.target.value})} /></div>
-          <div className="field"><label>Customer Name</label><input className="input" value={form.sale_customer} onChange={e=>setForm({...form,sale_customer:e.target.value})} required /></div>
-          <div className="field"><label>Mobile</label><input className="input" inputMode="numeric" maxLength="10" value={form.sale_mobile} onChange={e=>setForm({...form,sale_mobile:e.target.value.replace(/\D/g,'').slice(0,10)})} required /></div>
-        </div>
-        <div className="dealerOldSaleModalFooter"><button type="button" className="btn dealerOldSaleCancel" onClick={()=>setEdit(null)} disabled={saving}>Cancel</button><button type="submit" className="btn primary dealerOldSaleSave" disabled={saving}>{saving?'Saving…':'Save Sale'}</button></div>
-      </form>
-    </div>}
-  </div>;
-}
 function DealerAllExpenses(){
   const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[search,setSearch]=useState('');
   useEffect(()=>{get('/expense-payment-voucher').then(r=>setRows(r.vouchers||[])).catch(e=>setError(e.message||'Could not load expenses')).finally(()=>setLoading(false))},[]);
