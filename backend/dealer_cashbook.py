@@ -665,7 +665,7 @@ def showroom_delivery_options():
     # endpoint resolves the approved loan automatically when a loan amount is
     # present.
     return jsonify({"success":True,"customers":customer_rows,"new_stock":new_stock,"old_stock":old_stock,
-                    "battery_stock":[],"approved_loans":approved_loan_rows})
+                    "battery_stock":[]})
 
 
 @dealer_cashbook_bp.route("/delivery/<int:delivery_id>", methods=["PUT"])
