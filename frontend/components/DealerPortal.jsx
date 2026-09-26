@@ -91,7 +91,10 @@ export function DealerPortal({ dealer, onLogout }) {
   const canPurchase = dealer.purchase_access === true;
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
   const canDelivery = canCashBook;
-  const portalModules = new Set(dealer.portal_modules || []);
+  const portalModuleList = Array.isArray(dealer?.portal_modules)
+    ? dealer.portal_modules.map((x) => String(x).trim()).filter(Boolean)
+    : String(dealer?.portal_modules || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const portalModules = new Set(portalModuleList);
   const canBatteryWithdrawal = portalModules.has('battery-withdrawal');
   const canBatterySwap = portalModules.has('battery-swap');
   const canBatteryAddition = portalModules.has('battery-addition');
@@ -153,8 +156,8 @@ export function DealerPortal({ dealer, onLogout }) {
     ...invoices.map(x => ({type:'Tax Invoice',no:x.bill_no,date:x.date,text:x.chassis_no||x.product_name}))
   ].sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))).slice(0,5), [challans,invoices]);
 
-  const dealerName = dealer.name || dealer.full_name || 'Dealer';
-  const dealerCode = dealer.code || dealer.login_id || dealer.dealer_code || '';
+  const dealerName = String(dealer?.name || dealer?.full_name || 'Dealer');
+  const dealerCode = String(dealer?.code || dealer?.login_id || dealer?.dealer_code || '');
 
   const standaloneForm =
     tab === 'create-sale' ? <DealerCreateSaleForm stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
@@ -242,7 +245,7 @@ export function DealerPortal({ dealer, onLogout }) {
       @media(max-width:900px){.dealerBatteryFormGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
       @media(max-width:620px){.dealerBatteryFormGrid{grid-template-columns:1fr}}
       @media(max-width:700px){.dealerPortalHeaderNav{margin:0 -10px;padding-left:10px;padding-right:10px}.dealerPortalHeaderItem{font-size:9px;padding:6px 8px}.dealerPortalHeaderLabel{font-size:8px}}
-    `}</style>
+    `}.dealerDashboardStats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.dealerDashStat{border:1px solid #e1e7ef;border-radius:11px;background:#fbfdff;padding:12px;text-align:left;cursor:pointer}.dealerDashStat span{display:block;color:#748297;font-size:10px;font-weight:700}.dealerDashStat b{display:block;margin-top:4px;color:#1f334a;font-size:22px}.dealerDashboardActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.dealerTablePager{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px;border-top:1px solid #edf1f5;font-size:11px;color:#66758a}@media(max-width:700px){.dealerDashboardStats{grid-template-columns:1fr 1fr}.dealerTablePager{justify-content:center}}</style>
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
       <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
@@ -343,6 +346,81 @@ export function DealerPortal({ dealer, onLogout }) {
     </main>
     <ChatWidget open={chatOpen} onOpenChange={setChatOpen} />
   </div>);
+}
+
+function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook}) {
+  const cards = [
+    ['New Stock', stockCount ?? 0, 'stock'],
+    ['Delivery Challans', challanCount ?? 0, 'challans'],
+    ['Tax Invoices', invoiceCount ?? 0, 'invoices'],
+    ['Loan Applications', loanCount ?? 0, 'loan-status'],
+  ];
+  return <div className="dealerPage">
+    <div className="dealerPanel" style={{marginBottom:14}}>
+      <div className="dealerPanelHead">
+        <div><h3>Welcome, {dealerName}</h3><p>Dealer dashboard and recent activity.</p></div>
+        <button type="button" className="btn primary" onClick={onNewLoan}>＋ New Loan</button>
+      </div>
+      <div className="dealerDashboardStats">
+        {cards.map(([label,value,key]) => <button type="button" className="dealerDashStat" key={key} onClick={()=>onOpen(key)}>
+          <span>{label}</span><b>{value}</b>
+        </button>)}
+      </div>
+      <div className="dealerDashboardActions">
+        <button type="button" className="btn" onClick={()=>onOpen('stock')}>My Stock</button>
+        <button type="button" className="btn" onClick={()=>onOpen('challans')}>Delivery Challans</button>
+        <button type="button" className="btn" onClick={()=>onOpen('invoices')}>Tax Invoices</button>
+        {canCashBook && <button type="button" className="btn" onClick={()=>onOpen('cashbook')}>Bahikhata</button>}
+      </div>
+    </div>
+    <div className="dealerPanel">
+      <div className="dealerPanelHead"><div><h3>Recent Activity</h3><p>Latest delivery challans and tax invoices.</p></div></div>
+      {latest?.length ? <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Type</th><th>No.</th><th>Date</th><th>Reference</th></tr></thead><tbody>
+        {latest.map((x,i)=><tr key={(x.type||'')+'-'+(x.no||'')+'-'+i}><td>{x.type}</td><td><b>{x.no||'—'}</b></td><td>{formatDate(x.date)}</td><td>{x.text||'—'}</td></tr>)}
+      </tbody></table></div> : <div className="dealerEmpty">No recent activity.</div>}
+    </div>
+  </div>;
+}
+
+function DealerTable({headers,rows,row,pageSize=35}) {
+  const [page,setPage]=useState(1);
+  const totalPages=Math.max(1,Math.ceil((rows?.length||0)/pageSize));
+  const current=Math.min(page,totalPages);
+  useEffect(()=>{if(page>totalPages)setPage(totalPages)},[page,totalPages]);
+  const visible=(rows||[]).slice((current-1)*pageSize,current*pageSize);
+  return <div className="card">
+    <div className="tablewrap dealerTable"><table className="table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead>
+      <tbody>{visible.map((v,i)=><tr key={v?.id ?? v?.chassis_no ?? v?.challan_no ?? v?.bill_no ?? i}>{row(v)}</tr>)}
+      {!visible.length && <tr><td colSpan={headers.length}><div className="dealerEmpty">No records found.</div></td></tr>}</tbody>
+    </table></div>
+    {totalPages>1 && <div className="dealerTablePager"><button type="button" className="btn" disabled={current<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>Previous</button><span>Page {current} / {totalPages}</span><button type="button" className="btn" disabled={current>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next</button></div>}
+  </div>;
+}
+
+function DealerLoanStatusTable({rows,onRefresh}) {
+  return <div className="dealerPage"><div className="dealerPanel">
+    <div className="dealerPanelHead"><div><h3>Loan Status</h3><p>Dealer loan applications and their current status.</p></div><button type="button" className="btn" onClick={onRefresh}>↻ Refresh</button></div>
+    {!rows?.length ? <div className="dealerEmpty">No loan applications found.</div> :
+      <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Application</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody>
+        {rows.map((r,i)=><tr key={r.id ?? r.application_no ?? i}><td><b>{r.application_no||r.loan_account_no||'—'}</b></td><td>{r.customer_name||r.name||'—'}</td><td>{r.loan_amount!=null ? '₹ '+Number(r.loan_amount).toLocaleString('en-IN') : '—'}</td><td>{r.status||'—'}</td></tr>)}
+      </tbody></table></div>}
+  </div></div>;
+}
+
+function DealerBatteryWithdrawal({dealer,onBack}) {
+  return <DealerDealerModulePlaceholder title="Battery Withdrawal" description="Battery withdrawal module is enabled for this dealer." onBack={onBack} />;
+}
+function DealerBatterySwap({dealer,onBack}) {
+  return <DealerDealerModulePlaceholder title="Battery Exchange" description="Battery exchange module is enabled for this dealer." onBack={onBack} />;
+}
+function DealerBatteryAddition({dealer,onBack}) {
+  return <DealerDealerModulePlaceholder title="Battery Fitting" description="Battery fitting module is enabled for this dealer." onBack={onBack} />;
+}
+function DealerOldRickshawSales({dealer,onBack}) {
+  return <DealerDealerModulePlaceholder title="Old Rickshaw Sale" description="Old Rickshaw sale module is enabled for this dealer." onBack={onBack} />;
+}
+function DealerDealerModulePlaceholder({title,description,onBack}) {
+  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{title}</h3><p>{description}</p></div><button type="button" className="btn" onClick={onBack}>Back</button></div><div className="dealerEmpty">Module screen is ready.</div></div></div>;
 }
 
 function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
