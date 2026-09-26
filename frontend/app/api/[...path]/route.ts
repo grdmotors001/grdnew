@@ -831,6 +831,1275 @@ async function mutation(req:Request,params:any,method:string){
     const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
 
+    if(p.startsWith("purchase-bills/") && (method==="PUT" || method==="PATCH" || method==="DELETE")){
+      const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Purchase Bill id required."},{status:400});const client=await pool.connect();
+      try{
+        await client.query("BEGIN");const old=await client.query('SELECT * FROM "purchase_bill" WHERE id=$1 FOR UPDATE',[id]);if(!old.rowCount)throw new Error("Purchase Bill not found.");
+        if(method==="DELETE"){await ensureBatteryRegisterSchema();await client.query("DELETE FROM battery_register_entry WHERE source_type='PURCHASE' AND source_id=$1",[id]);const r=await client.query('DELETE FROM "purchase_bill" WHERE id=$1 RETURNING *',[id]);await client.query("COMMIT");return Response.json({success:true,row:r.rows[0]||null});}
+        const body:any=await json(req),cols=await columns("purchase_bill"),input:any={};for(const [k,v] of Object.entries(body||{})){const col=snake(k);if(cols.has(col)&&col!=="id")input[col]=v;}if(Array.isArray(input.items))input.items=JSON.stringify(input.items);
+        const keys=Object.keys(input);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});const sets=keys.map((k,i)=>'"'+k+'"=
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null,loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{await client.query("BEGIN");await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2",[page,id]);if(rr.rows[0].customer_id)await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),num(a.dealer_id)]);await client.query("COMMIT");return Response.json({success:true});}
+      catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req); if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404}); return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req); if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      if(!r.rows[0].customer_id)return Response.json({error:"No linked customer record."},{status:400});
+      const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
+      return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("admin/nav-tabs/")){
+      const id=idOf(path[path.length-1]);
+      if(path[path.length-1]==="reorder" && method==="PUT"){
+        const b:any=await json(req),order=Array.isArray(b.order)?b.order.map((x:any)=>Number(x)).filter((x:number)=>x>0):[];
+        for(let i=0;i<order.length;i++)await pool.query("UPDATE nav_tab SET position=$1 WHERE id=$2",[i+1,order[i]]);
+        return Response.json({success:true});
+      }
+      if(!id)return Response.json({error:"Tab id required."},{status:400});
+      if(method==="DELETE"){
+        const r=await pool.query("DELETE FROM nav_tab WHERE id=$1 RETURNING *",[id]);
+        return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      }
+      const b:any=await json(req),fields:any={};
+      for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
+      const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      return Response.json(r.rows[0]||null);
+    }
+    if(p.startsWith("delivery-challans/") && method==="DELETE"){
+      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      await ensureDispatchSchema();
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
+          for(const item of items.rows){
+            const qty=Math.max(0,Number(item.qty)||0);
+            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
+              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
+          }
+        }
+        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
+        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0]||null});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++args.length);}
+      else if(fro && cols.has("fro")){args.push(fro);where.push('"fro"=
+        const terms:string[]=[];
+        for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
+          if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
+        }
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
+      const offset=(page-1)*per;
+      const rows=await pool.query('SELECT * FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
+      const dcCols=await columns("delivery_challan");
+      if(!dcCols.size)return Response.json({error:"Delivery Challan table not found."},{status:404});
+      const args:any[]=[]; const where:string[]=[];
+      if(dcCols.has("cancelled"))where.push("COALESCE(dc.cancelled,false)=false");
+      if(a.scope==="dealer" && dcCols.has("dealer_id")){args.push(num(a.dealer_id));where.push("dc.dealer_id=$"+args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["challan_no","chassis_no","product_name"]){if(dcCols.has(col)){args.push("%"+search+"%");terms.push("dc."+col+" ILIKE $"+args.length);}}
+        if(dcCols.has("dealer_id")){args.push("%"+search+"%");terms.push("d.name ILIKE $"+args.length);}
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql,args);
+      const dealerExpr=dcCols.has("dealer_name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : "d.name";
+      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
+    }
+    const table=tableFor(path);
+    if(table)return genericGet(req,path,table);
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api GET]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+
+export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}>}){
+  try{
+    const {path=[]}=await params,p=path.join("/");
+    if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    const b:any=await json(req);
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=num(b.vehicle_id);
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did, b.destination||null,vehicleId||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      if(vehicleId) await pool.query("UPDATE vehicle SET stage='Delivery Challan' WHERE id=$1",[vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p==="tax-invoices"){
+      const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
+      const discount=Math.max(0,num(b.discount));
+      const taxable=Math.max(0,grossTaxable-discount);
+      const rate=num(b.gst_rate);
+      // Seller state is authoritative company data; never trust a client-supplied seller state.
+      const companyState=await pool.query("SELECT state_code FROM company ORDER BY id LIMIT 1");
+      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim();
+      const buyerStateCode=String(b.buyer_state_code||"").trim();
+      const stateType=String(b.state_type||"").trim().toUpperCase();
+      const sameState=stateType==="I" || stateType==="INTRA" || (!stateType && !!sellerStateCode && sellerStateCode===buyerStateCode);
+      const gst=taxable*rate/100;
+      const r=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,buyer_state,buyer_state_code,state_type,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,insurance_amount,registration_amount,amount_received,subsidy_amount,created_at) VALUES (COALESCE(NULLIF($1,''),'INV-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *",
+        [String(b.bill_no||""),b.date||null,num(b.delivery_challan_id)||null,num(b.dealer_id)||null,num(b.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,b.buyer_state||null,b.buyer_state_code||null,b.state_type||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,num(b.sale_amount),taxable,rate,num(b.discount),num(b.insurance_amount),num(b.registration_amount),num(b.amount_received),num(b.subsidy_amount)]);
+      if(num(b.vehicle_id)) await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[b.dealer_name||null,num(b.vehicle_id)]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
+    }
+    if(p==="production-vouchers"){
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const chassis=String(b.chassis_no||"").trim();
+        if(chassis){
+          const dup=await client.query("SELECT id FROM vehicle WHERE chassis_no=$1 LIMIT 1",[chassis]);
+          if(dup.rowCount)throw new Error("Chassis No. already exists.");
+        }
+        const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
+        const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()) RETURNING *",
+          [String(b.vou_no||""),b.date||null,b.product_name||"",qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
+        if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
+          [b.date||null,b.product_name||null,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null]);
+        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[b.product_name||"",String(b.formula_name||"")]);
+        for(const line of formula.rows){
+          const need=num(line.qty)*qty;
+          if(need<=0)continue;
+          const existing=await client.query("SELECT id FROM journal_stock WHERE batch_ref=$1 AND item_name=$2 AND reason='Production Consumption' LIMIT 1",[String(b.vou_no||r.rows[0].vou_no),line.raw_item_name]);
+          if(!existing.rowCount)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[String(b.vou_no||r.rows[0].vou_no),b.date||null,line.raw_item_name,need,b.product_name||null]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],bom_consumed:formula.rowCount},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment")){
+      const id=idOf(path[path.length-2]),pb:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(pb.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p==="battery-swap-vouchers"){
+      const fromType=String(b.from_type||"vehicle").toLowerCase(),toType=String(b.to_type||"vehicle").toLowerCase();
+      const fromTable=fromType.includes("old")?"old_rickshaw":"vehicle",toTable=toType.includes("old")?"old_rickshaw":"vehicle";
+      const fromId=idOf(b.from_id),toId=idOf(b.to_id);
+      if(!fromId||!toId)return Response.json({error:"Source and target are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const fr=await client.query('SELECT * FROM "'+fromTable+'" WHERE id=$1 FOR UPDATE',[fromId]);
+        const tr=await client.query('SELECT * FROM "'+toTable+'" WHERE id=$1 FOR UPDATE',[toId]);
+        if(!fr.rowCount||!tr.rowCount)throw new Error("Source or target vehicle not found.");
+        const source=fr.rows[0],target=tr.rows[0];
+        const fields=["battery_maker","battery_no1","battery_no2","battery_no3","battery_no4"];
+        const sourceHas=fields.slice(1).some(k=>String(source[k]||"").trim());
+        if(!sourceHas)throw new Error("Source has no battery to transfer.");
+        const mode=String(b.mode||"swap").toLowerCase();
+        if(mode==="transfer" && fields.slice(1).some(k=>String(target[k]||"").trim()))throw new Error("Target already has battery numbers.");
+        const nextSource=mode==="transfer"?{battery_maker:null,battery_no1:null,battery_no2:null,battery_no3:null,battery_no4:null}:Object.fromEntries(fields.map(k=>[k,target[k]??null]));
+        const nextTarget=Object.fromEntries(fields.map(k=>[k,source[k]??null]));
+        const update=async(table:string,id:number,row:any)=>{
+          await client.query('UPDATE "'+table+'" SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5 WHERE id=$6',[row.battery_maker,row.battery_no1,row.battery_no2,row.battery_no3,row.battery_no4,id]);
+        };
+        await update(fromTable,fromId,nextSource); await update(toTable,toId,nextTarget);
+        const vr=await client.query("INSERT INTO battery_swap_voucher (voucher_no,date,dealer_id,from_type,from_id,to_type,to_id,mode,remarks,created_at) VALUES (COALESCE(NULLIF($1,''),'BS-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING *",
+          [String(b.voucher_no||""),b.date||null,num(b.dealer_id)||null,fromType,fromId,toType,toId,mode,b.remarks||null]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="dealer/submit-loan"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=idOf(b.vehicle_id);
+      if(a.scope==="dealer" && !did)return Response.json({error:"Dealer not found."},{status:403});
+      if(!vehicleId)return Response.json({error:"Select a chassis to dispatch."},{status:400});
+      const vr=await pool.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Manufacturing' LIMIT 1",[vehicleId]);
+      if(!vr.rowCount)return Response.json({error:"Selected chassis is not available in Manufacturing."},{status:400});
+      const v=vr.rows[0];
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      await pool.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1) WHERE id=$2",[did,vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p.startsWith("dealer/tax-invoices/") && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET dealer_page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.dealer_page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Invoice not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null,loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{await client.query("BEGIN");await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2",[page,id]);if(rr.rows[0].customer_id)await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),num(a.dealer_id)]);await client.query("COMMIT");return Response.json({success:true});}
+      catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req); if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404}); return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req); if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      if(!r.rows[0].customer_id)return Response.json({error:"No linked customer record."},{status:400});
+      const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
+      return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("admin/nav-tabs/")){
+      const id=idOf(path[path.length-1]);
+      if(path[path.length-1]==="reorder" && method==="PUT"){
+        const b:any=await json(req),order=Array.isArray(b.order)?b.order.map((x:any)=>Number(x)).filter((x:number)=>x>0):[];
+        for(let i=0;i<order.length;i++)await pool.query("UPDATE nav_tab SET position=$1 WHERE id=$2",[i+1,order[i]]);
+        return Response.json({success:true});
+      }
+      if(!id)return Response.json({error:"Tab id required."},{status:400});
+      if(method==="DELETE"){
+        const r=await pool.query("DELETE FROM nav_tab WHERE id=$1 RETURNING *",[id]);
+        return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      }
+      const b:any=await json(req),fields:any={};
+      for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
+      const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      return Response.json(r.rows[0]||null);
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
+          if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
+        }
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
+      const offset=(page-1)*per;
+      const rows=await pool.query('SELECT * FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
+      const dcCols=await columns("delivery_challan");
+      if(!dcCols.size)return Response.json({error:"Delivery Challan table not found."},{status:404});
+      const args:any[]=[]; const where:string[]=[];
+      if(dcCols.has("cancelled"))where.push("COALESCE(dc.cancelled,false)=false");
+      if(a.scope==="dealer" && dcCols.has("dealer_id")){args.push(num(a.dealer_id));where.push("dc.dealer_id=$"+args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["challan_no","chassis_no","product_name"]){if(dcCols.has(col)){args.push("%"+search+"%");terms.push("dc."+col+" ILIKE $"+args.length);}}
+        if(dcCols.has("dealer_id")){args.push("%"+search+"%");terms.push("d.name ILIKE $"+args.length);}
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql,args);
+      const dealerExpr=dcCols.has("dealer_name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : "d.name";
+      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
+    }
+    const table=tableFor(path);
+    if(table)return genericGet(req,path,table);
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api GET]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+
+export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}>}){
+  try{
+    const {path=[]}=await params,p=path.join("/");
+    if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    const b:any=await json(req);
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=num(b.vehicle_id);
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did, b.destination||null,vehicleId||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      if(vehicleId) await pool.query("UPDATE vehicle SET stage='Delivery Challan' WHERE id=$1",[vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p==="tax-invoices"){
+      const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
+      const discount=Math.max(0,num(b.discount));
+      const taxable=Math.max(0,grossTaxable-discount);
+      const rate=num(b.gst_rate);
+      // Seller state is authoritative company data; never trust a client-supplied seller state.
+      const companyState=await pool.query("SELECT state_code FROM company ORDER BY id LIMIT 1");
+      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim();
+      const buyerStateCode=String(b.buyer_state_code||"").trim();
+      const stateType=String(b.state_type||"").trim().toUpperCase();
+      const sameState=stateType==="I" || stateType==="INTRA" || (!stateType && !!sellerStateCode && sellerStateCode===buyerStateCode);
+      const gst=taxable*rate/100;
+      const r=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,buyer_state,buyer_state_code,state_type,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,insurance_amount,registration_amount,amount_received,subsidy_amount,created_at) VALUES (COALESCE(NULLIF($1,''),'INV-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *",
+        [String(b.bill_no||""),b.date||null,num(b.delivery_challan_id)||null,num(b.dealer_id)||null,num(b.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,b.buyer_state||null,b.buyer_state_code||null,b.state_type||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,num(b.sale_amount),taxable,rate,num(b.discount),num(b.insurance_amount),num(b.registration_amount),num(b.amount_received),num(b.subsidy_amount)]);
+      if(num(b.vehicle_id)) await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[b.dealer_name||null,num(b.vehicle_id)]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
+    }
+    if(p==="production-vouchers"){
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const chassis=String(b.chassis_no||"").trim();
+        if(chassis){
+          const dup=await client.query("SELECT id FROM vehicle WHERE chassis_no=$1 LIMIT 1",[chassis]);
+          if(dup.rowCount)throw new Error("Chassis No. already exists.");
+        }
+        const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
+        const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()) RETURNING *",
+          [String(b.vou_no||""),b.date||null,b.product_name||"",qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
+        if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
+          [b.date||null,b.product_name||null,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null]);
+        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[b.product_name||"",String(b.formula_name||"")]);
+        for(const line of formula.rows){
+          const need=num(line.qty)*qty;
+          if(need<=0)continue;
+          const existing=await client.query("SELECT id FROM journal_stock WHERE batch_ref=$1 AND item_name=$2 AND reason='Production Consumption' LIMIT 1",[String(b.vou_no||r.rows[0].vou_no),line.raw_item_name]);
+          if(!existing.rowCount)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[String(b.vou_no||r.rows[0].vou_no),b.date||null,line.raw_item_name,need,b.product_name||null]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],bom_consumed:formula.rowCount},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment")){
+      const id=idOf(path[path.length-2]),pb:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(pb.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p==="battery-swap-vouchers"){
+      const fromType=String(b.from_type||"vehicle").toLowerCase(),toType=String(b.to_type||"vehicle").toLowerCase();
+      const fromTable=fromType.includes("old")?"old_rickshaw":"vehicle",toTable=toType.includes("old")?"old_rickshaw":"vehicle";
+      const fromId=idOf(b.from_id),toId=idOf(b.to_id);
+      if(!fromId||!toId)return Response.json({error:"Source and target are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const fr=await client.query('SELECT * FROM "'+fromTable+'" WHERE id=$1 FOR UPDATE',[fromId]);
+        const tr=await client.query('SELECT * FROM "'+toTable+'" WHERE id=$1 FOR UPDATE',[toId]);
+        if(!fr.rowCount||!tr.rowCount)throw new Error("Source or target vehicle not found.");
+        const source=fr.rows[0],target=tr.rows[0];
+        const fields=["battery_maker","battery_no1","battery_no2","battery_no3","battery_no4"];
+        const sourceHas=fields.slice(1).some(k=>String(source[k]||"").trim());
+        if(!sourceHas)throw new Error("Source has no battery to transfer.");
+        const mode=String(b.mode||"swap").toLowerCase();
+        if(mode==="transfer" && fields.slice(1).some(k=>String(target[k]||"").trim()))throw new Error("Target already has battery numbers.");
+        const nextSource=mode==="transfer"?{battery_maker:null,battery_no1:null,battery_no2:null,battery_no3:null,battery_no4:null}:Object.fromEntries(fields.map(k=>[k,target[k]??null]));
+        const nextTarget=Object.fromEntries(fields.map(k=>[k,source[k]??null]));
+        const update=async(table:string,id:number,row:any)=>{
+          await client.query('UPDATE "'+table+'" SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5 WHERE id=$6',[row.battery_maker,row.battery_no1,row.battery_no2,row.battery_no3,row.battery_no4,id]);
+        };
+        await update(fromTable,fromId,nextSource); await update(toTable,toId,nextTarget);
+        const vr=await client.query("INSERT INTO battery_swap_voucher (voucher_no,date,dealer_id,from_type,from_id,to_type,to_id,mode,remarks,created_at) VALUES (COALESCE(NULLIF($1,''),'BS-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING *",
+          [String(b.voucher_no||""),b.date||null,num(b.dealer_id)||null,fromType,fromId,toType,toId,mode,b.remarks||null]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="dealer/submit-loan"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=idOf(b.vehicle_id);
+      if(a.scope==="dealer" && !did)return Response.json({error:"Dealer not found."},{status:403});
+      if(!vehicleId)return Response.json({error:"Select a chassis to dispatch."},{status:400});
+      const vr=await pool.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Manufacturing' LIMIT 1",[vehicleId]);
+      if(!vr.rowCount)return Response.json({error:"Selected chassis is not available in Manufacturing."},{status:400});
+      const v=vr.rows[0];
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      await pool.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1) WHERE id=$2",[did,vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p.startsWith("dealer/tax-invoices/") && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET dealer_page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.dealer_page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Invoice not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null,loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{await client.query("BEGIN");await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2",[page,id]);if(rr.rows[0].customer_id)await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),num(a.dealer_id)]);await client.query("COMMIT");return Response.json({success:true});}
+      catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req); if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404}); return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req); if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      if(!r.rows[0].customer_id)return Response.json({error:"No linked customer record."},{status:400});
+      const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
+      return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("admin/nav-tabs/")){
+      const id=idOf(path[path.length-1]);
+      if(path[path.length-1]==="reorder" && method==="PUT"){
+        const b:any=await json(req),order=Array.isArray(b.order)?b.order.map((x:any)=>Number(x)).filter((x:number)=>x>0):[];
+        for(let i=0;i<order.length;i++)await pool.query("UPDATE nav_tab SET position=$1 WHERE id=$2",[i+1,order[i]]);
+        return Response.json({success:true});
+      }
+      if(!id)return Response.json({error:"Tab id required."},{status:400});
+      if(method==="DELETE"){
+        const r=await pool.query("DELETE FROM nav_tab WHERE id=$1 RETURNING *",[id]);
+        return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      }
+      const b:any=await json(req),fields:any={};
+      for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
+      const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      return Response.json(r.rows[0]||null);
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(i+1));
+        const r=await client.query('UPDATE "purchase_bill" SET '+sets.join(",")+' WHERE id=
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null,loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{await client.query("BEGIN");await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2",[page,id]);if(rr.rows[0].customer_id)await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),num(a.dealer_id)]);await client.query("COMMIT");return Response.json({success:true});}
+      catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req); if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404}); return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req); if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      if(!r.rows[0].customer_id)return Response.json({error:"No linked customer record."},{status:400});
+      const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
+      return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("admin/nav-tabs/")){
+      const id=idOf(path[path.length-1]);
+      if(path[path.length-1]==="reorder" && method==="PUT"){
+        const b:any=await json(req),order=Array.isArray(b.order)?b.order.map((x:any)=>Number(x)).filter((x:number)=>x>0):[];
+        for(let i=0;i<order.length;i++)await pool.query("UPDATE nav_tab SET position=$1 WHERE id=$2",[i+1,order[i]]);
+        return Response.json({success:true});
+      }
+      if(!id)return Response.json({error:"Tab id required."},{status:400});
+      if(method==="DELETE"){
+        const r=await pool.query("DELETE FROM nav_tab WHERE id=$1 RETURNING *",[id]);
+        return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      }
+      const b:any=await json(req),fields:any={};
+      for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
+      const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      return Response.json(r.rows[0]||null);
+    }
+    if(p.startsWith("delivery-challans/") && method==="DELETE"){
+      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      await ensureDispatchSchema();
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
+          for(const item of items.rows){
+            const qty=Math.max(0,Number(item.qty)||0);
+            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
+              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
+          }
+        }
+        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
+        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0]||null});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++args.length);}
+      else if(fro && cols.has("fro")){args.push(fro);where.push('"fro"=
+        const terms:string[]=[];
+        for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
+          if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
+        }
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
+      const offset=(page-1)*per;
+      const rows=await pool.query('SELECT * FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
+      const dcCols=await columns("delivery_challan");
+      if(!dcCols.size)return Response.json({error:"Delivery Challan table not found."},{status:404});
+      const args:any[]=[]; const where:string[]=[];
+      if(dcCols.has("cancelled"))where.push("COALESCE(dc.cancelled,false)=false");
+      if(a.scope==="dealer" && dcCols.has("dealer_id")){args.push(num(a.dealer_id));where.push("dc.dealer_id=$"+args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["challan_no","chassis_no","product_name"]){if(dcCols.has(col)){args.push("%"+search+"%");terms.push("dc."+col+" ILIKE $"+args.length);}}
+        if(dcCols.has("dealer_id")){args.push("%"+search+"%");terms.push("d.name ILIKE $"+args.length);}
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql,args);
+      const dealerExpr=dcCols.has("dealer_name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : "d.name";
+      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
+    }
+    const table=tableFor(path);
+    if(table)return genericGet(req,path,table);
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api GET]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+
+export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}>}){
+  try{
+    const {path=[]}=await params,p=path.join("/");
+    if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    const b:any=await json(req);
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=num(b.vehicle_id);
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did, b.destination||null,vehicleId||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      if(vehicleId) await pool.query("UPDATE vehicle SET stage='Delivery Challan' WHERE id=$1",[vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p==="tax-invoices"){
+      const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
+      const discount=Math.max(0,num(b.discount));
+      const taxable=Math.max(0,grossTaxable-discount);
+      const rate=num(b.gst_rate);
+      // Seller state is authoritative company data; never trust a client-supplied seller state.
+      const companyState=await pool.query("SELECT state_code FROM company ORDER BY id LIMIT 1");
+      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim();
+      const buyerStateCode=String(b.buyer_state_code||"").trim();
+      const stateType=String(b.state_type||"").trim().toUpperCase();
+      const sameState=stateType==="I" || stateType==="INTRA" || (!stateType && !!sellerStateCode && sellerStateCode===buyerStateCode);
+      const gst=taxable*rate/100;
+      const r=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,buyer_state,buyer_state_code,state_type,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,insurance_amount,registration_amount,amount_received,subsidy_amount,created_at) VALUES (COALESCE(NULLIF($1,''),'INV-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *",
+        [String(b.bill_no||""),b.date||null,num(b.delivery_challan_id)||null,num(b.dealer_id)||null,num(b.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,b.buyer_state||null,b.buyer_state_code||null,b.state_type||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,num(b.sale_amount),taxable,rate,num(b.discount),num(b.insurance_amount),num(b.registration_amount),num(b.amount_received),num(b.subsidy_amount)]);
+      if(num(b.vehicle_id)) await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[b.dealer_name||null,num(b.vehicle_id)]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
+    }
+    if(p==="production-vouchers"){
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const chassis=String(b.chassis_no||"").trim();
+        if(chassis){
+          const dup=await client.query("SELECT id FROM vehicle WHERE chassis_no=$1 LIMIT 1",[chassis]);
+          if(dup.rowCount)throw new Error("Chassis No. already exists.");
+        }
+        const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
+        const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()) RETURNING *",
+          [String(b.vou_no||""),b.date||null,b.product_name||"",qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
+        if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
+          [b.date||null,b.product_name||null,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null]);
+        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[b.product_name||"",String(b.formula_name||"")]);
+        for(const line of formula.rows){
+          const need=num(line.qty)*qty;
+          if(need<=0)continue;
+          const existing=await client.query("SELECT id FROM journal_stock WHERE batch_ref=$1 AND item_name=$2 AND reason='Production Consumption' LIMIT 1",[String(b.vou_no||r.rows[0].vou_no),line.raw_item_name]);
+          if(!existing.rowCount)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[String(b.vou_no||r.rows[0].vou_no),b.date||null,line.raw_item_name,need,b.product_name||null]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],bom_consumed:formula.rowCount},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment")){
+      const id=idOf(path[path.length-2]),pb:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(pb.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p==="battery-swap-vouchers"){
+      const fromType=String(b.from_type||"vehicle").toLowerCase(),toType=String(b.to_type||"vehicle").toLowerCase();
+      const fromTable=fromType.includes("old")?"old_rickshaw":"vehicle",toTable=toType.includes("old")?"old_rickshaw":"vehicle";
+      const fromId=idOf(b.from_id),toId=idOf(b.to_id);
+      if(!fromId||!toId)return Response.json({error:"Source and target are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const fr=await client.query('SELECT * FROM "'+fromTable+'" WHERE id=$1 FOR UPDATE',[fromId]);
+        const tr=await client.query('SELECT * FROM "'+toTable+'" WHERE id=$1 FOR UPDATE',[toId]);
+        if(!fr.rowCount||!tr.rowCount)throw new Error("Source or target vehicle not found.");
+        const source=fr.rows[0],target=tr.rows[0];
+        const fields=["battery_maker","battery_no1","battery_no2","battery_no3","battery_no4"];
+        const sourceHas=fields.slice(1).some(k=>String(source[k]||"").trim());
+        if(!sourceHas)throw new Error("Source has no battery to transfer.");
+        const mode=String(b.mode||"swap").toLowerCase();
+        if(mode==="transfer" && fields.slice(1).some(k=>String(target[k]||"").trim()))throw new Error("Target already has battery numbers.");
+        const nextSource=mode==="transfer"?{battery_maker:null,battery_no1:null,battery_no2:null,battery_no3:null,battery_no4:null}:Object.fromEntries(fields.map(k=>[k,target[k]??null]));
+        const nextTarget=Object.fromEntries(fields.map(k=>[k,source[k]??null]));
+        const update=async(table:string,id:number,row:any)=>{
+          await client.query('UPDATE "'+table+'" SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5 WHERE id=$6',[row.battery_maker,row.battery_no1,row.battery_no2,row.battery_no3,row.battery_no4,id]);
+        };
+        await update(fromTable,fromId,nextSource); await update(toTable,toId,nextTarget);
+        const vr=await client.query("INSERT INTO battery_swap_voucher (voucher_no,date,dealer_id,from_type,from_id,to_type,to_id,mode,remarks,created_at) VALUES (COALESCE(NULLIF($1,''),'BS-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING *",
+          [String(b.voucher_no||""),b.date||null,num(b.dealer_id)||null,fromType,fromId,toType,toId,mode,b.remarks||null]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="dealer/submit-loan"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=idOf(b.vehicle_id);
+      if(a.scope==="dealer" && !did)return Response.json({error:"Dealer not found."},{status:403});
+      if(!vehicleId)return Response.json({error:"Select a chassis to dispatch."},{status:400});
+      const vr=await pool.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Manufacturing' LIMIT 1",[vehicleId]);
+      if(!vr.rowCount)return Response.json({error:"Selected chassis is not available in Manufacturing."},{status:400});
+      const v=vr.rows[0];
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      await pool.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1) WHERE id=$2",[did,vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p.startsWith("dealer/tax-invoices/") && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET dealer_page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.dealer_page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Invoice not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null,loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{await client.query("BEGIN");await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2",[page,id]);if(rr.rows[0].customer_id)await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),num(a.dealer_id)]);await client.query("COMMIT");return Response.json({success:true});}
+      catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req); if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404}); return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req); if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      if(!r.rows[0].customer_id)return Response.json({error:"No linked customer record."},{status:400});
+      const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
+      return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("admin/nav-tabs/")){
+      const id=idOf(path[path.length-1]);
+      if(path[path.length-1]==="reorder" && method==="PUT"){
+        const b:any=await json(req),order=Array.isArray(b.order)?b.order.map((x:any)=>Number(x)).filter((x:number)=>x>0):[];
+        for(let i=0;i<order.length;i++)await pool.query("UPDATE nav_tab SET position=$1 WHERE id=$2",[i+1,order[i]]);
+        return Response.json({success:true});
+      }
+      if(!id)return Response.json({error:"Tab id required."},{status:400});
+      if(method==="DELETE"){
+        const r=await pool.query("DELETE FROM nav_tab WHERE id=$1 RETURNING *",[id]);
+        return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      }
+      const b:any=await json(req),fields:any={};
+      for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
+      const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      return Response.json(r.rows[0]||null);
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
+          if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
+        }
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
+      const offset=(page-1)*per;
+      const rows=await pool.query('SELECT * FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
+      const dcCols=await columns("delivery_challan");
+      if(!dcCols.size)return Response.json({error:"Delivery Challan table not found."},{status:404});
+      const args:any[]=[]; const where:string[]=[];
+      if(dcCols.has("cancelled"))where.push("COALESCE(dc.cancelled,false)=false");
+      if(a.scope==="dealer" && dcCols.has("dealer_id")){args.push(num(a.dealer_id));where.push("dc.dealer_id=$"+args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["challan_no","chassis_no","product_name"]){if(dcCols.has(col)){args.push("%"+search+"%");terms.push("dc."+col+" ILIKE $"+args.length);}}
+        if(dcCols.has("dealer_id")){args.push("%"+search+"%");terms.push("d.name ILIKE $"+args.length);}
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql,args);
+      const dealerExpr=dcCols.has("dealer_name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : "d.name";
+      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
+    }
+    const table=tableFor(path);
+    if(table)return genericGet(req,path,table);
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api GET]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+
+export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}>}){
+  try{
+    const {path=[]}=await params,p=path.join("/");
+    if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    const b:any=await json(req);
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=num(b.vehicle_id);
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did, b.destination||null,vehicleId||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      if(vehicleId) await pool.query("UPDATE vehicle SET stage='Delivery Challan' WHERE id=$1",[vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p==="tax-invoices"){
+      const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
+      const discount=Math.max(0,num(b.discount));
+      const taxable=Math.max(0,grossTaxable-discount);
+      const rate=num(b.gst_rate);
+      // Seller state is authoritative company data; never trust a client-supplied seller state.
+      const companyState=await pool.query("SELECT state_code FROM company ORDER BY id LIMIT 1");
+      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim();
+      const buyerStateCode=String(b.buyer_state_code||"").trim();
+      const stateType=String(b.state_type||"").trim().toUpperCase();
+      const sameState=stateType==="I" || stateType==="INTRA" || (!stateType && !!sellerStateCode && sellerStateCode===buyerStateCode);
+      const gst=taxable*rate/100;
+      const r=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,buyer_state,buyer_state_code,state_type,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,insurance_amount,registration_amount,amount_received,subsidy_amount,created_at) VALUES (COALESCE(NULLIF($1,''),'INV-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *",
+        [String(b.bill_no||""),b.date||null,num(b.delivery_challan_id)||null,num(b.dealer_id)||null,num(b.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,b.buyer_state||null,b.buyer_state_code||null,b.state_type||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,num(b.sale_amount),taxable,rate,num(b.discount),num(b.insurance_amount),num(b.registration_amount),num(b.amount_received),num(b.subsidy_amount)]);
+      if(num(b.vehicle_id)) await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[b.dealer_name||null,num(b.vehicle_id)]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
+    }
+    if(p==="production-vouchers"){
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const chassis=String(b.chassis_no||"").trim();
+        if(chassis){
+          const dup=await client.query("SELECT id FROM vehicle WHERE chassis_no=$1 LIMIT 1",[chassis]);
+          if(dup.rowCount)throw new Error("Chassis No. already exists.");
+        }
+        const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
+        const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()) RETURNING *",
+          [String(b.vou_no||""),b.date||null,b.product_name||"",qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
+        if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
+          [b.date||null,b.product_name||null,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null]);
+        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[b.product_name||"",String(b.formula_name||"")]);
+        for(const line of formula.rows){
+          const need=num(line.qty)*qty;
+          if(need<=0)continue;
+          const existing=await client.query("SELECT id FROM journal_stock WHERE batch_ref=$1 AND item_name=$2 AND reason='Production Consumption' LIMIT 1",[String(b.vou_no||r.rows[0].vou_no),line.raw_item_name]);
+          if(!existing.rowCount)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[String(b.vou_no||r.rows[0].vou_no),b.date||null,line.raw_item_name,need,b.product_name||null]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],bom_consumed:formula.rowCount},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment")){
+      const id=idOf(path[path.length-2]),pb:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(pb.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p==="battery-swap-vouchers"){
+      const fromType=String(b.from_type||"vehicle").toLowerCase(),toType=String(b.to_type||"vehicle").toLowerCase();
+      const fromTable=fromType.includes("old")?"old_rickshaw":"vehicle",toTable=toType.includes("old")?"old_rickshaw":"vehicle";
+      const fromId=idOf(b.from_id),toId=idOf(b.to_id);
+      if(!fromId||!toId)return Response.json({error:"Source and target are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const fr=await client.query('SELECT * FROM "'+fromTable+'" WHERE id=$1 FOR UPDATE',[fromId]);
+        const tr=await client.query('SELECT * FROM "'+toTable+'" WHERE id=$1 FOR UPDATE',[toId]);
+        if(!fr.rowCount||!tr.rowCount)throw new Error("Source or target vehicle not found.");
+        const source=fr.rows[0],target=tr.rows[0];
+        const fields=["battery_maker","battery_no1","battery_no2","battery_no3","battery_no4"];
+        const sourceHas=fields.slice(1).some(k=>String(source[k]||"").trim());
+        if(!sourceHas)throw new Error("Source has no battery to transfer.");
+        const mode=String(b.mode||"swap").toLowerCase();
+        if(mode==="transfer" && fields.slice(1).some(k=>String(target[k]||"").trim()))throw new Error("Target already has battery numbers.");
+        const nextSource=mode==="transfer"?{battery_maker:null,battery_no1:null,battery_no2:null,battery_no3:null,battery_no4:null}:Object.fromEntries(fields.map(k=>[k,target[k]??null]));
+        const nextTarget=Object.fromEntries(fields.map(k=>[k,source[k]??null]));
+        const update=async(table:string,id:number,row:any)=>{
+          await client.query('UPDATE "'+table+'" SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5 WHERE id=$6',[row.battery_maker,row.battery_no1,row.battery_no2,row.battery_no3,row.battery_no4,id]);
+        };
+        await update(fromTable,fromId,nextSource); await update(toTable,toId,nextTarget);
+        const vr=await client.query("INSERT INTO battery_swap_voucher (voucher_no,date,dealer_id,from_type,from_id,to_type,to_id,mode,remarks,created_at) VALUES (COALESCE(NULLIF($1,''),'BS-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING *",
+          [String(b.voucher_no||""),b.date||null,num(b.dealer_id)||null,fromType,fromId,toType,toId,mode,b.remarks||null]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="dealer/submit-loan"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=idOf(b.vehicle_id);
+      if(a.scope==="dealer" && !did)return Response.json({error:"Dealer not found."},{status:403});
+      if(!vehicleId)return Response.json({error:"Select a chassis to dispatch."},{status:400});
+      const vr=await pool.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Manufacturing' LIMIT 1",[vehicleId]);
+      if(!vr.rowCount)return Response.json({error:"Selected chassis is not available in Manufacturing."},{status:400});
+      const v=vr.rows[0];
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      await pool.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1) WHERE id=$2",[did,vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p.startsWith("dealer/tax-invoices/") && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET dealer_page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.dealer_page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Invoice not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null,loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{await client.query("BEGIN");await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2",[page,id]);if(rr.rows[0].customer_id)await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),num(a.dealer_id)]);await client.query("COMMIT");return Response.json({success:true});}
+      catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req); if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404}); return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req); if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      if(!r.rows[0].customer_id)return Response.json({error:"No linked customer record."},{status:400});
+      const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
+      return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("admin/nav-tabs/")){
+      const id=idOf(path[path.length-1]);
+      if(path[path.length-1]==="reorder" && method==="PUT"){
+        const b:any=await json(req),order=Array.isArray(b.order)?b.order.map((x:any)=>Number(x)).filter((x:number)=>x>0):[];
+        for(let i=0;i<order.length;i++)await pool.query("UPDATE nav_tab SET position=$1 WHERE id=$2",[i+1,order[i]]);
+        return Response.json({success:true});
+      }
+      if(!id)return Response.json({error:"Tab id required."},{status:400});
+      if(method==="DELETE"){
+        const r=await pool.query("DELETE FROM nav_tab WHERE id=$1 RETURNING *",[id]);
+        return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      }
+      const b:any=await json(req),fields:any={};
+      for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
+      const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      return Response.json(r.rows[0]||null);
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);const row={...r.rows[0],items:parseItems(r.rows[0].items)};await syncBatteryPurchaseBill(client,row);
+        await client.query("COMMIT");return Response.json({success:true,row,data:row});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
       const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
       const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
