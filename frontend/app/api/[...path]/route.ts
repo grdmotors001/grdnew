@@ -385,15 +385,50 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("INSERT INTO nav_tab (key,label,icon,position,hidden,items) VALUES ($1,$2,$3,$4,false,$5) RETURNING *",[key,label,b.icon||null,Number(max.rows[0]?.n||0)+1,Array.isArray(b.items)?b.items:[]]);
       return Response.json(r.rows[0],{status:201});
     }
+    if(p==="products"){
+      const u=new URL(req.url);
+      const page=Math.max(1,num(u.searchParams.get("page"))||1);
+      const per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50));
+      const search=String(u.searchParams.get("search")||"").trim();
+      const fro=String(u.searchParams.get("fro")||"").trim().toUpperCase();
+      const cols=await columns("product");
+      if(!cols.size)return Response.json({error:"Product table not found."},{status:404});
+      const args:any[]=[]; const where:string[]=[];
+      if(fro && cols.has("fro")){args.push(fro);where.push('"fro"=$'+args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
+          if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
+        }
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
+      const offset=(page-1)*per;
+      const rows=await pool.query('SELECT * FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
+    }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
-      const args:any[]=[]; let where="WHERE COALESCE(dc.cancelled,false)=false";
-      if(a.scope==="dealer") { args.push(num(a.dealer_id)); where+=" AND dc.dealer_id=$"+args.length; }
-      if(search){args.push("%"+search+"%");where+=" AND (dc.challan_no ILIKE $"+args.length+" OR dc.chassis_no ILIKE $"+args.length+" OR dc.dealer_name ILIKE $"+args.length+" OR dc.product_name ILIKE $"+args.length+")";}
-      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc "+where,args);
-      const rows=await pool.query("SELECT dc.*,COALESCE(NULLIF(dc.dealer_name,''),d.name) AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id "+where+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const dcCols=await columns("delivery_challan");
+      if(!dcCols.size)return Response.json({error:"Delivery Challan table not found."},{status:404});
+      const args:any[]=[]; const where:string[]=[];
+      if(dcCols.has("cancelled"))where.push("COALESCE(dc.cancelled,false)=false");
+      if(a.scope==="dealer" && dcCols.has("dealer_id")){args.push(num(a.dealer_id));where.push("dc.dealer_id=$"+args.length);}
+      if(search){
+        const terms:string[]=[];
+        for(const col of ["challan_no","chassis_no","product_name"]){if(dcCols.has(col)){args.push("%"+search+"%");terms.push("dc."+col+" ILIKE $"+args.length);}}
+        if(dcCols.has("dealer_id")){args.push("%"+search+"%");terms.push("d.name ILIKE $"+args.length);}
+        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      }
+      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql,args);
+      const dealerExpr=dcCols.has("dealer_name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : "d.name";
+      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
       const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
-      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:Number(total.rows[0]?.n||0),total_pages:Math.max(1,Math.ceil(Number(total.rows[0]?.n||0)/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
+      const totalCount=Number(total.rows[0]?.n||0);
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
     }
     const table=tableFor(path);
     if(table)return genericGet(req,path,table);
