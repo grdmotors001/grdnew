@@ -63,9 +63,8 @@ const nav = [
 // likewise folded into a single "Battery Adjustment" side-nav entry (see
 // BATTERY_ADJUSTMENT_KEYS + the sidebarEntries logic below); Battery Stock
 // is also reachable from that same group's top sub-menu.
-// Create Receipt used to live inside the Bahikhata sub-menu; it now lives
-// only as a Dashboard quick action, so it's hidden from the side/mobile menus.
-const SIDEBAR_HIDDEN_KEYS = new Set(['old-stock', 'battery-stock', 'seized-vehicles', 'battery-withdrawal', 'battery-swap', 'battery-addition', 'receipt-create']);
+// Create Receipt is available directly from the side/mobile menus for showroom dealers.
+const SIDEBAR_HIDDEN_KEYS = new Set(['old-stock', 'battery-stock', 'seized-vehicles', 'battery-withdrawal', 'battery-swap', 'battery-addition']);
 const BATTERY_ADJUSTMENT_KEYS = ['battery-withdrawal', 'battery-swap', 'battery-addition', 'battery-stock'];
 
 export function DealerPortal({ dealer, onLogout }) {
@@ -105,7 +104,7 @@ export function DealerPortal({ dealer, onLogout }) {
   // and lands on whichever of them is actually enabled for that dealer.
   const canBatteryAdjustment = canBatteryWithdrawal || canBatterySwap || canBatteryAddition;
   const defaultBatteryTab = canBatteryWithdrawal ? 'battery-withdrawal' : canBatterySwap ? 'battery-swap' : 'battery-addition';
-  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
+  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
   if (canBatteryAdjustment) {
     const batteryEntry = ['battery-adjustment', '🔋', 'Battery Adjustment'];
     const insertAt = sidebarEntries.findIndex(([key]) => key === 'old-rickshaw-sales');
