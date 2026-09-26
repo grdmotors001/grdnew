@@ -1,0 +1,58 @@
+name: Database read-only verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - name: Verify database read-only
+        run: |
+          node <<'NODE'
+          const {Client} = require("pg");
+          const required = [
+            "dealer","user","customer","product","vehicle","delivery_challan",
+            "tax_invoice","purchase_bill","production_voucher","production_formula",
+            "day_book","journal_stock","simple_master","loan_workflow"
+          ];
+          if (!process.env.DATABASE_URL) {
+            console.error("DATABASE_URL GitHub Actions secret is not configured.");
+            process.exit(2);
+          }
+          (async()=>{
+            const c=new Client({connectionString:process.env.DATABASE_URL});
+            await c.connect();
+            const q=async(sql,p=[])=> (await c.query(sql,p)).rows;
+            await q("SELECT 1");
+            const rows=await q(
+              "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name = ANY($1::text[]) ORDER BY table_name",
+              [required]
+            );
+            const found=new Set(rows.map(x=>x.table_name));
+            const missing=required.filter(x=>!found.has(x));
+            console.log("DB connection: OK");
+            console.log("Required tables found:", rows.map(x=>x.table_name).join(", ") || "none");
+            console.log("Missing required tables:", missing.join(", ") || "none");
+            const counts={};
+            for (const t of rows) {
+              const r=await q(`SELECT count(*)::bigint AS count FROM "${t.table_name}"`);
+              counts[t.table_name]=String(r[0].count);
+            }
+            console.log("Row counts (read-only):", JSON.stringify(counts));
+            await c.end();
+            if(missing.length) process.exit(3);
+          })().catch(async e=>{console.error("DB verification failed:",e.message);process.exit(1)});
+          NODE
