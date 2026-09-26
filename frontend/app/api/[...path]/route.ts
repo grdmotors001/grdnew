@@ -227,9 +227,17 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
     }
     if(p==="tax-invoices"){
-      const taxable=num(b.gst_sale_amount||b.sale_amount);
+      const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
+      const discount=Math.max(0,num(b.discount));
+      const taxable=Math.max(0,grossTaxable-discount);
       const rate=num(b.gst_rate);
-      const gst=taxable*rate/100, sameState=(String(b.state_type||"").toLowerCase()==="intra"||String(b.buyer_state_code||"")===String(b.seller_state_code||""));
+      // Seller state is authoritative company data; never trust a client-supplied seller state.
+      const companyState=await pool.query("SELECT state_code FROM company ORDER BY id LIMIT 1");
+      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim();
+      const buyerStateCode=String(b.buyer_state_code||"").trim();
+      const stateType=String(b.state_type||"").trim().toUpperCase();
+      const sameState=stateType==="I" || stateType==="INTRA" || (!stateType && !!sellerStateCode && sellerStateCode===buyerStateCode);
+      const gst=taxable*rate/100;
       const r=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,buyer_state,buyer_state_code,state_type,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,insurance_amount,registration_amount,amount_received,subsidy_amount,created_at) VALUES (COALESCE(NULLIF($1,''),'INV-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *",
         [String(b.bill_no||""),b.date||null,num(b.delivery_challan_id)||null,num(b.dealer_id)||null,num(b.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,b.buyer_state||null,b.buyer_state_code||null,b.state_type||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,num(b.sale_amount),taxable,rate,num(b.discount),num(b.insurance_amount),num(b.registration_amount),num(b.amount_received),num(b.subsidy_amount)]);
       if(num(b.vehicle_id)) await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[b.dealer_name||null,num(b.vehicle_id)]);
