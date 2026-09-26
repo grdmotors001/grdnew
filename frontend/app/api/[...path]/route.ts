@@ -530,11 +530,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       await ensureDealerCashSchema();
       const did=num(a.dealer_id),u=new URL(req.url);
       const from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim();
-      const range=(alias:string)=>{const q:string[]=[];if(from)q.push(alias+".date >= $2::date");if(to)q.push(alias+".date <= $3::date");return q.length?" AND "+q.join(" AND "):""};
-      const vals=(from||null),(to||null);
-      const receipts=await pool.query("SELECT * FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash'"+range("dealer_cash_receipt")+" ORDER BY date,id",[did,vals,to||null]);
-      const expenses=await pool.query("SELECT * FROM dealer_cash_expense WHERE dealer_id=$1"+range("dealer_cash_expense")+" ORDER BY date,id",[did,vals,to||null]);
-      const handovers=await pool.query("SELECT * FROM dealer_cash_handover WHERE dealer_id=$1"+range("dealer_cash_handover")+" ORDER BY date,id",[did,vals,to||null]);
+      const runRange=async(table:string,extra:string)=>{const args:any[]=[did],q:string[]=[];if(from){args.push(from);q.push(table+".date >= $"+args.length+"::date");}if(to){args.push(to);q.push(table+".date <= $"+args.length+"::date");}const sql="SELECT * FROM "+table+" WHERE dealer_id=$1"+(extra?" AND "+extra:"")+(q.length?" AND "+q.join(" AND "):"")+" ORDER BY date,id";return pool.query(sql,args);};
+      const receipts=await runRange("dealer_cash_receipt","lower(COALESCE(payment_mode,'cash'))='cash'");
+      const expenses=await runRange("dealer_cash_expense","");
+      const handovers=await runRange("dealer_cash_handover","");
       const priorDate=from||"9999-12-31";
       const priorReceipts=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash' AND date < $2::date",[did,priorDate]);
       const priorExpenses=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_expense WHERE dealer_id=$1 AND date < $2::date",[did,priorDate]);
@@ -779,7 +778,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const u=new URL(req.url),doc=String(u.searchParams.get("doc")||"invoice");
       const r=await pool.query("SELECT ti.*,d.name AS joined_dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,d.address1 AS dealer_address1,d.address2 AS dealer_address2,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,v.umrn_code,v.colour_code FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
-      const x=r.rows[0],invoice={...x,dealer_name:x.dealer_name||x.joined_dealer_name||"",dealer_code:x.dealer_code||"",dealer_mobile:x.dealer_mobile||"",dealer_gst_no:x.dealer_gst_no||"",dealer_address1:x.dealer_address1||"",dealer_address2:x.dealer_address2||"",product_name:x.product_name||x.vehicle_model_name||"",chassis_no:x.chassis_no||x.vehicle_chassis_no||"",motor_no:x.motor_no||x.vehicle_motor_no||"",colour:x.colour||x.vehicle_colour||"",battery_maker:x.battery_maker||"",battery_no1:x.battery_no1||"",battery_no2:x.battery_no2||"",battery_no3:x.battery_no3||battery_no3||"",battery_no4:x.battery_no4||"",umrn_code:x.umrn_code||"",colour_code:x.colour_code||""};
+      const x=r.rows[0],invoice={...x,dealer_name:x.dealer_name||x.joined_dealer_name||"",dealer_code:x.dealer_code||"",dealer_mobile:x.dealer_mobile||"",dealer_gst_no:x.dealer_gst_no||"",dealer_address1:x.dealer_address1||"",dealer_address2:x.dealer_address2||"",product_name:x.product_name||x.vehicle_model_name||"",chassis_no:x.chassis_no||x.vehicle_chassis_no||"",motor_no:x.motor_no||x.vehicle_motor_no||"",colour:x.colour||x.vehicle_colour||"",battery_maker:x.battery_maker||"",battery_no1:x.battery_no1||"",battery_no2:x.battery_no2||"",battery_no3:x.battery_no3||"",battery_no4:x.battery_no4||"",umrn_code:x.umrn_code||"",colour_code:x.colour_code||""};
       const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
       const rtoName=String(x.rto||x.rto_name||"").trim();let rto_address="";
       if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);const rr=rm.rows[0]||{};rto_address=String(rr.address||rr.address1||rr.address2||rr.details||"");}
