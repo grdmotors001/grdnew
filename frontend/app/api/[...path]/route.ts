@@ -377,6 +377,14 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query('UPDATE "user" SET allowed_modules=$1 WHERE id=$2 RETURNING id,username,allowed_modules',[value,uid]);
       return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
+    if(p==="admin/nav-tabs"){
+      const label=String(b.label||"").trim(); if(!label)return Response.json({error:"Tab name is required."},{status:400});
+      const existing=await pool.query("SELECT key FROM nav_tab"); const keys=new Set(existing.rows.map((x:any)=>String(x.key)));
+      let key=String(b.key||"").trim(); if(!key||keys.has(key)){key=label.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"custom-tab"; let i=2; while(keys.has(key))key=key+"-"+i++;}
+      const max=await pool.query("SELECT COALESCE(MAX(position),0)::int AS n FROM nav_tab");
+      const r=await pool.query("INSERT INTO nav_tab (key,label,icon,position,hidden,items) VALUES ($1,$2,$3,$4,false,$5) RETURNING *",[key,label,b.icon||null,Number(max.rows[0]?.n||0)+1,Array.isArray(b.items)?b.items:[]]);
+      return Response.json(r.rows[0],{status:201});
+    }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
       const args:any[]=[]; let where="WHERE COALESCE(dc.cancelled,false)=false";
