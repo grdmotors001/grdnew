@@ -16,17 +16,43 @@ const categories = [
 
 export function DealerAllReceiptsPage() {
   const [rows, setRows] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const load = () => get('/dealer/cash-book/all-receipts').then((d) => setRows(d.receipts || [])).catch((e) => setError(e.message || 'Could not load receipts'));
   useEffect(() => { load(); }, []);
+  const save = async () => {
+    if (!editing) return;
+    setSaving(true); setError('');
+    try {
+      await put('/dealer/cash-book/receipts/' + editing.id, {
+        dealer_register_page_no: editing.dealer_register_page_no,
+        loan_amount: Number(editing.loan_amount || 0),
+      });
+      setEditing(null); await load();
+    } catch (e) { setError(e.message || 'Could not update receipt'); }
+    finally { setSaving(false); }
+  };
   return (
     <div className="card">
-      <div className="pageHeader"><div><h2>All Receipts</h2><p className="muted">Every customer receipt recorded at this showroom.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
+      <div className="pageHeader"><div><h2>All Receipts</h2><p className="muted">Receipt correction: only Page No. and Loan Amount can be edited.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
       {error && <div className="error">{error}</div>}
       <div className="tablewrap dealerTable"><table className="table">
-        <thead><tr><th>Date</th><th>Receipt No.</th><th>Name</th><th>Amount</th><th>Page No.</th></tr></thead>
-        <tbody>{rows.map((r) => <tr key={r.id}><td>{r.date}</td><td><b>{r.receipt_no}</b></td><td>{r.customer_name}<div className="muted">{r.customer_phone || ''}</div></td><td>{money(r.amount)}</td><td>{r.dealer_register_page_no || '—'}</td></tr>)}{!rows.length && <tr><td colSpan="5" className="muted">No receipts found.</td></tr>}</tbody>
+        <thead><tr><th>Date</th><th>Receipt No.</th><th>Name</th><th>Amount</th><th>Loan Amount</th><th>Page No.</th><th></th></tr></thead>
+        <tbody>{rows.map((r) => <tr key={r.id}>
+          <td>{r.date}</td><td><b>{r.receipt_no}</b></td><td>{r.customer_name}<div className="muted">{r.customer_phone || ''}</div></td>
+          <td>{money(r.amount)}</td><td>{money(r.loan_amount)}</td><td>{r.dealer_register_page_no || '—'}</td>
+          <td><button className="btn" onClick={() => setEditing({...r})}>Edit</button></td>
+        </tr>)}{!rows.length && <tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody>
       </table></div>
+      {editing && <div className="card" style={{marginTop:12}}>
+        <h3>Edit Receipt — {editing.receipt_no}</h3>
+        <div className="grid">
+          {field('Page No.', 'dealer_register_page_no', editing, setEditing)}
+          {field('Loan Amount', 'loan_amount', editing, setEditing, 'number')}
+        </div>
+        <div className="actions"><button className="btn primary" disabled={saving} onClick={save}>{saving?'Saving…':'Save Changes'}</button><button className="btn" onClick={()=>setEditing(null)}>Cancel</button></div>
+      </div>}
     </div>
   );
 }
@@ -209,10 +235,14 @@ export function DealerAllCustomersPage() {
           </>
         ) : (
           <>
-            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}{field('Name', 'name', editing, setEditing)}{field('Phone No.', 'phone', editing, setEditing)}
-            {field('Sale Amount', 'sale_amount', editing, setEditing, 'number')}{field('Loan Amount', 'loan_amount', editing, setEditing, 'number')}</div>
+            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}</div>
             <div className="actions">
-              <button className="btn primary" disabled={saving} onClick={async () => { setSaving(true); try { await put('/dealer/cash-book/customers/' + editing.id, editing); setEditing(null); await load(search); } catch (e) { setError(e.message || 'Could not update customer'); } finally { setSaving(false); } }}>Save Customer</button>
+              <button className="btn primary" disabled={saving} onClick={async () => {
+                setSaving(true); setError('');
+                try { await put('/dealer/cash-book/customers/' + editing.id, { page_no: editing.page_no }); setEditing(null); await load(search); }
+                catch (e) { setError(e.message || 'Could not update page number'); }
+                finally { setSaving(false); }
+              }}>{saving ? 'Saving…' : 'Save Page No.'}</button>
               <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
             </div>
           </>
