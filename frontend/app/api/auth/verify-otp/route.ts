@@ -13,6 +13,24 @@ export async function POST(req:Request){
   const allowedModules=Array.isArray(u.allowed_modules)
     ? u.allowed_modules.map((x:any)=>String(x))
     : String(u.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-  return Response.json({success:true,token:jwt.sign({sub:u.id,username:u.username,scope:"staff",is_super_user:Boolean(u.is_super_user),department:u.department||"",allowed_modules:allowedModules},secret,{expiresIn:"12h"}),user:safe});
+
+  // Salesman login is dealer-scoped. Dealer Master stores the assigned
+  // salesman name; the salesman can therefore see only that dealer portal.
+  if(String(u.department||"").trim().toLowerCase()==="salesman"){
+    const dr=await pool.query("SELECT * FROM dealer WHERE lower(trim(COALESCE(salesman,'')))=lower(trim($1)) AND COALESCE(blocked,false)=false ORDER BY id LIMIT 1",[u.username]);
+    const d=dr.rows[0];
+    if(d){
+      const portalModules=String(d.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+      const dealer={
+        id:d.id,code:d.code,name:d.name,login_id:d.login_id,
+        dealer_category:d.dealer_category||"dealer",purchase_access:Boolean(d.purchase_access),
+        portal_modules:portalModules,salesman:u.username,is_salesman:true
+      };
+      const token=jwt.sign({sub:u.id,username:u.username,dealer_id:d.id,scope:"dealer",portal_modules:portalModules,role:"salesman",salesman:u.username},secret,{expiresIn:"12h"});
+      return Response.json({success:true,token,user:dealer,dealer,portal:"dealer",role:"salesman"});
+    }
+  }
+
+  return Response.json({success:true,token:jwt.sign({sub:u.id,username:u.username,scope:"staff",is_super_user:Boolean(u.is_super_user),department:u.department||"",allowed_modules:allowedModules},secret,{expiresIn:"12h"}),user:safe,portal:"staff",role:u.department||"staff"});
  }catch(e:any){return Response.json({error:e.message||"OTP verification failed"},{status:401})}
 }
