@@ -108,11 +108,33 @@ export function Dashboard({ setActive }) {
       <div className="muted" style={{fontSize:11,marginTop:10}}>Top bar = Delivery Challan, bottom bar = Tax Invoice billed.</div>
     </div>
 
+    <div className="grid" style={{marginTop:14}}>
+      <Card label="Today Challan" value={Number(d.today_challans?.length||0).toLocaleString('en-IN')} sub="Today's delivery challans" icon={Truck} onClick={()=>setActive('delivery-challan')} />
+      <Card label="Today Bill" value={Number(d.today_bills?.length||0).toLocaleString('en-IN')} sub="Today's tax invoices" icon={Receipt} onClick={()=>setActive('tax-invoice')} />
+      <Card label="Today Production" value={Number((d.today_production||[]).reduce((s,r)=>s+Number(r.quantity||0),0)).toLocaleString('en-IN')} sub="Vehicles produced today" icon={Factory} onClick={()=>setActive('production-voucher')} />
+    </div>
+
     <div className="card" style={{marginTop:14}}>
-      <div className="pageHeader"><div><h3 style={{margin:0}}>Recent Vehicle Activity</h3><p className="muted">Latest 100 vehicle records from the existing database.</p></div><button className="btn" onClick={()=>setActive('delivery-challan-register')}>Open Registers</button></div>
-      {!recent.length?<EmptyState text="No vehicle records found."/>:<div className="tablewrap"><table className="table">
-        <thead><tr><th>Date</th><th>Chassis No.</th><th>Model</th><th>Motor No.</th><th>Dealer</th><th>Stage</th></tr></thead>
-        <tbody>{recent.slice(0,35).map(v=><tr key={String(v.id)+'-'+v._stage}><td>{formatDate(v.date)}</td><td><b>{v.chassis_no||'—'}</b></td><td>{v.model_name||'—'}</td><td>{v.motor_no||'—'}</td><td>{v.dealer_name||'—'}</td><td><Pill text={v._stage} kind={v._stage==='Manufacturing'?'m':v._stage==='Delivery Challan'?'d':'t'}/></td></tr>)}</tbody>
+      <div className="pageHeader"><div><h3 style={{margin:0}}>Today Production</h3><p className="muted">Model name and quantity.</p></div></div>
+      {!d.today_production?.length?<EmptyState text="No production today."/>:<div className="tablewrap"><table className="table">
+        <thead><tr><th>Date</th><th>Model Name</th><th>Qty</th></tr></thead>
+        <tbody>{d.today_production.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.model_name||'—'}</b></td><td>{Number(r.quantity||0).toLocaleString('en-IN')}</td></tr>)}</tbody>
+      </table></div>}
+    </div>
+
+    <div className="card" style={{marginTop:14}}>
+      <div className="pageHeader"><div><h3 style={{margin:0}}>Today Delivery Challan</h3><p className="muted">Model, dealer, chassis and battery.</p></div></div>
+      {!d.today_challans?.length?<EmptyState text="No challan today."/>:<div className="tablewrap"><table className="table">
+        <thead><tr><th>Model</th><th>Dealer</th><th>Chassis</th><th>Battery Name</th></tr></thead>
+        <tbody>{d.today_challans.map(r=><tr key={r.id}><td><b>{r.model_name||'—'}</b></td><td>{r.dealer_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.battery_name||'—'}</td></tr>)}</tbody>
+      </table></div>}
+    </div>
+
+    <div className="card" style={{marginTop:14}}>
+      <div className="pageHeader"><div><h3 style={{margin:0}}>Today Bills</h3><p className="muted">Dealer, financer, chassis and battery.</p></div></div>
+      {!d.today_bills?.length?<EmptyState text="No bill today."/>:<div className="tablewrap"><table className="table">
+        <thead><tr><th>Bill No.</th><th>Dealer</th><th>Financer</th><th>Chassis</th><th>Battery Name</th></tr></thead>
+        <tbody>{d.today_bills.map(r=><tr key={r.id}><td><b>{r.bill_no||'—'}</b></td><td>{r.dealer_name||'—'}</td><td>{r.financer_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.battery_name||'—'}</td></tr>)}</tbody>
       </table></div>}
     </div>
 
