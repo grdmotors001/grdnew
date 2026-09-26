@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
-const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
+const pool=new Pool({connectionString:process.env.DATABASE_URL,max:1,ssl:{rejectUnauthorized:false}});
 const secret=process.env.JWT_SECRET||"grd-node-change-this-secret";
 export async function POST(req:Request){
  try{
