@@ -85,6 +85,56 @@ async function ensureFactoryCheckSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_item (id bigserial PRIMARY KEY, report_id integer NOT NULL REFERENCES factory_check_report(id) ON DELETE CASCADE, raw_item_name text NOT NULL, expected_qty numeric NOT NULL DEFAULT 0, consumed_qty numeric NOT NULL DEFAULT 0, unit text, additional boolean NOT NULL DEFAULT false, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE INDEX IF NOT EXISTS factory_check_item_report_idx ON factory_check_item(report_id)");
 }
+async function ensureOldRickshawInventorySchema(){
+  await pool.query(`CREATE TABLE IF NOT EXISTS old_rickshaw_inventory (
+    id bigserial PRIMARY KEY,
+    vehicle_no text NOT NULL,
+    model_name text,
+    battery_maker text,
+    repo_date date,
+    dealer_id integer,
+    dealer_name text,
+    status text NOT NULL DEFAULT 'hold',
+    available_for_sale boolean NOT NULL DEFAULT false,
+    sp_no text,
+    challan_no text,
+    challan_date date,
+    old_rickshaw_id integer,
+    customer_name text,
+    sale_amount numeric NOT NULL DEFAULT 0,
+    loan_amount numeric NOT NULL DEFAULT 0,
+    balance_amount numeric NOT NULL DEFAULT 0,
+    file_charge numeric NOT NULL DEFAULT 0,
+    do_number text,
+    ledger_no text,
+    source text NOT NULL DEFAULT 'CHFPL',
+    source_ref text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  const defs:any={
+    vehicle_no:"text",model_name:"text",battery_maker:"text",repo_date:"date",dealer_id:"integer",dealer_name:"text",
+    status:"text NOT NULL DEFAULT 'hold'",available_for_sale:"boolean NOT NULL DEFAULT false",sp_no:"text",challan_no:"text",
+    challan_date:"date",old_rickshaw_id:"integer",customer_name:"text",sale_amount:"numeric NOT NULL DEFAULT 0",
+    loan_amount:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",file_charge:"numeric NOT NULL DEFAULT 0",
+    do_number:"text",ledger_no:"text",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text"
+  };
+  for(const [col,type] of Object.entries(defs)) await pool.query('ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  await pool.query("CREATE INDEX IF NOT EXISTS old_rickshaw_inventory_status_idx ON old_rickshaw_inventory(status)");
+  await pool.query("CREATE INDEX IF NOT EXISTS old_rickshaw_inventory_dealer_idx ON old_rickshaw_inventory(dealer_id)");
+  await pool.query("CREATE TABLE IF NOT EXISTS old_rickshaw_challan (
+    id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,challan_no text UNIQUE,model_name text,vehicle_no text,colour text,toolkit text,
+    dealer_id integer,source text NOT NULL DEFAULT 'CHFPL',source_ref text,status text NOT NULL DEFAULT 'ACTIVE',created_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  const cdefs:any={date:"date",challan_no:"text",model_name:"text",vehicle_no:"text",colour:"text",toolkit:"text",dealer_id:"integer",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text",status:"text NOT NULL DEFAULT 'ACTIVE'"};
+  for(const [col,type] of Object.entries(cdefs)) await pool.query('ALTER TABLE old_rickshaw_challan ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  const odefs:any={
+    dealer_id:"integer",dealer_name:"text",challan_no:"text",sp_no:"text",challan_date:"date",customer_name:"text",
+    sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",
+    file_charge:"numeric NOT NULL DEFAULT 0",do_number:"text",ledger_no:"text",sale_date:"date"
+  };
+  for(const [col,type] of Object.entries(odefs)) await pool.query('ALTER TABLE old_rickshaw ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+}
 async function ensureCreditDebitSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS credit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,credit_note_no text,tax_invoice_id integer,delivery_challan_id integer,original_bill_no text,dealer_name text,buyer_name text,chassis_no text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,reason text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
   await pool.query(`CREATE TABLE IF NOT EXISTS debit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,debit_note_no text,party_name text,party_gst_no text,party_state_code text,original_bill_no text,reason text,remarks text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,items jsonb NOT NULL DEFAULT '[]'::jsonb,created_at timestamptz NOT NULL DEFAULT now())`);
@@ -525,7 +575,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({invoices:r.rows});
     }
     if(p==="dealer/seized-vehicles"&&a.scope==="dealer"){
-      return Response.json({vehicles:[],count:0,status:"HOLD"});
+      await ensureOldRickshawInventorySchema();
+      const r=await pool.query("SELECT id,vehicle_no,model_name,repo_date,battery_maker,dealer_id,dealer_name,status,available_for_sale FROM old_rickshaw_inventory WHERE dealer_id=$1 AND status='hold' ORDER BY repo_date DESC NULLS LAST,id DESC",[num(a.dealer_id)]);
+      return Response.json({vehicles:r.rows.map((x:any)=>({...x,vehicle_no:x.vehicle_no,repo_date:x.repo_date,battery_available:Boolean(x.battery_maker),battery_no:null,rc_available:false,charger_available:false})) ,count:r.rowCount,status:"HOLD"});
     }
     if(p.startsWith("users/") && p.endsWith("/option-setting")){
       const uid=idOf(path[path.length-2]);if(!uid)return Response.json({error:"User id required."},{status:400});
@@ -719,6 +771,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       for(const x of entries.rows){const key=String(x.source_type||"")+"::"+String(x.source_id||"")+"::"+String(x.date||"")+"::"+String(x.battery_maker||"")+"::"+String(x.entry_type||"");if(!groups.has(key))groups.set(key,{id:x.id,date:x.date,battery_maker:x.battery_maker,entry_type:x.entry_type,qty:0,source_type:x.source_type,source_id:x.source_id,source_no:x.source_no,party_name:x.party_name,dealer_id:x.dealer_id,vehicle_id:x.vehicle_id,remarks:x.remarks,battery_nos:[]});const g=groups.get(key);g.qty+=Number(x.qty||0);if(x.battery_no)g.battery_nos.push(x.battery_no);}
       const details=[...groups.values()].map((x:any)=>({...x,battery_no1:x.battery_nos[0]||"",battery_no2:x.battery_nos[1]||"",battery_no3:x.battery_nos[2]||"",battery_no4:x.battery_nos[3]||""}));
       return Response.json({summary,details,entries:entries.rows,makers:makers.rows.map((x:any)=>x.name)});
+    }
+    if(p==="inventory/old-rickshaw"){
+      await ensureOldRickshawInventorySchema();
+      const u=new URL(req.url),status=String(u.searchParams.get("status")||"all").toLowerCase(),q=String(u.searchParams.get("search")||"").trim();
+      const args:any[]=[],where:string[]=[];
+      if(status==="hold")where.push("status='hold'");
+      else if(status==="available")where.push("status='available'");
+      else if(status==="sold")where.push("status='sold'");
+      if(q){args.push("%"+q+"%");where.push("(vehicle_no ILIKE $"+args.length+" OR COALESCE(battery_maker,'') ILIKE $"+args.length+" OR COALESCE(dealer_name,'') ILIKE $"+args.length+")");}
+      const rows=await pool.query("SELECT * FROM old_rickshaw_inventory"+(where.length?" WHERE "+where.join(" AND "):"")+" ORDER BY CASE status WHEN 'available' THEN 1 WHEN 'hold' THEN 2 ELSE 3 END,repo_date DESC NULLS LAST,id DESC LIMIT 2000",args);
+      const summary=await pool.query("SELECT COUNT(*)::int AS all,COUNT(*) FILTER(WHERE status='hold')::int AS hold,COUNT(*) FILTER(WHERE status='available')::int AS available,COUNT(*) FILTER(WHERE status='sold')::int AS sold FROM old_rickshaw_inventory");
+      const dealers=await pool.query("SELECT id,name,code FROM dealer ORDER BY name");
+      return Response.json({rows:rows.rows,summary:summary.rows[0]||{all:0,hold:0,available:0,sold:0},dealers:dealers.rows});
     }
     if(p==="battery-register/preview"){
       const u=new URL(req.url),type=String(u.searchParams.get("type")||"").toLowerCase(),id=idOf(u.searchParams.get("id"));
@@ -1193,6 +1258,431 @@ async function mutation(req:Request,params:any,method:string){
       const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
       const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
       return Response.json(r.rows[0]||null);
+    }
+    if(p.startsWith("inventory/old-rickshaw/") && path[path.length-1]==="available" && method==="POST"){
+      await ensureOldRickshawInventorySchema();
+      const inventoryId=idOf(path[path.length-2]);if(!inventoryId)return Response.json({error:"Inventory id required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const inv=await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1 FOR UPDATE",[inventoryId]);
+        if(!inv.rowCount)throw new Error("Old Rickshaw inventory record not found.");
+        const row=inv.rows[0];
+        if(row.status==="sold")throw new Error("Sold vehicle cannot be released again.");
+        if(row.status!=="available"){
+          const sp=row.sp_no||("SP-"+String(row.id).padStart(6,"0"));
+          const challan=row.challan_no||("ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(row.id).padStart(4,"0"));
+          const cdate=new Date().toISOString().slice(0,10);
+          const existing=await client.query("SELECT id FROM old_rickshaw_challan WHERE challan_no=$1",[challan]);
+          let challanId=existing.rows[0]?.id;
+          if(!challanId){
+            const cr=await client.query("INSERT INTO old_rickshaw_challan(date,challan_no,model_name,vehicle_no,dealer_id,source,source_ref,status) VALUES($1,$2,$3,$4,$5,'CHFPL',$6,'ACTIVE') RETURNING id",[cdate,challan,row.model_name,row.vehicle_no,row.dealer_id,row.source_ref||String(row.id)]);
+            challanId=cr.rows[0].id;
+          }
+          const oldCols=await columns("old_rickshaw");
+          const old:any={date:cdate,source:"chfpl",record_no:"OR-"+row.id,vou_no:challan,chfpl_ref_no:row.source_ref||"",vehicle_reg_no:row.vehicle_no,model_name:row.model_name||"",battery_maker:row.battery_maker||"",dealer_id:row.dealer_id||null,dealer_name:row.dealer_name||"",challan_no:challan,sp_no:sp,status:"available",repo_date:row.repo_date||null};
+          const keys=Object.keys(old).filter(k=>oldCols.has(k)),vals=keys.map((_,i)=>"$"+(i+1));
+          let oldId=row.old_rickshaw_id;
+          if(oldId){
+            const sets=keys.map((k,i)=>'"'+k+'"=
+      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      await ensureDispatchSchema();
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
+          for(const item of items.rows){
+            const qty=Math.max(0,Number(item.qty)||0);
+            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
+              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
+          }
+        }
+        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
+        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0]||null});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+function isAdmin(a:any){
+  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
+}
+function canRead(a:any,p:string){
+  // Dealers may only read their explicitly scoped portal endpoints.
+  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
+  return true;
+}
+// Dealer battery portal writes are explicitly gated by the module flags
+// carried in the dealer JWT. This restores the legacy portal behaviour without
+// opening generic staff/master CRUD to dealer tokens.
+const DEALER_WRITE_MODULE:any={
+  "battery-swap-vouchers":"battery-swap",
+  "battery-withdrawal":"battery-withdrawal",
+  "battery-addition":"battery-addition"
+};
+function canWrite(a:any,p:string){
+  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
+  if(a?.scope==="dealer"){
+    if(p==="dealer/submit-loan")return true;
+    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
+    if(p.startsWith("dealer/cash-book/"))return true;
+    if(p.startsWith("dealer/pending-sales/"))return true;
+    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
+    const need=DEALER_WRITE_MODULE[p];
+    if(!need)return false;
+    const mods=Array.isArray(a?.portal_modules)
+      ? a.portal_modules.map((x:any)=>String(x))
+      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+    return mods.includes(need);
+  }
+  // Admins retain full mutation access.
+  if(isAdmin(a)) return true;
+  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
+  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+  const key=p.startsWith("masters/") ? p : p.split("/")[0];
+  return mods.includes(p) || mods.includes(key);
+}
+async function genericWrite(req:Request,path:string[],table:string,method:string){
+  const cols=await columns(table);
+  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
+  const body:any=await json(req),input:any={};
+  for(const [k,v] of Object.entries(body||{})){
+    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
+  }
+  const id=idOf(path[path.length-1]);
+  if(method==="POST"){
+    const keys=Object.keys(input);
+    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+    const vals=keys.map((_,i)=>"$"+(i+1));
+    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
+    const r=await pool.query(sql,keys.map(k=>input[k]));
+    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+  }
+  if(!id)return Response.json({error:"Record id required."},{status:400});
+  if(method==="DELETE"){
+    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
+    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+  }
+  const keys=Object.keys(input);
+  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
+  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
+}
++(i+1));
+            await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=
+      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      await ensureDispatchSchema();
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
+          for(const item of items.rows){
+            const qty=Math.max(0,Number(item.qty)||0);
+            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
+              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
+          }
+        }
+        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
+        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0]||null});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+function isAdmin(a:any){
+  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
+}
+function canRead(a:any,p:string){
+  // Dealers may only read their explicitly scoped portal endpoints.
+  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
+  return true;
+}
+// Dealer battery portal writes are explicitly gated by the module flags
+// carried in the dealer JWT. This restores the legacy portal behaviour without
+// opening generic staff/master CRUD to dealer tokens.
+const DEALER_WRITE_MODULE:any={
+  "battery-swap-vouchers":"battery-swap",
+  "battery-withdrawal":"battery-withdrawal",
+  "battery-addition":"battery-addition"
+};
+function canWrite(a:any,p:string){
+  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
+  if(a?.scope==="dealer"){
+    if(p==="dealer/submit-loan")return true;
+    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
+    if(p.startsWith("dealer/cash-book/"))return true;
+    if(p.startsWith("dealer/pending-sales/"))return true;
+    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
+    const need=DEALER_WRITE_MODULE[p];
+    if(!need)return false;
+    const mods=Array.isArray(a?.portal_modules)
+      ? a.portal_modules.map((x:any)=>String(x))
+      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+    return mods.includes(need);
+  }
+  // Admins retain full mutation access.
+  if(isAdmin(a)) return true;
+  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
+  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+  const key=p.startsWith("masters/") ? p : p.split("/")[0];
+  return mods.includes(p) || mods.includes(key);
+}
+async function genericWrite(req:Request,path:string[],table:string,method:string){
+  const cols=await columns(table);
+  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
+  const body:any=await json(req),input:any={};
+  for(const [k,v] of Object.entries(body||{})){
+    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
+  }
+  const id=idOf(path[path.length-1]);
+  if(method==="POST"){
+    const keys=Object.keys(input);
+    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+    const vals=keys.map((_,i)=>"$"+(i+1));
+    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
+    const r=await pool.query(sql,keys.map(k=>input[k]));
+    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+  }
+  if(!id)return Response.json({error:"Record id required."},{status:400});
+  if(method==="DELETE"){
+    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
+    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+  }
+  const keys=Object.keys(input);
+  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
+  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
+}
++(keys.length+1),[...keys.map(k=>old[k]),oldId]);
+          }else{
+            const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+vals.join(",")+') RETURNING id',keys.map(k=>old[k]));
+            oldId=ins.rows[0].id;
+          }
+          await client.query("UPDATE old_rickshaw_inventory SET status='available',available_for_sale=true,sp_no=$1,challan_no=$2,challan_date=$3,old_rickshaw_id=$4,updated_at=now() WHERE id=$5",[sp,challan,cdate,oldId,inventoryId]);
+        }
+        const out=await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[inventoryId]);
+        await client.query("COMMIT");return Response.json({success:true,row:out.rows[0]});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("inventory/old-rickshaw/") && path[path.length-1]==="sale" && method==="POST"){
+      await ensureOldRickshawInventorySchema();
+      const inventoryId=idOf(path[path.length-2]),b:any=await json(req);
+      if(!inventoryId)return Response.json({error:"Inventory id required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const inv=await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1 FOR UPDATE",[inventoryId]);
+        if(!inv.rowCount)throw new Error("Old Rickshaw inventory record not found.");
+        const row=inv.rows[0];if(row.status!=="available")throw new Error("Only Available for Sale vehicles can be sold.");
+        const saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount);
+        if(!String(b.customer_name||"").trim())throw new Error("Customer Name is required.");
+        if(loanAmount>saleAmount)throw new Error("Loan Amount cannot be greater than Sale Amount.");
+        const balance=Math.max(0,saleAmount-loanAmount);
+        const oldId=idOf(row.old_rickshaw_id);
+        if(oldId){
+          const oc=await columns("old_rickshaw"),vals:any={status:"sold",customer_name:String(b.customer_name).trim(),sale_amount:saleAmount,loan_amount:loanAmount,balance_amount:balance,file_charge:num(b.file_charge),do_number:String(b.do_number||"").trim()||null,ledger_no:String(b.ledger_no||"").trim()||null,sale_date:b.sale_date||new Date().toISOString().slice(0,10)};
+          const keys=Object.keys(vals).filter(k=>oc.has(k)),sets=keys.map((k,i)=>'"'+k+'"=
+      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      await ensureDispatchSchema();
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
+          for(const item of items.rows){
+            const qty=Math.max(0,Number(item.qty)||0);
+            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
+              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
+          }
+        }
+        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
+        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0]||null});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+function isAdmin(a:any){
+  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
+}
+function canRead(a:any,p:string){
+  // Dealers may only read their explicitly scoped portal endpoints.
+  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
+  return true;
+}
+// Dealer battery portal writes are explicitly gated by the module flags
+// carried in the dealer JWT. This restores the legacy portal behaviour without
+// opening generic staff/master CRUD to dealer tokens.
+const DEALER_WRITE_MODULE:any={
+  "battery-swap-vouchers":"battery-swap",
+  "battery-withdrawal":"battery-withdrawal",
+  "battery-addition":"battery-addition"
+};
+function canWrite(a:any,p:string){
+  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
+  if(a?.scope==="dealer"){
+    if(p==="dealer/submit-loan")return true;
+    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
+    if(p.startsWith("dealer/cash-book/"))return true;
+    if(p.startsWith("dealer/pending-sales/"))return true;
+    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
+    const need=DEALER_WRITE_MODULE[p];
+    if(!need)return false;
+    const mods=Array.isArray(a?.portal_modules)
+      ? a.portal_modules.map((x:any)=>String(x))
+      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+    return mods.includes(need);
+  }
+  // Admins retain full mutation access.
+  if(isAdmin(a)) return true;
+  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
+  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+  const key=p.startsWith("masters/") ? p : p.split("/")[0];
+  return mods.includes(p) || mods.includes(key);
+}
+async function genericWrite(req:Request,path:string[],table:string,method:string){
+  const cols=await columns(table);
+  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
+  const body:any=await json(req),input:any={};
+  for(const [k,v] of Object.entries(body||{})){
+    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
+  }
+  const id=idOf(path[path.length-1]);
+  if(method==="POST"){
+    const keys=Object.keys(input);
+    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+    const vals=keys.map((_,i)=>"$"+(i+1));
+    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
+    const r=await pool.query(sql,keys.map(k=>input[k]));
+    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+  }
+  if(!id)return Response.json({error:"Record id required."},{status:400});
+  if(method==="DELETE"){
+    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
+    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+  }
+  const keys=Object.keys(input);
+  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
+  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
+}
++(i+1));
+          if(keys.length)await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=
+      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      await ensureDispatchSchema();
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
+          for(const item of items.rows){
+            const qty=Math.max(0,Number(item.qty)||0);
+            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
+              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
+          }
+        }
+        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
+        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0]||null});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+function isAdmin(a:any){
+  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
+}
+function canRead(a:any,p:string){
+  // Dealers may only read their explicitly scoped portal endpoints.
+  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
+  return true;
+}
+// Dealer battery portal writes are explicitly gated by the module flags
+// carried in the dealer JWT. This restores the legacy portal behaviour without
+// opening generic staff/master CRUD to dealer tokens.
+const DEALER_WRITE_MODULE:any={
+  "battery-swap-vouchers":"battery-swap",
+  "battery-withdrawal":"battery-withdrawal",
+  "battery-addition":"battery-addition"
+};
+function canWrite(a:any,p:string){
+  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
+  if(a?.scope==="dealer"){
+    if(p==="dealer/submit-loan")return true;
+    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
+    if(p.startsWith("dealer/cash-book/"))return true;
+    if(p.startsWith("dealer/pending-sales/"))return true;
+    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
+    const need=DEALER_WRITE_MODULE[p];
+    if(!need)return false;
+    const mods=Array.isArray(a?.portal_modules)
+      ? a.portal_modules.map((x:any)=>String(x))
+      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+    return mods.includes(need);
+  }
+  // Admins retain full mutation access.
+  if(isAdmin(a)) return true;
+  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
+  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+  const key=p.startsWith("masters/") ? p : p.split("/")[0];
+  return mods.includes(p) || mods.includes(key);
+}
+async function genericWrite(req:Request,path:string[],table:string,method:string){
+  const cols=await columns(table);
+  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
+  const body:any=await json(req),input:any={};
+  for(const [k,v] of Object.entries(body||{})){
+    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
+  }
+  const id=idOf(path[path.length-1]);
+  if(method==="POST"){
+    const keys=Object.keys(input);
+    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+    const vals=keys.map((_,i)=>"$"+(i+1));
+    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
+    const r=await pool.query(sql,keys.map(k=>input[k]));
+    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+  }
+  if(!id)return Response.json({error:"Record id required."},{status:400});
+  if(method==="DELETE"){
+    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
+    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+  }
+  const keys=Object.keys(input);
+  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
+  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
+}
++(keys.length+1),[...keys.map(k=>vals[k]),oldId]);
+        }
+        const u=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=$6,ledger_no=$7,updated_at=now() WHERE id=$8 RETURNING *",[String(b.customer_name).trim(),saleAmount,loanAmount,balance,num(b.file_charge),String(b.do_number||"").trim()||null,String(b.ledger_no||"").trim()||null,inventoryId]);
+        await client.query("COMMIT");return Response.json({success:true,row:u.rows[0]});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("delivery-challans/") && method==="DELETE"){
       const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
