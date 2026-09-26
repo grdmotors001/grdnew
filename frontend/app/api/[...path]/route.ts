@@ -141,6 +141,17 @@ async function ensureCreditDebitSchema(){
   const defs:any={credit_note:{credit_note_no:"text",tax_invoice_id:"integer",delivery_challan_id:"integer",original_bill_no:"text",dealer_name:"text",buyer_name:"text",chassis_no:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",reason:"text",remarks:"text"},debit_note:{debit_note_no:"text",party_name:"text",party_gst_no:"text",party_state_code:"text",original_bill_no:"text",reason:"text",remarks:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",items:"jsonb NOT NULL DEFAULT '[]'::jsonb"}};
   for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table])) await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
+async function ensureDealerCashSchema(){
+  await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_expense (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL DEFAULT CURRENT_DATE,expense_no text,category text,category_label text,amount numeric NOT NULL DEFAULT 0,paid_to text,remarks text,folio text,status text NOT NULL DEFAULT 'ACTIVE',created_at timestamptz NOT NULL DEFAULT now())");
+  await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_handover (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL DEFAULT CURRENT_DATE,handover_no text,amount numeric NOT NULL DEFAULT 0,sent_to text,remarks text,folio text,status text NOT NULL DEFAULT 'pending',created_at timestamptz NOT NULL DEFAULT now())");
+  const defs:any={
+    dealer_cash_expense:{dealer_id:"integer",date:"date",expense_no:"text",category:"text",category_label:"text",amount:"numeric NOT NULL DEFAULT 0",paid_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'ACTIVE'"},
+    dealer_cash_handover:{dealer_id:"integer",date:"date",handover_no:"text",amount:"numeric NOT NULL DEFAULT 0",sent_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'pending'}
+  };
+  for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table]))
+    await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+}
+
 async function ensureRepairSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_voucher (id bigserial PRIMARY KEY,voucher_no text,date date NOT NULL DEFAULT CURRENT_DATE,vehicle_id integer,vehicle_no text,chassis_no text,customer_name text,customer_mobile text,items jsonb NOT NULL DEFAULT '[]'::jsonb,total_amount numeric NOT NULL DEFAULT 0,paid_amount numeric NOT NULL DEFAULT 0,balance_amount numeric NOT NULL DEFAULT 0,gst_amount numeric NOT NULL DEFAULT 0,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_payment_receipt (id bigserial PRIMARY KEY,receipt_no text,voucher_id integer REFERENCES repair_service_voucher(id) ON DELETE CASCADE,date date NOT NULL DEFAULT CURRENT_DATE,amount numeric NOT NULL DEFAULT 0,payment_mode text,reference_no text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
@@ -382,6 +393,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const pageRows=r.rows.slice(start,start+per),totals=pageRows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable_amt),a.cgst+=num(x.cgst_amt),a.sgst+=num(x.sgst_amt),a.igst+=num(x.igst_amt),a),{taxable:0,cgst:0,sgst:0,igst:0});
       return Response.json({rows:pageRows,page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per)),totals});
     }
+    if(/^tax-invoices\/\d+$/.test(p)){
+      const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Tax Invoice id required."},{status:400});
+      const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
+      return Response.json(r.rows[0]);
+    }
     if(p==="tax-invoices"){
       const u=new URL(req.url),args:any[]=[],w:string[]=[];
       const search=String(u.searchParams.get("search")||"").trim();
@@ -439,7 +456,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc WHERE COALESCE(dc.cancelled,false)=false AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)"),
         pool.query("SELECT COALESCE(SUM(sale_amount),0)::numeric AS sales,COALESCE(SUM(amount_received),0)::numeric AS received,COALESCE(SUM(hypothecation_amount),0)::numeric AS loan FROM tax_invoice WHERE COALESCE(cancelled,false)=false"),
         pool.query("SELECT COUNT(*)::int AS n FROM production_voucher WHERE date >= date_trunc('month',CURRENT_DATE)"),
-        pool.query("SELECT dc.id,dc.date,dc.challan_no,COALESCE(NULLIF(dc.product_name,''),v.model_name) AS model_name,COALESCE(NULLIF(dc.dealer_name,''),d.name) AS dealer_name,COALESCE(NULLIF(dc.chassis_no,''),v.chassis_no) AS chassis_no,TRIM(CONCAT_WS(' ',NULLIF(v.battery_maker,''),NULLIF(v.battery_no1,''),NULLIF(v.battery_no2,''),NULLIF(v.battery_no3,''),NULLIF(v.battery_no4,''))) AS battery_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.date::date=CURRENT_DATE AND COALESCE(dc.cancelled,false)=false ORDER BY dc.date DESC,dc.id DESC LIMIT 100"),
+        pool.query("SELECT dc.id,dc.date,dc.challan_no,COALESCE(NULLIF(dc.product_name,''),v.model_name) AS model_name,d.name AS dealer_name,COALESCE(NULLIF(dc.chassis_no,''),v.chassis_no) AS chassis_no,TRIM(CONCAT_WS(' ',NULLIF(v.battery_maker,''),NULLIF(v.battery_no1,''),NULLIF(v.battery_no2,''),NULLIF(v.battery_no3,''),NULLIF(v.battery_no4,''))) AS battery_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.date::date=CURRENT_DATE AND COALESCE(dc.cancelled,false)=false ORDER BY dc.date DESC,dc.id DESC LIMIT 100"),
         pool.query("SELECT ti.id,ti.date,ti.bill_no,COALESCE(ti.dealer_name,d.name) AS dealer_name,ti.financer_name,COALESCE(NULLIF(ti.chassis_no,''),v.chassis_no) AS chassis_no,TRIM(CONCAT_WS(' ',NULLIF(v.battery_maker,''),NULLIF(v.battery_no1,''),NULLIF(v.battery_no2,''),NULLIF(v.battery_no3,''),NULLIF(v.battery_no4,''))) AS battery_name FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.date::date=CURRENT_DATE AND COALESCE(ti.cancelled,false)=false ORDER BY ti.date DESC,ti.id DESC LIMIT 100"),
         pool.query("SELECT id,date,vou_no,product_name AS model_name,quantity FROM production_voucher WHERE date=CURRENT_DATE ORDER BY date DESC,id DESC LIMIT 100")
       ]);
@@ -509,6 +526,35 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM old_rickshaw WHERE dealer_id=$1 AND status IN ('available','sold') ORDER BY CASE WHEN status='available' THEN 0 ELSE 1 END,date DESC,id DESC",[num(a.dealer_id)]);
       return Response.json({rickshaws:r.rows,count:r.rowCount});
     }
+    if(p==="dealer/cash-book"&&a.scope==="dealer"){
+      await ensureDealerCashSchema();
+      const did=num(a.dealer_id),u=new URL(req.url);
+      const from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim();
+      const range=(alias:string)=>{const q:string[]=[];if(from)q.push(alias+".date >= $2::date");if(to)q.push(alias+".date <= $3::date");return q.length?" AND "+q.join(" AND "):""};
+      const vals=(from||null),(to||null);
+      const receipts=await pool.query("SELECT * FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash'"+range("dealer_cash_receipt")+" ORDER BY date,id",[did,vals,to||null]);
+      const expenses=await pool.query("SELECT * FROM dealer_cash_expense WHERE dealer_id=$1"+range("dealer_cash_expense")+" ORDER BY date,id",[did,vals,to||null]);
+      const handovers=await pool.query("SELECT * FROM dealer_cash_handover WHERE dealer_id=$1"+range("dealer_cash_handover")+" ORDER BY date,id",[did,vals,to||null]);
+      const priorDate=from||"9999-12-31";
+      const priorReceipts=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash' AND date < $2::date",[did,priorDate]);
+      const priorExpenses=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_expense WHERE dealer_id=$1 AND date < $2::date",[did,priorDate]);
+      const priorHandovers=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_handover WHERE dealer_id=$1 AND date < $2::date",[did,priorDate]);
+      const opening=num(priorReceipts.rows[0]?.n)-num(priorExpenses.rows[0]?.n)-num(priorHandovers.rows[0]?.n);
+      const cashReceived=receipts.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
+      const expenseTotal=expenses.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
+      const handoverTotal=handovers.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
+      const closing=opening+cashReceived-expenseTotal-handoverTotal;
+      return Response.json({receipts:receipts.rows,expenses:expenses.rows.map((x:any)=>({...x,category_label:x.category_label||x.category||"",folio:x.folio||""})),handovers:handovers.rows,summary:{opening_balance:opening,cash_received:cashReceived,expenses:expenseTotal,ho_handover:handoverTotal,net_movement:cashReceived-expenseTotal-handoverTotal,closing_balance:closing}});
+    }
+    if(p==="dealer/cash-book/all-receipts"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT * FROM dealer_cash_receipt WHERE dealer_id=$1 ORDER BY date DESC,id DESC LIMIT 2000",[num(a.dealer_id)]);
+      return Response.json({receipts:r.rows,rows:r.rows,count:r.rowCount});
+    }
+    if(p==="dealer/cash-book/all-expenses"&&a.scope==="dealer"){
+      await ensureDealerCashSchema();
+      const r=await pool.query("SELECT * FROM dealer_cash_expense WHERE dealer_id=$1 ORDER BY date DESC,id DESC LIMIT 2000",[num(a.dealer_id)]);
+      return Response.json({expenses:r.rows,rows:r.rows,count:r.rowCount});
+    }
     if(p==="dealer/cash-book/customers"&&a.scope==="dealer"){
       const did=num(a.dealer_id),u=new URL(req.url),q=String(u.searchParams.get("q")||"").trim(),status=String(u.searchParams.get("status")||"").trim().toUpperCase(),payable=u.searchParams.get("payable_only")==="1";
       const cols=await columns("dealer_cash_customer"); if(!cols.size)return Response.json({error:"Customer register table not found."},{status:404});
@@ -526,7 +572,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({customers,rows:customers,count:customers.length});
     }
     if(p==="dealer/incentive-record"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT id,date,bill_no,buyer_name AS customer_name,chassis_no,product_name AS model,COALESCE(incentive_amount,0) AS incentive_amount,incentive_voucher_no,incentive_date FROM tax_invoice WHERE dealer_id=$1 AND COALESCE(cancelled,false)=false AND COALESCE(incentive_amount,0)>0 ORDER BY date DESC,id DESC",[num(a.dealer_id)]);
+      const r=await pool.query("SELECT id,date,bill_no,buyer_name AS customer_name,chassis_no,product_name AS model,COALESCE(NULLIF(to_jsonb(ti)->>'incentive_amount','')::numeric,0) AS incentive_amount,COALESCE(to_jsonb(ti)->>'incentive_voucher_no','') AS incentive_voucher_no,COALESCE(to_jsonb(ti)->>'incentive_date','') AS incentive_date FROM tax_invoice ti WHERE ti.dealer_id=$1 AND COALESCE(ti.cancelled,false)=false AND COALESCE(NULLIF(to_jsonb(ti)->>'incentive_amount','')::numeric,0)>0 ORDER BY ti.date DESC,ti.id DESC",[num(a.dealer_id)]);
       const rows=r.rows.map((x:any)=>({...x,status:x.incentive_voucher_no?'PAID':'NOT_RECORDED'}));
       return Response.json({rows,data:rows,count:rows.length});
     }
@@ -642,6 +688,28 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
     }
+    if(p==="reports/delivery-challan-register"){
+      const u=new URL(req.url),args:any[]=[],w:string[]=["COALESCE(dc.cancelled,false)=false"];
+      const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim();
+      if(from){args.push(from);w.push("dc.date >= $"+args.length+"::date");}
+      if(to){args.push(to);w.push("dc.date <= $"+args.length+"::date");}
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(dc.challan_no,'') ILIKE $"+args.length+" OR COALESCE(dc.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(dc.product_name,'') ILIKE $"+args.length+" OR COALESCE(d.name,'') ILIKE $"+args.length+")");}
+      const dealer=String(u.searchParams.get("dealer")||"ALL"),product=String(u.searchParams.get("product")||"ALL"),salesman=String(u.searchParams.get("salesman")||"ALL"),battery=String(u.searchParams.get("battery")||"ALL");
+      if(dealer!=="ALL"){args.push(dealer);w.push("d.id=$"+args.length);}
+      if(product!=="ALL"){args.push(product);w.push("LOWER(COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name,''))=LOWER($"+args.length);}
+      if(salesman!=="ALL"){args.push(salesman);w.push("LOWER(COALESCE(to_jsonb(dc)->>'salesman',''))=LOWER($"+args.length);}
+      if(battery!=="ALL"){args.push(battery);w.push("LOWER(COALESCE(v.battery_maker,''))=LOWER($"+args.length);}
+      const base="SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name) AS product_name,COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(to_jsonb(dc)->>'motor_no',''),v.motor_no) AS motor_no,COALESCE(NULLIF(to_jsonb(dc)->>'colour',''),v.colour) AS colour,COALESCE(to_jsonb(dc)->>'controller_no','') AS controller_no,COALESCE(to_jsonb(dc)->>'other','') AS other,COALESCE(to_jsonb(dc)->>'remarks1','') AS remarks1,COALESCE(to_jsonb(dc)->>'remarks2','') AS remarks2,COALESCE(to_jsonb(dc)->>'destination','') AS destination,COALESCE(to_jsonb(dc)->>'salesman','') AS salesman,COALESCE(to_jsonb(dc)->>'formula_name','') AS formula_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,v.umrn_code,COALESCE(to_jsonb(dc)->>'dealer_page_no','') AS dealer_page_no,ti.bill_no,COALESCE(ti.sale_amount,0) AS sale_value FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id LEFT JOIN LATERAL (SELECT * FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false ORDER BY x.id DESC LIMIT 1) ti ON true";
+      const all=await pool.query(base+" WHERE "+w.join(" AND ")+" ORDER BY dc.date DESC,dc.id DESC",args);
+      const rows=all.rows.map((x:any)=>({...x,battery_name:[x.battery_maker,x.battery_no1,x.battery_no2,x.battery_no3,x.battery_no4].filter(Boolean).join(" ")}));
+      const products=[...new Set(rows.map((x:any)=>String(x.product_name||"").trim()).filter(Boolean))].sort();
+      const dealers=[...new Map(rows.map((x:any)=>[String(x.dealer_id||"")+"::"+String(x.dealer_name||""),{id:x.dealer_id,name:x.dealer_name}]).filter(([k,v]:any)=>v.id||v.name))].map(([k,v]:any)=>v).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
+      const salesmen=[...new Set(rows.map((x:any)=>String(x.salesman||"").trim()).filter(Boolean))].sort();
+      const batteries=[...new Set(rows.map((x:any)=>String(x.battery_maker||"").trim()).filter(Boolean))].sort();
+      const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||100)),start=(page-1)*per;
+      if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Delivery_Challan_Register.csv");
+      return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),filters:{product:products,dealer:dealers,salesman:salesmen,battery:batteries}});
+    }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
       const dcCols=await columns("delivery_challan");
@@ -698,6 +766,25 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const dealers=await pool.query("SELECT id,name,code FROM dealer ORDER BY name");
       return Response.json({rows:rows.rows,summary:summary.rows[0]||{all:0,hold:0,available:0,sold:0},dealers:dealers.rows});
     }
+    if(/^delivery-challans\/\d+\/print$/.test(p)){
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Delivery Challan id required."},{status:400});
+      const r=await pool.query("SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,v.umrn_code FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);
+      if(!r.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
+      const x=r.rows[0],challan={...x,product_name:x.product_name||x.vehicle_model_name,chassis_no:x.chassis_no||x.vehicle_chassis_no,motor_no:x.motor_no||x.vehicle_motor_no,colour:x.colour||x.vehicle_colour};
+      const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+      return Response.json({challan,company});
+    }
+    if(/^tax-invoices\/\d+\/print$/.test(p)){
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Tax Invoice id required."},{status:400});
+      const u=new URL(req.url),doc=String(u.searchParams.get("doc")||"invoice");
+      const r=await pool.query("SELECT ti.*,d.name AS joined_dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,d.address1 AS dealer_address1,d.address2 AS dealer_address2,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,v.umrn_code,v.colour_code FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=$1",[id]);
+      if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
+      const x=r.rows[0],invoice={...x,dealer_name:x.dealer_name||x.joined_dealer_name||"",dealer_code:x.dealer_code||"",dealer_mobile:x.dealer_mobile||"",dealer_gst_no:x.dealer_gst_no||"",dealer_address1:x.dealer_address1||"",dealer_address2:x.dealer_address2||"",product_name:x.product_name||x.vehicle_model_name||"",chassis_no:x.chassis_no||x.vehicle_chassis_no||"",motor_no:x.motor_no||x.vehicle_motor_no||"",colour:x.colour||x.vehicle_colour||"",battery_maker:x.battery_maker||"",battery_no1:x.battery_no1||"",battery_no2:x.battery_no2||"",battery_no3:x.battery_no3||battery_no3||"",battery_no4:x.battery_no4||"",umrn_code:x.umrn_code||"",colour_code:x.colour_code||""};
+      const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+      const rtoName=String(x.rto||x.rto_name||"").trim();let rto_address="";
+      if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);const rr=rm.rows[0]||{};rto_address=String(rr.address||rr.address1||rr.address2||rr.details||"");}
+      return Response.json({invoice,company,product:{umrn_code:invoice.umrn_code,colour_code:invoice.colour_code,name:invoice.product_name},doc_title:doc==="invoice"?"TAX INVOICE":doc.toUpperCase(),doc_no_label:doc==="invoice"?"Bill No.":"Document No.",rto_address,print_bank_name:company.bank_name||"",print_bank_account_no:company.bank_account_no||"",print_bank_ifsc:company.bank_ifsc||""});
+    }
     if(p==="battery-register/preview"){
       const u=new URL(req.url),type=String(u.searchParams.get("type")||"").toLowerCase(),id=idOf(u.searchParams.get("id"));
       if(!id)return Response.json({error:"Preview id required."},{status:400});
@@ -743,6 +830,22 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const max=await pool.query("SELECT COALESCE(MAX(position),0)::int AS n FROM nav_tab");
       const r=await pool.query("INSERT INTO nav_tab (key,label,icon,position,hidden,items) VALUES ($1,$2,$3,$4,false,$5) RETURNING *",[key,label,b.icon||null,Number(max.rows[0]?.n||0)+1,Array.isArray(b.items)?b.items:[]]);
       return Response.json(r.rows[0],{status:201});
+    }
+    if(a.scope==="dealer" && p==="dealer/cash-book/expense"){
+      await ensureDealerCashSchema();
+      const did=num(a.dealer_id),amount=num(b.amount);
+      if(amount<=0)return Response.json({error:"Expense amount is required."},{status:400});
+      const no="EXP-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5);
+      const r=await pool.query("INSERT INTO dealer_cash_expense (dealer_id,date,expense_no,category,category_label,amount,paid_to,remarks,folio,status) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,'ACTIVE') RETURNING *",[did,b.date||null,no,String(b.category||"other"),String(b.category_label||b.category||"").trim(),amount,String(b.paid_to||"").trim()||null,String(b.remarks||"").trim()||null,String(b.folio||"").trim()||null]);
+      return Response.json({success:true,expense:r.rows[0],row:r.rows[0]},{status:201});
+    }
+    if(a.scope==="dealer" && p==="dealer/cash-book/handover"){
+      await ensureDealerCashSchema();
+      const did=num(a.dealer_id),amount=num(b.amount);
+      if(amount<=0)return Response.json({error:"Handover amount is required."},{status:400});
+      const no="HO-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5);
+      const r=await pool.query("INSERT INTO dealer_cash_handover (dealer_id,date,handover_no,amount,sent_to,remarks,folio,status) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,'pending') RETURNING *",[did,b.date||null,no,amount,String(b.sent_to||"").trim()||null,String(b.remarks||"").trim()||null,String(b.folio||"").trim()||null]);
+      return Response.json({success:true,handover:r.rows[0],row:r.rows[0]},{status:201});
     }
     if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
       const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=b.date||null;
