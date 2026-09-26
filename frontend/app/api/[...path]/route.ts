@@ -597,13 +597,49 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
     const b:any=await json(req);
+    if(p==="purchase-bills"){
+      const cols=await columns("purchase_bill"),input:any={};
+      for(const [k,v] of Object.entries(b||{})){const col=snake(k);if(cols.has(col)&&col!=="id")input[col]=v;}
+      if(Array.isArray(input.items))input.items=JSON.stringify(input.items);
+      const keys=Object.keys(input);if(!keys.length)return Response.json({error:"No valid purchase fields supplied."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const r=await client.query('INSERT INTO "purchase_bill" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
+        const row={...r.rows[0],items:parseItems(r.rows[0].items)};await syncBatteryPurchaseBill(client,row);
+        await client.query("COMMIT");return Response.json({success:true,row,data:row},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
-      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
-      const vehicleId=num(b.vehicle_id);
-      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW()) RETURNING *",
-        [String(b.challan_no||""),b.date||null,did, b.destination||null,vehicleId||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,num(b.sale_value),b.remarks1||null,b.remarks2||null]);
-      if(vehicleId) await pool.query("UPDATE vehicle SET stage='Delivery Challan' WHERE id=$1",[vehicleId]);
-      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id),vehicleId=idOf(b.vehicle_id);
+      if(a.scope==="dealer"&&!did)return Response.json({error:"Dealer not found."},{status:403});
+      if(!vehicleId)return Response.json({error:"Select a chassis to dispatch."},{status:400});
+      await ensureDispatchSchema();await ensureBatteryRegisterSchema();
+      const selected=Array.isArray(b.dispatch_items)?b.dispatch_items.map((x:any)=>({product_id:idOf(x.product_id),qty:Math.max(1,Number(x.qty)||1)})).filter((x:any)=>x.product_id):[];
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const vr=await client.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Manufacturing' LIMIT 1 FOR UPDATE",[vehicleId]);
+        if(!vr.rowCount)throw new Error("Selected chassis is not available in Manufacturing.");
+        const v=vr.rows[0],batteryMaker=String(b.battery_maker||"").trim(),batteryNumbers=[b.battery_no1,b.battery_no2,b.battery_no3,b.battery_no4].map(x=>String(x||"").trim()).filter(Boolean);
+        if(batteryNumbers.length&&!batteryMaker)throw new Error("Battery Maker is required when Battery No. is entered.");
+        if(batteryNumbers.length)await assertBatterySerialsAvailable(client,batteryMaker,batteryNumbers);
+        const products:any[]=[];
+        for(const item of selected){
+          const pr=await client.query("SELECT id,name,COALESCE(NULLIF(product_category,''),CASE WHEN fro='F' THEN 'FINISHED' ELSE 'RAW' END) AS category,COALESCE(show_on_delivery_challan,false) AS show_on_delivery_challan FROM product WHERE id=$1 LIMIT 1 FOR UPDATE",[item.product_id]);
+          if(!pr.rowCount)throw new Error("Dispatch product not found.");
+          const pdt=pr.rows[0];if(String(pdt.category).toUpperCase()!=="DISPATCH"||!pdt.show_on_delivery_challan)throw new Error("Invalid Delivery Challan item: "+pdt.name);
+          const stock=await client.query("SELECT COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END),0) AS qty FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1))",[pdt.name]);
+          const availableStock=Number(stock.rows[0]?.qty||0);if(availableStock<item.qty)throw new Error("Insufficient stock for "+pdt.name+". Available: "+availableStock);products.push({...item,product_name:pdt.name});
+        }
+        const r=await client.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
+          [String(b.challan_no||""),b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+        for(const item of products){await client.query("INSERT INTO delivery_challan_item (delivery_challan_id,product_id,product_name,qty) VALUES ($1,$2,$3,$4)",[r.rows[0].id,item.product_id,item.product_name,item.qty]);await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Consumption',NOW(),'OUT',$1)",[String(r.rows[0].challan_no),r.rows[0].date,item.product_name,item.qty]);}
+        await client.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1),battery_maker=$2,battery_no1=$3,battery_no2=$4,battery_no3=$5,battery_no4=$6 WHERE id=$7",[did,batteryMaker||null,batteryNumbers[0]||null,batteryNumbers[1]||null,batteryNumbers[2]||null,batteryNumbers[3]||null,vehicleId]);
+        const dealerName=(await client.query("SELECT name FROM dealer WHERE id=$1",[did])).rows[0]?.name||"";
+        await toggleBatteryRegisterForDelivery(client,{...r.rows[0],dealer_name:dealerName,dealer_id:did,vehicle_id:vehicleId},false);
+        await client.query("COMMIT");return Response.json({success:true,row:r.rows[0],data:r.rows[0],dispatch_items:products},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="tax-invoices"){
       const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
