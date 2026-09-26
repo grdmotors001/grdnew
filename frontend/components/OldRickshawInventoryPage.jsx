@@ -59,7 +59,7 @@ export function OldRickshawInventoryPage(){
       </div>
       <div className="actions" style={{marginTop:12,flexWrap:'wrap'}}>
         {[
-          ['all','All',data.summary?.all||0],['hold','Hold / Unsold',data.summary?.hold||0],
+          ['all','All',data.summary?.all||0],['unsold','Unsold',(Number(data.summary?.hold||0)+Number(data.summary?.available||0))],
           ['available','Available for Sale',data.summary?.available||0],['sold','Sold',data.summary?.sold||0]
         ].map(([k,l,n])=><button key={k} className={'btn '+(filter===k?'primary':'')} onClick={()=>setFilter(k)}>{l} {n}</button>)}
       </div>
