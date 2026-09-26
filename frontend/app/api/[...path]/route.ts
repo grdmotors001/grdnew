@@ -654,16 +654,8 @@ async function mutation(req:Request,params:any,method:string){
       const b:any=await json(req),fields:any={};
       for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
       const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
-      const sets=keys.map((k,i)=>'"'+k+'"=
-    return genericWrite(req,path,table,method);
-  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
-+(i+1));
-      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=
-    return genericWrite(req,path,table,method);
-  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
-+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
       return Response.json(r.rows[0]||null);
     }
     if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
