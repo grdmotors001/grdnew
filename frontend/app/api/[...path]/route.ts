@@ -313,8 +313,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({success:true,from,to,receipts:receipts.rows,expenses:expenses.rows,handovers:handovers.rows,
         summary:{total_receipts:receipts.rows.reduce((s:number,x:any)=>s+num(x.amount),0),cash_received:cash,expenses:exp,refunds:0,ho_handover:ho,opening_balance:opening,net_movement:cash-exp-ho,closing_balance:opening+cash-exp-ho}});
     }
+    if(p==="dealer/cash-book/expenses"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT id,expense_no,expense_date AS date,category,amount,paid_to,remarks FROM dealer_cash_expense WHERE dealer_id=$1 ORDER BY expense_date DESC,id DESC",[num(a.dealer_id)]);
+      return Response.json({success:true,expenses:r.rows});
+    }
     if(p==="dealer/cash-book/all-receipts"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT id,receipt_no,receipt_date AS date,customer_name,customer_phone,amount,dealer_register_page_no FROM dealer_cash_receipt WHERE dealer_id=$1 ORDER BY receipt_date DESC,id DESC",[num(a.dealer_id)]);
+      const r=await pool.query("SELECT r.id,r.receipt_no,r.receipt_date AS date,r.customer_name,r.customer_phone,r.amount,r.dealer_register_page_no,COALESCE(c.loan_amount,0) AS loan_amount FROM dealer_cash_receipt r LEFT JOIN dealer_cash_customer c ON c.id=r.customer_id WHERE r.dealer_id=$1 ORDER BY r.receipt_date DESC,r.id DESC",[num(a.dealer_id)]);
       return Response.json({success:true,receipts:r.rows});
     }
     if(p==="dealer/cash-book/customers"&&a.scope==="dealer"){
@@ -763,6 +767,38 @@ async function mutation(req:Request,params:any,method:string){
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const dealerId=num(a.dealer_id);
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,dealerId]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null;
+      const loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const upd=await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2 RETURNING *",[page,id]);
+        if(rr.rows[0].customer_id) await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),dealerId]);
+        await client.query("COMMIT");
+        return Response.json({success:true,receipt:upd.rows[0]});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const page=String(b.page_no||"").trim()||null;
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[page,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404});
+      return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("tax-invoices/") && method==="POST" && path.length===2 && a.scope==="dealer"){
+      const id=idOf(path[1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET dealer_page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.dealer_page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Invoice not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0]});
+    }
     if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
       const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
       const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
