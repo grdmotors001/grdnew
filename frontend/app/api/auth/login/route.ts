@@ -6,11 +6,21 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
 const secret = process.env.JWT_SECRET || "grd-node-change-this-secret";
 
 function verifyWerkzeug(hash:string, password:string){
-  const m=hash.match(/^pbkdf2:sha256:(\d+)\$([^$]+)\$([^$]+)$/);
-  if(!m) return false;
-  const iterations=Number(m[1]), salt=m[2], expected=m[3];
-  const actual=crypto.pbkdf2Sync(password,salt,iterations,32,"sha256").toString("hex");
-  return crypto.timingSafeEqual(Buffer.from(actual),Buffer.from(expected));
+  if(!hash) return false;
+  // Existing GRD users may have older Werkzeug PBKDF2 variants.
+  let m=hash.match(/^pbkdf2:(sha1|sha256|sha512):(\d+)\$([^$]+)\$([^$]+)$/);
+  if(m){
+    const digest=m[1], iterations=Number(m[2]), salt=m[3], expected=m[4];
+    const actual=crypto.pbkdf2Sync(password,salt,iterations,Math.floor(expected.length/2),digest).toString("hex");
+    return actual.length===expected.length && crypto.timingSafeEqual(Buffer.from(actual),Buffer.from(expected));
+  }
+  m=hash.match(/^scrypt:(\d+):(\d+):(\d+)\$([^$]+)\$([^$]+)$/);
+  if(m){
+    const N=Number(m[1]), r=Number(m[2]), p=Number(m[3]), salt=m[4], expected=m[5];
+    const actual=crypto.scryptSync(password,salt,Buffer.from(expected,"hex").length,{N,r,p,maxmem:Math.max(128*N*r+1024,64*1024*1024)}).toString("hex");
+    return actual.length===expected.length && crypto.timingSafeEqual(Buffer.from(actual),Buffer.from(expected));
+  }
+  return false;
 }
 function token(user:any,scope="staff",extra:any={}){
   return jwt.sign({sub:user.id,username:user.username,scope,...extra},secret,{expiresIn:"12h"});
