@@ -269,7 +269,9 @@ export function ProductPage() {
 
   const load = (p = page) => {
     const params = new URLSearchParams({ page: p, per_page: 50 });
-    if (typeFilter !== 'ALL') params.set('fro', typeFilter);
+    if (typeFilter === 'F') params.set('category', 'FINISHED');
+    else if (typeFilter === 'R') params.set('category', 'RAW');
+    else if (typeFilter === 'D') params.set('category', 'DISPATCH');
     if (search.trim()) params.set('search', search.trim());
     get(`/products?${params}`).then((d) => { setRows(d.products || []); setMeta(d); }).catch((e) => setError(e.message));
   };
@@ -282,7 +284,7 @@ export function ProductPage() {
 
   const openNew = () => {
     setEditingId(null);
-    setForm({ unit: 'PCS', fro: 'F', fuel_type: 'Battery/Electric', gst_rate: 5 });
+    setForm({ unit: 'PCS', fro: 'F', product_category: 'FINISHED', show_on_delivery_challan: false, fuel_type: 'Battery/Electric', gst_rate: 5 });
     setOpen(true);
   };
 
@@ -309,6 +311,7 @@ export function ProductPage() {
         <button className={'btn' + (typeFilter === 'ALL' ? ' primary' : '')} onClick={() => setTypeFilter('ALL')}>All</button>
         <button className={'btn' + (typeFilter === 'F' ? ' primary' : '')} onClick={() => setTypeFilter('F')}>Finished</button>
         <button className={'btn' + (typeFilter === 'R' ? ' primary' : '')} onClick={() => setTypeFilter('R')}>Raw Material</button>
+        <button className={'btn' + (typeFilter === 'D' ? ' primary' : '')} onClick={() => setTypeFilter('D')}>Dispatch</button>
         <input className="input" placeholder="Search by name, code, HSN or chassis item code"
                value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 340 }} />
         {search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}
@@ -327,7 +330,7 @@ export function ProductPage() {
                       {p.name}
                     </a>
                   </td>
-                  <td>{p.fro === 'F' ? 'Finished' : 'Raw Material'}</td>
+                  <td>{String(p.category || p.product_category || '').toUpperCase() === 'DISPATCH' ? 'Dispatch' : String(p.category || p.product_category || '').toUpperCase() === 'FINISHED' ? 'Finished' : 'Raw Material'}</td>
                   <td>{p.unit}</td><td>{p.gst_rate}</td><td>{p.hsn_code}</td><td>{p.chassis_item_code}</td>
                   <td><LogoStatusCell umrnCode={p.umrn_code} fro={p.fro} /></td>
                 </tr>
@@ -344,9 +347,14 @@ export function ProductPage() {
             <div className="formgrid">
               <Field label="Code" value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
               <Field label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
-              <Field label="Type" type="select" value={form.fro}
-                     options={[{ value: 'F', label: 'Finished Product' }, { value: 'R', label: 'Raw Material' }]}
-                     onChange={(v) => setForm({ ...form, fro: v })} />
+              <Field label="Category" type="select" value={form.product_category || (form.fro === 'F' ? 'FINISHED' : 'RAW')}
+                     options={[{ value: 'RAW', label: 'Raw' }, { value: 'FINISHED', label: 'Finished' }, { value: 'DISPATCH', label: 'Dispatch' }]}
+                     onChange={(v) => setForm({ ...form, product_category: v, show_on_delivery_challan: v === 'DISPATCH' ? !!form.show_on_delivery_challan : false })} />
+              {String(form.product_category || '').toUpperCase() === 'DISPATCH' && (
+                <Field label="Show on Delivery Challan?" type="select" value={form.show_on_delivery_challan ? 'YES' : 'NO'}
+                       options={[{ value: 'YES', label: 'Yes' }, { value: 'NO', label: 'No' }]}
+                       onChange={(v) => setForm({ ...form, show_on_delivery_challan: v === 'YES' })} />
+              )}
               <Field label="Unit" value={form.unit} onChange={(v) => setForm({ ...form, unit: v })} />
               <Field label="GST Rate %" type="number" value={form.gst_rate} onChange={(v) => setForm({ ...form, gst_rate: v })} />
               <Field label="HSN Code" value={form.hsn_code} onChange={(v) => setForm({ ...form, hsn_code: v })} />
