@@ -9,6 +9,7 @@ export function ProductionFormulaPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [isExisting, setIsExisting] = useState(false);
   const [modalForm, setModalForm] = useState(null);
+  const [previewFormula, setPreviewFormula] = useState(null);
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => get('/production-formulas').then(setData).catch((e) => setError(e.message));
@@ -129,7 +130,7 @@ export function ProductionFormulaPage() {
       {visibleFormulas.length === 0 ? <EmptyState text="No formulas yet." /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Formula Name</th><th>Finished Product</th><th>Raw Material Lines</th></tr></thead>
+            <thead><tr><th>Formula Name</th><th>Finished Product</th><th>Raw Material Lines</th><th></th></tr></thead>
             <tbody>
               {visibleFormulas.map((g) => (
                 <tr key={`${g.formula_name}::${g.product_name}`}>
@@ -140,6 +141,7 @@ export function ProductionFormulaPage() {
                   </td>
                   <td>{g.product_name}</td>
                   <td>{g.lines.length}</td>
+                  <td><button className="btn" onClick={() => setPreviewFormula(g)}>Preview Items</button></td>
                 </tr>
               ))}
             </tbody>
@@ -147,6 +149,27 @@ export function ProductionFormulaPage() {
         </div>
       )}
 
+      {previewFormula && (
+        <div className="modal" onMouseDown={e => { if (e.target === e.currentTarget) setPreviewFormula(null); }}>
+          <div className="modalbox" style={{ maxWidth: 760 }}>
+            <div className="pageHeader">
+              <div><h2 style={{ margin: 0 }}>Formula Preview</h2><p className="muted">{previewFormula.formula_name} • {previewFormula.product_name}</p></div>
+              <button className="btn" onClick={() => setPreviewFormula(null)}>Close</button>
+            </div>
+            <div className="tablewrap" style={{ marginTop: 14 }}>
+              <table className="table">
+                <thead><tr><th>#</th><th>Raw Material</th><th>Qty</th><th>Unit</th></tr></thead>
+                <tbody>{(previewFormula.lines || []).map((l, i) => (
+                  <tr key={l.id || i}><td>{i + 1}</td><td><b>{l.raw_item_name}</b></td><td>{l.qty}</td><td>{l.unit}</td></tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <div className="card" style={{ marginTop: 12, background: '#f8fafc' }}>
+              <b>Total formula lines:</b> {previewFormula.lines?.length || 0}
+            </div>
+          </div>
+        </div>
+      )}
       {modalOpen && (
         <div className="modal">
           <form className="modalbox" onSubmit={saveModal} style={{ maxWidth: 720 }}>
