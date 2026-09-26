@@ -316,6 +316,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="dealer/seized-vehicles"&&a.scope==="dealer"){
       return Response.json({vehicles:[],count:0,status:"HOLD"});
     }
+    if(p.startsWith("users/") && p.endsWith("/option-setting")){
+      const uid=idOf(path[path.length-2]);if(!uid)return Response.json({error:"User id required."},{status:400});
+      const r=await pool.query('SELECT allowed_modules FROM "user" WHERE id=$1',[uid]);if(!r.rowCount)return Response.json({error:"User not found."},{status:404});
+      const v=r.rows[0]?.allowed_modules;const selected=Array.isArray(v)?v.map((x:any)=>String(x)):String(v||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+      return Response.json({selected_keys:selected,modules:selected});
+    }
     if(p==="auth/me"){
       const r=await pool.query('SELECT id,username,mobile,department,is_super_user,allowed_modules FROM "user" WHERE id=$1',[num(a.sub)]);
       return Response.json({user:r.rows[0]||null});
@@ -350,6 +356,22 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const totals=rows.reduce((a:any,x:any)=>(a.value+=x.value_amt,a.loan+=x.loan_amt,a.received+=x.amt_recd,a.balance+=x.balance,a),{value:0,loan:0,received:0,balance:0});
       if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Payment_Receivable_Report.csv");
       return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),totals});
+    }
+    if(p.startsWith("users/") && p.endsWith("/password")){
+      const uid=idOf(path[path.length-2]),body:any=await json(req),np=String(body.new_password||""),cp=String(body.confirm_password||"");
+      if(!uid)return Response.json({error:"User id required."},{status:400});
+      if(!np||np!==cp)return Response.json({error:"Passwords do not match."},{status:400});
+      const crypto=await import("crypto"),salt=crypto.randomBytes(16).toString("hex"),hash=crypto.pbkdf2Sync(np,salt,260000,32,"sha256").toString("hex"),value="pbkdf2:sha256:260000$"+salt+"$"+hash;
+      const r=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2 RETURNING id,username',[value,uid]);
+      return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
+    }
+    if(p.startsWith("users/") && p.endsWith("/option-setting")){
+      const uid=idOf(path[path.length-2]),body:any=await json(req),modules=Array.isArray(body.modules)?body.modules.map((x:any)=>String(x).trim()).filter(Boolean):[];
+      if(!uid)return Response.json({error:"User id required."},{status:400});
+      const meta=await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='user' AND column_name='allowed_modules'");
+      const value=String(meta.rows[0]?.data_type||"").toLowerCase()==="array"?modules:modules.join(",");
+      const r=await pool.query('UPDATE "user" SET allowed_modules=$1 WHERE id=$2 RETURNING id,username,allowed_modules',[value,uid]);
+      return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
