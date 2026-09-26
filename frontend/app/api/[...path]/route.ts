@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import { Pool } from "pg";
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
-const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
+const pool=new Pool({connectionString:process.env.DATABASE_URL,max:1,ssl:{rejectUnauthorized:false}});
 const secret=process.env.JWT_SECRET||"grd-node-change-this-secret";
 
 function auth(req:Request){
