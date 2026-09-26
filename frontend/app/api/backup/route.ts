@@ -23,9 +23,9 @@ const EXCLUDE_TABLES = new Set(["_prisma_migrations"]);
 
 async function listTables(): Promise<string[]> {
   const r = await pool.query(
-    \`SELECT table_name FROM information_schema.tables
+    `SELECT table_name FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-     ORDER BY table_name\`
+     ORDER BY table_name`
   );
   return r.rows.map((row: any) => row.table_name).filter((n: string) => !EXCLUDE_TABLES.has(n));
 }
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     const tableNames = await listTables();
     const tables: Record<string, any[]> = {};
     for (const name of tableNames) {
-      const q = await pool.query(\`SELECT * FROM "\${name}"\`);
+      const q = await pool.query(`SELECT * FROM "\${name}"`);
       tables[name] = q.rows;
     }
     const payload = {
@@ -49,12 +49,12 @@ export async function GET(req: Request) {
       table_count: tableNames.length,
       tables,
     };
-    const filename = \`grd-backup-\${new Date().toISOString().slice(0, 10)}.json\`;
+    const filename = `grd-backup-\${new Date().toISOString().slice(0, 10)}.json`;
     return new Response(JSON.stringify(payload), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Content-Disposition": \`attachment; filename="\${filename}"\`,
+        "Content-Disposition": `attachment; filename="\${filename}"`,
       },
     });
   } catch (e: any) {
@@ -99,17 +99,17 @@ export async function POST(req: Request) {
         for (const row of rows) {
           const cols = Object.keys(row);
           if (!cols.length) continue;
-          const colList = cols.map((c) => \`"\${c}"\`).join(",");
-          const placeholders = cols.map((_, i) => \`$\${i + 1}\`).join(",");
+          const colList = cols.map((c) => `"\${c}"`).join(",");
+          const placeholders = cols.map((_, i) => `$\${i + 1}`).join(",");
           const vals = cols.map((c) => row[c]);
           let sql: string;
           if (cols.includes("id")) {
-            const updates = cols.filter((c) => c !== "id").map((c) => \`"\${c}"=EXCLUDED."\${c}"\`).join(",");
+            const updates = cols.filter((c) => c !== "id").map((c) => `"\${c}"=EXCLUDED."\${c}"`).join(",");
             sql = updates
-              ? \`INSERT INTO "\${name}" (\${colList}) VALUES (\${placeholders}) ON CONFLICT (id) DO UPDATE SET \${updates}\`
-              : \`INSERT INTO "\${name}" (\${colList}) VALUES (\${placeholders}) ON CONFLICT (id) DO NOTHING\`;
+              ? `INSERT INTO "\${name}" (\${colList}) VALUES (\${placeholders}) ON CONFLICT (id) DO UPDATE SET \${updates}`
+              : `INSERT INTO "\${name}" (\${colList}) VALUES (\${placeholders}) ON CONFLICT (id) DO NOTHING`;
           } else {
-            sql = \`INSERT INTO "\${name}" (\${colList}) VALUES (\${placeholders})\`;
+            sql = `INSERT INTO "\${name}" (\${colList}) VALUES (\${placeholders})`;
           }
           await client.query(sql, vals);
           restored++;
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
         if (rows[0] && Object.prototype.hasOwnProperty.call(rows[0], "id")) {
           try {
             await client.query(
-              \`SELECT setval(pg_get_serial_sequence($1, 'id'), COALESCE((SELECT MAX(id) FROM "\${name}"), 1))\`,
+              `SELECT setval(pg_get_serial_sequence($1, 'id'), COALESCE((SELECT MAX(id) FROM "\${name}"), 1))`,
               [name]
             );
           } catch {
