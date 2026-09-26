@@ -135,17 +135,12 @@ export default function App() {
     const token = getToken();
     if (!token) { setCheckedAuth(true); return; }
     const portal = getPortalKind();
-    const savedDealer = typeof window !== 'undefined'
-      ? (() => { try { return JSON.parse(window.localStorage.getItem('grd_dealer_profile') || 'null'); } catch { return null; } })()
-      : null;
-
     const restore = portal === 'dealer'
-      ? get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => {
+      ? get('/dealer/me', { preserveAuthOn401: true }).then((result) => {
+          const dealer = result?.dealer || result;
+          if (!dealer) throw new Error('Dealer session could not be restored');
           window.localStorage.setItem('grd_dealer_profile', JSON.stringify(dealer));
           setUser({ ...dealer, is_dealer: true });
-        }).catch(() => {
-          if (savedDealer) setUser({ ...savedDealer, is_dealer: true });
-          else throw new Error('Dealer session could not be restored');
         })
       : portal === 'staff'
         ? get('/auth/me', { preserveAuthOn401: true }).then(setUser)
