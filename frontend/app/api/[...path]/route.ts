@@ -96,9 +96,25 @@ function canRead(a:any,p:string){
   if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
   return true;
 }
+// Dealer battery portal writes are explicitly gated by the module flags
+// carried in the dealer JWT. This restores the legacy portal behaviour without
+// opening generic staff/master CRUD to dealer tokens.
+const DEALER_WRITE_MODULE:any={
+  "battery-swap-vouchers":"battery-swap",
+  "battery-withdrawal":"battery-withdrawal",
+  "battery-addition":"battery-addition"
+};
 function canWrite(a:any,p:string){
   // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
-  if(a?.scope==="dealer") return p==="dealer/submit-loan";
+  if(a?.scope==="dealer"){
+    if(p==="dealer/submit-loan")return true;
+    const need=DEALER_WRITE_MODULE[p];
+    if(!need)return false;
+    const mods=Array.isArray(a?.portal_modules)
+      ? a.portal_modules.map((x:any)=>String(x))
+      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+    return mods.includes(need);
+  }
   // Admins retain full mutation access.
   if(isAdmin(a)) return true;
   // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
@@ -146,10 +162,24 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+")");}
       w.push("COALESCE(ti.cancelled,false)=false");
       const where=w.length?" WHERE "+w.join(" AND "):"";
+      // GST split/total fields are computed properties in the legacy model,
+      // not persisted columns in tax_invoice. Compute them from state_type,
+      // gst_rate and the stored taxable components directly in SQL.
       const base=`SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,ti.product_name,ti.chassis_no,ti.financer_name,ti.hypothecation_amount,ti.subsidy_amount,
         GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0) AS taxable_value,
-        COALESCE(ti.cgst_amount,0) AS cgst_amount,COALESCE(ti.sgst_amount,0) AS sgst_amount,COALESCE(ti.igst_amount,0) AS igst_amount,
-        COALESCE(ti.bill_total, GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)+COALESCE(ti.cgst_amount,0)+COALESCE(ti.sgst_amount,0)+COALESCE(ti.igst_amount,0)) AS bill_total
+        CASE WHEN COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'
+          THEN GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/200
+          ELSE 0 END AS cgst_amount,
+        CASE WHEN COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'
+          THEN GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/200
+          ELSE 0 END AS sgst_amount,
+        CASE WHEN COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'
+          THEN 0
+          ELSE GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/100
+        END AS igst_amount,
+        GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)
+          + GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/100
+          + COALESCE(ti.insurance_amount,0) + COALESCE(ti.registration_amount,0) AS bill_total
         FROM tax_invoice ti`;
       const r=await pool.query(base+where+" ORDER BY ti.date DESC,ti.id DESC",args);
       const rows=r.rows.map((x:any)=>({...x,tax_amount:num(x.cgst_amount)+num(x.sgst_amount)+num(x.igst_amount)}));
