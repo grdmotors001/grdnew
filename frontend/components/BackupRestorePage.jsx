@@ -14,7 +14,7 @@ export function BackupRestorePage({ user }) {
     setBusy(true);
     setMessage(null);
     try {
-      const filename = \`grd-backup-\${new Date().toISOString().slice(0, 10)}.json\`;
+      const filename = `grd-backup-\${new Date().toISOString().slice(0, 10)}.json`;
       await downloadText('/backup', filename);
       setMessage({ type: 'ok', text: 'Backup downloaded: ' + filename });
     } catch (e) {
