@@ -963,23 +963,3 @@ async function mutation(req:Request,params:any,method:string){
     return genericWrite(req,path,table,method);
   }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
 }
-+args.length);}
-      else if(fro && cols.has("fro")){args.push(fro);where.push('"fro"=
-        const terms:string[]=[];
-        for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
-          if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
-        }
-        if(terms.length)where.push("("+terms.join(" OR ")+")");
-      }
-      const whereSql=where.length?" WHERE "+where.join(" AND "):"";
-      const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
-      const offset=(page-1)*per;
-      const rows=await pool.query('SELECT * FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
-      const totalCount=Number(total.rows[0]?.n||0);
-      return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
-    }
-    const table=tableFor(path);
-    if(table)return genericGet(req,path,table);
-    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
-  }catch(e:any){console.error("[node-api GET]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
