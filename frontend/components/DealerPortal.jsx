@@ -419,7 +419,7 @@ function BatteryAdjustmentShell({title,description,onBack,children}) {
 function DealerBatteryWithdrawal({dealer,onBack}) {
   const [form,setForm]=useState({date:new Date().toISOString().slice(0,10),battery_maker:'',battery_no:'',reference_no:''});
   const [saving,setSaving]=useState(false), [error,setError]=useState(''), [message,setMessage]=useState('');
-  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-withdrawal',form);setMessage('Battery stock added successfully.');setForm({...form,battery_no:'',reference_no:'');}catch(err){setError(err.message||'Could not save withdrawal.')}finally{setSaving(false);}};
+  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-withdrawal',form);setMessage('Battery stock added successfully.');setForm({...form,battery_no:'',reference_no:''});catch(err){setError(err.message||'Could not save withdrawal.')}finally{setSaving(false);}};
   return <BatteryAdjustmentShell title="Battery Withdrawal" description="Withdraw / receive a battery into this dealer's battery stock." onBack={onBack}>
     <form onSubmit={submit} className="formgrid" style={{padding:16}}>
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
