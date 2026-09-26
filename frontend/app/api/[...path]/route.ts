@@ -81,10 +81,18 @@ async function genericGet(req:Request,path:string[],table:string){
   }
   sql+=" ORDER BY id DESC LIMIT 1000";
   const r=await pool.query(sql,args);
+  if(path[0]==="masters") return Response.json(r.rows);
+  if(path[0]==="purchase-bills") return Response.json(r.rows);
   return Response.json({rows:r.rows,data:r.rows,items:r.rows,count:r.rowCount,
     ...(table==="dealer"?{dealers:r.rows}:{}),
     ...(table==="customer"?{customers:r.rows}:{}),
     ...(table==="loan_workflow"?{applications:r.rows}:{}),
+    ...(table==="product"?{products:r.rows}:{}),
+    ...(table==="tax_invoice"?{invoices:r.rows}:{}),
+    ...(table==="credit_note"?{credit_notes:r.rows}:{}),
+    ...(table==="debit_note"?{debit_notes:r.rows}:{}),
+    ...(table==="old_rickshaw"?{rickshaws:r.rows}:{}),
+    ...(table==="user"?{users:r.rows}:{}),
     ...(table==="simple_master"?{masters:r.rows}:{})
   });
 }
@@ -220,14 +228,16 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({rows:pageRows,page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per)),totals});
     }
     if(p==="dashboard"){
-      const [v,s]=await Promise.all([
-        pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100"),
-        pool.query("SELECT stage,COUNT(*)::int AS count FROM vehicle GROUP BY stage")
+      const [counts,monthly,billed,recent]=await Promise.all([
+        pool.query("SELECT COALESCE(stage,'Unknown') AS stage,COUNT(*)::int AS count FROM vehicle GROUP BY stage"),
+        pool.query("SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*) FILTER (WHERE stage='Manufacturing')::int AS manufacturing,COUNT(*) FILTER (WHERE stage='Delivery Challan')::int AS delivery_challan,COUNT(*) FILTER (WHERE stage='Tax Invoice')::int AS tax_invoice FROM vehicle WHERE date >= (CURRENT_DATE - INTERVAL '11 months') GROUP BY 1 ORDER BY 1"),
+        pool.query("SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*) FILTER (WHERE COALESCE(NULLIF(UPPER(TRIM(state_type)),''),'I')<>'I')::int AS interstateCount,COALESCE(SUM(CASE WHEN COALESCE(NULLIF(UPPER(TRIM(state_type)),''),'I')<>'I' THEN GREATEST(COALESCE(gst_sale_amount,sale_amount,0)-COALESCE(discount,0),0) ELSE 0 END),0)::numeric AS interstateTaxable,COUNT(*) FILTER (WHERE COALESCE(NULLIF(UPPER(TRIM(state_type)),''),'I')='I')::int AS localCount,COALESCE(SUM(CASE WHEN COALESCE(NULLIF(UPPER(TRIM(state_type)),''),'I')='I' THEN GREATEST(COALESCE(gst_sale_amount,sale_amount,0)-COALESCE(discount,0),0) ELSE 0 END),0)::numeric AS localTaxable FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND date >= (CURRENT_DATE - INTERVAL '11 months') GROUP BY 1 ORDER BY 1"),
+        pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100")
       ]);
-      const stage_counts:any={};for(const r of s.rows)stage_counts[r.stage||"Unknown"]=r.count;
-      return Response.json({manufacturing:v.rows.filter((x:any)=>x.stage==="Manufacturing"),
-        delivery_challan:v.rows.filter((x:any)=>x.stage==="Delivery Challan"),
-        tax_invoice:v.rows.filter((x:any)=>x.stage==="Tax Invoice"),stage_counts,monthly:[],billed_monthly:[],cash_at_dealer:0});
+      const stage_counts:any={};for(const x of counts.rows)stage_counts[x.stage]=Number(x.count||0);
+      const total=Object.values(stage_counts).reduce((s:any,x:any)=>s+Number(x||0),0);
+      const manufacturing=recent.rows.filter((x:any)=>x.stage==="Manufacturing"),delivery_challan=recent.rows.filter((x:any)=>x.stage==="Delivery Challan"),tax_invoice=recent.rows.filter((x:any)=>x.stage==="Tax Invoice");
+      return Response.json({manufacturing,delivery_challan,tax_invoice,stage_counts,total_vehicles:total,counts:{manufacturing:Number(stage_counts.Manufacturing||0),delivery_challan:Number(stage_counts["Delivery Challan"]||0),tax_invoice:Number(stage_counts["Tax Invoice"]||0),total},monthly:monthly.rows,billed_monthly:billed.rows,cash_at_dealer:0});
     }
     if(p==="nav-config"){
       const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");
@@ -381,6 +391,53 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const did=a.scope==="dealer"?num(a.dealer_id):null;
       const r=did?await pool.query("SELECT * FROM loan_workflow WHERE dealer_id=$1 ORDER BY id DESC",[did]):await pool.query("SELECT * FROM loan_workflow ORDER BY id DESC LIMIT 1000");
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount});
+    }
+    if(p==="reports/payment-receivable"){
+      const u=new URL(req.url);
+      const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
+      const showAll=String(u.searchParams.get("show_all")||"1")!=="0";
+      const args:any[]=[]; const w:string[]=["COALESCE(ti.cancelled,false)=false"];
+      if(from){args.push(from);w.push("ti.date >= $"+args.length+"::date")}
+      if(to){args.push(to);w.push("ti.date <= $"+args.length+"::date")}
+      if(search){args.push("%"+search+"%");w.push("(LOWER(COALESCE(ti.dealer_name,'')) LIKE $"+args.length+" OR LOWER(COALESCE(ti.buyer_name,'')) LIKE $"+args.length+" OR LOWER(COALESCE(ti.bill_no,'')) LIKE $"+args.length+" OR LOWER(COALESCE(ti.chassis_no,'')) LIKE $"+args.length+")")}
+      const rr=await pool.query("SELECT ti.* FROM tax_invoice ti WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC",args);
+      let rows=rr.rows.map((x:any)=>{const value=num(x.sale_amount);const loan=num(x.hypothecation_amount);const received=num(x.amount_received);const balance=value-loan-received;return {
+        ...x,date:x.date,dealer_name:x.dealer_name||"",bill_no:x.bill_no||"",model:x.product_name||x.model_name||"",chassis_no:x.chassis_no||"",
+        other:x.other||"",customer:x.buyer_name||"",mobile_no:x.buyer_mobile||x.customer_phone||"",value_amt:value,loan_amt:loan,amt_recd:received,balance,
+        financer:x.financer_name||"",rto:x.rto||x.rto_name||"",chassis_record:x.chassis_record||"",ledger:x.ledger||"",voucher_no:x.voucher_no||"",
+        cheque_no:x.cheque_no||"",vehicle_no:x.vehicle_reg_no||"",salesman:x.salesman||"",incentive_amount:num(x.incentive_amount),
+        incentive_voucher_no:x.incentive_voucher_no||"",incentive_date:x.incentive_date||null,expense_total:num(x.expense_total),expense_details:Array.isArray(x.expense_details)?x.expense_details:[]
+      }});
+      if(!showAll)rows=rows.filter((x:any)=>x.balance>0);
+      const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
+      const pageRows=rows.slice(start,start+per);
+      const totals=rows.reduce((a:any,x:any)=>(a.value+=num(x.value_amt),a.loan+=num(x.loan_amt),a.received+=num(x.amt_recd),a.balance+=num(x.balance),a),{value:0,loan:0,received:0,balance:0});
+      if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Payment_Receivable_Report.csv");
+      return Response.json({rows:pageRows,page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),totals});
+    }
+    if(p==="reports/delivery-challan-register"){
+      const u=new URL(req.url),args:any[]=[];const w:string[]=["COALESCE(dc.cancelled,false)=false"];
+      const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim();
+      const status=u.searchParams.get("status")||"all";
+      if(from){args.push(from);w.push("dc.date >= $"+args.length+"::date")} if(to){args.push(to);w.push("dc.date <= $"+args.length+"::date")}
+      if(search){args.push("%"+search+"%");w.push("(dc.challan_no ILIKE $"+args.length+" OR dc.chassis_no ILIKE $"+args.length+" OR dc.dealer_name ILIKE $"+args.length+" OR dc.product_name ILIKE $"+args.length+")")}
+      if(status==="sold")w.push("EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)");
+      if(status==="unsold")w.push("NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)");
+      for(const [param,col] of [["product","product_name"],["dealer","dealer_name"],["salesman","salesman"],["battery","battery_maker"]]){const v=u.searchParams.get(param);if(v&&v!=="ALL"){args.push(v);w.push("COALESCE(dc."+col+",'')=$"+args.length)}}
+      const rr=await pool.query("SELECT dc.*,COALESCE(dc.dealer_name,d.name) AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE "+w.join(" AND ")+" ORDER BY dc.date DESC,dc.id DESC",args);
+      const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||100)),start=(page-1)*per;
+      const rows=rr.rows;const filters={product:[...new Set(rows.map((x:any)=>x.product_name).filter(Boolean))],dealer:[...new Set(rows.map((x:any)=>x.dealer_name).filter(Boolean))],salesman:[...new Set(rows.map((x:any)=>x.salesman).filter(Boolean))],battery:[...new Set(rows.map((x:any)=>x.battery_maker).filter(Boolean))]};
+      if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Delivery_Challan_Register.csv");
+      return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),filters});
+    }
+    if(p==="delivery-challans"){
+      const u=new URL(req.url);const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
+      const args:any[]=[];let where="WHERE COALESCE(dc.cancelled,false)=false";
+      if(search){args.push("%"+search+"%");where+=" AND (dc.challan_no ILIKE $"+args.length+" OR dc.chassis_no ILIKE $"+args.length+" OR dc.dealer_name ILIKE $"+args.length+" OR dc.product_name ILIKE $"+args.length+")"}
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc "+where,args);
+      const rows=await pool.query("SELECT dc.*,COALESCE(dc.dealer_name,d.name) AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id "+where+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:Number(total.rows[0]?.n||0),total_pages:Math.max(1,Math.ceil(Number(total.rows[0]?.n||0)/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
     }
     if(p==="stock/closing-premises"){
       const r=await pool.query(`
