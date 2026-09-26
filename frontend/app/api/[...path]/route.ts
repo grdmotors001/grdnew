@@ -280,7 +280,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(status!=="all"){args.push(status.toUpperCase());w.push("f.status=$"+args.length);}
       if(search){args.push("%"+search+"%");w.push("(COALESCE(f.product_name,'') ILIKE $"+args.length+" OR COALESCE(pv.vou_no,'') ILIKE $"+args.length+" OR COALESCE(pv.chassis_no,'') ILIKE $"+args.length+")");}
       const where=w.length?" WHERE "+w.join(" AND "):"";
-      const r=await pool.query("SELECT f.*,pv.vou_no,pv.chassis_no,pv.motor_no,pv.formula_name FROM factory_check_report f JOIN production_voucher pv ON pv.id=f.production_voucher_id"+where+" ORDER BY f.date DESC,f.id DESC",args);
+      const r=await pool.query("SELECT f.*,pv.vou_no,pv.chassis_no,pv.motor_no FROM factory_check_report f JOIN production_voucher pv ON pv.id=f.production_voucher_id"+where+" ORDER BY f.date DESC,f.id DESC",args);
       const ids=r.rows.map((x:any)=>x.id);
       const items=ids.length?await pool.query("SELECT * FROM factory_check_item WHERE report_id=ANY($1::bigint[]) ORDER BY id",[ids]):{rows:[]};
       const grouped:any={};for(const x of items.rows)(grouped[x.report_id] ||= []).push(x);
@@ -288,7 +288,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(p.startsWith("factory-check-reports/") && p.endsWith("/preview")){
       await ensureFactoryCheckSchema();const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Report id required."},{status:400});
-      const r=await pool.query("SELECT f.*,pv.vou_no,pv.chassis_no,pv.motor_no,pv.product_name AS pv_product_name,pv.quantity AS pv_quantity,pv.formula_name FROM factory_check_report f JOIN production_voucher pv ON pv.id=f.production_voucher_id WHERE f.id=$1",[id]);
+      const r=await pool.query("SELECT f.*,pv.vou_no,pv.chassis_no,pv.motor_no,pv.product_name AS pv_product_name,pv.quantity AS pv_quantity FROM factory_check_report f JOIN production_voucher pv ON pv.id=f.production_voucher_id WHERE f.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Factory Check Report not found."},{status:404});
       const items=await pool.query("SELECT * FROM factory_check_item WHERE report_id=$1 ORDER BY id",[id]);
       return Response.json({report:r.rows[0],items:items.rows});
