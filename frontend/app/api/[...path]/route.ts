@@ -1098,6 +1098,25 @@ async function mutation(req:Request,params:any,method:string){
       const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
       return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
     }
+    if(p.startsWith("credit-notes/") && p.endsWith("/cancel-challan") && method==="POST"){
+      await ensureCreditDebitSchema();await ensureDispatchSchema();await ensureBatteryRegisterSchema();
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Credit Note id required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const cn=await client.query("SELECT * FROM credit_note WHERE id=$1 FOR UPDATE",[id]);if(!cn.rowCount)throw new Error("Credit Note not found.");
+        const dcId=idOf(cn.rows[0].delivery_challan_id);if(!dcId)throw new Error("No Delivery Challan is linked to this Credit Note.");
+        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE",[dcId]);if(!dc.rowCount)throw new Error("Linked Delivery Challan not found.");
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[dcId]);
+          for(const item of items.rows){const qty=Math.max(0,Number(item.qty)||0);if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Credit Note Challan Reversal',NOW(),'IN',$1)",[String(dc.rows[0].challan_no||("DC-"+dcId)),dc.rows[0].date,item.product_name,qty]);}
+          await client.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1",[dcId]);
+          await toggleBatteryRegisterForDelivery(client,dc.rows[0],true);
+          if(dc.rows[0].vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[dc.rows[0].vehicle_id]);
+        }
+        await client.query("COMMIT");return Response.json({success:true,message:"Credit Note linked Delivery Challan cancelled and stock reversed."});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
       const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Record id required."},{status:400});
       await ensureDispatchSchema();await ensureBatteryRegisterSchema();const client=await pool.connect();
