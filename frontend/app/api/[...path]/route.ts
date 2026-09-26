@@ -266,6 +266,8 @@ function canWrite(a:any,p:string){
       : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
     return mods.includes(need);
   }
+  // Billing staff may operate the Pending Sales approval/invoice workflow.
+  if(p.startsWith("billing/pending-sales") && billingStaff(a)) return true;
   // Admins retain full mutation access.
   if(isAdmin(a)) return true;
   // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
