@@ -211,9 +211,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM production_formula WHERE product_code=$1 OR product_name=$1 ORDER BY id",[product]);
       return Response.json({rows:r.rows,items:r.rows,data:r.rows});
     }
+    if(p==="production-formulas"){
+      const r=await pool.query("SELECT * FROM production_formula ORDER BY product_name,formula_name,id");
+      const grouped:any[]=[]; const map=new Map<string,any>();
+      for(const row of r.rows){const key=String(row.formula_name||"")+"::"+String(row.product_name||"");let g=map.get(key);if(!g){g={formula_name:row.formula_name,product_name:row.product_name,lines:[]};map.set(key,g);grouped.push(g)}g.lines.push(row)}
+      const products=await pool.query("SELECT name,fro FROM product ORDER BY name");
+      return Response.json({grouped,rows:r.rows,lines:r.rows,finished_products:products.rows.filter((x:any)=>x.fro!=="R"),raw_materials:products.rows.filter((x:any)=>x.fro==="R")});
+    }
     if(p==="production-formulas/lines"){
-      const r=await pool.query("SELECT * FROM production_formula ORDER BY id");
-      return Response.json({rows:r.rows,items:r.rows,data:r.rows});
+      const u=new URL(req.url),args:any[]=[];const w:string[]=[];
+      const product=u.searchParams.get("product_name")||u.searchParams.get("product")||"";const formula=u.searchParams.get("formula_name")||"";
+      if(product){args.push(product);w.push("product_name=$"+args.length)}if(formula){args.push(formula);w.push("formula_name=$"+args.length)}
+      const r=await pool.query("SELECT * FROM production_formula"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY id",args);
+      return Response.json({rows:r.rows,items:r.rows,data:r.rows,lines:r.rows});
     }
     if(p==="chassis-master/months"){const r=await pool.query("SELECT * FROM chassis_month_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
     if(p==="chassis-master/years"){const r=await pool.query("SELECT * FROM chassis_year_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
