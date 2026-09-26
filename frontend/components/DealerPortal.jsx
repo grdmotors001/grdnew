@@ -121,9 +121,20 @@ export function DealerPortal({ dealer, onLogout }) {
   };
 
   useEffect(() => {
-    Promise.all([get('/dealer/stock'), get('/dealer/old-rickshaws'), get('/dealer/battery-stock'), get('/dealer/delivery-challans'), get('/dealer/tax-invoices')])
-      .then(([s, o, b, c, i]) => { setStock(s); setOldStock(o); setBatteryStock(b); setChallans(c.challans || []); setInvoices(i.invoices || []); })
-      .catch((e) => setError(e.message));
+    // Dealer portal must remain usable if one optional data module is unavailable.
+    // Load each section independently instead of turning one API failure into a
+    // permanent full-page error banner.
+    setError('');
+    const loads = [
+      ['stock', () => get('/dealer/stock').then(setStock)],
+      ['old-rickshaws', () => get('/dealer/old-rickshaws').then(setOldStock)],
+      ['battery-stock', () => get('/dealer/battery-stock').then(setBatteryStock)],
+      ['delivery-challans', () => get('/dealer/delivery-challans').then(r => setChallans(r.challans || []))],
+      ['tax-invoices', () => get('/dealer/tax-invoices').then(r => setInvoices(r.invoices || []))],
+    ];
+    loads.forEach(([name, load]) => load().catch((e) => {
+      console.warn('[dealer-portal] optional module failed:', name, e);
+    }));
     loadLoanStatus();
     get('/dealer/seized-vehicles')
       .then((r) => setSeizedVehicles(r.vehicles || []))
