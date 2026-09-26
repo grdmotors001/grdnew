@@ -32,9 +32,27 @@ export async function POST(req:Request){
     if(!process.env.DATABASE_URL) return Response.json({error:"DATABASE_URL is not configured"}, {status:500});
     const q=await pool.query('SELECT * FROM "user" WHERE username=$1 OR mobile=$1 LIMIT 1',[userid]);
     const user=q.rows[0];
-    if(!user || !verifyWerkzeug(user.password_hash,password)) return Response.json({error:"Invalid Username/Mobile or Password."},{status:401});
-    const otpToken=jwt.sign({pending:true,sub:user.id,username:user.username},secret,{expiresIn:"10m"});
-    const {password_hash,...safe}=user;
-    return Response.json({otp_required:true,otp_token:otpToken,user:safe});
+    if(user && verifyWerkzeug(user.password_hash,password)){
+      const otpToken=jwt.sign({pending:true,sub:user.id,username:user.username},secret,{expiresIn:"10m"});
+      const {password_hash,...safe}=user;
+      return Response.json({otp_required:true,otp_token:otpToken,user:safe,role:user.department||"staff"});
+    }
+
+    // One login screen: if the ID belongs to a Dealer, authenticate it here
+    // instead of forcing the user to switch to a separate Dealer tab.
+    const dr=await pool.query("SELECT * FROM dealer WHERE login_id=$1 LIMIT 1",[userid]);
+    const dealer=dr.rows[0];
+    if(dealer && !dealer.blocked && verifyWerkzeug(dealer.password_hash,password)){
+      const portalModules=String(dealer.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+      const safeDealer={
+        id:dealer.id,code:dealer.code,name:dealer.name,login_id:dealer.login_id,
+        dealer_category:dealer.dealer_category||"dealer",purchase_access:Boolean(dealer.purchase_access),
+        portal_modules:portalModules
+      };
+      const token=jwt.sign({sub:dealer.id,username:dealer.login_id,dealer_id:dealer.id,scope:"dealer",portal_modules:portalModules,role:"dealer"},secret,{expiresIn:"12h"});
+      return Response.json({success:true,token,dealer:safeDealer,user:safeDealer,portal:"dealer",role:"dealer"});
+    }
+
+    return Response.json({error:"Invalid Username/Mobile, Dealer ID or Password."},{status:401});
   }catch(e:any){console.error("[staff-login]",e);return Response.json({error:e.message||"Staff login failed"},{status:500})}
 }
