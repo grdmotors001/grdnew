@@ -33,7 +33,25 @@ function PersonFields({ value, setValue, title, relationLabel, compact=false }) 
   </div>;
 }
 
-async function fileToDataUrl(file){return await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file)})}
+async function fileToDataUrl(file){
+  // Vercel/serverless request bodies are limited; camera photos can easily be
+  // several MB. Compress browser images before embedding them in JSON.
+  if(String(file?.type||'').startsWith('image/')){
+    try{
+      const bitmap=await createImageBitmap(file);
+      const max=1600;
+      const scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.max(1,Math.round(bitmap.width*scale));
+      canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+      bitmap.close?.();
+      return canvas.toDataURL('image/jpeg',0.72);
+    }catch{}
+  }
+  return await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file)});
+}
 
 export function DealerNewLoanForm({ onBack }) {
   const [step,setStep]=useState('borrower');
@@ -92,11 +110,22 @@ export function DealerNewLoanForm({ onBack }) {
     if(!vehicleLoan.loan_amount_requested||!vehicleLoan.tenure_months){setError('Loan amount aur tenure mandatory hai.');setStep('loan');return;}
     setSaving(true);
     try{
+      const photoData=customerPhoto ? await fileToDataUrl(customerPhoto) : null;
+      const documentData=await Promise.all(documents.map(async f=>({
+        name:f.name,
+        type:String(f.type||'application/octet-stream').startsWith('image/')?'image/jpeg':f.type,
+        data_url:await fileToDataUrl(f)
+      })));
+      const approxBytes=[photoData,...documentData.map(x=>x.data_url)].filter(Boolean)
+        .reduce((n,x)=>n+Math.ceil(String(x).length*0.75),0);
+      if(approxBytes>3*1024*1024){
+        throw new Error('Photo/documents ka total size 3 MB se kam rakhein. Mobile photo automatically compress hoti hai.');
+      }
       const d=await post('/dealer/submit-loan',{
         customer_id:customerId||null,borrower,guarantor,co_borrower:coBorrower,vehicle_loan:vehicleLoan,
         loan_type:loanType,
-        customer_photo:customerPhoto ? {name:customerPhoto.name,type:customerPhoto.type,data_url:await fileToDataUrl(customerPhoto)} : null,
-        documents:await Promise.all(documents.map(async f=>({name:f.name,type:f.type,data_url:await fileToDataUrl(f)})))
+        customer_photo:customerPhoto ? {name:customerPhoto.name,type:'image/jpeg',data_url:photoData} : null,
+        documents:documentData
       }, { timeoutMs: 60000 });
       setSuccess(d);
     }catch(e){setError(e.message||'Loan application save nahi hui.')}
