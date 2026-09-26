@@ -560,7 +560,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(p==="purchase-bills"){
       const r=await genericGet(req,path,"purchase_bill"),payload=await r.json(),rows=(payload.rows||[]).map((x:any)=>({...x,items:parseItems(x.items)}));
-      return Response.json({...payload,rows,data:rows,items:rows});
+      return Response.json(rows);
     }
     if(p==="battery-register"){
       await ensureBatteryRegisterSchema();
