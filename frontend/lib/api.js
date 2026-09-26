@@ -1,7 +1,7 @@
-// Talks to the Flask JSON API via the /api/backend/* rewrite in
-// next.config.mjs (see BACKEND_URL there). Auth is a bearer token
-// (see backend/auth.py) instead of session cookies. The token is kept in
-// localStorage and attached to every request.
+// Browser client for the internal Next.js/Node.js API.
+// /api/backend/* is a compatibility prefix routed to the local /api/*
+// handlers. No Flask/Python backend is required at runtime.
+// Auth uses bearer tokens kept in localStorage and attached to requests.
 
 const base = '/api/backend';
 const TOKEN_KEY = 'ebill_token';
