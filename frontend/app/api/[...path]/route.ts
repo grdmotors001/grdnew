@@ -789,15 +789,28 @@ async function mutation(req:Request,params:any,method:string){
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
 
     if(p.startsWith("purchase-bills/") && (method==="PUT" || method==="PATCH" || method==="DELETE")){
-      const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Purchase Bill id required."},{status:400});const client=await pool.connect();
+      const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Purchase Bill id required."},{status:400});
+      const client=await pool.connect();
       try{
-        await client.query("BEGIN");const old=await client.query('SELECT * FROM "purchase_bill" WHERE id=$1 FOR UPDATE',[id]);if(!old.rowCount)throw new Error("Purchase Bill not found.");
-        if(method==="DELETE"){await ensureBatteryRegisterSchema();await client.query("DELETE FROM battery_register_entry WHERE source_type='PURCHASE' AND source_id=$1",[id]);const r=await client.query('DELETE FROM "purchase_bill" WHERE id=$1 RETURNING *',[id]);await client.query("COMMIT");return Response.json({success:true,row:r.rows[0]||null});}
-        const body:any=await json(req),cols=await columns("purchase_bill"),input:any={};for(const [k,v] of Object.entries(body||{})){const col=snake(k);if(cols.has(col)&&col!=="id")input[col]=v;}if(Array.isArray(input.items))input.items=JSON.stringify(input.items);
-        const keys=Object.keys(input);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});const sets=keys.map((k,i)=>'"'+k+'"=
-      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
-      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
-      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+        await client.query("BEGIN");
+        const old=await client.query('SELECT * FROM "purchase_bill" WHERE id=$1 FOR UPDATE',[id]);
+        if(!old.rowCount)throw new Error("Purchase Bill not found.");
+        if(method==="DELETE"){
+          await ensureBatteryRegisterSchema();
+          await client.query("DELETE FROM battery_register_entry WHERE source_type='PURCHASE' AND source_id=$1",[id]);
+          const r=await client.query('DELETE FROM "purchase_bill" WHERE id=$1 RETURNING *',[id]);
+          await client.query("COMMIT");return Response.json({success:true,row:r.rows[0]||null});
+        }
+        const body:any=await json(req),cols=await columns("purchase_bill"),input:any={};
+        for(const [k,v] of Object.entries(body||{})){const col=snake(k);if(cols.has(col)&&col!=="id")input[col]=v;}
+        if(Array.isArray(input.items))input.items=JSON.stringify(input.items);
+        const keys=Object.keys(input);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+        const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+        const r=await client.query('UPDATE "purchase_bill" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
+        const row={...r.rows[0],items:parseItems(r.rows[0].items)};
+        await syncBatteryPurchaseBill(client,row);
+        await client.query("COMMIT");return Response.json({success:true,row,data:row});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
       const id=idOf(path[path.length-2]),b:any=await json(req);
