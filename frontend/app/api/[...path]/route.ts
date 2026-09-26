@@ -727,8 +727,16 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       await ensureFactoryCheckSchema();const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Report id required."},{status:400});
       const name=String(b.raw_item_name||"").trim(),qty=Math.max(0,num(b.qty)||0),unit=String(b.unit||"PCS").trim()||"PCS";
       if(!name||qty<=0)return Response.json({error:"Part name and quantity are required."},{status:400});
-      const r=await pool.query("INSERT INTO factory_check_item (report_id,raw_item_name,expected_qty,consumed_qty,unit,additional,status,remarks) VALUES ($1,$2,0,$3,$4,true,'PENDING',$5) RETURNING *",[id,name,qty,unit,String(b.remarks||"Additional part requested from Factory Check")]);
-      return Response.json({success:true,item:r.rows[0]},{status:201});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const report=await client.query("SELECT * FROM factory_check_report WHERE id=$1 FOR UPDATE",[id]);if(!report.rowCount)throw new Error("Factory Check Report not found.");
+        const stock=await client.query("SELECT COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END),0) AS qty FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1))",[name]);
+        const available=Number(stock.rows[0]?.qty||0);if(available<qty)throw new Error("Insufficient stock for "+name+". Available: "+available);
+        await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,CURRENT_DATE,$2,'RAW',$3,'Factory Check Additional Part',NOW(),$4,'OUT',$1)",["FCR-"+id,name,qty,report.rows[0].product_name||null]);
+        const r=await client.query("INSERT INTO factory_check_item (report_id,raw_item_name,expected_qty,consumed_qty,unit,additional,status,remarks) VALUES ($1,$2,0,$3,$4,true,'PENDING',$5) RETURNING *",[id,name,qty,unit,String(b.remarks||"Additional part requested from Factory Check")]);
+        await client.query("COMMIT");return Response.json({success:true,item:r.rows[0]},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="tax-invoices"){
       const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
