@@ -223,14 +223,30 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({rows:pageRows,page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per)),totals});
     }
     if(p==="dashboard"){
-      const [v,s]=await Promise.all([
+      const [vehicles,stages,monthly,billed,dealers,pending,sales,production]=await Promise.all([
         pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100"),
-        pool.query("SELECT stage,COUNT(*)::int AS count FROM vehicle GROUP BY stage")
+        pool.query("SELECT COALESCE(stage,'Unknown') AS stage,COUNT(*)::int AS count FROM vehicle GROUP BY stage"),
+        pool.query("SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*) FILTER (WHERE stage='Manufacturing')::int AS manufacturing,COUNT(*) FILTER (WHERE stage='Delivery Challan')::int AS delivery_challan,COUNT(*) FILTER (WHERE stage='Tax Invoice')::int AS tax_invoice FROM vehicle WHERE date >= CURRENT_DATE-INTERVAL '11 months' GROUP BY 1 ORDER BY 1"),
+        pool.query("SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*) FILTER (WHERE COALESCE(NULLIF(UPPER(TRIM(state_type)),''),'I')<>'I')::int AS interstateCount,COUNT(*) FILTER (WHERE COALESCE(NULLIF(UPPER(TRIM(state_type)),''),'I')='I')::int AS localCount,COALESCE(SUM(GREATEST(COALESCE(gst_sale_amount,sale_amount,0)-COALESCE(discount,0),0)),0)::numeric AS taxable FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND date >= CURRENT_DATE-INTERVAL '11 months' GROUP BY 1 ORDER BY 1"),
+        pool.query("SELECT COUNT(*)::int AS n FROM dealer WHERE COALESCE(blocked,false)=false"),
+        pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc WHERE COALESCE(dc.cancelled,false)=false AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)"),
+        pool.query("SELECT COALESCE(SUM(sale_amount),0)::numeric AS sales,COALESCE(SUM(amount_received),0)::numeric AS received,COALESCE(SUM(hypothecation_amount),0)::numeric AS loan FROM tax_invoice WHERE COALESCE(cancelled,false)=false"),
+        pool.query("SELECT COUNT(*)::int AS n FROM production_voucher WHERE date >= date_trunc('month',CURRENT_DATE)")
       ]);
-      const stage_counts:any={};for(const r of s.rows)stage_counts[r.stage||"Unknown"]=r.count;
-      return Response.json({manufacturing:v.rows.filter((x:any)=>x.stage==="Manufacturing"),
-        delivery_challan:v.rows.filter((x:any)=>x.stage==="Delivery Challan"),
-        tax_invoice:v.rows.filter((x:any)=>x.stage==="Tax Invoice"),stage_counts,monthly:[],billed_monthly:[],cash_at_dealer:0});
+      const stage_counts:any={};for(const r of stages.rows)stage_counts[r.stage]=Number(r.count||0);
+      const total=Object.values(stage_counts).reduce((s:number,x:any)=>s+Number(x||0),0);
+      const recent=vehicles.rows;
+      return Response.json({
+        manufacturing:recent.filter((x:any)=>x.stage==="Manufacturing"),
+        delivery_challan:recent.filter((x:any)=>x.stage==="Delivery Challan"),
+        tax_invoice:recent.filter((x:any)=>x.stage==="Tax Invoice"),
+        stage_counts,total_vehicles:total,
+        counts:{manufacturing:Number(stage_counts.Manufacturing||0),delivery_challan:Number(stage_counts["Delivery Challan"]||0),tax_invoice:Number(stage_counts["Tax Invoice"]||0),total},
+        monthly:monthly.rows,billed_monthly:billed.rows,cash_at_dealer:0,
+        dealers:Number(dealers.rows[0]?.n||0),pending_challans:Number(pending.rows[0]?.n||0),
+        sales_total:Number(sales.rows[0]?.sales||0),received_total:Number(sales.rows[0]?.received||0),
+        loan_total:Number(sales.rows[0]?.loan||0),production_this_month:Number(production.rows[0]?.n||0)
+      });
     }
     if(p==="nav-config"){
       const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");
