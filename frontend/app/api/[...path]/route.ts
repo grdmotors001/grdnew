@@ -413,6 +413,28 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const rows=dealers.rows.filter((d:any)=>!dealerId||Number(d.id)===dealerId).map((d:any)=>{const cashReceived=rm.get(Number(d.id))||0,expenses=em.get(Number(d.id))||0,ho=hm.get(Number(d.id))||0;return {dealer_id:d.id,dealer_code:d.code,dealer_name:d.name,cash_received:cashReceived,expenses,ho_handover:ho,cash_at_dealer:cashReceived-expenses-ho}});
       return Response.json({rows,total_cash_at_dealer:rows.reduce((s:number,x:any)=>s+x.cash_at_dealer,0)});
     }
+    if(p==="reports/ledger"){
+      const u=new URL(req.url),dealerId=Number(u.searchParams.get("dealer_id")||0),from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").toLowerCase();
+      const ds=await pool.query("SELECT id,code,name FROM dealer ORDER BY name");
+      const ti=await pool.query("SELECT to_jsonb(ti) AS j FROM tax_invoice ti WHERE COALESCE(cancelled,false)=false ORDER BY date,id");
+      const db=await pool.query("SELECT to_jsonb(d) AS j FROM day_book d ORDER BY date,id");
+      const pick=(j:any,...keys:string[])=>{for(const k of keys){if(j&&j[k]!==undefined&&j[k]!==null)return j[k]}return null};
+      const dealerName=ds.rows.find((d:any)=>Number(d.id)===dealerId)?.name||"";
+      const inv=ti.rows.map((x:any)=>x.j).filter((j:any)=>!dealerId||String(pick(j,"dealer_id")||"")===String(dealerId)||String(pick(j,"dealer_name")||"").trim().toLowerCase()===dealerName.trim().toLowerCase());
+      const day=db.rows.map((x:any)=>x.j).filter((j:any)=>!dealerId||String(pick(j,"dealer_id")||"")===String(dealerId)||String(pick(j,"dealer_name")||"").trim().toLowerCase()===dealerName.trim().toLowerCase());
+      if(!dealerId){
+        const by=new Map<number,any>(); for(const d of ds.rows)by.set(Number(d.id),{dealer_id:d.id,dealer_name:d.name,balance:0,dc:"Dr"});
+        for(const j of ti.rows.map((x:any)=>x.j)){const did=Number(pick(j,"dealer_id")||0),key=by.get(did);if(key)key.balance+=num(pick(j,"sale_amount"))-num(pick(j,"hypothecation_amount"));}
+        for(const j of db.rows.map((x:any)=>x.j)){const did=Number(pick(j,"dealer_id")||0),key=by.get(did);if(key)key.balance+=num(pick(j,"debit_paid","debit","debit_amount"))-num(pick(j,"credit_received","credit","credit_amount"));}
+        return Response.json({summary:[...by.values()],dealers:ds.rows});
+      }
+      const events:any[]=[];
+      for(const j of inv)events.push({date:pick(j,"date"),vr_type:"S",doc_no:pick(j,"bill_no"),account:pick(j,"buyer_name")||"Sale",debit:num(pick(j,"sale_amount"))-num(pick(j,"hypothecation_amount")),credit:0,dc:"Dr",record_type:"sale",record_id:j.id,lines:[pick(j,"product_name"),pick(j,"chassis_no")].filter(Boolean)});
+      for(const j of day){const credit=num(pick(j,"credit_received","credit","credit_amount")),debit=num(pick(j,"debit_paid","debit","debit_amount"));if(!credit&&!debit)continue;events.push({date:pick(j,"date"),vr_type:"R",doc_no:pick(j,"voucher_no","receipt_no"),account:pick(j,"narration","particulars","account_name")||"Day Book",debit,credit,dc:credit>debit?"Cr":"Dr",record_type:"receipt",record_id:j.id,lines:[pick(j,"narration","particulars")].filter(Boolean)});}
+      const filtered=events.filter((e:any)=>(!from||String(e.date).slice(0,10)>=from)&&(!to||String(e.date).slice(0,10)<=to)&&(!search||JSON.stringify(e).toLowerCase().includes(search))).sort((a:any,b:any)=>String(a.date).localeCompare(String(b.date)));
+      let bal=0;for(const e of filtered){bal+=num(e.debit)-num(e.credit);e.balance=Math.abs(bal);e.dc=bal>=0?"Dr":"Cr";}
+      return Response.json({events:filtered,dealers:ds.rows,summary:[],opening_balance:0,closing_balance:bal});
+    }
     if(p==="reports/payment-receivable"){
       const u=new URL(req.url);
       const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
