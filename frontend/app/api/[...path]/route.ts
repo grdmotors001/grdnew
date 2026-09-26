@@ -1220,10 +1220,6 @@ async function mutation(req:Request,params:any,method:string){
     return genericWrite(req,path,table,method);
   }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
 }
-+args.length)}
-    }
-    if(where.length)sql+=(sql.includes(" WHERE ")?" AND ":" WHERE ")+where.join(" AND ");
-  }
   sql+=" ORDER BY id DESC LIMIT 1000";
   const r=await pool.query(sql,args);
   return Response.json({rows:r.rows,data:r.rows,items:r.rows,count:r.rowCount,
