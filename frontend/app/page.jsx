@@ -170,3 +170,5 @@ export default function App() {
     </Shell>
   );
 }
+
+// Production deploy trigger: admin sidebar re-login fix is ready.
