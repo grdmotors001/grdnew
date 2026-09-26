@@ -5,10 +5,13 @@ const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const secret=process.env.JWT_SECRET||"grd-node-change-this-secret";
 function check(hash:string,password:string){
   if(!hash)return false;
-  let m=hash.match(/^pbkdf2:sha256:(\d+)\$([^$]+)\$([^$]+)$/);
+  // Keep compatibility with old Werkzeug password hashes already stored in DB.
+  // Older installations can contain PBKDF2-SHA1 while newer ones use SHA256.
+  let m=hash.match(/^pbkdf2:(sha1|sha256|sha512):(\d+)\$([^$]+)\$([^$]+)$/);
   if(m){
-    const actual=crypto.pbkdf2Sync(password,m[2],Number(m[1]),32,"sha256").toString("hex");
-    return actual.length===m[3].length&&crypto.timingSafeEqual(Buffer.from(actual),Buffer.from(m[3]));
+    const digest=m[1], iterations=Number(m[2]), salt=m[3], expected=m[4];
+    const actual=crypto.pbkdf2Sync(password,salt,iterations,Math.floor(expected.length/2),digest).toString("hex");
+    return actual.length===expected.length&&crypto.timingSafeEqual(Buffer.from(actual),Buffer.from(expected));
   }
   m=hash.match(/^scrypt:(\d+):(\d+):(\d+)\$([^$]+)\$([^$]+)$/);
   if(m){
