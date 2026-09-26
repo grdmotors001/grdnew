@@ -14,7 +14,19 @@ export function ProductionFormulaPage() {
   const load = () => get('/production-formulas').then(setData).catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
 
-  if (!data) return <div className="card">Loading…</div>;
+  if (!data) return (
+    <div className="card">
+      {error ? (
+        <>
+          <b>Production Formula load failed</b>
+          <div style={{ marginTop: 8, color: '#c0392b' }}>{error}</div>
+          <button className="btn" style={{ marginTop: 12 }} onClick={() => { setError(''); load(); }}>
+            Retry
+          </button>
+        </>
+      ) : 'Loading…'}
+    </div>
+  );
 
   const q = search.trim().toLowerCase();
   const visibleFormulas = q
