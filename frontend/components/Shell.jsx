@@ -201,11 +201,15 @@ export function Shell({ active, setActive, user, onLogout, children }) {
               <div className="themePaletteWrap">
                 <button className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><Palette size={14}/></button>
                 {showPalette && <div className="themeChooser" role="dialog" aria-label="Choose theme">
-                  {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
-                    <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
-                    <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
-                    {pendingTheme===theme.id && <span role="button" className="themeApplyButton" onClick={(e) => { e.stopPropagation(); applySelectedTheme(); }}>Apply</span>}
-                  </button>)}
+                  {THEMES.map(theme => <button
+  key={theme.id}
+  type="button"
+  className={'themeCard'+(pendingTheme===theme.id?' selected':'')}
+  style={{background:`linear-gradient(135deg, ${theme.colors.primary} 50%, ${theme.colors.accent} 50%)`}}
+  title={theme.name}
+  aria-label={theme.name}
+  onClick={() => { changeTheme(theme.id); setPendingTheme(theme.id); setShowPalette(false); }}
+/>)}
                 </div>}
               </div>
               <button className="sidebarToggle" onClick={toggleCollapsed} title="Collapse">
@@ -219,11 +223,15 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             <div className="themePaletteWrap">
               <button className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><Palette size={14}/></button>
               {showPalette && <div className="themeChooser themeChooserCollapsed" role="dialog" aria-label="Choose theme">
-                {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
-                  <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
-                  <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
-                  {pendingTheme===theme.id && <span className="themeApplyButton">✓</span>}
-                </button>)}
+                {THEMES.map(theme => <button
+  key={theme.id}
+  type="button"
+  className={'themeCard'+(pendingTheme===theme.id?' selected':'')}
+  style={{background:`linear-gradient(135deg, ${theme.colors.primary} 50%, ${theme.colors.accent} 50%)`}}
+  title={theme.name}
+  aria-label={theme.name}
+  onClick={() => { changeTheme(theme.id); setPendingTheme(theme.id); setShowPalette(false); }}
+/>)}
               </div>}
             </div>
             <button className="sidebarExpand" onClick={toggleCollapsed} title="Expand"><ChevronRight size={15}/></button>
