@@ -108,6 +108,10 @@ function canWrite(a:any,p:string){
   // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
   if(a?.scope==="dealer"){
     if(p==="dealer/submit-loan")return true;
+    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
+    if(p.startsWith("dealer/cash-book/"))return true;
+    if(p.startsWith("dealer/pending-sales/"))return true;
+    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
     const need=DEALER_WRITE_MODULE[p];
     if(!need)return false;
     const mods=Array.isArray(a?.portal_modules)
@@ -305,6 +309,42 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=did?await pool.query("SELECT * FROM loan_workflow WHERE dealer_id=$1 ORDER BY id DESC",[did]):await pool.query("SELECT * FROM loan_workflow ORDER BY id DESC LIMIT 1000");
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount});
     }
+    if(p==="reports/payment-receivable"){
+      const u=new URL(req.url);
+      const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim();
+      const showAll=String(u.searchParams.get("show_all")||"1")!=="0";
+      const args:any[]=[]; const w:string[]=["COALESCE(ti.cancelled,false)=false"];
+      if(from){args.push(from);w.push("ti.date >= $"+args.length+"::date")}
+      if(to){args.push(to);w.push("ti.date <= $"+args.length+"::date")}
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(ti.dealer_name,'') ILIKE $"+args.length+")")}
+      const rr=await pool.query("SELECT ti.* FROM tax_invoice ti WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC",args);
+      let rows=rr.rows.map((x:any)=>{
+        const value=num(x.sale_amount);
+        const loan=num(x.hypothecation_amount);
+        const received=num(x.amount_received);
+        const balance=value-loan-received;
+        return {...x,dealer_name:x.dealer_name||"",bill_no:x.bill_no||"",model:x.product_name||x.model_name||"",chassis_no:x.chassis_no||"",
+          customer:x.buyer_name||"",mobile_no:x.buyer_mobile||x.customer_phone||"",value_amt:value,loan_amt:loan,amt_recd:received,balance,
+          financer:x.financer_name||"",rto:x.rto||x.rto_name||"",vehicle_no:x.vehicle_reg_no||"",salesman:x.salesman||"",
+          incentive_amount:num(x.incentive_amount),incentive_voucher_no:x.incentive_voucher_no||"",incentive_date:x.incentive_date||null,
+          expense_total:num(x.expense_total),expense_details:Array.isArray(x.expense_details)?x.expense_details:[]};
+      });
+      if(!showAll)rows=rows.filter((x:any)=>x.balance>0);
+      const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
+      const totals=rows.reduce((a:any,x:any)=>(a.value+=x.value_amt,a.loan+=x.loan_amt,a.received+=x.amt_recd,a.balance+=x.balance,a),{value:0,loan:0,received:0,balance:0});
+      if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Payment_Receivable_Report.csv");
+      return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),totals});
+    }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
+      const args:any[]=[]; let where="WHERE COALESCE(dc.cancelled,false)=false";
+      if(a.scope==="dealer") { args.push(num(a.dealer_id)); where+=" AND dc.dealer_id=$"+args.length; }
+      if(search){args.push("%"+search+"%");where+=" AND (dc.challan_no ILIKE $"+args.length+" OR dc.chassis_no ILIKE $"+args.length+" OR dc.dealer_name ILIKE $"+args.length+" OR dc.product_name ILIKE $"+args.length+")";}
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc "+where,args);
+      const rows=await pool.query("SELECT dc.*,COALESCE(NULLIF(dc.dealer_name,''),d.name) AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id "+where+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:Number(total.rows[0]?.n||0),total_pages:Math.max(1,Math.ceil(Number(total.rows[0]?.n||0)/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
+    }
     const table=tableFor(path);
     if(table)return genericGet(req,path,table);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
@@ -427,6 +467,26 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
       return Response.json({success:true,application:r.rows[0]},{status:201});
     }
+    if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vehicleId=idOf(b.vehicle_id);
+      if(a.scope==="dealer" && !did)return Response.json({error:"Dealer not found."},{status:403});
+      if(!vehicleId)return Response.json({error:"Select a chassis to dispatch."},{status:400});
+      const vr=await pool.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Manufacturing' LIMIT 1",[vehicleId]);
+      if(!vr.rowCount)return Response.json({error:"Selected chassis is not available in Manufacturing."},{status:400});
+      const v=vr.rows[0];
+      const r=await pool.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
+        [String(b.challan_no||""),b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+      await pool.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1) WHERE id=$2",[did,vehicleId]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(p.startsWith("dealer/tax-invoices/") && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET dealer_page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.dealer_page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Invoice not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0]});
+    }
     const table=tableFor(path);
     if(table)return genericWrite(req,path,table,"POST");
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
@@ -464,6 +524,35 @@ async function mutation(req:Request,params:any,method:string){
     if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
       const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
       return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null,loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{await client.query("BEGIN");await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2",[page,id]);if(rr.rows[0].customer_id)await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),num(a.dealer_id)]);await client.query("COMMIT");return Response.json({success:true});}
+      catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-1]),b:any=await json(req); if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404}); return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req); if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      if(!r.rows[0].customer_id)return Response.json({error:"No linked customer record."},{status:400});
+      const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING page_no",[String(b.page_no||"").trim()||null,num(r.rows[0].customer_id),num(a.dealer_id)]);
+      return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
     }
     if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
     return genericWrite(req,path,table,method);
