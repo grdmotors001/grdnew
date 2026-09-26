@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, post } from '../lib/api';
+import { get, post, put } from '../lib/api';
 import { Money } from './ui';
 
 export function DealerPendingSalesPage(){
@@ -23,6 +23,6 @@ export function DealerPendingSalesPage(){
       <div className="field" style={{gridColumn:'1 / -1'}}><label>Dealer Description</label><textarea className="input" rows="4" value={form.dealer_description} onChange={e=>setForm({...form,dealer_description:e.target.value})} placeholder="Customer / sale description…" required/></div></div>
       <div className="actions" style={{marginTop:16}}><button type="button" className="btn" onClick={()=>setOpen(null)}>Cancel</button><button className="btn primary" disabled={saving}>{saving?'Saving…':'Send to Billing'}</button></div>
     </form></div>}
-    {editingPage&&<div className="modal"><div className="modalbox"><h2>Edit Page No.</h2><p className="muted">{editingPage.application_no} · {editingPage.customer_name}</p><div className="field"><label>Page No.</label><input className="input" value={editingPage.page_no||''} onChange={e=>setEditingPage({...editingPage,page_no:e.target.value})}/></div><div className="actions" style={{marginTop:16}}><button className="btn" onClick={()=>setEditingPage(null)}>Cancel</button><button className="btn primary" disabled={saving} onClick={async()=>{setSaving(true);setError('');try{await post('/dealer/pending-sales/'+editingPage.id+'/page',{page_no:editingPage.page_no});setEditingPage(null);load()}catch(e){setError(e.message||'Could not update page number')}finally{setSaving(false)}}}>{saving?'Saving…':'Save Page No.'}</button></div></div></div>}
+    {editingPage&&<div className="modal"><div className="modalbox"><h2>Edit Page No.</h2><p className="muted">{editingPage.application_no} · {editingPage.customer_name}</p><div className="field"><label>Page No.</label><input className="input" value={editingPage.page_no||''} onChange={e=>setEditingPage({...editingPage,page_no:e.target.value})}/></div><div className="actions" style={{marginTop:16}}><button className="btn" onClick={()=>setEditingPage(null)}>Cancel</button><button className="btn primary" disabled={saving} onClick={async()=>{setSaving(true);setError('');try{await put('/dealer/pending-sales/'+editingPage.id+'/page',{page_no:editingPage.page_no});setEditingPage(null);load()}catch(e){setError(e.message||'Could not update page number')}finally{setSaving(false)}}}>{saving?'Saving…':'Save Page No.'}</button></div></div></div>}
   </div>;
 }
