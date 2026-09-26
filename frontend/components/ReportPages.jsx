@@ -934,7 +934,6 @@ export function DayBookPage() {
   const remove=async()=>{if(!form.id)return;if(!window.confirm('Delete this entry?'))return;try{await del('/day-book/'+form.id);setOpen(false);load()}catch(e){setError(e.message)}};
   const runAutoMatch=async()=>{setMatching(true);setMatchResult(null);try{const res=await post('/day-book/auto-match',{});setMatchResult(res);load()}catch(e){setError(e.message)}finally{setMatching(false)}};
 
-  if(error)return <ErrorBanner message={error} />;
   if(!data)return (
     <div className="card">
       {error ? (
