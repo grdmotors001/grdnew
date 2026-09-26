@@ -120,7 +120,10 @@ async function genericGet(req:Request,path:string[],table:string){
     const u=new URL(req.url),where:string[]=[];
     for(const [k,v] of u.searchParams.entries()){
       const c=snake(k);
-      if(cols.has(c)&&c!=="id"){args.push(v);where.push('"'+c+'"=
+      if(cols.has(c)&&c!=="id"){args.push(v);where.push('"'+c+'"=$'+args.length);}
+    }
+  }
+
   sql+=" ORDER BY id DESC LIMIT 1000";
   const r=await pool.query(sql,args);
   return Response.json({rows:r.rows,data:r.rows,items:r.rows,count:r.rowCount,
