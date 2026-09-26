@@ -189,6 +189,30 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(b.chassis_no) await pool.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage) VALUES (NOW(),$1,$2,$3,$4,$5,$6,$7,'Manufacturing') ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing'",[b.product_name||null,b.chassis_no,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null]);
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
     }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel")){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment")){
+      const id=idOf(path[path.length-2]),pb:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(pb.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print")){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
     if(p==="dealer/submit-loan"){
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
       const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
