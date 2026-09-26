@@ -52,7 +52,7 @@ jobs:
               counts[t.table_name]=String(r[0].count);
             }
             console.log("Row counts (read-only):", JSON.stringify(counts));
-            for (const t of ["production_voucher","production_formula","journal_stock","battery_swap_voucher","battery_stock_movement","vehicle","old_rickshaw"]) {
+            for (const t of ["production_voucher","production_formula","journal_stock","battery_swap_voucher","battery_stock_movement","vehicle","old_rickshaw","purchase_bill"]) {
               const cols=await q("SELECT column_name,data_type FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 ORDER BY ordinal_position",[t]);
               console.log("SCHEMA "+t+":",JSON.stringify(cols));
             }
