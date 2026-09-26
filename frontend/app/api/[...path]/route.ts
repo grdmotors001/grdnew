@@ -15,6 +15,19 @@ const json=async(req:Request)=>await req.json().catch(()=>({}));
 const num=(v:any)=>Number.isFinite(Number(v))?Number(v):0;
 const snake=(s:string)=>s.replace(/[A-Z]/g,m=>"_"+m.toLowerCase()).replace(/^_/,"");
 const idOf=(v:any)=>{const n=Number(v);return Number.isInteger(n)&&n>0?n:null};
+function csvCell(v:any){const s=String(v??"");return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+function csvResponse(rows:any[],filename:string){
+  if(!rows.length)return new Response("",{status:200,headers:{"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename="+filename}});
+  const keys=Object.keys(rows[0]); const body=[keys.map(csvCell).join(","),...rows.map(r=>keys.map(k=>csvCell(r[k])).join(","))].join("\n");
+  return new Response(body,{status:200,headers:{"Content-Type":"text/csv; charset=utf-8","Content-Disposition":"attachment; filename="+filename}});
+}
+function dateWhere(alias:string,u:URL,args:any[]){
+  const w:string[]=[];
+  const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=u.searchParams.get("search");
+  if(from){args.push(from);w.push(alias+".date >= $"+args.length+"::date");}
+  if(to){args.push(to);w.push(alias+".date <= $"+args.length+"::date");}
+  return {w,search};
+}
 
 const TABLES:any={
   "company":"company","dealers":"dealer","dealer-list":"dealer","users":"user","salesmen":"user",
@@ -128,6 +141,53 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     if(p==="menu"){const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");return Response.json({menu:r.rows,tabs:r.rows});}
+    if(p==="reports/sale-register"||p==="reports/gst-register"||p==="reports/hypothecation-register"||p==="reports/subsidy"){
+      const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+")");}
+      w.push("COALESCE(ti.cancelled,false)=false");
+      const where=w.length?" WHERE "+w.join(" AND "):"";
+      const base=`SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,ti.product_name,ti.chassis_no,ti.financer_name,ti.hypothecation_amount,ti.subsidy_amount,
+        GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0) AS taxable_value,
+        COALESCE(ti.cgst_amount,0) AS cgst_amount,COALESCE(ti.sgst_amount,0) AS sgst_amount,COALESCE(ti.igst_amount,0) AS igst_amount,
+        COALESCE(ti.bill_total, GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)+COALESCE(ti.cgst_amount,0)+COALESCE(ti.sgst_amount,0)+COALESCE(ti.igst_amount,0)) AS bill_total
+        FROM tax_invoice ti`;
+      const r=await pool.query(base+where+" ORDER BY ti.date DESC,ti.id DESC",args);
+      const rows=r.rows.map((x:any)=>({...x,tax_amount:num(x.cgst_amount)+num(x.sgst_amount)+num(x.igst_amount)}));
+      if(u.searchParams.get("export")==="csv")return csvResponse(rows,p==="reports/gst-register"?"GST_Register.csv":p==="reports/sale-register"?"Sale_Register.csv":p==="reports/hypothecation-register"?"Hypothecation_Register.csv":"Subsidy_Report.csv");
+      if(p==="reports/gst-register"){
+        const inward=await pool.query("SELECT pb.id,pb.date,pb.bill_no AS doc_no,pb.party_name,0::numeric AS taxable,0::numeric AS cgst,0::numeric AS sgst,0::numeric AS igst FROM purchase_bill pb ORDER BY pb.date DESC,pb.id DESC");
+        const ot=rows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable_value),a.cgst+=num(x.cgst_amount),a.sgst+=num(x.sgst_amount),a.igst+=num(x.igst_amount),a),{taxable:0,cgst:0,sgst:0,igst:0});
+        const it=inward.rows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable),a.cgst+=num(x.cgst),a.sgst+=num(x.sgst),a.igst+=num(x.igst),a),{taxable:0,cgst:0,sgst:0,igst:0});
+        return Response.json({outward:rows,outward_totals:ot,inward:inward.rows,inward_totals:it});
+      }
+      if(p==="reports/hypothecation-register")return Response.json({invoices:rows.filter((x:any)=>num(x.hypothecation_amount)!==0),total_hyp:rows.reduce((s:number,x:any)=>s+num(x.hypothecation_amount),0)});
+      if(p==="reports/subsidy")return Response.json({invoices:rows.filter((x:any)=>num(x.subsidy_amount)!==0),total_subsidy:rows.reduce((s:number,x:any)=>s+num(x.subsidy_amount),0)});
+      const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
+      const pageRows=rows.slice(start,start+per),totals=rows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable_value),a.tax+=num(x.tax_amount),a.total+=num(x.bill_total),a),{taxable:0,tax:0,total:0});
+      return Response.json({invoices:pageRows,rows:pageRows,page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),totals});
+    }
+    if(p==="reports/production-register"){
+      const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("v",u,args);
+      const status=u.searchParams.get("status")||"all";
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(v.vou_no,'') ILIKE $"+args.length+" OR COALESCE(v.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(v.product_name,'') ILIKE $"+args.length+")");}
+      if(status==="factory")w.push("COALESCE(vh.stage,'Manufacturing')='Manufacturing'");
+      if(status==="delivered")w.push("COALESCE(vh.stage,'Manufacturing')<>'Manufacturing'");
+      const where=w.length?" WHERE "+w.join(" AND "):"";
+      const r=await pool.query("SELECT v.*,COALESCE(vh.stage,'Manufacturing') AS stage FROM production_voucher v LEFT JOIN vehicle vh ON vh.chassis_no=v.chassis_no"+where+" ORDER BY v.date DESC,v.id DESC",args);
+      if(u.searchParams.get("export")==="csv")return csvResponse(r.rows,"Production_Register.csv");
+      const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
+      return Response.json({rows:r.rows.slice(start,start+per),page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per))});
+    }
+    if(p==="reports/purchase-register"){
+      const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("pb",u,args);
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(pb.bill_no,'') ILIKE $"+args.length+" OR COALESCE(pb.party_name,'') ILIKE $"+args.length+")");}
+      const where=w.length?" WHERE "+w.join(" AND "):"";
+      const r=await pool.query("SELECT pb.*,0::numeric AS taxable_amt,0::numeric AS cgst_amt,0::numeric AS sgst_amt,0::numeric AS igst_amt,0::numeric AS total_amt,0::int AS item_count FROM purchase_bill pb"+where+" ORDER BY pb.date DESC,pb.id DESC",args);
+      if(u.searchParams.get("export")==="csv")return csvResponse(r.rows,"Purchase_Register.csv");
+      const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
+      const pageRows=r.rows.slice(start,start+per),totals=pageRows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable_amt),a.cgst+=num(x.cgst_amt),a.sgst+=num(x.sgst_amt),a.igst+=num(x.igst_amt),a),{taxable:0,cgst:0,sgst:0,igst:0});
+      return Response.json({rows:pageRows,page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per)),totals});
+    }
     if(p==="dashboard"){
       const [v,s]=await Promise.all([
         pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100"),
@@ -244,10 +304,29 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
     }
     if(p==="production-vouchers"){
-      const r=await pool.query("INSERT INTO production_voucher (vou_no,date,product_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),$3,$4,$5,$6,$7,$8,$9,$10,NOW()) RETURNING *",
-        [String(b.vou_no||""),b.date||null,b.product_name||"",num(b.quantity),b.chassis_no||"",b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null]);
-      if(b.chassis_no) await pool.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage) VALUES (NOW(),$1,$2,$3,$4,$5,$6,$7,'Manufacturing') ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing'",[b.product_name||null,b.chassis_no,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null]);
-      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const chassis=String(b.chassis_no||"").trim();
+        if(chassis){
+          const dup=await client.query("SELECT id FROM vehicle WHERE chassis_no=$1 LIMIT 1",[chassis]);
+          if(dup.rowCount)throw new Error("Chassis No. already exists.");
+        }
+        const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
+        const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW()) RETURNING *",
+          [String(b.vou_no||""),b.date||null,b.product_name||"",qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
+        if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
+          [b.date||null,b.product_name||null,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null]);
+        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[b.product_name||"",String(b.formula_name||"")]);
+        for(const line of formula.rows){
+          const need=num(line.qty)*qty;
+          if(need<=0)continue;
+          const existing=await client.query("SELECT id FROM journal_stock WHERE batch_ref=$1 AND item_name=$2 AND reason='Production Consumption' LIMIT 1",[String(b.vou_no||r.rows[0].vou_no),line.raw_item_name]);
+          if(!existing.rowCount)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[String(b.vou_no||r.rows[0].vou_no),b.date||null,line.raw_item_name,need,b.product_name||null]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],bom_consumed:formula.rowCount},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("delivery-challans/") && p.endsWith("/cancel")){
       const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
@@ -272,6 +351,35 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     if(p.startsWith("tax-invoices/") && p.endsWith("/print")){
       const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
       return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p==="battery-swap-vouchers"){
+      const fromType=String(b.from_type||"vehicle").toLowerCase(),toType=String(b.to_type||"vehicle").toLowerCase();
+      const fromTable=fromType.includes("old")?"old_rickshaw":"vehicle",toTable=toType.includes("old")?"old_rickshaw":"vehicle";
+      const fromId=idOf(b.from_id),toId=idOf(b.to_id);
+      if(!fromId||!toId)return Response.json({error:"Source and target are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const fr=await client.query('SELECT * FROM "'+fromTable+'" WHERE id=$1 FOR UPDATE',[fromId]);
+        const tr=await client.query('SELECT * FROM "'+toTable+'" WHERE id=$1 FOR UPDATE',[toId]);
+        if(!fr.rowCount||!tr.rowCount)throw new Error("Source or target vehicle not found.");
+        const source=fr.rows[0],target=tr.rows[0];
+        const fields=["battery_maker","battery_no1","battery_no2","battery_no3","battery_no4"];
+        const sourceHas=fields.slice(1).some(k=>String(source[k]||"").trim());
+        if(!sourceHas)throw new Error("Source has no battery to transfer.");
+        const mode=String(b.mode||"swap").toLowerCase();
+        if(mode==="transfer" && fields.slice(1).some(k=>String(target[k]||"").trim()))throw new Error("Target already has battery numbers.");
+        const nextSource=mode==="transfer"?{battery_maker:null,battery_no1:null,battery_no2:null,battery_no3:null,battery_no4:null}:Object.fromEntries(fields.map(k=>[k,target[k]??null]));
+        const nextTarget=Object.fromEntries(fields.map(k=>[k,source[k]??null]));
+        const update=async(table:string,id:number,row:any)=>{
+          await client.query('UPDATE "'+table+'" SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5 WHERE id=$6',[row.battery_maker,row.battery_no1,row.battery_no2,row.battery_no3,row.battery_no4,id]);
+        };
+        await update(fromTable,fromId,nextSource); await update(toTable,toId,nextTarget);
+        const vr=await client.query("INSERT INTO battery_swap_voucher (voucher_no,date,dealer_id,from_type,from_id,to_type,to_id,mode,remarks,created_at) VALUES (COALESCE(NULLIF($1,''),'BS-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING *",
+          [String(b.voucher_no||""),b.date||null,num(b.dealer_id)||null,fromType,fromId,toType,toId,mode,b.remarks||null]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="dealer/submit-loan"){
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
