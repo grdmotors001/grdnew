@@ -8,7 +8,7 @@ const money=v=>`₹${Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:
 export function RepairServiceVoucherPage(){
   const [tab,setTab]=useState('voucher');
   const [rows,setRows]=useState([]);
-  const [rawItems,setRawItems]=useState([]);
+  const [rawItems,setRawItems]=useState([]); const [dispatchItems,setDispatchItems]=useState([]);
   const [vehicles,setVehicles]=useState([]);
   const [vehicleSearch,setVehicleSearch]=useState('');
   const [receipts,setReceipts]=useState([]);
@@ -18,7 +18,7 @@ export function RepairServiceVoucherPage(){
   const [filter,setFilter]=useState('');
   const [form,setForm]=useState({
     date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',
-    items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]
+    items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS',item_type:'R'}]
   });
   const [receipt,setReceipt]=useState({date:today(),voucher_id:'',amount:'',payment_mode:'cash',reference_no:'',remarks:''});
 
@@ -30,14 +30,14 @@ export function RepairServiceVoucherPage(){
         get('/repair-service-masters')
       ]);
       setRows(v.vouchers||[]);setReceipts(r.receipts||[]);
-      setRawItems(m.raw_items||[]);setVehicles(m.vehicles||[]);
+      setRawItems(m.raw_items||[]);setDispatchItems(m.dispatch_items||[]);setVehicles(m.vehicles||[]);
     }catch(e){setError(e.message||'Could not load repair/service data')}
   };
   useEffect(()=>{load()},[filter]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const updateItem=(i,k,v)=>setForm(x=>({...x,items:x.items.map((it,n)=>n===i?{...it,[k]:v}:it)}));
-  const addItem=()=>setForm(x=>({...x,items:[...x.items,{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]}));
+  const addItem=()=>setForm(x=>({...x,items:[...x.items,{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS',item_type:'R'}]}));
   const removeItem=i=>setForm(x=>({...x,items:x.items.length>1?x.items.filter((_,n)=>n!==i):x.items}));
   const total=useMemo(()=>form.items.reduce((s,x)=>s+Number(x.qty||0)*Number(x.rate||0),0),[form.items]);
   const lookupVehicle=async(value)=>{
@@ -66,7 +66,7 @@ export function RepairServiceVoucherPage(){
       if(clean.some(x=>!x.item_name.trim()||x.qty<=0||x.rate<0))throw new Error('Raw Item, Qty and Rate correctly fill karein.');
       const r=await post('/repair-service-vouchers',{...form,items:clean});
       setMsg('Repair / Service Voucher '+r.voucher.voucher_no+' created. GST: ₹0');
-      setForm({date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS'}]});
+      setForm({date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS',item_type:'R'}]});
       await load();
     }catch(e){setError(e.message||'Could not save voucher')}finally{setSaving(false)}
   }
@@ -113,7 +113,7 @@ export function RepairServiceVoucherPage(){
       </div>
 
       <div className="card" style={{marginTop:14}}>
-        <div className="actions" style={{justifyContent:'space-between'}}><h3 style={{margin:0}}>Items / Parts / Service Used</h3><button type="button" className="btn" onClick={addItem}>+ Add Item</button></div>
+        <div className="actions" style={{justifyContent:'space-between'}}><h3 style={{margin:0}}>Raw Material / Dispatch Item Used <span className="muted" style={{fontSize:12}}>GST 0%</span></h3><button type="button" className="btn" onClick={addItem}>+ Add Item</button></div>
         <div className="tablewrap"><table className="table"><thead><tr><th>Item / Service</th><th>Qty</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
           <tbody>{form.items.map((it,i)=><tr key={i}>
             <td>
@@ -122,9 +122,10 @@ export function RepairServiceVoucherPage(){
                   was the raw item's numeric id — they never matched, so
                   the dropdown always snapped back to "Select Raw Item"
                   right after picking something. Now both use item_id. */}
-              <select className="input" value={it.item_id||''} onChange={e=>{const p=rawItems.find(x=>String(x.id)===String(e.target.value)); updateItem(i,'item_id',e.target.value); updateItem(i,'item_code',p?.code||''); updateItem(i,'item_name',p?.name||''); updateItem(i,'unit',p?.unit||'PCS')}}>
-                <option value="">Select Raw Item</option>
-                {rawItems.map(p=><option key={p.id} value={p.id}>{p.name} — Stock {Number(p.stock_qty||0).toLocaleString('en-IN')}</option>)}
+              <select className="input" value={it.item_id||''} onChange={e=>{const p=rawItems.find(x=>String(x.id)===String(e.target.value)); updateItem(i,'item_id',e.target.value); updateItem(i,'item_code',p?.code||''); updateItem(i,'item_name',p?.name||''); updateItem(i,'unit',p?.unit||'PCS'); updateItem(i,'item_type',String(p?.product_category||'').toUpperCase()==='DISPATCH'?'DISPATCH':'R')}}>
+                <option value="">Select Raw / Dispatch Item</option>
+                {rawItems.length>0&&<optgroup label="Raw Material">{rawItems.map(p=><option key={'r'+p.id} value={p.id}>{p.name} — Stock {Number(p.stock_qty||0).toLocaleString('en-IN')}</option>)}</optgroup>}
+                {dispatchItems.length>0&&<optgroup label="Dispatch Item">{dispatchItems.map(p=><option key={'d'+p.id} value={p.id}>{p.name} — Stock {Number(p.stock_qty||0).toLocaleString('en-IN')}</option>)}</optgroup>}
               </select>
               {!rawItems.length&&<small className="muted">Product Master me Raw (R) item add karein.</small>}
             </td>
