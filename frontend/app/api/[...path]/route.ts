@@ -544,7 +544,181 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const r=await pool.query("INSERT INTO dealer_cash_handover (dealer_id,handover_no,handover_date,amount,sent_to,remarks,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,'sent',NOW()) RETURNING *",[num(a.dealer_id),no,b.date||null,amount,String(b.sent_to||"").trim()||null,String(b.remarks||"").trim()||null]);
       return Response.json({success:true,handover:{...r.rows[0],date:r.rows[0].handover_date}});
     }
-        if(p==="dealer/submit-loan"){
+        if(p==="users" && isAdmin(a)){
+      const userId=idOf(b.id);
+      const username=String(b.username||"").trim();
+      if(!userId && !username)return Response.json({error:"Username is required."},{status:400});
+      const password=String(b.password||"");
+      if(userId){
+        const existing=await pool.query('SELECT id FROM "user" WHERE id=$1 LIMIT 1',[userId]);
+        if(!existing.rowCount)return Response.json({error:"User not found."},{status:404});
+        if(password){
+          const salt=crypto.randomBytes(16).toString("hex");
+          const hash=crypto.pbkdf2Sync(password,salt,600000,32,"sha256").toString("hex");
+          await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2',["pbkdf2:sha256:600000$"+salt+"$"+hash,userId]);
+        }
+        const cols=await columns("user"), input:any={};
+        for(const [k,v] of Object.entries(b||{})){const col=snake(k);if(cols.has(col)&&!["id","password_hash"].includes(col))input[col]=v}
+        const keys=Object.keys(input);
+        if(keys.length){
+          const rr=await pool.query('UPDATE "user" SET '+keys.map((k,i)=>'"'+k+'"=
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vl=b.vehicle_loan||{};
+      const modelId=num(vl.vehicle_model_id);
+      let modelName=String(b.loan_model_name||"").trim();
+      if(!modelName && modelId){
+        const mr=await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId]);
+        const m=mr.rows[0];
+        modelName=String(m?.name||m?.product_name||m?.model_name||"").trim();
+      }
+      if(!modelName)return Response.json({error:"Select model"},{status:400});
+      const loanAmount=num(vl.loan_amount_requested||b.loan_amount);
+      const tenure=num(vl.tenure_months);
+      if(loanAmount<=0||tenure<=0)return Response.json({error:"Loan amount and tenure are required."},{status:400});
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),loanAmount,modelName,String(b.loan_type||"NEW").toLowerCase()]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(i+1)).join(",")+' WHERE id=
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vl=b.vehicle_loan||{};
+      const modelId=num(vl.vehicle_model_id);
+      let modelName=String(b.loan_model_name||"").trim();
+      if(!modelName && modelId){
+        const mr=await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId]);
+        const m=mr.rows[0];
+        modelName=String(m?.name||m?.product_name||m?.model_name||"").trim();
+      }
+      if(!modelName)return Response.json({error:"Select model"},{status:400});
+      const loanAmount=num(vl.loan_amount_requested||b.loan_amount);
+      const tenure=num(vl.tenure_months);
+      if(loanAmount<=0||tenure<=0)return Response.json({error:"Loan amount and tenure are required."},{status:400});
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),loanAmount,modelName,String(b.loan_type||"NEW").toLowerCase()]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),userId]);
+          return Response.json(rr.rows[0]);
+        }
+        return Response.json({success:true});
+      }
+      if(!password)return Response.json({error:"Password is required for a new user."},{status:400});
+    }
+    if(p.startsWith("users/") && p.endsWith("/password") && isAdmin(a)){
+      const parts=p.split("/");
+      const userId=idOf(parts[1]);
+      const newPassword=String(b.new_password||"");
+      const confirmPassword=String(b.confirm_password||"");
+      if(!userId)return Response.json({error:"Invalid user."},{status:400});
+      if(!newPassword || newPassword!==confirmPassword)return Response.json({error:"Passwords do not match."},{status:400});
+      if(newPassword.length<4)return Response.json({error:"Password must be at least 4 characters."},{status:400});
+      const salt=crypto.randomBytes(16).toString("hex");
+      const hash=crypto.pbkdf2Sync(newPassword,salt,600000,32,"sha256").toString("hex");
+      const rr=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2',["pbkdf2:sha256:600000$"+salt+"$"+hash,userId]);
+      if(!rr.rowCount)return Response.json({error:"User not found."},{status:404});
+      return Response.json({success:true});
+    }
+    if(p==="dealer/customer-invoice" && a.scope==="dealer"){
+      const challanId=idOf(b.challan_id);
+      if(!challanId)return Response.json({error:"Delivery challan is required."},{status:400});
+      const cr=await pool.query("SELECT * FROM delivery_challan WHERE id=$1 LIMIT 1",[challanId]);
+      const ch=cr.rows[0];
+      if(!ch)return Response.json({error:"Delivery challan not found."},{status:404});
+      const dealerId=num(a.dealer_id);
+      if(num(ch.dealer_id)!==dealerId)return Response.json({error:"This challan does not belong to the logged-in dealer."},{status:403});
+      const taxable=Math.max(0,num(b.sale_amount)-num(b.discount));
+      const rate=Math.max(0,num(b.gst_rate));
+      const gst=taxable*rate/100;
+      const rr=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,amount_received,created_at) VALUES ('INV-'||extract(epoch from now())::bigint,CURRENT_DATE,false,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW()) RETURNING *",
+        [challanId,dealerId,num(ch.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,ch.product_name||null,ch.chassis_no||null,ch.motor_no||null,taxable,gst,rate,num(b.discount),num(b.amount_received)]);
+      if(num(ch.vehicle_id))await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[ch.dealer_name||null,num(ch.vehicle_id)]);
+      return Response.json({success:true,bill_no:rr.rows[0].bill_no,chassis_no:ch.chassis_no,row:rr.rows[0]},{status:201});
+    }
+    if(p==="dealer/submit-loan"){
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
       const vl=b.vehicle_loan||{};
       const modelId=num(vl.vehicle_model_id);
