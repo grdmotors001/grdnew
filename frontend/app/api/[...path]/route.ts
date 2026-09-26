@@ -122,6 +122,7 @@ function canWrite(a:any,p:string){
   if(a?.scope==="dealer"){
     if(p==="dealer/submit-loan")return true;
     if(p==="dealer/cash-book" || p.startsWith("dealer/cash-book/"))return true;
+    if(/^tax-invoices\/\\d+$/.test(p))return true;
     const need=DEALER_WRITE_MODULE[p];
     if(!need)return false;
     const mods=Array.isArray(a?.portal_modules)
