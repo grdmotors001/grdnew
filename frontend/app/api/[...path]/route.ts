@@ -122,7 +122,7 @@ async function ensureOldRickshawInventorySchema(){
   for(const [col,type] of Object.entries(defs)) await pool.query('ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
   await pool.query("CREATE INDEX IF NOT EXISTS old_rickshaw_inventory_status_idx ON old_rickshaw_inventory(status)");
   await pool.query("CREATE INDEX IF NOT EXISTS old_rickshaw_inventory_dealer_idx ON old_rickshaw_inventory(dealer_id)");
-  await pool.query("CREATE TABLE IF NOT EXISTS old_rickshaw_challan (
+  await pool.query(`CREATE TABLE IF NOT EXISTS old_rickshaw_challan (
     id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,challan_no text UNIQUE,model_name text,vehicle_no text,colour text,toolkit text,
     dealer_id integer,source text NOT NULL DEFAULT 'CHFPL',source_ref text,status text NOT NULL DEFAULT 'ACTIVE',created_at timestamptz NOT NULL DEFAULT now()
   )`);
@@ -315,24 +315,6 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const r=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE ($1='' OR s.salary_month=$1) ORDER BY e.name",[month]);
         return Response.json({salaries:r.rows,rows:r.rows});
       }
-    }
-    if(p==="hr/employees"){
-      await ensureHRSchemas();
-      const r=await pool.query("INSERT INTO hr_employee (employee_code,name,department,designation,mobile,photo_url,joining_date,machine_user_id,basic_salary,hra,other_allowance,overtime_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",[String(b.employee_code||"").trim(),String(b.name||"").trim(),b.department||null,b.designation||null,b.mobile||null,b.photo_url||null,b.joining_date||null,b.machine_user_id||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate)]);
-      return Response.json({success:true,employee:r.rows[0],row:r.rows[0]},{status:201});
-    }
-    if(p==="hr/salary/process"){
-      await ensureHRSchemas();
-      const month=String(b.month||"").trim(); if(!/^\\d{4}-\\d{2}$/.test(month))return Response.json({error:"Valid salary month is required."},{status:400});
-      const days=new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate();
-      const emps=await pool.query("SELECT * FROM hr_employee WHERE active=true ORDER BY id");
-      for(const e of emps.rows){
-        const att=await pool.query("SELECT COALESCE(SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END),0) AS present,COALESCE(SUM(overtime_hours),0) AS ot FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2",[e.id,month]);
-        const present=Number(att.rows[0]?.present||0),ot=Number(att.rows[0]?.ot||0),basic=Number(e.basic_salary||0)*present/days,allow=Number(e.hra||0)+Number(e.other_allowance||0),otamt=ot*Number(e.overtime_rate||0),net=basic+allow+otamt;
-        await pool.query("INSERT INTO hr_salary (employee_id,salary_month,working_days,present_days,overtime_hours,basic_earned,allowances,overtime_amount,net_salary,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PROCESSED') ON CONFLICT(employee_id,salary_month) DO UPDATE SET working_days=EXCLUDED.working_days,present_days=EXCLUDED.present_days,overtime_hours=EXCLUDED.overtime_hours,basic_earned=EXCLUDED.basic_earned,allowances=EXCLUDED.allowances,overtime_amount=EXCLUDED.overtime_amount,net_salary=EXCLUDED.net_salary,status='PROCESSED'",[e.id,month,days,present,ot,basic,allow,otamt,net]);
-      }
-      const r=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE s.salary_month=$1 ORDER BY e.name",[month]);
-      return Response.json({success:true,salaries:r.rows,rows:r.rows});
     }
     if(p==="admin/nav-tabs"){
       const r=await pool.query("SELECT * FROM nav_tab ORDER BY position,id");
@@ -636,14 +618,6 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query('UPDATE "user" SET allowed_modules=$1 WHERE id=$2 RETURNING id,username,allowed_modules',[value,uid]);
       return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
-    if(p==="admin/nav-tabs"){
-      const label=String(b.label||"").trim(); if(!label)return Response.json({error:"Tab name is required."},{status:400});
-      const existing=await pool.query("SELECT key FROM nav_tab"); const keys=new Set(existing.rows.map((x:any)=>String(x.key)));
-      let key=String(b.key||"").trim(); if(!key||keys.has(key)){key=label.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"custom-tab"; let i=2; while(keys.has(key))key=key+"-"+i++;}
-      const max=await pool.query("SELECT COALESCE(MAX(position),0)::int AS n FROM nav_tab");
-      const r=await pool.query("INSERT INTO nav_tab (key,label,icon,position,hidden,items) VALUES ($1,$2,$3,$4,false,$5) RETURNING *",[key,label,b.icon||null,Number(max.rows[0]?.n||0)+1,Array.isArray(b.items)?b.items:[]]);
-      return Response.json(r.rows[0],{status:201});
-    }
     if(p==="products"){
       await ensureDispatchSchema();
       const u=new URL(req.url);
@@ -667,68 +641,6 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const rows=await pool.query('SELECT *,COALESCE(NULLIF(product_category,\'\'),CASE WHEN fro=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END) AS category FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
-    }
-    if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
-      const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=b.date||null;
-      const cc=await columns("dealer_cash_customer"),rc=await columns("dealer_cash_receipt");
-      if(!cc.size||!rc.size)return Response.json({error:"Cash receipt tables are not available."},{status:500});
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        let cid=customerId;
-        if(type==="balance_payment"){
-          if(!cid)throw new Error("Previous customer is required.");
-          const chk=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[cid,did]);
-          if(!chk.rowCount)throw new Error("Customer not found.");
-        }else{
-          const input:any={dealer_id:did,name:String(b.customer_name||"").trim(),phone:String(b.customer_phone||"").trim(),customer_phone:String(b.customer_phone||"").trim(),page_no:String(b.dealer_register_page_no||"").trim()||null,vehicle_no:String(b.booking_for||"new").trim(),sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),paid_amount:num(b.amount),status:"VEHICLE_PENDING",date:date||null};
-          const keys=Object.keys(input).filter(k=>cc.has(k));
-          if(!input.name||!input.phone)throw new Error("Customer name and mobile are required.");
-          if(!keys.length)throw new Error("Customer register schema is missing required fields.");
-          const rr=await client.query('INSERT INTO dealer_cash_customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
-          cid=rr.rows[0].id;
-        }
-        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||null,customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_no:"RC-"+Date.now()};
-        const keys=Object.keys(input).filter(k=>rc.has(k));
-        const rr=await client.query('INSERT INTO dealer_cash_receipt ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
-        const receipt=rr.rows[0];
-        if(type==="balance_payment"){
-          const cust=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 FOR UPDATE",[cid]);
-          const paid=Number(cust.rows[0]?.paid_amount||0)+num(b.amount);
-          await client.query("UPDATE dealer_cash_customer SET paid_amount=$1 WHERE id=$2",[paid,cid]);
-        }
-        await client.query("COMMIT");
-        return Response.json({success:true,receipt},{status:201});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
-    if(a.scope==="dealer" && p==="battery-withdrawal"){
-      const did=num(a.dealer_id), batteryNo=String(b.battery_no||"").trim();
-      if(!batteryNo)return Response.json({error:"Battery No. is required."},{status:400});
-      const r=await pool.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',NOW()) RETURNING *",
-        [b.date||null,did,String(b.battery_maker||"").trim()||null,batteryNo,String(b.reference_no||"").trim()||null]);
-      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
-    }
-    if(a.scope==="dealer" && p==="battery-addition"){
-      const did=num(a.dealer_id),vehicleId=idOf(b.vehicle_id),batteryNo=String(b.battery_no||"").trim();
-      if(!vehicleId||!batteryNo)return Response.json({error:"Vehicle and Battery No. are required."},{status:400});
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const dr=await client.query("SELECT name FROM dealer WHERE id=$1",[did]);
-        if(!dr.rowCount)throw new Error("Dealer not found.");
-        const vr=await client.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2)) FOR UPDATE",[vehicleId,dr.rows[0].name]);
-        if(!vr.rowCount)throw new Error("Vehicle not found in this dealer's stock.");
-        const available=await client.query("SELECT battery_maker,battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') AND upper(trim(battery_no))=upper(trim($2)) AND NOT EXISTS (SELECT 1 FROM battery_stock_movement x WHERE x.dealer_id=$1 AND x.movement_type='addition' AND upper(trim(x.battery_no))=upper(trim($2))) LIMIT 1",[did,batteryNo]);
-        if(!available.rowCount)throw new Error("Battery is not available in dealer battery stock.");
-        const position=Math.min(4,Math.max(1,Number(b.position)||1));
-        const field="battery_no"+position;
-        const maker=String(b.battery_maker||available.rows[0].battery_maker||"").trim()||null;
-        await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
-        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',NOW()) RETURNING *",
-          [b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null]);
-        await client.query("COMMIT");
-        return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
@@ -806,6 +718,94 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
     const b:any=await json(req);
+    if(p==="hr/employees"){
+      await ensureHRSchemas();
+      const r=await pool.query("INSERT INTO hr_employee (employee_code,name,department,designation,mobile,photo_url,joining_date,machine_user_id,basic_salary,hra,other_allowance,overtime_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",[String(b.employee_code||"").trim(),String(b.name||"").trim(),b.department||null,b.designation||null,b.mobile||null,b.photo_url||null,b.joining_date||null,b.machine_user_id||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate)]);
+      return Response.json({success:true,employee:r.rows[0],row:r.rows[0]},{status:201});
+    }
+    if(p==="hr/salary/process"){
+      await ensureHRSchemas();
+      const month=String(b.month||"").trim(); if(!/^\\d{4}-\\d{2}$/.test(month))return Response.json({error:"Valid salary month is required."},{status:400});
+      const days=new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate();
+      const emps=await pool.query("SELECT * FROM hr_employee WHERE active=true ORDER BY id");
+      for(const e of emps.rows){
+        const att=await pool.query("SELECT COALESCE(SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END),0) AS present,COALESCE(SUM(overtime_hours),0) AS ot FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2",[e.id,month]);
+        const present=Number(att.rows[0]?.present||0),ot=Number(att.rows[0]?.ot||0),basic=Number(e.basic_salary||0)*present/days,allow=Number(e.hra||0)+Number(e.other_allowance||0),otamt=ot*Number(e.overtime_rate||0),net=basic+allow+otamt;
+        await pool.query("INSERT INTO hr_salary (employee_id,salary_month,working_days,present_days,overtime_hours,basic_earned,allowances,overtime_amount,net_salary,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PROCESSED') ON CONFLICT(employee_id,salary_month) DO UPDATE SET working_days=EXCLUDED.working_days,present_days=EXCLUDED.present_days,overtime_hours=EXCLUDED.overtime_hours,basic_earned=EXCLUDED.basic_earned,allowances=EXCLUDED.allowances,overtime_amount=EXCLUDED.overtime_amount,net_salary=EXCLUDED.net_salary,status='PROCESSED'",[e.id,month,days,present,ot,basic,allow,otamt,net]);
+      }
+      const r=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE s.salary_month=$1 ORDER BY e.name",[month]);
+      return Response.json({success:true,salaries:r.rows,rows:r.rows});
+    }
+    if(p==="admin/nav-tabs"){
+      const label=String(b.label||"").trim(); if(!label)return Response.json({error:"Tab name is required."},{status:400});
+      const existing=await pool.query("SELECT key FROM nav_tab"); const keys=new Set(existing.rows.map((x:any)=>String(x.key)));
+      let key=String(b.key||"").trim(); if(!key||keys.has(key)){key=label.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"custom-tab"; let i=2; while(keys.has(key))key=key+"-"+i++;}
+      const max=await pool.query("SELECT COALESCE(MAX(position),0)::int AS n FROM nav_tab");
+      const r=await pool.query("INSERT INTO nav_tab (key,label,icon,position,hidden,items) VALUES ($1,$2,$3,$4,false,$5) RETURNING *",[key,label,b.icon||null,Number(max.rows[0]?.n||0)+1,Array.isArray(b.items)?b.items:[]]);
+      return Response.json(r.rows[0],{status:201});
+    }
+    if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
+      const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=b.date||null;
+      const cc=await columns("dealer_cash_customer"),rc=await columns("dealer_cash_receipt");
+      if(!cc.size||!rc.size)return Response.json({error:"Cash receipt tables are not available."},{status:500});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        let cid=customerId;
+        if(type==="balance_payment"){
+          if(!cid)throw new Error("Previous customer is required.");
+          const chk=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[cid,did]);
+          if(!chk.rowCount)throw new Error("Customer not found.");
+        }else{
+          const input:any={dealer_id:did,name:String(b.customer_name||"").trim(),phone:String(b.customer_phone||"").trim(),customer_phone:String(b.customer_phone||"").trim(),page_no:String(b.dealer_register_page_no||"").trim()||null,vehicle_no:String(b.booking_for||"new").trim(),sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),paid_amount:num(b.amount),status:"VEHICLE_PENDING",date:date||null};
+          const keys=Object.keys(input).filter(k=>cc.has(k));
+          if(!input.name||!input.phone)throw new Error("Customer name and mobile are required.");
+          if(!keys.length)throw new Error("Customer register schema is missing required fields.");
+          const rr=await client.query('INSERT INTO dealer_cash_customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
+          cid=rr.rows[0].id;
+        }
+        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||null,customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_no:"RC-"+Date.now()};
+        const keys=Object.keys(input).filter(k=>rc.has(k));
+        const rr=await client.query('INSERT INTO dealer_cash_receipt ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
+        const receipt=rr.rows[0];
+        if(type==="balance_payment"){
+          const cust=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 FOR UPDATE",[cid]);
+          const paid=Number(cust.rows[0]?.paid_amount||0)+num(b.amount);
+          await client.query("UPDATE dealer_cash_customer SET paid_amount=$1 WHERE id=$2",[paid,cid]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,receipt},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(a.scope==="dealer" && p==="battery-withdrawal"){
+      const did=num(a.dealer_id), batteryNo=String(b.battery_no||"").trim();
+      if(!batteryNo)return Response.json({error:"Battery No. is required."},{status:400});
+      const r=await pool.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',NOW()) RETURNING *",
+        [b.date||null,did,String(b.battery_maker||"").trim()||null,batteryNo,String(b.reference_no||"").trim()||null]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(a.scope==="dealer" && p==="battery-addition"){
+      const did=num(a.dealer_id),vehicleId=idOf(b.vehicle_id),batteryNo=String(b.battery_no||"").trim();
+      if(!vehicleId||!batteryNo)return Response.json({error:"Vehicle and Battery No. are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dr=await client.query("SELECT name FROM dealer WHERE id=$1",[did]);
+        if(!dr.rowCount)throw new Error("Dealer not found.");
+        const vr=await client.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2)) FOR UPDATE",[vehicleId,dr.rows[0].name]);
+        if(!vr.rowCount)throw new Error("Vehicle not found in this dealer's stock.");
+        const available=await client.query("SELECT battery_maker,battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') AND upper(trim(battery_no))=upper(trim($2)) AND NOT EXISTS (SELECT 1 FROM battery_stock_movement x WHERE x.dealer_id=$1 AND x.movement_type='addition' AND upper(trim(x.battery_no))=upper(trim($2))) LIMIT 1",[did,batteryNo]);
+        if(!available.rowCount)throw new Error("Battery is not available in dealer battery stock.");
+        const position=Math.min(4,Math.max(1,Number(b.position)||1));
+        const field="battery_no"+position;
+        const maker=String(b.battery_maker||available.rows[0].battery_maker||"").trim()||null;
+        await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
+        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',NOW()) RETURNING *",
+          [b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     if(p==="credit-notes"){
       await ensureCreditDebitSchema();const invoiceId=idOf(b.invoice_id||b.tax_invoice_id);if(!invoiceId)return Response.json({error:"Original Tax Invoice is required."},{status:400});
       const client=await pool.connect();try{await client.query("BEGIN");const inv=await client.query("SELECT ti.*,d.name AS joined_dealer_name FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id WHERE ti.id=$1 FOR UPDATE",[invoiceId]);if(!inv.rowCount)throw new Error("Tax Invoice not found.");const x=inv.rows[0];if(Boolean(x.cancelled))throw new Error("Tax Invoice is already cancelled.");
@@ -997,8 +997,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
             const stock=await client.query("SELECT COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END),0) AS qty FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1))",[item.product_name]);
             if(Number(stock.rows[0]?.qty||0)<qty)throw new Error("Insufficient stock for "+item.product_name+". Available: "+Number(stock.rows[0]?.qty||0));
           }
-          await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,$5,NOW(),$6,$1)",
-            [String(row.challan_no||("DC-"+id)),row.date||null,item.product_name,qty,reason,workType]);
+          await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,$5,NOW(),$6,$1)",            [String(row.challan_no||("DC-"+id)),row.date||null,item.product_name,qty,reason,workType]);
         }
         const r=await client.query("UPDATE delivery_challan SET cancelled=$1 WHERE id=$2 RETURNING *",[nextCancelled,id]);
         if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[nextCancelled?"Manufacturing":"Delivery Challan",r.rows[0].vehicle_id]);
@@ -1285,190 +1284,8 @@ async function mutation(req:Request,params:any,method:string){
           const keys=Object.keys(old).filter(k=>oldCols.has(k)),vals=keys.map((_,i)=>"$"+(i+1));
           let oldId=row.old_rickshaw_id;
           if(oldId){
-            const sets=keys.map((k,i)=>'"'+k+'"=
-      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
-      await ensureDispatchSchema();
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
-        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
-        if(!dc.rows[0].cancelled){
-          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
-          for(const item of items.rows){
-            const qty=Math.max(0,Number(item.qty)||0);
-            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
-              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
-          }
-        }
-        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
-        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
-        await client.query("COMMIT");
-        return Response.json({success:true,row:r.rows[0]||null});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
-    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
-    return genericWrite(req,path,table,method);
-  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
-function isAdmin(a:any){
-  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
-}
-function canRead(a:any,p:string){
-  // Dealers may only read their explicitly scoped portal endpoints.
-  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
-  return true;
-}
-// Dealer battery portal writes are explicitly gated by the module flags
-// carried in the dealer JWT. This restores the legacy portal behaviour without
-// opening generic staff/master CRUD to dealer tokens.
-const DEALER_WRITE_MODULE:any={
-  "battery-swap-vouchers":"battery-swap",
-  "battery-withdrawal":"battery-withdrawal",
-  "battery-addition":"battery-addition"
-};
-function canWrite(a:any,p:string){
-  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
-  if(a?.scope==="dealer"){
-    if(p==="dealer/submit-loan")return true;
-    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
-    if(p.startsWith("dealer/cash-book/"))return true;
-    if(p.startsWith("dealer/pending-sales/"))return true;
-    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
-    const need=DEALER_WRITE_MODULE[p];
-    if(!need)return false;
-    const mods=Array.isArray(a?.portal_modules)
-      ? a.portal_modules.map((x:any)=>String(x))
-      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-    return mods.includes(need);
-  }
-  // Admins retain full mutation access.
-  if(isAdmin(a)) return true;
-  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
-  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-  const key=p.startsWith("masters/") ? p : p.split("/")[0];
-  return mods.includes(p) || mods.includes(key);
-}
-async function genericWrite(req:Request,path:string[],table:string,method:string){
-  const cols=await columns(table);
-  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
-  const body:any=await json(req),input:any={};
-  for(const [k,v] of Object.entries(body||{})){
-    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
-  }
-  const id=idOf(path[path.length-1]);
-  if(method==="POST"){
-    const keys=Object.keys(input);
-    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-    const vals=keys.map((_,i)=>"$"+(i+1));
-    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
-    const r=await pool.query(sql,keys.map(k=>input[k]));
-    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
-  }
-  if(!id)return Response.json({error:"Record id required."},{status:400});
-  if(method==="DELETE"){
-    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
-    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
-  }
-  const keys=Object.keys(input);
-  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
-  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
-}
-+(i+1));
-            await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=
-      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
-      await ensureDispatchSchema();
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
-        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
-        if(!dc.rows[0].cancelled){
-          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
-          for(const item of items.rows){
-            const qty=Math.max(0,Number(item.qty)||0);
-            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
-              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
-          }
-        }
-        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
-        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
-        await client.query("COMMIT");
-        return Response.json({success:true,row:r.rows[0]||null});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
-    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
-    return genericWrite(req,path,table,method);
-  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
-function isAdmin(a:any){
-  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
-}
-function canRead(a:any,p:string){
-  // Dealers may only read their explicitly scoped portal endpoints.
-  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
-  return true;
-}
-// Dealer battery portal writes are explicitly gated by the module flags
-// carried in the dealer JWT. This restores the legacy portal behaviour without
-// opening generic staff/master CRUD to dealer tokens.
-const DEALER_WRITE_MODULE:any={
-  "battery-swap-vouchers":"battery-swap",
-  "battery-withdrawal":"battery-withdrawal",
-  "battery-addition":"battery-addition"
-};
-function canWrite(a:any,p:string){
-  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
-  if(a?.scope==="dealer"){
-    if(p==="dealer/submit-loan")return true;
-    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
-    if(p.startsWith("dealer/cash-book/"))return true;
-    if(p.startsWith("dealer/pending-sales/"))return true;
-    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
-    const need=DEALER_WRITE_MODULE[p];
-    if(!need)return false;
-    const mods=Array.isArray(a?.portal_modules)
-      ? a.portal_modules.map((x:any)=>String(x))
-      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-    return mods.includes(need);
-  }
-  // Admins retain full mutation access.
-  if(isAdmin(a)) return true;
-  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
-  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-  const key=p.startsWith("masters/") ? p : p.split("/")[0];
-  return mods.includes(p) || mods.includes(key);
-}
-async function genericWrite(req:Request,path:string[],table:string,method:string){
-  const cols=await columns(table);
-  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
-  const body:any=await json(req),input:any={};
-  for(const [k,v] of Object.entries(body||{})){
-    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
-  }
-  const id=idOf(path[path.length-1]);
-  if(method==="POST"){
-    const keys=Object.keys(input);
-    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-    const vals=keys.map((_,i)=>"$"+(i+1));
-    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
-    const r=await pool.query(sql,keys.map(k=>input[k]));
-    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
-  }
-  if(!id)return Response.json({error:"Record id required."},{status:400});
-  if(method==="DELETE"){
-    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
-    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
-  }
-  const keys=Object.keys(input);
-  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
-  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
-}
-+(keys.length+1),[...keys.map(k=>old[k]),oldId]);
+            const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+            await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>old[k]),oldId]);
           }else{
             const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+vals.join(",")+') RETURNING id',keys.map(k=>old[k]));
             oldId=ins.rows[0].id;
@@ -1496,190 +1313,8 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
         const oldId=idOf(row.old_rickshaw_id);
         if(oldId){
           const oc=await columns("old_rickshaw"),vals:any={status:"sold",customer_name:String(b.customer_name).trim(),sale_amount:saleAmount,loan_amount:loanAmount,balance_amount:balance,file_charge:num(b.file_charge),do_number:String(b.do_number||"").trim()||null,ledger_no:String(b.ledger_no||"").trim()||null,sale_date:b.sale_date||new Date().toISOString().slice(0,10)};
-          const keys=Object.keys(vals).filter(k=>oc.has(k)),sets=keys.map((k,i)=>'"'+k+'"=
-      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
-      await ensureDispatchSchema();
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
-        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
-        if(!dc.rows[0].cancelled){
-          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
-          for(const item of items.rows){
-            const qty=Math.max(0,Number(item.qty)||0);
-            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
-              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
-          }
-        }
-        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
-        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
-        await client.query("COMMIT");
-        return Response.json({success:true,row:r.rows[0]||null});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
-    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
-    return genericWrite(req,path,table,method);
-  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
-function isAdmin(a:any){
-  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
-}
-function canRead(a:any,p:string){
-  // Dealers may only read their explicitly scoped portal endpoints.
-  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
-  return true;
-}
-// Dealer battery portal writes are explicitly gated by the module flags
-// carried in the dealer JWT. This restores the legacy portal behaviour without
-// opening generic staff/master CRUD to dealer tokens.
-const DEALER_WRITE_MODULE:any={
-  "battery-swap-vouchers":"battery-swap",
-  "battery-withdrawal":"battery-withdrawal",
-  "battery-addition":"battery-addition"
-};
-function canWrite(a:any,p:string){
-  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
-  if(a?.scope==="dealer"){
-    if(p==="dealer/submit-loan")return true;
-    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
-    if(p.startsWith("dealer/cash-book/"))return true;
-    if(p.startsWith("dealer/pending-sales/"))return true;
-    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
-    const need=DEALER_WRITE_MODULE[p];
-    if(!need)return false;
-    const mods=Array.isArray(a?.portal_modules)
-      ? a.portal_modules.map((x:any)=>String(x))
-      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-    return mods.includes(need);
-  }
-  // Admins retain full mutation access.
-  if(isAdmin(a)) return true;
-  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
-  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-  const key=p.startsWith("masters/") ? p : p.split("/")[0];
-  return mods.includes(p) || mods.includes(key);
-}
-async function genericWrite(req:Request,path:string[],table:string,method:string){
-  const cols=await columns(table);
-  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
-  const body:any=await json(req),input:any={};
-  for(const [k,v] of Object.entries(body||{})){
-    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
-  }
-  const id=idOf(path[path.length-1]);
-  if(method==="POST"){
-    const keys=Object.keys(input);
-    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-    const vals=keys.map((_,i)=>"$"+(i+1));
-    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
-    const r=await pool.query(sql,keys.map(k=>input[k]));
-    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
-  }
-  if(!id)return Response.json({error:"Record id required."},{status:400});
-  if(method==="DELETE"){
-    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
-    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
-  }
-  const keys=Object.keys(input);
-  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
-  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
-}
-+(i+1));
-          if(keys.length)await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=
-      const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});
-      await ensureDispatchSchema();
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
-        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
-        if(!dc.rows[0].cancelled){
-          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
-          for(const item of items.rows){
-            const qty=Math.max(0,Number(item.qty)||0);
-            if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Delete Reversal',NOW(),'IN',$1)",
-              [String(dc.rows[0].challan_no||("DC-"+id)),dc.rows[0].date,item.product_name,qty]);
-          }
-        }
-        const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
-        if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
-        await client.query("COMMIT");
-        return Response.json({success:true,row:r.rows[0]||null});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
-    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
-    return genericWrite(req,path,table,method);
-  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
-function isAdmin(a:any){
-  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
-}
-function canRead(a:any,p:string){
-  // Dealers may only read their explicitly scoped portal endpoints.
-  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
-  return true;
-}
-// Dealer battery portal writes are explicitly gated by the module flags
-// carried in the dealer JWT. This restores the legacy portal behaviour without
-// opening generic staff/master CRUD to dealer tokens.
-const DEALER_WRITE_MODULE:any={
-  "battery-swap-vouchers":"battery-swap",
-  "battery-withdrawal":"battery-withdrawal",
-  "battery-addition":"battery-addition"
-};
-function canWrite(a:any,p:string){
-  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
-  if(a?.scope==="dealer"){
-    if(p==="dealer/submit-loan")return true;
-    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
-    if(p.startsWith("dealer/cash-book/"))return true;
-    if(p.startsWith("dealer/pending-sales/"))return true;
-    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
-    const need=DEALER_WRITE_MODULE[p];
-    if(!need)return false;
-    const mods=Array.isArray(a?.portal_modules)
-      ? a.portal_modules.map((x:any)=>String(x))
-      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-    return mods.includes(need);
-  }
-  // Admins retain full mutation access.
-  if(isAdmin(a)) return true;
-  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
-  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-  const key=p.startsWith("masters/") ? p : p.split("/")[0];
-  return mods.includes(p) || mods.includes(key);
-}
-async function genericWrite(req:Request,path:string[],table:string,method:string){
-  const cols=await columns(table);
-  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
-  const body:any=await json(req),input:any={};
-  for(const [k,v] of Object.entries(body||{})){
-    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
-  }
-  const id=idOf(path[path.length-1]);
-  if(method==="POST"){
-    const keys=Object.keys(input);
-    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-    const vals=keys.map((_,i)=>"$"+(i+1));
-    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
-    const r=await pool.query(sql,keys.map(k=>input[k]));
-    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
-  }
-  if(!id)return Response.json({error:"Record id required."},{status:400});
-  if(method==="DELETE"){
-    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
-    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
-  }
-  const keys=Object.keys(input);
-  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
-  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
-}
-+(keys.length+1),[...keys.map(k=>vals[k]),oldId]);
+          const keys=Object.keys(vals).filter(k=>oc.has(k)),sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+          if(keys.length)await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>vals[k]),oldId]);
         }
         const u=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=$6,ledger_no=$7,updated_at=now() WHERE id=$8 RETURNING *",[String(b.customer_name).trim(),saleAmount,loanAmount,balance,num(b.file_charge),String(b.do_number||"").trim()||null,String(b.ledger_no||"").trim()||null,inventoryId]);
         await client.query("COMMIT");return Response.json({success:true,row:u.rows[0]});
@@ -1710,69 +1345,4 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
     if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
     return genericWrite(req,path,table,method);
   }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
-function isAdmin(a:any){
-  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
-}
-function canRead(a:any,p:string){
-  // Dealers may only read their explicitly scoped portal endpoints.
-  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
-  return true;
-}
-// Dealer battery portal writes are explicitly gated by the module flags
-// carried in the dealer JWT. This restores the legacy portal behaviour without
-// opening generic staff/master CRUD to dealer tokens.
-const DEALER_WRITE_MODULE:any={
-  "battery-swap-vouchers":"battery-swap",
-  "battery-withdrawal":"battery-withdrawal",
-  "battery-addition":"battery-addition"
-};
-function canWrite(a:any,p:string){
-  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
-  if(a?.scope==="dealer"){
-    if(p==="dealer/submit-loan")return true;
-    if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
-    if(p.startsWith("dealer/cash-book/"))return true;
-    if(p.startsWith("dealer/pending-sales/"))return true;
-    if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
-    const need=DEALER_WRITE_MODULE[p];
-    if(!need)return false;
-    const mods=Array.isArray(a?.portal_modules)
-      ? a.portal_modules.map((x:any)=>String(x))
-      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-    return mods.includes(need);
-  }
-  // Admins retain full mutation access.
-  if(isAdmin(a)) return true;
-  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
-  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-  const key=p.startsWith("masters/") ? p : p.split("/")[0];
-  return mods.includes(p) || mods.includes(key);
-}
-async function genericWrite(req:Request,path:string[],table:string,method:string){
-  const cols=await columns(table);
-  if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
-  const body:any=await json(req),input:any={};
-  for(const [k,v] of Object.entries(body||{})){
-    const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
-  }
-  const id=idOf(path[path.length-1]);
-  if(method==="POST"){
-    const keys=Object.keys(input);
-    if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-    const vals=keys.map((_,i)=>"$"+(i+1));
-    const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
-    const r=await pool.query(sql,keys.map(k=>input[k]));
-    return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
-  }
-  if(!id)return Response.json({error:"Record id required."},{status:400});
-  if(method==="DELETE"){
-    const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
-    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
-  }
-  const keys=Object.keys(input);
-  if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
-  const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-  const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
-  return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
 }
