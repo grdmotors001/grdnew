@@ -16,7 +16,7 @@ export function SimpleMasterPage({ kind, setActive }) {
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
-  const load = () => get(`/masters/${kind}`).then(setRows).catch((e) => setError(e.message));
+  const load = () => get(`/masters/${kind}`).then((d) => setRows(Array.isArray(d) ? d : (d.masters || d.rows || d.data || []))).catch((e) => setError(e.message));
   useEffect(() => { load(); setSearch(''); }, [kind]);
 
   const filteredRows = rows.filter((r) => {
