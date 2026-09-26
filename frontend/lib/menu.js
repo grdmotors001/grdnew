@@ -122,7 +122,7 @@ export const NAV_GROUPS = {
     ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
   ],
   Battery: [
-    ['battery-maker', 'Battery Maker'],
+    ['battery-maker', 'Battery Maker'], ['battery-register', 'Battery Register'],
     ['battery-delivery-challan', 'Battery Challan'],
     ['battery-withdrawal', 'Battery Remove'],
     ['battery-swap', 'Battery Swap'],
