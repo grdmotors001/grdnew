@@ -518,7 +518,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const cols=await columns("product");
       if(!cols.size)return Response.json({error:"Product table not found."},{status:404});
       const args:any[]=[]; const where:string[]=[];
-      if(category && cols.has("product_category")){args.push(category);where.push('UPPER(COALESCE("product_category",CASE WHEN "fro"=\\'F\\' THEN \\'FINISHED\\' ELSE \\'RAW\\' END))=$'+args.length);}
+      if(category && cols.has("product_category")){args.push(category);where.push('UPPER(COALESCE("product_category",CASE WHEN "fro"=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END))=$'+args.length);}
       const terms:string[]=[];
       for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
         if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
