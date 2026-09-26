@@ -259,7 +259,26 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="chassis-master/months"){const r=await pool.query("SELECT * FROM chassis_month_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
     if(p==="chassis-master/years"){const r=await pool.query("SELECT * FROM chassis_year_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
     if(p==="chassis-master/rule"){const r=await pool.query("SELECT * FROM chassis_rule ORDER BY id DESC LIMIT 1");return Response.json({rule:r.rows[0]||null});}
-    if(p==="dealer/loan-masters"){const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");return Response.json({rows:r.rows,masters:r.rows});}
+    if(p==="dealer/loan-masters"){
+      // Dealer loan form expects a normalized {models, loan_types} payload.
+      // Vehicle models are the finished products already present in the existing
+      // product master; raw-material products are excluded.
+      const products=await pool.query("SELECT * FROM product ORDER BY name,id");
+      const simple=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' OR kind ILIKE '%model%' ORDER BY id");
+      const models=products.rows
+        .filter((x:any)=>String(x.fro||"").toUpperCase()!=="R")
+        .map((x:any)=>({id:x.id,name:x.name||x.product_name||x.model_name||"",code:x.code||x.product_code||""}))
+        .filter((x:any)=>x.name);
+      const fallbackModels=simple.rows
+        .filter((x:any)=>/model/i.test(String(x.kind||"")))
+        .map((x:any)=>({id:x.id,name:x.name||"",code:x.code||""}))
+        .filter((x:any)=>x.name);
+      const loanTypes=simple.rows
+        .filter((x:any)=>/loan.*type|type.*loan/i.test(String(x.kind||"")))
+        .map((x:any)=>({id:x.id,name:x.name||"",code:x.code||""}))
+        .filter((x:any)=>x.name);
+      return Response.json({models:models.length?models:fallbackModels,loan_types:loanTypes,rows:simple.rows,masters:simple.rows});
+    }
     if(p==="dealer/ledger-accounts"||p==="dealer/ledger-masters"){const r=await pool.query("SELECT DISTINCT party_name FROM day_book WHERE party_name IS NOT NULL ORDER BY party_name");return Response.json({rows:r.rows});}
     if(p==="dealer/cash-book"&&a.scope==="dealer"){
       const d=await pool.query("SELECT dealer_category FROM dealer WHERE id=$1",[num(a.dealer_id)]);
@@ -527,8 +546,20 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     }
         if(p==="dealer/submit-loan"){
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vl=b.vehicle_loan||{};
+      const modelId=num(vl.vehicle_model_id);
+      let modelName=String(b.loan_model_name||"").trim();
+      if(!modelName && modelId){
+        const mr=await pool.query("SELECT name,product_name,model_name,code,product_code FROM product WHERE id=$1 LIMIT 1",[modelId]);
+        const m=mr.rows[0];
+        modelName=String(m?.name||m?.product_name||m?.model_name||"").trim();
+      }
+      if(!modelName)return Response.json({error:"Select model"},{status:400});
+      const loanAmount=num(vl.loan_amount_requested||b.loan_amount);
+      const tenure=num(vl.tenure_months);
+      if(loanAmount<=0||tenure<=0)return Response.json({error:"Loan amount and tenure are required."},{status:400});
       const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
-        [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
+        [String(b.application_no||""),did,num(b.customer_id),loanAmount,modelName,String(b.loan_type||"NEW").toLowerCase()]);
       return Response.json({success:true,application:r.rows[0]},{status:201});
     }
     const table=tableFor(path);
