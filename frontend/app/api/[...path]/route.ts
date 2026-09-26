@@ -558,6 +558,32 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,dispatch_items:dispatch.rows,suggested_challan_no:"DC-"+Date.now()});
     }
+    if(p==="purchase-bills"){
+      const r=await genericGet(req,path,"purchase_bill"),payload=await r.json(),rows=(payload.rows||[]).map((x:any)=>({...x,items:parseItems(x.items)}));
+      return Response.json({...payload,rows,data:rows,items:rows});
+    }
+    if(p==="battery-register"){
+      await ensureBatteryRegisterSchema();
+      const u=new URL(req.url),q=String(u.searchParams.get("search")||"").trim(),args:any[]=[],where:string[]=[];
+      if(q){args.push("%"+q+"%");where.push("(battery_maker ILIKE $1 OR COALESCE(battery_no,'') ILIKE $1 OR COALESCE(source_no,'') ILIKE $1 OR COALESCE(party_name,'') ILIKE $1)");}
+      const makers=await pool.query("SELECT name FROM simple_master WHERE kind='battery-maker' ORDER BY name");
+      const entries=await pool.query("SELECT * FROM battery_register_entry"+(where.length?" WHERE "+where.join(" AND "):"")+" ORDER BY date DESC,id DESC",args);
+      const byMaker=new Map<string,any>();
+      for(const m of makers.rows){const name=String(m.name||"").trim();if(name)byMaker.set(name.toLowerCase(),{battery_maker:name,in_qty:0,out_qty:0,balance:0});}
+      for(const x of entries.rows){const key=String(x.battery_maker||"").trim().toLowerCase();if(!key)continue;if(!byMaker.has(key))byMaker.set(key,{battery_maker:String(x.battery_maker||"").trim(),in_qty:0,out_qty:0,balance:0});const s=byMaker.get(key),qty=Number(x.qty||0);if(String(x.entry_type).toUpperCase()==="IN")s.in_qty+=qty;else s.out_qty+=qty;s.balance=s.in_qty-s.out_qty;}
+      const summary=[...byMaker.values()].filter(x=>!q||String(x.battery_maker).toLowerCase().includes(q.toLowerCase())||entries.rows.some(e=>String(e.battery_maker||"").toLowerCase()===String(x.battery_maker).toLowerCase()));
+      const groups=new Map<string,any>();
+      for(const x of entries.rows){const key=String(x.source_type||"")+"::"+String(x.source_id||"")+"::"+String(x.date||"")+"::"+String(x.battery_maker||"")+"::"+String(x.entry_type||"");if(!groups.has(key))groups.set(key,{id:x.id,date:x.date,battery_maker:x.battery_maker,entry_type:x.entry_type,qty:0,source_type:x.source_type,source_id:x.source_id,source_no:x.source_no,party_name:x.party_name,dealer_id:x.dealer_id,vehicle_id:x.vehicle_id,remarks:x.remarks,battery_nos:[]});const g=groups.get(key);g.qty+=Number(x.qty||0);if(x.battery_no)g.battery_nos.push(x.battery_no);}
+      const details=[...groups.values()].map((x:any)=>({...x,battery_no1:x.battery_nos[0]||"",battery_no2:x.battery_nos[1]||"",battery_no3:x.battery_nos[2]||"",battery_no4:x.battery_nos[3]||""}));
+      return Response.json({summary,details,entries:entries.rows,makers:makers.rows.map((x:any)=>x.name)});
+    }
+    if(p==="battery-register/preview"){
+      const u=new URL(req.url),type=String(u.searchParams.get("type")||"").toLowerCase(),id=idOf(u.searchParams.get("id"));
+      if(!id)return Response.json({error:"Preview id required."},{status:400});
+      if(type==="purchase"){const r=await pool.query("SELECT * FROM purchase_bill WHERE id=$1",[id]);if(!r.rowCount)return Response.json({error:"Purchase not found."},{status:404});return Response.json({type:"purchase",purchase:{...r.rows[0],items:parseItems(r.rows[0].items)}});}
+      if(type==="delivery_challan"){const r=await pool.query("SELECT dc.*,d.name AS dealer_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,v.model_name,v.chassis_no,v.motor_no,v.colour FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);if(!r.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});return Response.json({type:"delivery_challan",challan:r.rows[0]});}
+      return Response.json({error:"Unknown preview type."},{status:400});
+    }
     const table=tableFor(path);
     if(table)return genericGet(req,path,table);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
