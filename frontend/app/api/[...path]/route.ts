@@ -773,6 +773,51 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
       return Response.json({success:true,application:r.rows[0]},{status:201});
     }
+    if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
+      const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=b.date||null;
+      const cc=await columns("dealer_cash_customer"),rc=await columns("dealer_cash_receipt");
+      if(!cc.size||!rc.size)return Response.json({error:"Cash receipt tables are not available."},{status:500});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");let cid=customerId;
+        if(type==="balance_payment"){
+          if(!cid)throw new Error("Previous customer is required.");
+          const chk=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[cid,did]);
+          if(!chk.rowCount)throw new Error("Customer not found.");
+        }else{
+          const input:any={dealer_id:did,name:String(b.customer_name||"").trim(),phone:String(b.customer_phone||"").trim(),customer_phone:String(b.customer_phone||"").trim(),page_no:String(b.dealer_register_page_no||"").trim()||null,vehicle_no:String(b.booking_for||"new").trim(),sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),paid_amount:num(b.amount),status:"VEHICLE_PENDING",date:date||null};
+          const keys=Object.keys(input).filter(k=>cc.has(k));if(!input.name||!input.phone)throw new Error("Customer name and mobile are required.");if(!keys.length)throw new Error("Customer register schema is missing required fields.");
+          const rr=await client.query('INSERT INTO dealer_cash_customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));cid=rr.rows[0].id;
+        }
+        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||null,customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_no:"RC-"+Date.now()};
+        const keys=Object.keys(input).filter(k=>rc.has(k));if(!keys.length)throw new Error("Cash receipt schema is missing required fields.");
+        const rr=await client.query('INSERT INTO dealer_cash_receipt ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
+        if(type==="balance_payment"){const cust=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 FOR UPDATE",[cid]);const paid=Number(cust.rows[0]?.paid_amount||0)+num(b.amount);await client.query("UPDATE dealer_cash_customer SET paid_amount=$1 WHERE id=$2",[paid,cid]);}
+        await client.query("COMMIT");return Response.json({success:true,receipt:rr.rows[0]},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(a.scope==="dealer" && p==="battery-withdrawal"){
+      const did=num(a.dealer_id),batteryNo=String(b.battery_no||"").trim();
+      if(!batteryNo)return Response.json({error:"Battery No. is required."},{status:400});
+      const r=await pool.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',NOW()) RETURNING *",[b.date||null,did,String(b.battery_maker||"").trim()||null,batteryNo,String(b.reference_no||"").trim()||null]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(a.scope==="dealer" && p==="battery-addition"){
+      const did=num(a.dealer_id),vehicleId=idOf(b.vehicle_id),batteryNo=String(b.battery_no||"").trim();
+      if(!vehicleId||!batteryNo)return Response.json({error:"Vehicle and Battery No. are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dr=await client.query("SELECT name FROM dealer WHERE id=$1",[did]);if(!dr.rowCount)throw new Error("Dealer not found.");
+        const vr=await client.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2)) FOR UPDATE",[vehicleId,dr.rows[0].name]);if(!vr.rowCount)throw new Error("Vehicle not found in this dealer's stock.");
+        const available=await client.query("SELECT battery_maker,battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') AND upper(trim(battery_no))=upper(trim($2)) AND NOT EXISTS (SELECT 1 FROM battery_stock_movement x WHERE x.dealer_id=$1 AND x.movement_type='addition' AND upper(trim(x.battery_no))=upper(trim($2))) LIMIT 1",[did,batteryNo]);
+        if(!available.rowCount)throw new Error("Battery is not available in dealer battery stock.");
+        const position=Math.min(4,Math.max(1,Number(b.position)||1)),field="battery_no"+position,maker=String(b.battery_maker||available.rows[0].battery_maker||"").trim()||null;
+        await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
+        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',NOW()) RETURNING *",[b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null]);
+        await client.query("COMMIT");return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     const table=tableFor(path);
     if(table)return genericWrite(req,path,table,"POST");
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
