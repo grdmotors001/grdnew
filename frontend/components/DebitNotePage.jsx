@@ -25,7 +25,7 @@ export function DebitNotePage(){
       ]);
       setRows(dn.debit_notes||[]);
       setProducts(raw.products||[]);
-      setParties(party||[]);
+      setParties(Array.isArray(party)?party:(party?.masters||party?.rows||party?.data||[]));
     }catch(e){setError(e.message)}
   };
   useEffect(()=>{load()},[]);
