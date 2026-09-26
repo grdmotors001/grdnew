@@ -104,6 +104,11 @@ async function assertBatterySerialsAvailable(client:any,maker:string,numbers:str
   for(const no of clean){const used=await client.query("SELECT COALESCE(SUM(CASE WHEN entry_type='IN' THEN qty ELSE -qty END),0) AS balance FROM battery_register_entry WHERE upper(trim(battery_maker))=upper(trim($1)) AND upper(trim(COALESCE(battery_no,'')))=upper(trim($2))",[maker,no]);if(Number(used.rows[0]?.balance||0)>0)throw new Error("Battery No. "+no+" is already in use.");}
 }
 
+async function ensureHRSchemas(){
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_employee (id bigserial PRIMARY KEY, employee_code text NOT NULL UNIQUE, name text NOT NULL, department text, designation text, mobile text, photo_url text, joining_date date, machine_user_id text, basic_salary numeric NOT NULL DEFAULT 0, hra numeric NOT NULL DEFAULT 0, other_allowance numeric NOT NULL DEFAULT 0, overtime_rate numeric NOT NULL DEFAULT 0, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())");
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_attendance (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, work_date date NOT NULL, first_in timestamptz, last_out timestamptz, status text NOT NULL DEFAULT 'Present', work_hours numeric NOT NULL DEFAULT 0, overtime_hours numeric NOT NULL DEFAULT 0, UNIQUE(employee_id,work_date))");
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_salary (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, salary_month text NOT NULL, working_days numeric NOT NULL DEFAULT 0, present_days numeric NOT NULL DEFAULT 0, overtime_hours numeric NOT NULL DEFAULT 0, basic_earned numeric NOT NULL DEFAULT 0, allowances numeric NOT NULL DEFAULT 0, overtime_amount numeric NOT NULL DEFAULT 0, net_salary numeric NOT NULL DEFAULT 0, status text NOT NULL DEFAULT 'PROCESSED', UNIQUE(employee_id,salary_month))");
+}
 async function genericGet(req:Request,path:string[],table:string){
   const cols=await columns(table);
   if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
@@ -172,7 +177,7 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
   for(const [k,v] of Object.entries(body||{})){
     const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
   }
-  if(table==="simple_master" && path[0]==="masters" && path[1] && cols.has("kind"))input.kind=path[1];
+  if(table==="simple_master" && path[0]==="masters" && path[1] && cols.has("kind"))input.kind=path[1]==="color"?"colour":path[1];
   const id=idOf(path[path.length-1]);
   if(method==="POST"){
     const keys=Object.keys(input);
@@ -200,6 +205,45 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p==="masters/colour"){
+      const r=await pool.query("SELECT * FROM simple_master WHERE lower(kind) IN ('colour','color') ORDER BY id DESC");
+      return Response.json({masters:r.rows,rows:r.rows,data:r.rows});
+    }
+    if(p.startsWith("hr/")){
+      await ensureHRSchemas();
+      if(p==="hr/employees"){
+        const r=await pool.query("SELECT * FROM hr_employee ORDER BY id DESC");
+        return Response.json({employees:r.rows,rows:r.rows});
+      }
+      if(p==="hr/attendance"){
+        const month=String(new URL(req.url).searchParams.get("month")||"").trim();
+        const r=await pool.query("SELECT a.*,e.employee_code,e.name AS employee_name FROM hr_attendance a JOIN hr_employee e ON e.id=a.employee_id WHERE ($1='' OR to_char(a.work_date,'YYYY-MM')=$1) ORDER BY a.work_date DESC,a.id DESC",[month]);
+        return Response.json({attendance:r.rows,rows:r.rows});
+      }
+      if(p==="hr/salary"){
+        const month=String(new URL(req.url).searchParams.get("month")||"").trim();
+        const r=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE ($1='' OR s.salary_month=$1) ORDER BY e.name",[month]);
+        return Response.json({salaries:r.rows,rows:r.rows});
+      }
+    }
+    if(p==="hr/employees"){
+      await ensureHRSchemas();
+      const r=await pool.query("INSERT INTO hr_employee (employee_code,name,department,designation,mobile,photo_url,joining_date,machine_user_id,basic_salary,hra,other_allowance,overtime_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",[String(b.employee_code||"").trim(),String(b.name||"").trim(),b.department||null,b.designation||null,b.mobile||null,b.photo_url||null,b.joining_date||null,b.machine_user_id||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate)]);
+      return Response.json({success:true,employee:r.rows[0],row:r.rows[0]},{status:201});
+    }
+    if(p==="hr/salary/process"){
+      await ensureHRSchemas();
+      const month=String(b.month||"").trim(); if(!/^\\d{4}-\\d{2}$/.test(month))return Response.json({error:"Valid salary month is required."},{status:400});
+      const days=new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate();
+      const emps=await pool.query("SELECT * FROM hr_employee WHERE active=true ORDER BY id");
+      for(const e of emps.rows){
+        const att=await pool.query("SELECT COALESCE(SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END),0) AS present,COALESCE(SUM(overtime_hours),0) AS ot FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2",[e.id,month]);
+        const present=Number(att.rows[0]?.present||0),ot=Number(att.rows[0]?.ot||0),basic=Number(e.basic_salary||0)*present/days,allow=Number(e.hra||0)+Number(e.other_allowance||0),otamt=ot*Number(e.overtime_rate||0),net=basic+allow+otamt;
+        await pool.query("INSERT INTO hr_salary (employee_id,salary_month,working_days,present_days,overtime_hours,basic_earned,allowances,overtime_amount,net_salary,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PROCESSED') ON CONFLICT(employee_id,salary_month) DO UPDATE SET working_days=EXCLUDED.working_days,present_days=EXCLUDED.present_days,overtime_hours=EXCLUDED.overtime_hours,basic_earned=EXCLUDED.basic_earned,allowances=EXCLUDED.allowances,overtime_amount=EXCLUDED.overtime_amount,net_salary=EXCLUDED.net_salary,status='PROCESSED'",[e.id,month,days,present,ot,basic,allow,otamt,net]);
+      }
+      const r=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE s.salary_month=$1 ORDER BY e.name",[month]);
+      return Response.json({success:true,salaries:r.rows,rows:r.rows});
+    }
     if(p==="admin/nav-tabs"){
       const r=await pool.query("SELECT * FROM nav_tab ORDER BY position,id");
       return Response.json(r.rows);
