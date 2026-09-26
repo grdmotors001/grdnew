@@ -7,7 +7,7 @@ import { Field, ErrorBanner, Money } from './ui';
 export function BillingPendingSalesPage(){
   const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
   const [createOpen,setCreateOpen]=useState(false),[options,setOptions]=useState({applications:[],vehicles:[]});
-  const [invoiceSale,setInvoiceSale]=useState(null);
+  const [invoiceSale,setInvoiceSale]=useState(null),[view,setView]=useState('PENDING');
 
   const load=async()=>{
     setLoading(true);setError('');
@@ -37,10 +37,15 @@ export function BillingPendingSalesPage(){
     </div>
     <ErrorBanner message={error}/>
     <div className="card">
+      <div style={{display:'flex',gap:8,marginBottom:14}}>
+        <button className={'btn '+(view==='PENDING'?'primary':'')} onClick={()=>setView('PENDING')}>Pending Sales</button>
+        <button className={'btn '+(view==='APPROVED'?'primary':'')} onClick={()=>setView('APPROVED')}>Approved Sales</button>
+        <button className={'btn '+(view==='BILLED'?'primary':'')} onClick={()=>setView('BILLED')}>Billed</button>
+      </div>
       <div className="tablewrap"><table className="table"><thead><tr>
         <th>Application</th><th>Dealer</th><th>Customer</th><th>Chassis</th><th>Description</th><th>Sale Amount</th><th>Status</th><th>Action</th>
       </tr></thead><tbody>
-      {rows.map(r=><tr key={r.id}>
+      {rows.filter(r=>r.status===view).map(r=><tr key={r.id}>
         <td><b>{r.application_no||r.application_id}</b></td><td>{r.dealer_name||'—'}</td><td>{r.customer_name||'—'}</td>
         <td>{r.chassis_no||'—'}</td><td>{r.description||'—'}</td><td><Money value={r.sale_amount}/></td>
         <td><b>{r.status}</b></td>
@@ -48,7 +53,7 @@ export function BillingPendingSalesPage(){
             {r.status==='APPROVED'&&<button className="btn primary" onClick={()=>openSale(r.id)}>Create Sale</button>}
             {r.status==='BILLED'&&<span className="pill s">Billed</span>}</td>
       </tr>)}
-      {!loading&&!rows.length&&<tr><td colSpan="8" className="muted">No Pending Sales.</td></tr>}
+      {!loading&&!rows.filter(r=>r.status===view).length&&<tr><td colSpan="8" className="muted">No {view==='APPROVED'?'Approved':'Pending'} Sales.</td></tr>}
       </tbody></table></div>
       {loading&&<div className="muted" style={{padding:16}}>Loading…</div>}
     </div>
