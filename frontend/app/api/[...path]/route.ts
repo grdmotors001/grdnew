@@ -777,6 +777,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const u=new URL(req.url),status=String(u.searchParams.get("status")||"all").toLowerCase(),q=String(u.searchParams.get("search")||"").trim();
       const args:any[]=[],where:string[]=[];
       if(status==="hold")where.push("status='hold'");
+      else if(status==="unsold")where.push("status IN ('hold','available')");
       else if(status==="available")where.push("status='available'");
       else if(status==="sold")where.push("status='sold'");
       if(q){args.push("%"+q+"%");where.push("(vehicle_no ILIKE $"+args.length+" OR COALESCE(battery_maker,'') ILIKE $"+args.length+" OR COALESCE(dealer_name,'') ILIKE $"+args.length+")");}
