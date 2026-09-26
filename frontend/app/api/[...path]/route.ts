@@ -307,6 +307,17 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM old_rickshaw WHERE dealer_id=$1 AND status IN ('available','sold') ORDER BY CASE WHEN status='available' THEN 0 ELSE 1 END,date DESC,id DESC",[num(a.dealer_id)]);
       return Response.json({rickshaws:r.rows,count:r.rowCount});
     }
+    if(p==="dealer/battery-adjustment"&&a.scope==="dealer"){
+      const did=num(a.dealer_id);
+      const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1",[did]);
+      if(!dr.rowCount)return Response.json({error:"Dealer not found."},{status:404});
+      const stock=await pool.query("SELECT * FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') ORDER BY date DESC,id DESC",[did]);
+      const used=await pool.query("SELECT battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type='addition'",[did]);
+      const usedSet=new Set(used.rows.map((x:any)=>String(x.battery_no||"").trim().toUpperCase()));
+      const batteries=stock.rows.filter((x:any)=>!usedSet.has(String(x.battery_no||"").trim().toUpperCase())).map((x:any)=>({...x,qty:1}));
+      const vehicles=await pool.query("SELECT id,date,model_name,chassis_no,motor_no,stage,dealer_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4 FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) ORDER BY date DESC,id DESC",[dr.rows[0].name]);
+      return Response.json({batteries,vehicles:vehicles.rows,makers:[...new Set(batteries.map((x:any)=>String(x.battery_maker||"").trim()).filter(Boolean))]});
+    }
     if(p==="dealer/battery-stock"&&a.scope==="dealer"){
       const r=await pool.query("SELECT * FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') ORDER BY date DESC,id DESC",[num(a.dealer_id)]);
       const used=await pool.query("SELECT battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type='addition'",[num(a.dealer_id)]);
@@ -414,6 +425,35 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const rows=await pool.query('SELECT *,COALESCE(NULLIF(product_category,\'\'),CASE WHEN fro=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END) AS category FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
+    }
+    if(a.scope==="dealer" && p==="battery-withdrawal"){
+      const did=num(a.dealer_id), batteryNo=String(b.battery_no||"").trim();
+      if(!batteryNo)return Response.json({error:"Battery No. is required."},{status:400});
+      const r=await pool.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',NOW()) RETURNING *",
+        [b.date||null,did,String(b.battery_maker||"").trim()||null,batteryNo,String(b.reference_no||"").trim()||null]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
+    if(a.scope==="dealer" && p==="battery-addition"){
+      const did=num(a.dealer_id),vehicleId=idOf(b.vehicle_id),batteryNo=String(b.battery_no||"").trim();
+      if(!vehicleId||!batteryNo)return Response.json({error:"Vehicle and Battery No. are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dr=await client.query("SELECT name FROM dealer WHERE id=$1",[did]);
+        if(!dr.rowCount)throw new Error("Dealer not found.");
+        const vr=await client.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2)) FOR UPDATE",[vehicleId,dr.rows[0].name]);
+        if(!vr.rowCount)throw new Error("Vehicle not found in this dealer's stock.");
+        const available=await client.query("SELECT battery_maker,battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') AND upper(trim(battery_no))=upper(trim($2)) AND NOT EXISTS (SELECT 1 FROM battery_stock_movement x WHERE x.dealer_id=$1 AND x.movement_type='addition' AND upper(trim(x.battery_no))=upper(trim($2))) LIMIT 1",[did,batteryNo]);
+        if(!available.rowCount)throw new Error("Battery is not available in dealer battery stock.");
+        const position=Math.min(4,Math.max(1,Number(b.position)||1));
+        const field="battery_no"+position;
+        const maker=String(b.battery_maker||available.rows[0].battery_maker||"").trim()||null;
+        await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
+        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',$6,NOW()) RETURNING *",
+          [b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,vehicleId]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
@@ -554,6 +594,13 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const fromTable=fromType.includes("old")?"old_rickshaw":"vehicle",toTable=toType.includes("old")?"old_rickshaw":"vehicle";
       const fromId=idOf(b.from_id),toId=idOf(b.to_id);
       if(!fromId||!toId)return Response.json({error:"Source and target are required."},{status:400});
+      if(a.scope==="dealer"){
+        const did=num(a.dealer_id);
+        const dr=await pool.query("SELECT name FROM dealer WHERE id=$1",[did]);
+        if(!dr.rowCount)return Response.json({error:"Dealer not found."},{status:404});
+        const owned=await pool.query("SELECT id FROM vehicle WHERE id=ANY($1::int[]) AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2))",[ [fromId,toId], dr.rows[0].name ]);
+        if(owned.rowCount!==2)return Response.json({error:"Both vehicles must be in your dealer stock."},{status:403});
+      }
       const client=await pool.connect();
       try{
         await client.query("BEGIN");
