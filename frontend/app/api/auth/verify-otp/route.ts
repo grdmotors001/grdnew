@@ -10,6 +10,6 @@ export async function POST(req:Request){
   const q=await pool.query('SELECT * FROM "user" WHERE id=$1 LIMIT 1',[p.sub]); const u=q.rows[0];
   if(!u)return Response.json({error:"User not found."},{status:404});
   const {password_hash,...safe}=u;
-  return Response.json({success:true,token:jwt.sign({sub:u.id,username:u.username,scope:"staff"},secret,{expiresIn:"12h"}),user:safe});
+  return Response.json({success:true,token:jwt.sign({sub:u.id,username:u.username,scope:"staff",is_super_user:Boolean(u.is_super_user),department:u.department||"",allowed_modules:Array.isArray(u.allowed_modules)?u.allowed_modules:[]},secret,{expiresIn:"12h"}),user:safe});
  }catch(e:any){return Response.json({error:e.message||"OTP verification failed"},{status:401})}
 }
