@@ -145,7 +145,19 @@ export function OptionSettingPage({ userId }) {
   }, [userId]);
 
   if (!userId) return <div className="card">Open this from User Master → "Permissions" for a specific user.</div>;
-  if (!data) return <div className="card">Loading…</div>;
+  if (!data) return (
+    <div className="card">
+      {error ? (
+        <>
+          <b>User load failed</b>
+          <div style={{ marginTop: 8, color: '#c0392b' }}>{error}</div>
+          <button className="btn" style={{ marginTop: 12 }} onClick={() => { setError(''); load(); }}>
+            Retry
+          </button>
+        </>
+      ) : 'Loading…'}
+    </div>
+  );
 
   const toggle = (key) => {
     setSelected((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
