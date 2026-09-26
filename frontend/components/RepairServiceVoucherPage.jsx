@@ -122,12 +122,12 @@ export function RepairServiceVoucherPage(){
                   was the raw item's numeric id — they never matched, so
                   the dropdown always snapped back to "Select Raw Item"
                   right after picking something. Now both use item_id. */}
-              <select className="input" value={it.item_id||''} onChange={e=>{const p=rawItems.find(x=>String(x.id)===String(e.target.value)); updateItem(i,'item_id',e.target.value); updateItem(i,'item_code',p?.code||''); updateItem(i,'item_name',p?.name||''); updateItem(i,'unit',p?.unit||'PCS'); updateItem(i,'item_type',String(p?.product_category||'').toUpperCase()==='DISPATCH'?'DISPATCH':'R')}}>
+              <select className="input" value={it.item_id||''} onChange={e=>{const p=[...rawItems,...dispatchItems].find(x=>String(x.id)===String(e.target.value)); updateItem(i,'item_id',e.target.value); updateItem(i,'item_code',p?.code||''); updateItem(i,'item_name',p?.name||''); updateItem(i,'unit',p?.unit||'PCS'); updateItem(i,'item_type',String(p?.product_category||'').toUpperCase()==='DISPATCH'?'DISPATCH':'R')}}>
                 <option value="">Select Raw / Dispatch Item</option>
                 {rawItems.length>0&&<optgroup label="Raw Material">{rawItems.map(p=><option key={'r'+p.id} value={p.id}>{p.name} — Stock {Number(p.stock_qty||0).toLocaleString('en-IN')}</option>)}</optgroup>}
                 {dispatchItems.length>0&&<optgroup label="Dispatch Item">{dispatchItems.map(p=><option key={'d'+p.id} value={p.id}>{p.name} — Stock {Number(p.stock_qty||0).toLocaleString('en-IN')}</option>)}</optgroup>}
               </select>
-              {!rawItems.length&&<small className="muted">Product Master me Raw (R) item add karein.</small>}
+              {!rawItems.length&&!dispatchItems.length&&<small className="muted">Product Master me Raw (R) ya Dispatch item add karein.</small>}
             </td>
             <td><input className="input" type="number" min="0.01" step="0.01" value={it.qty} onChange={e=>updateItem(i,'qty',e.target.value)}/></td>
             <td><input className="input" type="number" min="0" step="0.01" value={it.rate} placeholder="Rate" onChange={e=>updateItem(i,'rate',e.target.value)}/></td>
