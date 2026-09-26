@@ -550,7 +550,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const modelId=num(vl.vehicle_model_id);
       let modelName=String(b.loan_model_name||"").trim();
       if(!modelName && modelId){
-        const mr=await pool.query("SELECT name,product_name,model_name,code,product_code FROM product WHERE id=$1 LIMIT 1",[modelId]);
+        const mr=await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId]);
         const m=mr.rows[0];
         modelName=String(m?.name||m?.product_name||m?.model_name||"").trim();
       }
