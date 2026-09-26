@@ -56,3 +56,5 @@ jobs:
             if(missing.length) process.exit(3);
           })().catch(async e=>{console.error("DB verification failed:",e.message);process.exit(1)});
           NODE
+
+# Read-only verification only; no INSERT/UPDATE/DELETE operations.
