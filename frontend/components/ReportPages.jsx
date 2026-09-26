@@ -934,7 +934,20 @@ export function DayBookPage() {
   const remove=async()=>{if(!form.id)return;if(!window.confirm('Delete this entry?'))return;try{await del('/day-book/'+form.id);setOpen(false);load()}catch(e){setError(e.message)}};
   const runAutoMatch=async()=>{setMatching(true);setMatchResult(null);try{const res=await post('/day-book/auto-match',{});setMatchResult(res);load()}catch(e){setError(e.message)}finally{setMatching(false)}};
 
-  if(!data)return <div className="card">Loading…</div>;
+  if(error)return <ErrorBanner message={error} />;
+  if(!data)return (
+    <div className="card">
+      {error ? (
+        <>
+          <b>Day Book load failed</b>
+          <div style={{ marginTop: 8, color: '#c0392b' }}>{error}</div>
+          <button className="btn" style={{ marginTop: 12 }} onClick={() => { setError(''); load(); }}>
+            Retry
+          </button>
+        </>
+      ) : 'Loading…'}
+    </div>
+  );
   return <div>
     <div className="actions" style={{marginBottom:12,flexWrap:'wrap'}}>
       <button className="btn primary" onClick={openNew}>+ New Entry</button>
