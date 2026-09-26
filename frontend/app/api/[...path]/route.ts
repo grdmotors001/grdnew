@@ -38,7 +38,7 @@ const TABLES:any={
   "stock/ledger-premises":"journal_stock","stock/ledger-raw":"journal_stock","stock/closing-dealers":"journal_stock",
   "stock/closing-premises":"journal_stock","stock/closing-raw":"journal_stock",
   "dealer/battery-stock":"battery_stock_movement","dealer/stock":"vehicle","dealer/purchases":"purchase_bill",
-  "dealer/tax-invoices":"tax_invoice","dealer/delivery-challans":"delivery_challan","dealer/customers":"customer",
+  "dealer/tax-invoices":"tax_invoice","dealer/delivery-challans":"delivery_challan",
   "dealer/old-rickshaw-challans":"old_rickshaw_challan","dealer/payments":"dealer_payment",
   "expense-payment-voucher/booking-pending":"expense_payment_voucher","expense-payment-voucher/incentive-pending":"expense_payment_voucher",
   "expense-payment-voucher/party-pending":"expense_payment_voucher","expense-payment-voucher/work-pending":"expense_payment_voucher"
