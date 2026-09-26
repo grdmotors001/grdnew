@@ -85,6 +85,18 @@ async function ensureFactoryCheckSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_item (id bigserial PRIMARY KEY, report_id integer NOT NULL REFERENCES factory_check_report(id) ON DELETE CASCADE, raw_item_name text NOT NULL, expected_qty numeric NOT NULL DEFAULT 0, consumed_qty numeric NOT NULL DEFAULT 0, unit text, additional boolean NOT NULL DEFAULT false, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE INDEX IF NOT EXISTS factory_check_item_report_idx ON factory_check_item(report_id)");
 }
+async function ensureCreditDebitSchema(){
+  await pool.query(`CREATE TABLE IF NOT EXISTS credit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,credit_note_no text,tax_invoice_id integer,delivery_challan_id integer,original_bill_no text,dealer_name text,buyer_name text,chassis_no text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,reason text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS debit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,debit_note_no text,party_name text,party_gst_no text,party_state_code text,original_bill_no text,reason text,remarks text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,items jsonb NOT NULL DEFAULT '[]'::jsonb,created_at timestamptz NOT NULL DEFAULT now())`);
+  const defs:any={credit_note:{credit_note_no:"text",tax_invoice_id:"integer",delivery_challan_id:"integer",original_bill_no:"text",dealer_name:"text",buyer_name:"text",chassis_no:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",reason:"text",remarks:"text"},debit_note:{debit_note_no:"text",party_name:"text",party_gst_no:"text",party_state_code:"text",original_bill_no:"text",reason:"text",remarks:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",items:"jsonb NOT NULL DEFAULT '[]'::jsonb"}};
+  for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table])) await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+}
+async function ensureRepairSchema(){
+  await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_voucher (id bigserial PRIMARY KEY,voucher_no text,date date NOT NULL DEFAULT CURRENT_DATE,vehicle_id integer,vehicle_no text,chassis_no text,customer_name text,customer_mobile text,items jsonb NOT NULL DEFAULT '[]'::jsonb,total_amount numeric NOT NULL DEFAULT 0,paid_amount numeric NOT NULL DEFAULT 0,balance_amount numeric NOT NULL DEFAULT 0,gst_amount numeric NOT NULL DEFAULT 0,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_payment_receipt (id bigserial PRIMARY KEY,receipt_no text,voucher_id integer REFERENCES repair_service_voucher(id) ON DELETE CASCADE,date date NOT NULL DEFAULT CURRENT_DATE,amount numeric NOT NULL DEFAULT 0,payment_mode text,reference_no text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
+  const defs:any={repair_service_voucher:{voucher_no:"text",vehicle_id:"integer",vehicle_no:"text",chassis_no:"text",customer_name:"text",customer_mobile:"text",items:"jsonb NOT NULL DEFAULT '[]'::jsonb",total_amount:"numeric NOT NULL DEFAULT 0",paid_amount:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",gst_amount:"numeric NOT NULL DEFAULT 0",remarks:"text"},repair_service_payment_receipt:{receipt_no:"text",voucher_id:"integer",date:"date",amount:"numeric NOT NULL DEFAULT 0",payment_mode:"text",reference_no:"text",remarks:"text"}};
+  for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table])) await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+}
 function parseItems(v:any){if(Array.isArray(v))return v;if(typeof v==="string"){try{const x=JSON.parse(v);return Array.isArray(x)?x:[]}catch{return []}}return []}
 function purchaseBatteryItems(items:any[]){return parseItems(items).filter((x:any)=>Boolean(x?.is_battery)||String(x?.item_type||"").toLowerCase()==="battery"||String(x?.battery_maker||"").trim()!=="").map((x:any)=>({battery_maker:String(x.battery_maker||"").trim(),qty:Math.max(0,Math.trunc(num(x.qty)))})).filter((x:any)=>x.battery_maker&&x.qty>0)}
 async function syncBatteryPurchaseBill(client:any,bill:any){
@@ -208,6 +220,31 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p==="credit-notes"){
+      await ensureCreditDebitSchema();
+      const r=await pool.query(`SELECT cn.*,ti.bill_no AS invoice_bill_no,COALESCE(cn.original_bill_no,ti.bill_no) AS original_bill_no,COALESCE(cn.dealer_name,ti.dealer_name) AS dealer_name,COALESCE(cn.buyer_name,ti.buyer_name) AS buyer_name,COALESCE(cn.chassis_no,ti.chassis_no) AS chassis_no FROM credit_note cn LEFT JOIN tax_invoice ti ON ti.id=cn.tax_invoice_id ORDER BY cn.date DESC,cn.id DESC LIMIT 1000`);
+      return Response.json({credit_notes:r.rows,rows:r.rows,data:r.rows});
+    }
+    if(p==="debit-notes"){
+      await ensureCreditDebitSchema();const r=await pool.query("SELECT * FROM debit_note ORDER BY date DESC,id DESC LIMIT 1000");
+      return Response.json({debit_notes:r.rows,rows:r.rows,data:r.rows});
+    }
+    if(p==="repair-service-masters"){
+      await ensureRepairSchema();const u=new URL(req.url),vehicleNo=String(u.searchParams.get("vehicle_no")||"").trim();
+      const vr=await pool.query(`SELECT v.id AS vehicle_id,COALESCE(to_jsonb(v)->>'vehicle_no',to_jsonb(v)->>'vehicle_reg_no',to_jsonb(v)->>'registration_no','') AS vehicle_no,COALESCE(v.chassis_no,'') AS chassis_no,COALESCE(to_jsonb(ti)->>'buyer_name','') AS customer_name,COALESCE(to_jsonb(ti)->>'buyer_mobile',to_jsonb(ti)->>'customer_mobile','') AS customer_mobile FROM vehicle v LEFT JOIN LATERAL (SELECT * FROM tax_invoice x WHERE x.vehicle_id=v.id AND COALESCE(x.cancelled,false)=false ORDER BY x.date DESC,x.id DESC LIMIT 1) ti ON true WHERE ($1='' OR lower(COALESCE(to_jsonb(v)->>'vehicle_no',to_jsonb(v)->>'vehicle_reg_no',to_jsonb(v)->>'registration_no',''))=lower($1)) ORDER BY v.id DESC LIMIT 100`,[vehicleNo]);
+      const products=await pool.query(`SELECT p.id,p.name,p.code,p.unit,p.fro,p.product_category,p.show_on_delivery_challan,COALESCE((SELECT SUM(CASE WHEN UPPER(COALESCE(js.work_type,''))='OUT' THEN -ABS(js.qty) WHEN UPPER(COALESCE(js.work_type,''))='IN' THEN ABS(js.qty) ELSE js.qty END) FROM journal_stock js WHERE lower(trim(js.item_name))=lower(trim(p.name))),0) AS stock_qty FROM product p WHERE p.fro='R' OR (UPPER(COALESCE(p.product_category,''))='DISPATCH' AND COALESCE(p.show_on_delivery_challan,false)=true) ORDER BY CASE WHEN UPPER(COALESCE(p.product_category,''))='DISPATCH' THEN 2 ELSE 1 END,p.name`);
+      return Response.json({vehicles:vr.rows,items:products.rows,raw_items:products.rows.filter((x:any)=>x.fro==='R'),dispatch_items:products.rows.filter((x:any)=>String(x.product_category||'').toUpperCase()==='DISPATCH')});
+    }
+    if(p==="repair-service-vouchers"){
+      await ensureRepairSchema();const status=String(new URL(req.url).searchParams.get("status")||"").trim().toUpperCase(),args:any[]=[],w:string[]=[];
+      if(status){args.push(status);w.push("CASE WHEN v.balance_amount>0 THEN 'PENDING' ELSE 'PAID' END=$"+args.length);}
+      const r=await pool.query("SELECT v.* FROM repair_service_voucher v"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY v.date DESC,v.id DESC LIMIT 1000",args);
+      return Response.json({vouchers:r.rows,rows:r.rows});
+    }
+    if(p==="repair-service-receipts"){
+      await ensureRepairSchema();const r=await pool.query("SELECT r.*,v.voucher_no,v.customer_name,v.vehicle_no FROM repair_service_payment_receipt r LEFT JOIN repair_service_voucher v ON v.id=r.voucher_id ORDER BY r.date DESC,r.id DESC LIMIT 1000");
+      return Response.json({receipts:r.rows,rows:r.rows});
+    }
     if(p==="masters/colour"){
       const r=await pool.query("SELECT * FROM simple_master WHERE lower(kind) IN ('colour','color') ORDER BY id DESC");
       return Response.json({masters:r.rows,rows:r.rows,data:r.rows});
@@ -285,7 +322,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const it=inward.rows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable),a.cgst+=num(x.cgst),a.sgst+=num(x.sgst),a.igst+=num(x.igst),a),{taxable:0,cgst:0,sgst:0,igst:0});
         return Response.json({outward:rows,outward_totals:ot,inward:inward.rows,inward_totals:it});
       }
-      if(p==="reports/hypothecation-register")return Response.json({invoices:rows.filter((x:any)=>num(x.hypothecation_amount)!==0),total_hyp:rows.reduce((s:number,x:any)=>s+num(x.hypothecation_amount),0)});
+      if(p==="reports/hypothecation-register"){const invoices=rows.filter((x:any)=>num(x.hypothecation_amount)>0).map((x:any)=>({...x,balance_amount:Math.max(0,num(x.hypothecation_amount)-num(x.amount_received))}));return Response.json({invoices,total_hyp:invoices.reduce((s:number,x:any)=>s+num(x.hypothecation_amount),0),rows:invoices});}
       if(p==="reports/subsidy")return Response.json({invoices:rows.filter((x:any)=>num(x.subsidy_amount)!==0),total_subsidy:rows.reduce((s:number,x:any)=>s+num(x.subsidy_amount),0)});
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
       const pageRows=rows.slice(start,start+per),totals=rows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable_value),a.tax+=num(x.tax_amount),a.total+=num(x.bill_total),a),{taxable:0,tax:0,total:0});
@@ -978,9 +1015,11 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const ids=Array.isArray(b.invoice_ids)?b.invoice_ids.map((x:any)=>idOf(x)).filter(Boolean):[];
       if(!ids.length)return new Response("No invoices selected.",{status:400,headers:{"Content-Type":"text/plain;charset=utf-8"}});
       const r=await pool.query("SELECT ti.date,ti.buyer_name,COALESCE(v.model_name,ti.product_name,'') AS model_name,v.chassis_no,v.motor_no,COALESCE(to_jsonb(v)->>'umrn','') AS umrn,COALESCE(to_jsonb(v)->>'manufacturing_month','') AS manufacturing_month,COALESCE(v.colour_code,'') AS colour_code FROM tax_invoice ti LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=ANY($1::int[]) ORDER BY ti.date,ti.id",[ids]);
-      const header="DATE|CUSTOMER|MODEL|CHASSIS|MOTOR|UMRN|MANUFACTURING|COLOUR CODE";
-      const lines=r.rows.map((x:any)=>[x.date||"",x.buyer_name||"",x.model_name||"",x.chassis_no||"",x.motor_no||"",x.umrn||"",x.manufacturing_month||"",x.colour_code||""].map((v:any)=>String(v).replace(/[|\r\n]/g," ")).join("|"));
-      return new Response([header,...lines].join("\r\n"),{headers:{"Content-Type":"text/plain;charset=utf-8","Content-Disposition":"attachment; filename=\"VahanInventoryTXT.TXT\""}});
+      const dateNow=new Date(),dd=String(dateNow.getDate()).padStart(2,"0"),mm=String(dateNow.getMonth()+1).padStart(2,"0"),yy=String(dateNow.getFullYear()).slice(-2);
+      const day=["sun","mon","tue","wed","thu","fri","sat"][dateNow.getDay()],fileName=day+dd+mm+yy+".txt";
+      const monthNumber=(v:any)=>{const s=String(v??"").trim();if(!s)return "";const direct=s.match(/^(\\d{1,2})[\\/-](\\d{4})$/);if(direct)return String(Number(direct[1])).padStart(2,"0")+direct[2];const y=s.match(/(20\\d{2})/),m=s.match(/(?:^|[^a-z])(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:[^a-z]|$)/i);if(y&&m){const names=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];return String(names.indexOf(m[1].toLowerCase())+1).padStart(2,"0")+y[1];}const d=s.match(/(20\\d{2})[-/](\\d{1,2})/);return d?String(Number(d[2])).padStart(2,"0")+d[1]:s.replace(/[^A-Za-z0-9]/g,"").slice(0,6);};
+      const lines=r.rows.map((x:any)=>[x.umrn||"",x.chassis_no||"",monthNumber(x.manufacturing_month),x.colour_code||"","GRD","NA"].map((v:any)=>String(v).replace(/[|\\r\\n]/g,"")).join("|"));
+      return new Response(lines.join("\\r\\n"),{headers:{"Content-Type":"text/plain;charset=utf-8","Content-Disposition":"attachment; filename=\""+fileName+"\""}});
     }
     const table=tableFor(path);
     if(table)return genericWrite(req,path,table,"POST");
