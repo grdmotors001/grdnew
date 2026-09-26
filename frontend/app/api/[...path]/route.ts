@@ -604,6 +604,33 @@ async function mutation(req:Request,params:any,method:string){
       if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
       return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
     }
+    if(p.startsWith("admin/nav-tabs/")){
+      const id=idOf(path[path.length-1]);
+      if(path[path.length-1]==="reorder" && method==="PUT"){
+        const b:any=await json(req),order=Array.isArray(b.order)?b.order.map((x:any)=>Number(x)).filter((x:number)=>x>0):[];
+        for(let i=0;i<order.length;i++)await pool.query("UPDATE nav_tab SET position=$1 WHERE id=$2",[i+1,order[i]]);
+        return Response.json({success:true});
+      }
+      if(!id)return Response.json({error:"Tab id required."},{status:400});
+      if(method==="DELETE"){
+        const r=await pool.query("DELETE FROM nav_tab WHERE id=$1 RETURNING *",[id]);
+        return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      }
+      const b:any=await json(req),fields:any={};
+      for(const k of ["label","icon","hidden","items"]){if(Object.prototype.hasOwnProperty.call(b,k))fields[k]=k==="items"?(Array.isArray(b[k])?b[k]:[]):b[k];}
+      const keys=Object.keys(fields);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(i+1));
+      const r=await pool.query('UPDATE nav_tab SET '+sets.join(",")+' WHERE id=
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(keys.length+1)+' RETURNING *',[...keys.map(k=>fields[k]),id]);
+      return Response.json(r.rows[0]||null);
+    }
     if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
     return genericWrite(req,path,table,method);
   }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
