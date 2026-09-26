@@ -449,8 +449,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const field="battery_no"+position;
         const maker=String(b.battery_maker||available.rows[0].battery_maker||"").trim()||null;
         await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
-        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',$6,NOW()) RETURNING *",
-          [b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,vehicleId]);
+        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',NOW()) RETURNING *",
+          [b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null]);
         await client.query("COMMIT");
         return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
