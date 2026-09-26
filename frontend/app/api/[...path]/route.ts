@@ -435,6 +435,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       let bal=0;for(const e of filtered){bal+=num(e.debit)-num(e.credit);e.balance=Math.abs(bal);e.dc=bal>=0?"Dr":"Cr";}
       return Response.json({events:filtered,dealers:ds.rows,summary:[],opening_balance:0,closing_balance:bal});
     }
+    if(p==="expense-payment-voucher/masters"){
+      const m=await pool.query("SELECT id,kind,name,code FROM simple_master WHERE kind IN ('expense-head','mechanic','fabricator','salesman','expense_type','expense-type') ORDER BY kind,name");
+      const dealers=await pool.query("SELECT id,code,name FROM dealer ORDER BY name");
+      const staff=await pool.query('SELECT id,username,department FROM "user" WHERE COALESCE(username,\'\')<>\'\' ORDER BY username');
+      const by=(kind:string)=>m.rows.filter((x:any)=>String(x.kind||"").toLowerCase()===kind).map((x:any)=>({id:x.id,name:x.name,code:x.code}));
+      const expense_types=by("expense_type").length?by("expense_type"):by("expense-type");
+      return Response.json({expense_types,pay_to_types:[{id:"dealer",name:"Dealer"},{id:"staff",name:"Staff / Salesman"},{id:"other",name:"Other"}],dealers:dealers.rows,staff:staff.rows.map((x:any)=>({id:x.id,name:x.username,department:x.department})),mechanics:by("mechanic"),fabricators:by("fabricator")});
+    }
+    if(p==="expense-payment-voucher/incentive-pending"){ return Response.json({rows:[],total:0}); }
+    if(p==="expense-payment-voucher/work-pending"){ const r=await pool.query("SELECT id AS vehicle_id,model_name,chassis_no,vehicle_reg_no,dealer_name FROM vehicle WHERE stage='Manufacturing' ORDER BY id DESC LIMIT 1000"); return Response.json({rickshaws:r.rows}); }
+    if(p==="expense-payment-voucher/booking-pending"){ const r=await pool.query("SELECT id,page_no,full_name AS customer_name,phone,sale_amount,loan_amount,vehicle_no FROM dealer_cash_customer WHERE COALESCE(sale_amount,0)-COALESCE(loan_amount,0)>0 ORDER BY id DESC LIMIT 1000"); return Response.json({rows:r.rows}); }
+    if(p==="expense-payment-voucher/party-rickshaws"){ const u=new URL(req.url),party=String(u.searchParams.get("party_name")||"").trim(); const r=await pool.query("SELECT id AS vehicle_id,model_name,chassis_no,vehicle_reg_no,dealer_name FROM vehicle WHERE ($1='' OR lower(COALESCE(dealer_name,''))=lower($1)) ORDER BY id DESC LIMIT 1000",[party]); return Response.json({rickshaws:r.rows}); }
+    if(p==="expense-payment-voucher/rickshaws"){ const u=new URL(req.url),dealerId=Number(u.searchParams.get("dealer_id")||0); const r=await pool.query("SELECT id AS vehicle_id,model_name,chassis_no,vehicle_reg_no,dealer_name FROM vehicle WHERE stage='Manufacturing' AND ($1=0 OR dealer_id=$1) ORDER BY id DESC LIMIT 1000",[dealerId]); return Response.json({rickshaws:r.rows}); }
     if(p==="reports/payment-receivable"){
       const u=new URL(req.url);
       const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
