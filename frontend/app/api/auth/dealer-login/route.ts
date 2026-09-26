@@ -25,8 +25,17 @@ export async function POST(req:Request){
   const r=await pool.query("SELECT * FROM dealer WHERE login_id=$1 LIMIT 1",[login]);
   const d=r.rows[0];
   if(!d||d.blocked||!check(d.password_hash,password))return Response.json({error:"Invalid Dealer Login."},{status:401});
-  const {password_hash,...safe}=d;
-  const token=jwt.sign({sub:d.id,username:d.login_id,dealer_id:d.id,scope:"dealer",portal_modules:String(d.portal_modules||"").split(",").filter(Boolean)},secret,{expiresIn:"12h"});
-  return Response.json({success:true,token,user:safe,dealer:safe});
+  const portalModules=String(d.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+  const safe={
+    id:d.id,
+    code:d.code,
+    name:d.name,
+    login_id:d.login_id,
+    dealer_category:d.dealer_category||"dealer",
+    purchase_access:Boolean(d.purchase_access),
+    portal_modules:portalModules,
+  };
+  const token=jwt.sign({sub:d.id,username:d.login_id,dealer_id:d.id,scope:"dealer",portal_modules:portalModules},secret,{expiresIn:"12h"});
+  return Response.json({success:true,token,dealer:safe,user:safe});
  }catch(e:any){console.error("[dealer-login]",e);return Response.json({error:e.message||"Dealer login failed"},{status:500})}
 }
