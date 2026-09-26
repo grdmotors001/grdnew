@@ -6,6 +6,12 @@ import { EmptyState, Money, Pill } from './ui';
 import { formatDate } from '../lib/date';
 import { Factory, Truck, Receipt, Users, Wallet, ClipboardList } from 'lucide-react';
 
+const maxBy = (rows, key) => Math.max(1, ...(rows || []).map(r => Number(r[key] || 0)));
+const monthLabel = (m) => {
+  const d = new Date(String(m || '') + '-01T00:00:00');
+  return Number.isNaN(d.getTime()) ? m : d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+};
+
 const Card = ({label,value,sub,onClick,icon:Icon}) => {
   const body=<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}><span className="muted">{label}</span>{Icon&&<Icon size={19}/>}</div><div className="metric" style={{marginTop:6}}>{value}</div>{sub&&<div className="muted" style={{marginTop:4}}>{sub}</div>}</>;
   return onClick?<button className="card" style={{textAlign:'left',cursor:'pointer'}} onClick={onClick}>{body}</button>:<div className="card">{body}</div>;
@@ -48,6 +54,58 @@ export function Dashboard({ setActive }) {
       <div className="card"><span className="muted">Loan / Hypothecation</span><div className="metric"><Money value={d.loan_total}/></div></div>
       <div className="card"><span className="muted">Amount Received</span><div className="metric"><Money value={d.received_total}/></div></div>
       <div className="card"><span className="muted">Production This Month</span><div className="metric">{Number(d.production_this_month||0).toLocaleString('en-IN')}</div></div>
+    </div>
+
+    <div className="grid" style={{marginTop:14, gridTemplateColumns:'minmax(0,2fr) minmax(320px,1fr)'}}>
+      <div className="card">
+        <div className="pageHeader"><div><h3 style={{margin:0}}>1 Year Sales Graph</h3><p className="muted">Monthly billed sales value — last 12 months</p></div></div>
+        {(() => {
+          const rows = d.billed_monthly || [];
+          const max = maxBy(rows, 'taxable');
+          return <div style={{display:'flex',alignItems:'flex-end',gap:8,height:230,padding:'16px 4px 4px',overflowX:'auto'}}>
+            {rows.map(r => <div key={r.month} title={monthLabel(r.month)+' • ₹'+Number(r.taxable||0).toLocaleString('en-IN')} style={{minWidth:42,flex:1,height:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',alignItems:'center',gap:6}}>
+              <div style={{width:'70%',height:(Number(r.taxable||0)/max*175)+'px',minHeight:Number(r.taxable||0)?4:1,borderRadius:'6px 6px 2px 2px',background:'var(--accent)'}} />
+              <span className="muted" style={{fontSize:10,whiteSpace:'nowrap'}}>{monthLabel(r.month)}</span>
+            </div>)}
+            {!rows.length && <EmptyState text="No sales data found."/>}
+          </div>;
+        })()}
+      </div>
+
+      <div className="card">
+        <h3 style={{margin:0}}>State-wise Sale</h3>
+        <p className="muted">Last 12 months, billed sales value</p>
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>State</th><th>Bills</th><th>Sale</th></tr></thead>
+            <tbody>{(d.state_sales || []).map(r => <tr key={r.state}><td><b>{r.state}</b></td><td>{Number(r.billed||0)}</td><td>₹{Number(r.taxable||0).toLocaleString('en-IN')}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div className="card" style={{marginTop:14}}>
+      <div className="pageHeader"><div><h3 style={{margin:0}}>Monthly Delivery / Billed</h3><p className="muted">Last 12 months</p></div></div>
+      {(() => {
+        const rows = d.monthly || [];
+        const max = Math.max(1, ...(rows || []).flatMap(r => [Number(r.delivery_challan||0), Number(r.tax_invoice||0)]));
+        return <div style={{display:'grid',gap:10}}>
+          {rows.map(r => <div key={r.month} style={{display:'grid',gridTemplateColumns:'70px 1fr 70px',alignItems:'center',gap:10}}>
+            <span className="muted">{monthLabel(r.month)}</span>
+            <div>
+              <div style={{height:9,borderRadius:8,background:'var(--border)',overflow:'hidden',marginBottom:5}}>
+                <div style={{height:'100%',width:(Number(r.delivery_challan||0)/max*100)+'%',background:'var(--accent)',borderRadius:8}} />
+              </div>
+              <div style={{height:9,borderRadius:8,background:'var(--border)',overflow:'hidden'}}>
+                <div style={{height:'100%',width:(Number(r.tax_invoice||0)/max*100)+'%',background:'var(--success,#16a34a)',borderRadius:8}} />
+              </div>
+            </div>
+            <span style={{fontSize:11}}>{Number(r.delivery_challan||0)} DC / {Number(r.tax_invoice||0)} Bill</span>
+          </div>)}
+          {!rows.length && <EmptyState text="No monthly data found."/>}
+        </div>;
+      })()}
+      <div className="muted" style={{fontSize:11,marginTop:10}}>Top bar = Delivery Challan, bottom bar = Tax Invoice billed.</div>
     </div>
 
     <div className="card" style={{marginTop:14}}>
