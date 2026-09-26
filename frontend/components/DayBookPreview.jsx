@@ -27,6 +27,18 @@ export function DayBookPreview({
   const totalReceipts=rs.reduce((s,x)=>s+Number(x.amount||0),0);
   const totalPayments=ps.reduce((s,x)=>s+Number(x.amount||0),0);
   const close=closingBalance == null ? Number(openingBalance||0)+totalReceipts-totalPayments : Number(closingBalance||0);
+  const rows=useMemo(()=>{
+    const combined=[
+      ...rs.map(x=>({...x,type:'DEBIT',debit:Number(x.amount||0),credit:0})),
+      ...ps.map(x=>({...x,type:'CREDIT',debit:0,credit:Number(x.amount||0)})),
+    ].sort((a,b)=>String(a.date||date).localeCompare(String(b.date||date)) || String(a.no||'').localeCompare(String(b.no||'')));
+    let running=Number(openingBalance||0);
+    return combined.map(x=>{
+      const rowOpening=running;
+      running += Number(x.debit||0)-Number(x.credit||0);
+      return {...x,rowOpening,running};
+    });
+  },[rs,ps,openingBalance,date]);
 
   const dateLabel=formatDate(date);
   const dayShift=d=>{const x=new Date((d||isoToday())+'T00:00:00');x.setDate(x.getDate()+1);return x.toISOString().slice(0,10)};
