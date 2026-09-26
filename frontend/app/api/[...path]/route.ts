@@ -403,6 +403,16 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=did?await pool.query("SELECT * FROM loan_workflow WHERE dealer_id=$1 ORDER BY id DESC",[did]):await pool.query("SELECT * FROM loan_workflow ORDER BY id DESC LIMIT 1000");
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount});
     }
+    if(p==="reports/cash-at-dealer"){
+      const u=new URL(req.url),dealerId=Number(u.searchParams.get("dealer_id")||0);
+      const dealers=await pool.query("SELECT id,code,name FROM dealer ORDER BY name");
+      const receipts=await pool.query("SELECT dealer_id,COALESCE(SUM(amount),0)::numeric AS v FROM dealer_cash_receipt WHERE payment_mode='cash' GROUP BY dealer_id");
+      const expenses=await pool.query("SELECT dealer_id,COALESCE(SUM(amount),0)::numeric AS v FROM dealer_cash_expense GROUP BY dealer_id");
+      const handovers=await pool.query("SELECT dealer_id,COALESCE(SUM(amount),0)::numeric AS v FROM dealer_cash_handover WHERE status <> 'rejected' GROUP BY dealer_id");
+      const rm=new Map(receipts.rows.map((x:any)=>[Number(x.dealer_id),num(x.v)])),em=new Map(expenses.rows.map((x:any)=>[Number(x.dealer_id),num(x.v)])),hm=new Map(handovers.rows.map((x:any)=>[Number(x.dealer_id),num(x.v)]));
+      const rows=dealers.rows.filter((d:any)=>!dealerId||Number(d.id)===dealerId).map((d:any)=>{const cashReceived=rm.get(Number(d.id))||0,expenses=em.get(Number(d.id))||0,ho=hm.get(Number(d.id))||0;return {dealer_id:d.id,dealer_code:d.code,dealer_name:d.name,cash_received:cashReceived,expenses,ho_handover:ho,cash_at_dealer:cashReceived-expenses-ho}});
+      return Response.json({rows,total_cash_at_dealer:rows.reduce((s:number,x:any)=>s+x.cash_at_dealer,0)});
+    }
     if(p==="reports/payment-receivable"){
       const u=new URL(req.url);
       const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
