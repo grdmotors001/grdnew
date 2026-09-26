@@ -32,6 +32,7 @@ import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPa
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { BackupRestorePage } from '../components/BackupRestorePage';
 import { BatteryRegisterPage } from '../components/BatteryRegisterPage';
+import { FactoryCheckReportPage } from '../components/FactoryCheckReportPage';
 import { DebitNotePage } from '../components/DebitNotePage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
@@ -78,6 +79,7 @@ const CUSTOM_PAGES = {
   'battery-delivery-challan': () => <BatteryDeliveryChallanPage />,
   'battery-addition': () => <BatteryAdditionPage />,
   'battery-register': () => <BatteryRegisterPage />,
+  'factory-check-report': () => <FactoryCheckReportPage />,
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
