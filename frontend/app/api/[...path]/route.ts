@@ -617,7 +617,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         }
         await client.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1) WHERE id=$2",[did,vehicleId]);
         await client.query("COMMIT");
-        return Response.json({success:true,row:r.rows[0],data:r.rows[0},dispatch_items:products},{status:201});
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],dispatch_items:products},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("dealer/tax-invoices/") && a.scope==="dealer"){
