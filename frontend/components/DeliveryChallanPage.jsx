@@ -185,7 +185,19 @@ export function DeliveryChallanPage() {
     run(async () => { await del(`/delivery-challans/${id}`); load(page, search); });
   };
 
-  if (!data) return <div className="card">Loading…</div>;
+  if (!data) return (
+    <div className="card">
+      {error ? (
+        <>
+          <b>Delivery Challan load failed</b>
+          <div style={{ marginTop: 8, color: '#c0392b' }}>{error}</div>
+          <button className="btn" style={{ marginTop: 12 }} onClick={() => { setError(''); load(1, search); }}>
+            Retry
+          </button>
+        </>
+      ) : 'Loading…'}
+    </div>
+  );
 
   const formVehicle = (editRow && data.available_vehicles || []).find(
     (v) => String(v.id) === String(editRow?.vehicle_id)
