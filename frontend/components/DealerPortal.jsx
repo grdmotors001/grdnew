@@ -407,14 +407,71 @@ function DealerLoanStatusTable({rows,onRefresh}) {
   </div></div>;
 }
 
+function BatteryAdjustmentShell({title,description,onBack,children}) {
+  return <div className="dealerPage">
+    <div className="dealerPanel">
+      <div className="dealerPanelHead"><div><h3>{title}</h3><p>{description}</p></div><button type="button" className="btn" onClick={onBack}>Back</button></div>
+      {children}
+    </div>
+  </div>;
+}
+
 function DealerBatteryWithdrawal({dealer,onBack}) {
-  return <DealerDealerModulePlaceholder title="Battery Withdrawal" description="Battery withdrawal module is enabled for this dealer." onBack={onBack} />;
+  const [form,setForm]=useState({date:new Date().toISOString().slice(0,10),battery_maker:'',battery_no:'',reference_no:''});
+  const [saving,setSaving]=useState(false), [error,setError]=useState(''), [message,setMessage]=useState('');
+  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-withdrawal',form);setMessage('Battery stock added successfully.');setForm({...form,battery_no:'',reference_no:'');}catch(err){setError(err.message||'Could not save withdrawal.')}finally{setSaving(false);}};
+  return <BatteryAdjustmentShell title="Battery Withdrawal" description="Withdraw / receive a battery into this dealer's battery stock." onBack={onBack}>
+    <form onSubmit={submit} className="formgrid" style={{padding:16}}>
+      <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+      <Field label="Battery Maker" value={form.battery_maker} onChange={v=>setForm({...form,battery_maker:v})}/>
+      <Field label="Battery No." value={form.battery_no} onChange={v=>setForm({...form,battery_no:v})} required/>
+      <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
+      {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
+      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'#eefbf3',color:'#147a42'}}>{message}</div>}
+      <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving}>{saving?'Saving…':'Save Withdrawal'}</button></div>
+    </form>
+  </BatteryAdjustmentShell>;
 }
-function DealerBatterySwap({dealer,onBack}) {
-  return <DealerDealerModulePlaceholder title="Battery Exchange" description="Battery exchange module is enabled for this dealer." onBack={onBack} />;
-}
+
 function DealerBatteryAddition({dealer,onBack}) {
-  return <DealerDealerModulePlaceholder title="Battery Fitting" description="Battery fitting module is enabled for this dealer." onBack={onBack} />;
+  const [data,setData]=useState({batteries:[],vehicles:[]}),[form,setForm]=useState({date:new Date().toISOString().slice(0,10),battery_no:'',vehicle_id:'',position:1,reference_no:''});
+  const [saving,setSaving]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const load=()=>get('/dealer/battery-adjustment').then(setData).catch(e=>setError(e.message||'Could not load battery stock.'));
+  useEffect(()=>{load()},[]);
+  const selected=data.batteries.find(x=>String(x.battery_no)===String(form.battery_no));
+  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-addition',{...form,battery_maker:selected?.battery_maker||''});setMessage('Battery fitted to vehicle successfully.');setForm({...form,battery_no:'',reference_no:''});load();}catch(err){setError(err.message||'Could not fit battery.')}finally{setSaving(false);}};
+  return <BatteryAdjustmentShell title="Battery Fitting" description="Fit one battery from dealer stock to a vehicle." onBack={onBack}>
+    <form onSubmit={submit} className="formgrid" style={{padding:16}}>
+      <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+      <Field label="Vehicle" type="select" value={form.vehicle_id} options={[{value:'',label:'Select Vehicle'},...data.vehicles.map(v=>({value:v.id,label:[v.chassis_no,v.model_name].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,vehicle_id:v})} required/>
+      <Field label="Battery" type="select" value={form.battery_no} options={[{value:'',label:'Select Battery'},...data.batteries.map(v=>({value:v.battery_no,label:[v.battery_no,v.battery_maker].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,battery_no:v})} required/>
+      <Field label="Battery Position" type="select" value={String(form.position)} options={[1,2,3,4].map(x=>({value:String(x),label:'Battery No. '+x}))} onChange={v=>setForm({...form,position:Number(v)})}/>
+      <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
+      {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
+      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'#eefbf3',color:'#147a42'}}>{message}</div>}
+      <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving||!data.batteries.length}>{saving?'Saving…':'Fit Battery'}</button></div>
+    </form>
+  </BatteryAdjustmentShell>;
+}
+
+function DealerBatterySwap({dealer,onBack}) {
+  const [data,setData]=useState({vehicles:[]}),[form,setForm]=useState({from_id:'',to_id:'',mode:'swap',date:new Date().toISOString().slice(0,10),remarks:''});
+  const [saving,setSaving]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const load=()=>get('/dealer/battery-adjustment').then(setData).catch(e=>setError(e.message||'Could not load vehicles.'));
+  useEffect(()=>{load()},[]);
+  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-swap-vouchers',{...form,from_type:'vehicle',to_type:'vehicle'});setMessage('Battery exchange completed successfully.');setForm({...form,from_id:'',to_id:'',remarks:''});load();}catch(err){setError(err.message||'Could not exchange batteries.')}finally{setSaving(false);}};
+  return <BatteryAdjustmentShell title="Battery Exchange" description="Exchange batteries between two vehicles in your dealer stock." onBack={onBack}>
+    <form onSubmit={submit} className="formgrid" style={{padding:16}}>
+      <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+      <Field label="Source Vehicle" type="select" value={form.from_id} options={[{value:'',label:'Select Source Vehicle'},...data.vehicles.map(v=>({value:v.id,label:[v.chassis_no,v.model_name].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,from_id:v})} required/>
+      <Field label="Target Vehicle" type="select" value={form.to_id} options={[{value:'',label:'Select Target Vehicle'},...data.vehicles.filter(v=>String(v.id)!==String(form.from_id)).map(v=>({value:v.id,label:[v.chassis_no,v.model_name].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,to_id:v})} required/>
+      <Field label="Mode" type="select" value={form.mode} options={[{value:'swap',label:'Exchange / Swap'},{value:'transfer',label:'Transfer'}]} onChange={v=>setForm({...form,mode:v})}/>
+      <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
+      {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
+      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'#eefbf3',color:'#147a42'}}>{message}</div>}
+      <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving||data.vehicles.length<2}>{saving?'Saving…':'Exchange Battery'}</button></div>
+    </form>
+  </BatteryAdjustmentShell>;
 }
 function DealerOldRickshawSales({dealer,onBack}) {
   return <DealerDealerModulePlaceholder title="Old Rickshaw Sale" description="Old Rickshaw sale module is enabled for this dealer." onBack={onBack} />;
