@@ -36,7 +36,7 @@ export function TaxInvoicePage() {
   });
   const { busy, error, setError, run } = useAsyncAction();
 
-  useEffect(() => { get('/masters/financer').then((d) => setFinancers(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+  useEffect(() => { get('/masters/financer').then((d) => setFinancers(Array.isArray(d) ? d : (d.masters || d.rows || d.data || []))).catch(() => {}); }, []);
 
   const tiBalance = (Number(form.sale_amount) || 0) - (Number(form.hypothecation_amount) || 0) - (Number(form.amount_received) || 0);
 
