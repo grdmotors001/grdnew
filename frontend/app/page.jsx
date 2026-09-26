@@ -1,4 +1,5 @@
 'use client';
+// Deployment smoke-trigger: keep the corrected Node frontend on the Vercel production path.
 import { useEffect, useState } from 'react';
 import { get, setToken, getToken, getPortalKind, setPortalKind } from '../lib/api';
 import { Shell } from '../components/Shell';
