@@ -108,6 +108,7 @@ function canWrite(a:any,p:string){
   // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
   if(a?.scope==="dealer"){
     if(p==="dealer/submit-loan")return true;
+    if(p==="dealer/cash-book" || p.startsWith("dealer/cash-book/"))return true;
     const need=DEALER_WRITE_MODULE[p];
     if(!need)return false;
     const mods=Array.isArray(a?.portal_modules)
@@ -260,7 +261,54 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="chassis-master/rule"){const r=await pool.query("SELECT * FROM chassis_rule ORDER BY id DESC LIMIT 1");return Response.json({rule:r.rows[0]||null});}
     if(p==="dealer/loan-masters"){const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");return Response.json({rows:r.rows,masters:r.rows});}
     if(p==="dealer/ledger-accounts"||p==="dealer/ledger-masters"){const r=await pool.query("SELECT DISTINCT party_name FROM day_book WHERE party_name IS NOT NULL ORDER BY party_name");return Response.json({rows:r.rows});}
-    if(p==="dealer/me"&&a.scope==="dealer"){
+    if(p==="dealer/cash-book"&&a.scope==="dealer"){
+      const d=await pool.query("SELECT dealer_category FROM dealer WHERE id=$1",[num(a.dealer_id)]);
+      if(String(d.rows[0]?.dealer_category||"dealer").toLowerCase()!=="showroom")return Response.json({error:"Cash Book is available only for showroom/branch accounts."},{status:403});
+      const u=new URL(req.url),from=u.searchParams.get("from"),to=u.searchParams.get("to");
+      const args=[num(a.dealer_id),from||"1900-01-01",to||"2999-12-31"];
+      const receipts=await pool.query("SELECT id,receipt_no,receipt_date AS date,customer_name,customer_phone,dealer_register_page_no,amount,payment_mode,reference_no,remarks FROM dealer_cash_receipt WHERE dealer_id=$1 AND receipt_date BETWEEN $2::date AND $3::date ORDER BY receipt_date DESC,id DESC",[...args]);
+      const expenses=await pool.query("SELECT id,expense_no,expense_date AS date,category,amount,paid_to,remarks FROM dealer_cash_expense WHERE dealer_id=$1 AND expense_date BETWEEN $2::date AND $3::date ORDER BY expense_date DESC,id DESC",[...args]);
+      const handovers=await pool.query("SELECT id,handover_no,handover_date AS date,amount,sent_to,remarks,status FROM dealer_cash_handover WHERE dealer_id=$1 AND handover_date BETWEEN $2::date AND $3::date AND status <> 'rejected' ORDER BY handover_date DESC,id DESC",[...args]);
+      const cash=receipts.rows.filter((x:any)=>String(x.payment_mode||"cash")==="cash").reduce((s:number,x:any)=>s+num(x.amount),0);
+      const exp=expenses.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
+      const ho=handovers.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
+      const pr=await pool.query("SELECT COALESCE(SUM(amount),0) AS v FROM dealer_cash_receipt WHERE dealer_id=$1 AND receipt_date < $2::date AND payment_mode='cash'",[num(a.dealer_id),from||"1900-01-01"]);
+      const pe=await pool.query("SELECT COALESCE(SUM(amount),0) AS v FROM dealer_cash_expense WHERE dealer_id=$1 AND expense_date < $2::date",[num(a.dealer_id),from||"1900-01-01"]);
+      const ph=await pool.query("SELECT COALESCE(SUM(amount),0) AS v FROM dealer_cash_handover WHERE dealer_id=$1 AND handover_date < $2::date AND status <> 'rejected'",[num(a.dealer_id),from||"1900-01-01"]);
+      const opening=num(pr.rows[0]?.v)-num(pe.rows[0]?.v)-num(ph.rows[0]?.v);
+      return Response.json({success:true,from,to,receipts:receipts.rows,expenses:expenses.rows,handovers:handovers.rows,
+        summary:{total_receipts:receipts.rows.reduce((s:number,x:any)=>s+num(x.amount),0),cash_received:cash,expenses:exp,refunds:0,ho_handover:ho,opening_balance:opening,net_movement:cash-exp-ho,closing_balance:opening+cash-exp-ho}});
+    }
+    if(p==="dealer/cash-book/all-receipts"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT id,receipt_no,receipt_date AS date,customer_name,customer_phone,amount,dealer_register_page_no FROM dealer_cash_receipt WHERE dealer_id=$1 ORDER BY receipt_date DESC,id DESC",[num(a.dealer_id)]);
+      return Response.json({success:true,receipts:r.rows});
+    }
+    if(p==="dealer/cash-book/customers"&&a.scope==="dealer"){
+      const q=String(new URL(req.url).searchParams.get("q")||"").trim().toLowerCase();
+      const status=String(new URL(req.url).searchParams.get("status")||"").trim().toUpperCase();
+      const payable=["1","true","yes"].includes(String(new URL(req.url).searchParams.get("payable_only")||"").toLowerCase());
+      if(status==="BILLED"){
+        const r=await pool.query("SELECT ti.id,ti.dealer_page_no AS page_no,ti.buyer_name AS name,ti.buyer_mobile AS phone,ti.financer_name AS financer,ti.vehicle_reg_no AS vehicle_no,ti.sale_amount,ti.hypothecation_amount AS loan_amount,COALESCE(ti.amount_received,0) AS paid_amount,ti.date,ti.id AS invoice_id,ti.bill_no FROM tax_invoice ti LEFT JOIN delivery_challan dc ON ti.delivery_challan_id=dc.id WHERE ti.cancelled=false AND (ti.dealer_id=$1 OR dc.dealer_id=$1) ORDER BY ti.date DESC,ti.id DESC",[num(a.dealer_id)]);
+        const rows=r.rows.map((x:any)=>({...x,status:"BILLED",status_label:"Billed",balance:num(x.sale_amount)-num(x.loan_amount)-num(x.paid_amount)})).filter((x:any)=>!q||[x.page_no,x.name,x.phone,x.vehicle_no].join(" ").toLowerCase().includes(q));
+        return Response.json({success:true,customers:rows});
+      }
+      const r=await pool.query("SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 ORDER BY id DESC",[num(a.dealer_id)]);
+      const ids=r.rows.map((x:any)=>x.id);
+      let paid:any[]=[];
+      if(ids.length) {
+        const p=await pool.query("SELECT customer_id,COALESCE(SUM(amount),0) AS paid FROM dealer_cash_receipt WHERE dealer_id=$1 AND customer_id=ANY($2::int[]) GROUP BY customer_id",[num(a.dealer_id),ids]);
+        paid=p.rows;
+      }
+      const pm=new Map(paid.map((x:any)=>[Number(x.customer_id),num(x.paid)]));
+      let rows=r.rows.map((x:any)=>{
+        const paidAmount=pm.get(Number(x.id))||0;
+        const sale=num(x.sale_amount),loan=num(x.loan_amount),balance=sale-loan-paidAmount;
+        return {id:x.id,page_no:x.page_no,name:x.full_name,phone:x.phone,financer:x.financer,vehicle_no:x.vehicle_no,sale_amount:sale,loan_amount:loan,paid_amount:paidAmount,balance,status:"VEHICLE_PENDING",status_label:"Vehicle Pending",date:x.created_at?new Date(x.created_at).toISOString().slice(0,10):null};
+      }).filter((x:any)=>!q||[x.page_no,x.name,x.phone,x.vehicle_no].join(" ").toLowerCase().includes(q));
+      if(payable)rows=rows.filter((x:any)=>x.balance>0);
+      return Response.json({success:true,customers:rows});
+    }
+        if(p==="dealer/me"&&a.scope==="dealer"){
       const r=await pool.query("SELECT id,code,name,login_id,dealer_category,purchase_access,portal_modules,blocked FROM dealer WHERE id=$1",[num(a.dealer_id)]);
       const d=r.rows[0]||null;
       if(!d)return Response.json({error:"Dealer not found."},{status:404});
@@ -298,7 +346,17 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(p==="auth/me"){
       const r=await pool.query('SELECT id,username,mobile,department,is_super_user,allowed_modules FROM "user" WHERE id=$1',[num(a.sub)]);
-      return Response.json({user:r.rows[0]||null});
+      const u=r.rows[0]||null;
+      if(!u)return Response.json({user:null},{status:404});
+      const allowedModules=Array.isArray(u.allowed_modules)
+        ? u.allowed_modules.map((x:any)=>String(x).trim()).filter(Boolean)
+        : String(u.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+      return Response.json({user:{
+        ...u,
+        is_super_user:Boolean(u.is_super_user),
+        department:String(u.department||"").trim(),
+        allowed_modules:allowedModules,
+      }});
     }
     if(p==="dealer/loan-status"||p==="loan-application-view"){
       const did=a.scope==="dealer"?num(a.dealer_id):null;
@@ -421,7 +479,53 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
-    if(p==="dealer/submit-loan"){
+    if(p==="dealer/cash-book/receipt"&&a.scope==="dealer"){
+      const d=await pool.query("SELECT dealer_category FROM dealer WHERE id=$1",[num(a.dealer_id)]);
+      if(String(d.rows[0]?.dealer_category||"dealer").toLowerCase()!=="showroom")return Response.json({error:"Booking Receipt is available only for showroom/branch accounts."},{status:403});
+      const b:any=await json(req),type=String(b.receipt_type||"new_booking").toLowerCase(),amount=num(b.amount);
+      if(amount<=0)return Response.json({error:"Amount must be greater than zero."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const requestId=String(b.request_id||"").trim();
+        if(requestId){const ex=await client.query("SELECT * FROM dealer_cash_receipt WHERE dealer_id=$1 AND request_id=$2 LIMIT 1",[num(a.dealer_id),requestId]);if(ex.rowCount){await client.query("COMMIT");return Response.json({success:true,duplicate:true,receipt:{...ex.rows[0],date:ex.rows[0].receipt_date}});}}
+        let customerId:number,name="",phone="",bookingFor="";
+        if(type==="balance_payment"){
+          customerId=num(b.customer_id); const cr=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2",[customerId,num(a.dealer_id)]);
+          if(!cr.rowCount)return Response.json({error:"Please select a previous customer for Balance Payment."},{status:400});
+          const paid=await client.query("SELECT COALESCE(SUM(amount),0) AS v FROM dealer_cash_receipt WHERE dealer_id=$1 AND customer_id=$2",[num(a.dealer_id),customerId]);
+          const cst=cr.rows[0],balance=num(cst.sale_amount)-num(cst.loan_amount)-num(paid.rows[0]?.v);
+          if(balance<=0||amount>balance)return Response.json({error:"Receipt amount cannot exceed outstanding balance."},{status:400});
+          name=cst.full_name;phone=cst.phone||"";bookingFor=cst.vehicle_no||"";
+        }else{
+          name=String(b.customer_name||"").trim();phone=String(b.customer_phone||"").trim();bookingFor=String(b.booking_for||"new").toLowerCase();
+          const sale=num(b.sale_amount),loan=num(b.loan_amount);
+          if(!name||!phone||sale<=0||loan<0||loan>sale)return Response.json({error:"Invalid booking receipt details."},{status:400});
+          const cr=await client.query("INSERT INTO dealer_cash_customer (dealer_id,page_no,full_name,phone,sale_amount,loan_amount,vehicle_no) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",[num(a.dealer_id),String(b.dealer_register_page_no||"").trim()||null,name,phone,sale,loan,bookingFor]);
+          customerId=Number(cr.rows[0].id);
+        }
+        const no="DRC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now().toString().slice(-5);
+        const rr=await client.query("INSERT INTO dealer_cash_receipt (dealer_id,receipt_no,receipt_date,customer_name,customer_phone,dealer_register_page_no,booking_for,amount,payment_mode,reference_no,remarks,customer_id,request_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'cash',$9,$10,$11,$12,$13,NOW()) RETURNING *",
+          [num(a.dealer_id),no,b.date||null,name,phone,String(b.dealer_register_page_no||"").trim()||null,bookingFor,amount,String(b.reference_no||"").trim()||null,String(b.remarks||"").trim()||null,customerId,String(b.request_id||"").trim()||null]);
+        await client.query("COMMIT");
+        return Response.json({success:true,receipt:{...rr.rows[0],date:rr.rows[0].receipt_date}});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="dealer/cash-book/expense"&&a.scope==="dealer"){
+      const b:any=await json(req),amount=num(b.amount);
+      if(amount<=0)return Response.json({error:"Amount must be greater than zero."},{status:400});
+      const no="DEX-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now().toString().slice(-5);
+      const r=await pool.query("INSERT INTO dealer_cash_expense (dealer_id,expense_no,expense_date,category,amount,paid_to,remarks,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING *",[num(a.dealer_id),no,b.date||null,String(b.category||"other"),amount,String(b.paid_to||"").trim()||null,String(b.remarks||"").trim()||null]);
+      return Response.json({success:true,expense:{...r.rows[0],date:r.rows[0].expense_date}});
+    }
+    if(p==="dealer/cash-book/handover"&&a.scope==="dealer"){
+      const b:any=await json(req),amount=num(b.amount);
+      if(amount<=0)return Response.json({error:"Amount must be greater than zero."},{status:400});
+      const no="DHO-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now().toString().slice(-5);
+      const r=await pool.query("INSERT INTO dealer_cash_handover (dealer_id,handover_no,handover_date,amount,sent_to,remarks,status,created_at) VALUES ($1,$2,$3,$4,$5,$6,'sent',NOW()) RETURNING *",[num(a.dealer_id),no,b.date||null,amount,String(b.sent_to||"").trim()||null,String(b.remarks||"").trim()||null]);
+      return Response.json({success:true,handover:{...r.rows[0],date:r.rows[0].handover_date}});
+    }
+        if(p==="dealer/submit-loan"){
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
       const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
         [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
