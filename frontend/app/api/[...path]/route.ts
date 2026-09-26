@@ -403,6 +403,20 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         allowed_modules:allowedModules,
       }});
     }
+    if(p==="dealer/pending-sales"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT lw.*,d.name AS dealer_name,c.page_no,c.full_name AS customer_name,c.phone AS customer_phone,c.sale_amount AS customer_sale_amount,c.loan_amount AS customer_loan_amount FROM loan_workflow lw LEFT JOIN dealer d ON d.id=lw.dealer_id LEFT JOIN dealer_cash_customer c ON c.id=lw.customer_id WHERE lw.dealer_id=$1 ORDER BY lw.id DESC",[num(a.dealer_id)]);
+      const v=await pool.query("SELECT id AS challan_id,challan_no,chassis_no,product_name AS model_name FROM delivery_challan WHERE dealer_id=$1 AND COALESCE(cancelled,false)=false ORDER BY date DESC,id DESC",[num(a.dealer_id)]);
+      const applications=r.rows.map((x:any)=>({
+        ...x,
+        page_no:x.page_no||null,
+        customer_name:x.customer_name||x.borrower_name||x.name||"",
+        billing_status:x.billing_status||"NOT_REQUESTED",
+        billing_chassis_no:x.billing_chassis_no||x.chassis_no||null,
+        billing_sale_amount:x.billing_sale_amount??x.customer_sale_amount??x.sale_amount??null,
+        dealer_description:x.dealer_description||"",
+      }));
+      return Response.json({applications,vehicles:v.rows});
+    }
     if(p==="dealer/loan-status"||p==="loan-application-view"){
       const did=a.scope==="dealer"?num(a.dealer_id):null;
       const r=did?await pool.query("SELECT * FROM loan_workflow WHERE dealer_id=$1 ORDER BY id DESC",[did]):await pool.query("SELECT * FROM loan_workflow ORDER BY id DESC LIMIT 1000");
@@ -768,6 +782,255 @@ async function mutation(req:Request,params:any,method:string){
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("dealer/pending-sales/") && method==="POST" && path.length===3 && a.scope==="dealer"){
+      const id=idOf(path[2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Application id required."},{status:400});
+      const cols=await columns("loan_workflow");
+      const current=await pool.query("SELECT * FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!current.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      const input:any={};
+      for(const key of ["dealer_description","billing_vehicle_id","billing_sale_amount","billing_status"]){
+        const col=snake(key); if(cols.has(col)) input[col]=key==="billing_vehicle_id"?num(b[key]):key==="billing_sale_amount"?num(b[key]):String(b[key]||"").trim();
+      }
+      if(cols.has("billing_status"))input.billing_status="SENT_TO_BILLING";
+      const keys=Object.keys(input);
+      if(keys.length){
+        const vals=keys.map((_,i)=>"$"+(i+1));
+        const r=await pool.query("UPDATE loan_workflow SET "+keys.map((k,i)=>'"'+k+'"=
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Receipt id required."},{status:400});
+      const dealerId=num(a.dealer_id);
+      const rr=await pool.query("SELECT id,customer_id FROM dealer_cash_receipt WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,dealerId]);
+      if(!rr.rowCount)return Response.json({error:"Receipt not found."},{status:404});
+      const page=String(b.dealer_register_page_no||"").trim()||null;
+      const loan=num(b.loan_amount);
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const upd=await client.query("UPDATE dealer_cash_receipt SET dealer_register_page_no=$1 WHERE id=$2 RETURNING *",[page,id]);
+        if(rr.rows[0].customer_id) await client.query("UPDATE dealer_cash_customer SET page_no=$1,loan_amount=$2 WHERE id=$3 AND dealer_id=$4",[page,loan,num(rr.rows[0].customer_id),dealerId]);
+        await client.query("COMMIT");
+        return Response.json({success:true,receipt:upd.rows[0]});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("dealer/cash-book/customers/") && method==="PUT"){
+      const id=idOf(path[path.length-1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Customer id required."},{status:400});
+      const page=String(b.page_no||"").trim()||null;
+      const r=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[page,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Customer not found."},{status:404});
+      return Response.json({success:true,customer:r.rows[0]});
+    }
+    if(p.startsWith("tax-invoices/") && method==="POST" && path.length===2 && a.scope==="dealer"){
+      const id=idOf(path[1]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET dealer_page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[String(b.dealer_page_no||"").trim()||null,id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Invoice not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(i+1)).join(",")+' WHERE id=
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vl=b.vehicle_loan||{};
+      const modelId=num(vl.vehicle_model_id);
+      let modelName=String(b.loan_model_name||"").trim();
+      if(!modelName && modelId){
+        const mr=await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId]);
+        const m=mr.rows[0];
+        modelName=String(m?.name||m?.product_name||m?.model_name||"").trim();
+      }
+      if(!modelName)return Response.json({error:"Select model"},{status:400});
+      const loanAmount=num(vl.loan_amount_requested||b.loan_amount);
+      const tenure=num(vl.tenure_months);
+      if(loanAmount<=0||tenure<=0)return Response.json({error:"Loan amount and tenure are required."},{status:400});
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),loanAmount,modelName,String(b.loan_type||"NEW").toLowerCase()]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),userId]);
+          return Response.json(rr.rows[0]);
+        }
+        return Response.json({success:true});
+      }
+      if(!password)return Response.json({error:"Password is required for a new user."},{status:400});
+    }
+    if(p.startsWith("users/") && p.endsWith("/password") && isAdmin(a)){
+      const parts=p.split("/");
+      const userId=idOf(parts[1]);
+      const newPassword=String(b.new_password||"");
+      const confirmPassword=String(b.confirm_password||"");
+      if(!userId)return Response.json({error:"Invalid user."},{status:400});
+      if(!newPassword || newPassword!==confirmPassword)return Response.json({error:"Passwords do not match."},{status:400});
+      if(newPassword.length<4)return Response.json({error:"Password must be at least 4 characters."},{status:400});
+      const salt=crypto.randomBytes(16).toString("hex");
+      const hash=crypto.pbkdf2Sync(newPassword,salt,600000,32,"sha256").toString("hex");
+      const rr=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2',["pbkdf2:sha256:600000$"+salt+"$"+hash,userId]);
+      if(!rr.rowCount)return Response.json({error:"User not found."},{status:404});
+      return Response.json({success:true});
+    }
+    if(p==="dealer/customer-invoice" && a.scope==="dealer"){
+      const challanId=idOf(b.challan_id);
+      if(!challanId)return Response.json({error:"Delivery challan is required."},{status:400});
+      const cr=await pool.query("SELECT * FROM delivery_challan WHERE id=$1 LIMIT 1",[challanId]);
+      const ch=cr.rows[0];
+      if(!ch)return Response.json({error:"Delivery challan not found."},{status:404});
+      const dealerId=num(a.dealer_id);
+      if(num(ch.dealer_id)!==dealerId)return Response.json({error:"This challan does not belong to the logged-in dealer."},{status:403});
+      const taxable=Math.max(0,num(b.sale_amount)-num(b.discount));
+      const rate=Math.max(0,num(b.gst_rate));
+      const gst=taxable*rate/100;
+      const rr=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,amount_received,created_at) VALUES ('INV-'||extract(epoch from now())::bigint,CURRENT_DATE,false,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW()) RETURNING *",
+        [challanId,dealerId,num(ch.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,ch.product_name||null,ch.chassis_no||null,ch.motor_no||null,taxable,gst,rate,num(b.discount),num(b.amount_received)]);
+      if(num(ch.vehicle_id))await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[ch.dealer_name||null,num(ch.vehicle_id)]);
+      return Response.json({success:true,bill_no:rr.rows[0].bill_no,chassis_no:ch.chassis_no,row:rr.rows[0]},{status:201});
+    }
+    if(p==="dealer/submit-loan"){
+      const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
+      const vl=b.vehicle_loan||{};
+      const modelId=num(vl.vehicle_model_id);
+      let modelName=String(b.loan_model_name||"").trim();
+      if(!modelName && modelId){
+        const mr=await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId]);
+        const m=mr.rows[0];
+        modelName=String(m?.name||m?.product_name||m?.model_name||"").trim();
+      }
+      if(!modelName)return Response.json({error:"Select model"},{status:400});
+      const loanAmount=num(vl.loan_amount_requested||b.loan_amount);
+      const tenure=num(vl.tenure_months);
+      if(loanAmount<=0||tenure<=0)return Response.json({error:"Loan amount and tenure are required."},{status:400});
+      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
+        [String(b.application_no||""),did,num(b.customer_id),loanAmount,modelName,String(b.loan_type||"NEW").toLowerCase()]);
+      return Response.json({success:true,application:r.rows[0]},{status:201});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
+    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
+export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
+export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
+export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
+async function mutation(req:Request,params:any,method:string){
+
+  try{
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/cancel") && method==="POST"){
+      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/payment") && method==="POST"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const r=await pool.query("UPDATE tax_invoice SET amount_received=COALESCE(amount_received,0)+$1 WHERE id=$2 RETURNING *",[num(b.amount),id]);
+      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+    }
+    if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      return Response.json({success:true,data:r.rows[0]||null});
+    }
+    if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
+    return genericWrite(req,path,table,method);
+  }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
+}
++(i+1)).join(",")+" WHERE id=$"+(keys.length+1)+" AND dealer_id=$"+(keys.length+2)+" RETURNING *",[...keys.map(k=>input[k]),id,num(a.dealer_id)]);
+        return Response.json({success:true,application:r.rows[0]||null});
+      }
+      return Response.json({success:true,application:current.rows[0]});
+    }
+    if(p.startsWith("dealer/pending-sales/") && p.endsWith("/page") && method==="PUT" && a.scope==="dealer"){
+      const id=idOf(path[path.length-2]),b:any=await json(req);
+      if(!id)return Response.json({error:"Application id required."},{status:400});
+      const r=await pool.query("SELECT customer_id FROM loan_workflow WHERE id=$1 AND dealer_id=$2 LIMIT 1",[id,num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Pending sale not found."},{status:404});
+      const page=String(b.page_no||"").trim()||null;
+      if(r.rows[0].customer_id){
+        const u=await pool.query("UPDATE dealer_cash_customer SET page_no=$1 WHERE id=$2 AND dealer_id=$3 RETURNING *",[page,num(r.rows[0].customer_id),num(a.dealer_id)]);
+        if(!u.rowCount)return Response.json({error:"Customer record not found."},{status:404});
+        return Response.json({success:true,page_no:u.rows[0].page_no});
+      }
+      return Response.json({error:"No linked customer record for this application."},{status:400});
+    }
     if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT"){
       const id=idOf(path[path.length-1]),b:any=await json(req);
       if(!id)return Response.json({error:"Receipt id required."},{status:400});
