@@ -16,7 +16,7 @@ export const MENU = {
     ['production-formula', 'Production Formula'],
     ['mechanic', 'Mechanic Master'],
     ['user', 'User Master'],
-    ['option-setting', 'User wise Option Setting'], ['expense-head', 'Expense Head'],
+    ['option-setting', 'User wise Option Setting'], ['expense-head', 'Account Head Master'],
     ['bank', 'Bank Details'],
     ['colour', 'Colour Master'],
   ],
