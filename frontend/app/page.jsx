@@ -31,6 +31,7 @@ import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage,
 import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage, GstRegisterPage, HypothecationRegisterPage, PaymentReceivablePage, SubsidyReportPage, LedgerPage, DayBookPage, LedgerVPage } from '../components/ReportPages';
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { BackupRestorePage } from '../components/BackupRestorePage';
+import { BatteryRegisterPage } from '../components/BatteryRegisterPage';
 import { DebitNotePage } from '../components/DebitNotePage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
@@ -76,6 +77,7 @@ const CUSTOM_PAGES = {
   'battery-withdrawal': () => <BatteryWithdrawalPage />,
   'battery-delivery-challan': () => <BatteryDeliveryChallanPage />,
   'battery-addition': () => <BatteryAdditionPage />,
+  'battery-register': () => <BatteryRegisterPage />,
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
