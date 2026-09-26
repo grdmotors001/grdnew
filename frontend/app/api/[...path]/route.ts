@@ -160,6 +160,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p==="admin/nav-tabs"){
+      const r=await pool.query("SELECT * FROM nav_tab ORDER BY position,id");
+      return Response.json(r.rows);
+    }
     if(p==="menu"){const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");return Response.json({menu:r.rows,tabs:r.rows});}
     if(p==="reports/sale-register"||p==="reports/gst-register"||p==="reports/hypothecation-register"||p==="reports/subsidy"){
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
