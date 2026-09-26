@@ -357,7 +357,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(a.scope==="dealer") { args.push(num(a.dealer_id)); where+=" AND dc.dealer_id=$"+args.length; }
       if(search){args.push("%"+search+"%");where+=" AND (dc.challan_no ILIKE $"+args.length+" OR dc.chassis_no ILIKE $"+args.length+" OR dc.dealer_name ILIKE $"+args.length+" OR dc.product_name ILIKE $"+args.length+")";}
       const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc "+where,args);
-      const rows=await pool.query("SELECT dc.*,COALESCE(NULLIF(dc.dealer_name,''),d.name) AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id "+where+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const rows=await pool.query("SELECT dc.*,COALESCE(NULLIF(dc.dealer_name,''),d.name) AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id "+where+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
       const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
       return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:Number(total.rows[0]?.n||0),total_pages:Math.max(1,Math.ceil(Number(total.rows[0]?.n||0)/per)),available_vehicles:available.rows,suggested_challan_no:"DC-"+Date.now()});
     }
