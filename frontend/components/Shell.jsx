@@ -169,7 +169,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     ? (Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0] || 'Dashboard')
     : groupForKey(active);
   const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);
-  const allowedFor = (items) => user?.is_super_user ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : (user?.allowed_modules || []).includes(key));
+  // Admin users must retain the full staff sidebar after a fresh login/session restore.\n  // Some legacy user rows have department=Admin but is_super_user=false and/or an empty allowed_modules list.\n  const isAdminUser = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';\n  const allowedFor = (items) => isAdminUser ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : (user?.allowed_modules || []).includes(key));
 
   return (
     <div className="app">
