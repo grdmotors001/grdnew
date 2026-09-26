@@ -4,7 +4,7 @@ import { get, post } from '../lib/api';
 import { Money } from './ui';
 
 export function DealerPendingSalesPage(){
-  const [data,setData]=useState(null),[open,setOpen]=useState(null),[form,setForm]=useState({dealer_description:'',vehicle_id:'',sale_amount:''}),[error,setError]=useState(''),[saving,setSaving]=useState(false);
+  const [data,setData]=useState(null),[open,setOpen]=useState(null),[editingPage,setEditingPage]=useState(null),[form,setForm]=useState({dealer_description:'',vehicle_id:'',sale_amount:''}),[error,setError]=useState(''),[saving,setSaving]=useState(false);
   const load=()=>get('/dealer/pending-sales').then(setData).catch(e=>setError(e.message));
   useEffect(()=>{load()},[]);
   const start=r=>{setOpen(r);setForm({dealer_description:r.dealer_description||'',vehicle_id:r.billing_vehicle_id?String(r.billing_vehicle_id):'',sale_amount:r.billing_sale_amount||''});setError('');};
@@ -13,9 +13,9 @@ export function DealerPendingSalesPage(){
   return <div>
     <div className="dealerContentToolbar"><div className="dealerPageIntro"><span className="dealerSectionIcon">▤</span><div><strong>Pending Sales</strong><small>CHFPL approved loans — prepare sale details for GRD Billing</small></div></div><button className="btn" onClick={load}>↻ Refresh</button></div>
     {error&&<div className="error">{error}</div>}
-    <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Application</th><th>Customer</th><th>DO No.</th><th>Status</th><th>Chassis</th><th>Sale Amount</th><th>Description</th><th></th></tr></thead><tbody>
-      {(data?.applications||[]).map(r=><tr key={r.id}><td><b>{r.application_no}</b></td><td>{r.customer_name}</td><td>{r.do_no||'—'}</td><td>{r.billing_status||'Not Requested'}</td><td>{r.billing_chassis_no||'—'}</td><td><Money value={r.billing_sale_amount}/></td><td>{r.dealer_description||'—'}</td><td>{r.billing_status==='NOT_REQUESTED'?<button className="btn primary" onClick={()=>start(r)}>Make Pending Sale</button>:<span className="muted">Sent to Billing</span>}</td></tr>)}
-      {!data?.applications?.length&&<tr><td colSpan="8"><div className="dealerEmpty">No approved loan pending for sale.</div></td></tr>}
+    <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Application</th><th>Page No.</th><th>Customer</th><th>DO No.</th><th>Status</th><th>Chassis</th><th>Sale Amount</th><th>Description</th><th></th></tr></thead><tbody>
+      {(data?.applications||[]).map(r=><tr key={r.id}><td><b>{r.application_no}</b></td><td>{r.page_no||'—'} <button className="btn" style={{marginLeft:4}} onClick={()=>setEditingPage({...r})}>Edit</button></td><td>{r.customer_name}</td><td>{r.do_no||'—'}</td><td>{r.billing_status||'Not Requested'}</td><td>{r.billing_chassis_no||'—'}</td><td><Money value={r.billing_sale_amount}/></td><td>{r.dealer_description||'—'}</td><td>{r.billing_status==='NOT_REQUESTED'?<button className="btn primary" onClick={()=>start(r)}>Make Pending Sale</button>:<span className="muted">Sent to Billing</span>}</td></tr>)}
+      {!data?.applications?.length&&<tr><td colSpan="9"><div className="dealerEmpty">No approved loan pending for sale.</div></td></tr>}
     </tbody></table></div>
     {open&&<div className="modal"><form className="modalbox" onSubmit={save}><h2>Pending Sale — {open.application_no}</h2><p className="muted">{open.dealer_name} · {open.customer_name}</p>
       <div className="formgrid"><div className="field"><label>Delivery Challan / Rickshaw</label><select className="input" value={form.vehicle_id} onChange={e=>setForm({...form,vehicle_id:e.target.value})} required><option value="">Select</option>{vehicles.map(v=><option key={v.challan_id} value={v.challan_id}>{v.challan_no} — {v.chassis_no} — {v.model_name}</option>)}</select></div>
@@ -23,5 +23,6 @@ export function DealerPendingSalesPage(){
       <div className="field" style={{gridColumn:'1 / -1'}}><label>Dealer Description</label><textarea className="input" rows="4" value={form.dealer_description} onChange={e=>setForm({...form,dealer_description:e.target.value})} placeholder="Customer / sale description…" required/></div></div>
       <div className="actions" style={{marginTop:16}}><button type="button" className="btn" onClick={()=>setOpen(null)}>Cancel</button><button className="btn primary" disabled={saving}>{saving?'Saving…':'Send to Billing'}</button></div>
     </form></div>}
+    {editingPage&&<div className="modal"><div className="modalbox"><h2>Edit Page No.</h2><p className="muted">{editingPage.application_no} · {editingPage.customer_name}</p><div className="field"><label>Page No.</label><input className="input" value={editingPage.page_no||''} onChange={e=>setEditingPage({...editingPage,page_no:e.target.value})}/></div><div className="actions" style={{marginTop:16}}><button className="btn" onClick={()=>setEditingPage(null)}>Cancel</button><button className="btn primary" disabled={saving} onClick={async()=>{setSaving(true);setError('');try{await post('/dealer/pending-sales/'+editingPage.id+'/page',{page_no:editingPage.page_no});setEditingPage(null);load()}catch(e){setError(e.message||'Could not update page number')}finally{setSaving(false)}}}>{saving?'Saving…':'Save Page No.'}</button></div></div></div>}
   </div>;
 }
