@@ -142,8 +142,40 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="dealer/loan-masters"){const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");return Response.json({rows:r.rows,masters:r.rows});}
     if(p==="dealer/ledger-accounts"||p==="dealer/ledger-masters"){const r=await pool.query("SELECT DISTINCT party_name FROM day_book WHERE party_name IS NOT NULL ORDER BY party_name");return Response.json({rows:r.rows});}
     if(p==="dealer/me"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT * FROM dealer WHERE id=$1",[num(a.dealer_id)]);
-      return Response.json({dealer:r.rows[0]||null});
+      const r=await pool.query("SELECT id,code,name,login_id,dealer_category,purchase_access,portal_modules,blocked FROM dealer WHERE id=$1",[num(a.dealer_id)]);
+      const d=r.rows[0]||null;
+      if(!d)return Response.json({error:"Dealer not found."},{status:404});
+      d.purchase_access=Boolean(d.purchase_access);
+      d.portal_modules=String(d.portal_modules||"").split(",").map((x:any)=>x.trim()).filter(Boolean);
+      return Response.json({dealer:d});
+    }
+    if(p==="dealer/stock"&&a.scope==="dealer"){
+      const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1",[num(a.dealer_id)]);
+      const name=dr.rows[0]?.name||"";
+      const r=await pool.query("SELECT * FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) ORDER BY date DESC,id DESC",[name]);
+      return Response.json({vehicles:r.rows,count:r.rowCount});
+    }
+    if(p==="dealer/old-rickshaws"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT * FROM old_rickshaw WHERE dealer_id=$1 AND status IN ('available','sold') ORDER BY CASE WHEN status='available' THEN 0 ELSE 1 END,date DESC,id DESC",[num(a.dealer_id)]);
+      return Response.json({rickshaws:r.rows,count:r.rowCount});
+    }
+    if(p==="dealer/battery-stock"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT * FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') ORDER BY date DESC,id DESC",[num(a.dealer_id)]);
+      const used=await pool.query("SELECT battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type='addition'",[num(a.dealer_id)]);
+      const usedSet=new Set(used.rows.map((x:any)=>String(x.battery_no||"").trim().toUpperCase()));
+      const batteries=r.rows.filter((x:any)=>!usedSet.has(String(x.battery_no||"").trim().toUpperCase())).map((x:any)=>({...x,qty:1}));
+      return Response.json({batteries,count:batteries.length});
+    }
+    if(p==="dealer/delivery-challans"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT * FROM delivery_challan WHERE dealer_id=$1 ORDER BY date DESC,id DESC",[num(a.dealer_id)]);
+      return Response.json({challans:r.rows});
+    }
+    if(p==="dealer/tax-invoices"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT ti.* FROM tax_invoice ti LEFT JOIN delivery_challan dc ON ti.delivery_challan_id=dc.id WHERE ti.cancelled=false AND (ti.dealer_id=$1 OR dc.dealer_id=$1) ORDER BY ti.date DESC,ti.id DESC",[num(a.dealer_id)]);
+      return Response.json({invoices:r.rows});
+    }
+    if(p==="dealer/seized-vehicles"&&a.scope==="dealer"){
+      return Response.json({vehicles:[],count:0,status:"HOLD"});
     }
     if(p==="auth/me"){
       const r=await pool.query('SELECT id,username,mobile,department,is_super_user,allowed_modules FROM "user" WHERE id=$1',[num(a.sub)]);
