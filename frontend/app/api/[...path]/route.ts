@@ -75,6 +75,24 @@ async function genericGet(req:Request,path:string[],table:string){
     ...(table==="simple_master"?{masters:r.rows}:{})
   });
 }
+function isAdmin(a:any){
+  return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
+}
+function canRead(a:any,p:string){
+  // Dealers may only read their explicitly scoped portal endpoints.
+  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
+  return true;
+}
+function canWrite(a:any,p:string){
+  // Dealer tokens are never allowed to use generic CRUD against staff/master tables.
+  if(a?.scope==="dealer") return p==="dealer/submit-loan";
+  // Admins retain full mutation access.
+  if(isAdmin(a)) return true;
+  // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
+  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+  const key=p.startsWith("masters/") ? p : p.split("/")[0];
+  return mods.includes(p) || mods.includes(key);
+}
 async function genericWrite(req:Request,path:string[],table:string,method:string){
   const cols=await columns(table);
   if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
@@ -108,6 +126,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     const {path=[]}=await params,p=path.join("/");
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     if(p==="menu"){const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");return Response.json({menu:r.rows,tabs:r.rows});}
     if(p==="dashboard"){
       const [v,s]=await Promise.all([
@@ -197,6 +216,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     const {path=[]}=await params,p=path.join("/");
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
     const b:any=await json(req);
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
@@ -264,6 +284,7 @@ async function mutation(req:Request,params:any,method:string){
   try{
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
     if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
       const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
       const r=await pool.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1 RETURNING *",[id]);
