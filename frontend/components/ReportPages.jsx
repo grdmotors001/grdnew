@@ -502,9 +502,9 @@ export function HypothecationRegisterPage() {
       {r.data.invoices.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Bill No.</th><th>Buyer</th><th>Chassis No.</th><th>Financer</th><th>Hyp. Amount</th></tr></thead>
-            <tbody>{r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td>{i.chassis_no}</td><td>{i.financer_name}</td><td><Money value={i.hypothecation_amount} /></td></tr>)}</tbody>
-            <tfoot><tr><td colSpan={5}><b>Total Hypothecation</b></td><td><Money value={r.data.total_hyp} /></td></tr></tfoot>
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Dealer</th><th>Buyer</th><th>Chassis No.</th><th>Financer</th><th>Loan / Hyp.</th><th>Received</th><th>Balance</th></tr></thead>
+            <tbody>{r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.dealer_name||'—'}</td><td>{i.buyer_name||'—'}</td><td>{i.chassis_no||'—'}</td><td>{i.financer_name||'—'}</td><td><Money value={i.hypothecation_amount} /></td><td><Money value={i.amount_received} /></td><td><b><Money value={i.balance_amount} /></b></td></tr>)}</tbody>
+            <tfoot><tr><td colSpan={6}><b>Total Hypothecation</b></td><td><Money value={r.data.total_hyp} /></td><td colSpan={2}></td></tr></tfoot>
           </table>
         </div>
       )}
