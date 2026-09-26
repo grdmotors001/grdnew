@@ -131,6 +131,12 @@ export function DeliveryChallanPage() {
     setForm({
       ...baseForm,
       vehicle_id: Number(value),
+      product_name: vehicle?.model_name || '',
+      chassis_no: vehicle?.chassis_no || '',
+      motor_no: vehicle?.motor_no || '',
+      controller_no: vehicle?.controller_no || '',
+      differential_no: vehicle?.differential_no || '',
+      colour: vehicle?.colour || '',
       formula_name: formulaName,
       battery_maker: vehicle?.battery_maker || '',
       battery_no1: vehicle?.battery_no1 || '',
