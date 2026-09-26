@@ -382,6 +382,48 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=did?await pool.query("SELECT * FROM loan_workflow WHERE dealer_id=$1 ORDER BY id DESC",[did]):await pool.query("SELECT * FROM loan_workflow ORDER BY id DESC LIMIT 1000");
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount});
     }
+    if(p==="stock/closing-premises"){
+      const r=await pool.query(`
+        SELECT v.id,v.date,v.chassis_no,v.motor_no,v.colour,
+               COALESCE(NULLIF(v.model_name,''),pv.product_name) AS model_name
+        FROM vehicle v
+        LEFT JOIN LATERAL (SELECT product_name FROM production_voucher
+          WHERE chassis_no=v.chassis_no ORDER BY id DESC LIMIT 1) pv ON true
+        WHERE v.stage='Manufacturing'
+        ORDER BY COALESCE(NULLIF(v.model_name,''),pv.product_name),v.colour,v.id
+      `);
+      const sm=new Map<string,any>();
+      for(const v of r.rows){const k=String(v.model_name||"—")+"::"+String(v.colour||"—");const x=sm.get(k)||{model_name:v.model_name||"—",colour:v.colour||"—",qty:0};x.qty++;sm.set(k,x)}
+      return Response.json({vehicles:r.rows,summary:[...sm.values()]});
+    }
+    if(p==="stock/closing-dealers"){
+      const r=await pool.query(`
+        SELECT v.id,v.date,v.chassis_no,v.motor_no,v.colour,v.model_name,v.dealer_name
+        FROM vehicle v WHERE v.stage='Delivery Challan'
+        ORDER BY v.dealer_name,v.model_name,v.id
+      `);
+      const sm=new Map<string,any>();
+      for(const v of r.rows){const k=String(v.dealer_name||"—")+"::"+String(v.model_name||"—");const x=sm.get(k)||{dealer_name:v.dealer_name||"—",model_name:v.model_name||"—",qty:0};x.qty++;sm.set(k,x)}
+      return Response.json({vehicles:r.rows,summary:[...sm.values()]});
+    }
+    if(p==="stock/ledger-premises"||p==="stock/ledger-dealers"){
+      const u=new URL(req.url),from=u.searchParams.get("from"),to=u.searchParams.get("to");
+      const args:any[]=[]; const bounds=(alias:string)=>{const w:string[]=[];if(from){args.push(from);w.push(alias+".date >= $"+args.length+"::date")}if(to){args.push(to);w.push(alias+".date <= $"+args.length+"::date")}return w.length?" AND "+w.join(" AND "):""};
+      if(p==="stock/ledger-premises"){
+        const before:any[]=[]; if(from){const q=await pool.query("SELECT COALESCE(SUM(quantity),0)::float qty FROM production_voucher WHERE date < $1::date",[from]);const d=await pool.query("SELECT COUNT(*)::float qty FROM delivery_challan WHERE date < $1::date AND cancelled=false",[from]);before.push(Number(q.rows[0]?.qty||0)-Number(d.rows[0]?.qty||0))}
+        const opening=before[0]||0;
+        const pv=await pool.query("SELECT date,vou_no,chassis_no,product_name,COALESCE(quantity,1)::float qty FROM production_voucher pv WHERE 1=1"+bounds("pv"));
+        const dc=await pool.query("SELECT date,challan_no,chassis_no,product_name FROM delivery_challan dc WHERE cancelled=false"+bounds("dc"));
+        const events:any[]=[...pv.rows.map((x:any)=>({...x,type:"IN",doc_no:x.vou_no,model_name:x.product_name,particulars:"Production — "+(x.product_name||""),_sort:new Date(x.date).getTime()})),...dc.rows.map((x:any)=>({...x,type:"OUT",doc_no:x.challan_no,model_name:x.product_name,qty:1,particulars:"Delivery Challan",_sort:new Date(x.date).getTime()}))].sort((a,b)=>a._sort-b._sort);
+        let bal=opening; return Response.json({opening_balance:opening,events:events.map((e:any)=>{bal+=e.type==="IN"?Number(e.qty||1):-Number(e.qty||1);const {_sort,...z}=e;return {...z,balance:bal}})});
+      }
+      const dealerId=u.searchParams.get("dealer_id"); const args2:any[]=[]; const dWhere=(alias:string)=>{const w:string[]=[];if(dealerId){args2.push(Number(dealerId));w.push(alias+".dealer_id = $"+args2.length)}if(from){args2.push(from);w.push(alias+".date >= $"+args2.length+"::date")}if(to){args2.push(to);w.push(alias+".date <= $"+args2.length+"::date")}return w.length?" AND "+w.join(" AND "):""};
+      const dc=await pool.query("SELECT date,challan_no,chassis_no,product_name,dealer_id,dealer_name FROM delivery_challan dc WHERE cancelled=false"+dWhere("dc"),args2);
+      const ti=await pool.query("SELECT date,bill_no,chassis_no,product_name,dealer_name FROM tax_invoice ti WHERE cancelled=false"+(dealerId?" AND EXISTS (SELECT 1 FROM delivery_challan dc WHERE dc.id=ti.delivery_challan_id AND dc.dealer_id="+Number(dealerId)+")":"")+(from?" AND ti.date >= '"+from.replace(/'/g,"''")+"'::date":"")+(to?" AND ti.date <= '"+to.replace(/'/g,"''")+"'::date":""));
+      const events:any[]=[...dc.rows.map((x:any)=>({...x,type:"IN",doc_no:x.challan_no,particulars:"Delivery Challan — "+(x.product_name||""),qty:1,_sort:new Date(x.date).getTime()})),...ti.rows.map((x:any)=>({...x,type:"OUT",doc_no:x.bill_no,particulars:"Tax Invoice — "+(x.product_name||""),qty:1,_sort:new Date(x.date).getTime()}))].sort((a,b)=>a._sort-b._sort);
+      const opening:any={}; let bal=0; for(const e of events){bal+=e.type==="IN"?1:-1;opening[String(e.dealer_id||e.dealer_name||"")]=bal}
+      return Response.json({opening_balances:opening,events:events.map((e:any)=>{const {_sort,...z}=e;return {...z,balance:bal}})});
+    }
     const table=tableFor(path);
     if(table)return genericGet(req,path,table);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
