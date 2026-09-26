@@ -5,7 +5,7 @@ import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 
 const today = () => new Date().toISOString().slice(0, 10);
-const blankItem = () => ({ item_name: '', hsn_code: '', qty: 1, rate: 0, gst_rate: 18 });
+const blankItem = () => ({ item_name: '', hsn_code: '', qty: 1, rate: 0, gst_rate: 18, item_type: 'product', is_battery: false, battery_maker: '' });
 const n = (v) => Number(v || 0);
 const itemCalc = (it) => {
   const taxable = n(it.qty) * n(it.rate);
@@ -21,12 +21,16 @@ export function PurchaseBillPage() {
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [batteryMakers, setBatteryMakers] = useState([]);
   const [form, setForm] = useState({ date: today(), party_state_code: '07', items: [blankItem()] });
   const totals = form.items.reduce((a, it) => { const x = itemCalc({ ...it, _stateCode: form.party_state_code }); a.taxable += x.taxable; a.cgst += x.cgst; a.sgst += x.sgst; a.igst += x.igst; a.total += x.total; return a; }, { taxable: 0, cgst: 0, sgst: 0, igst: 0, total: 0 });
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => get('/purchase-bills').then(setRows).catch((e) => setError(e.message));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    get('/masters/battery-maker').then((d) => setBatteryMakers(Array.isArray(d) ? d : (d.masters || []))).catch(() => setBatteryMakers([]));
+  }, []);
 
   const filteredRows = rows.filter((b) => {
     if (search && !(b.party_name || '').toLowerCase().includes(search.toLowerCase()) && !(b.bill_no || '').toLowerCase().includes(search.toLowerCase())) return false;
@@ -41,7 +45,7 @@ export function PurchaseBillPage() {
     setForm({
       id: b.id, bill_no: b.bill_no, date: b.date, party_name: b.party_name,
       party_gst_no: b.party_gst_no, party_state_code: b.party_state_code, remarks: b.remarks,
-      items: b.items.map((it) => ({ item_name: it.item_name, hsn_code: it.hsn_code, qty: it.qty, rate: it.rate, gst_rate: it.gst_rate })),
+      items: (b.items || []).map((it) => ({ item_name: it.item_name, hsn_code: it.hsn_code, qty: it.qty, rate: it.rate, gst_rate: it.gst_rate, item_type: it.item_type || (it.is_battery ? 'battery' : 'product'), is_battery: Boolean(it.is_battery) || it.item_type === 'battery', battery_maker: it.battery_maker || '' })),
     });
     setOpen(true);
   };
@@ -159,18 +163,20 @@ export function PurchaseBillPage() {
               </div>
 
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'22px 0 8px'}}>
-                <div><b style={{fontSize:15}}>Item Details</b><div style={{fontSize:12,color:'#64748b'}}>Add products/materials purchased from the supplier.</div></div>
+                <div><b style={{fontSize:15}}>Item Details</b><div style={{fontSize:12,color:'#64748b'}}>Battery purchase me sirf company aur quantity enter karein — Battery No. purchase ke time nahi liya jayega. Battery No. Delivery Challan par enter hoga.</div></div>
                 <button type="button" className="btn primary" onClick={addItem}>+ Add Item</button>
               </div>
 
               <div className="tablewrap purchaseItemWrap" style={{border:'1px solid #e2e8f0',borderRadius:10}}>
                 <table className="table purchaseItemTable">
-                  <thead><tr><th>#</th><th style={{minWidth:220}}>Item / Description</th><th>HSN/SAC</th><th>Qty</th><th>Rate</th><th>GST %</th><th>Taxable</th><th>GST</th><th>Total</th><th></th></tr></thead>
+                  <thead><tr><th>#</th><th>Type</th><th style={{minWidth:220}}>Item / Description</th><th>Battery Company</th><th>HSN/SAC</th><th>Qty</th><th>Rate</th><th>GST %</th><th>Taxable</th><th>GST</th><th>Total</th><th></th></tr></thead>
                   <tbody>
                     {form.items.map((it, idx) => { const x=itemCalc({...it,_stateCode:form.party_state_code}); return (
                       <tr key={idx}>
                         <td data-label="#">{idx+1}</td>
-                        <td data-label="Item / Description"><input value={it.item_name} placeholder="Enter item name" onChange={(e)=>updateItem(idx,'item_name',e.target.value)} required /></td>
+                        <td data-label="Type"><select value={it.item_type || (it.is_battery ? 'battery' : 'product')} onChange={(e)=>{const type=e.target.value;updateItem(idx,'item_type',type);updateItem(idx,'is_battery',type==='battery');if(type==='battery'&&!it.item_name)updateItem(idx,'item_name','Battery');}}><option value="product">Product / Material</option><option value="battery">Battery</option></select></td>
+                        <td data-label="Item / Description"><input value={it.item_name} placeholder={it.item_type==='battery'?'Battery':'Enter item name'} onChange={(e)=>updateItem(idx,'item_name',e.target.value)} required /></td>
+                        <td data-label="Battery Company">{(it.item_type==='battery'||it.is_battery)?<select value={it.battery_maker||''} onChange={(e)=>updateItem(idx,'battery_maker',e.target.value)} required><option value="">Select Battery Company</option>{batteryMakers.map((m)=><option key={m.id||m.name} value={m.name}>{m.name}</option>)}</select>:<span className="muted">—</span>}</td>
                         <td data-label="HSN/SAC"><input value={it.hsn_code} placeholder="HSN" onChange={(e)=>updateItem(idx,'hsn_code',e.target.value)} /></td>
                         <td data-label="Qty"><input type="number" min="0" step="0.01" value={it.qty} onChange={(e)=>updateItem(idx,'qty',e.target.value)} /></td>
                         <td data-label="Rate"><input type="number" min="0" step="0.01" value={it.rate} onChange={(e)=>updateItem(idx,'rate',e.target.value)} /></td>
