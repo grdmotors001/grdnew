@@ -183,19 +183,19 @@ export function Dashboard({ setActive, user }) {
       <div className="grid">
         <div className="card">
           <span className="muted">Manufacturing</span>
-          <div className="metric">{d.manufacturing.length}</div>
+          <div className="metric">{Number(d.counts?.manufacturing ?? d.manufacturing.length)}</div>
         </div>
         <div className="card">
           <span className="muted">Delivery Challan</span>
-          <div className="metric">{d.delivery_challan.length}</div>
+          <div className="metric">{Number(d.counts?.delivery_challan ?? d.delivery_challan.length)}</div>
         </div>
         <div className="card">
           <span className="muted">Tax Invoice</span>
-          <div className="metric">{d.tax_invoice.length}</div>
+          <div className="metric">{Number(d.counts?.tax_invoice ?? d.tax_invoice.length)}</div>
         </div>
         <div className="card">
           <span className="muted">Total Vehicles</span>
-          <div className="metric">{all.length}</div>
+          <div className="metric">{Number(d.total_vehicles ?? all.length)}</div>
         </div>
         <button className="card" style={{textAlign:'left',cursor:'pointer',border:'1px solid var(--border)'}} onClick={() => setActive('cash-at-dealer')}>
           <span className="muted">Cash at Dealer</span>
