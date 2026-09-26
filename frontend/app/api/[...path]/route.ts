@@ -307,6 +307,27 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM old_rickshaw WHERE dealer_id=$1 AND status IN ('available','sold') ORDER BY CASE WHEN status='available' THEN 0 ELSE 1 END,date DESC,id DESC",[num(a.dealer_id)]);
       return Response.json({rickshaws:r.rows,count:r.rowCount});
     }
+    if(p==="dealer/cash-book/customers"&&a.scope==="dealer"){
+      const did=num(a.dealer_id),u=new URL(req.url),q=String(u.searchParams.get("q")||"").trim(),status=String(u.searchParams.get("status")||"").trim().toUpperCase(),payable=u.searchParams.get("payable_only")==="1";
+      const cols=await columns("dealer_cash_customer"); if(!cols.size)return Response.json({error:"Customer register table not found."},{status:404});
+      const args:any[]=[did],where:string[]=['dealer_id=$1'];
+      if(status&&cols.has("status")){args.push(status);where.push("UPPER(COALESCE(status,''))=$"+args.length);}
+      if(q){const parts=["name","phone","page_no","vehicle_no"].filter(x=>cols.has(x));if(parts.length){args.push("%"+q+"%");const n=args.length;where.push("("+parts.map(x=>"COALESCE(\""+x+"\",'') ILIKE $"+n).join(" OR ")+")");}}
+      const r=await pool.query('SELECT * FROM dealer_cash_customer WHERE '+where.join(" AND ")+' ORDER BY id DESC LIMIT 1000',args);
+      let customers=r.rows.map((x:any)=>({...x,phone:x.phone||x.customer_phone||"",balance:Math.max(0,Number(x.sale_amount||0)-Number(x.loan_amount||0)-Number(x.paid_amount||0))}));
+      if(payable)customers=customers.filter((x:any)=>x.balance>0);
+      return Response.json({customers,rows:customers,count:customers.length});
+    }
+    if(p==="dealer/delivery/customers"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 AND UPPER(COALESCE(status,''))<>'DEALER_CANCEL' ORDER BY id DESC LIMIT 1000",[num(a.dealer_id)]);
+      const customers=r.rows.map((x:any)=>({...x,phone:x.phone||x.customer_phone||"",balance:Math.max(0,Number(x.sale_amount||0)-Number(x.loan_amount||0)-Number(x.paid_amount||0))}));
+      return Response.json({customers,rows:customers,count:customers.length});
+    }
+    if(p==="dealer/incentive-record"&&a.scope==="dealer"){
+      const r=await pool.query("SELECT id,date,bill_no,buyer_name AS customer_name,chassis_no,product_name AS model,COALESCE(incentive_amount,0) AS incentive_amount,incentive_voucher_no,incentive_date FROM tax_invoice WHERE dealer_id=$1 AND COALESCE(cancelled,false)=false AND COALESCE(incentive_amount,0)>0 ORDER BY date DESC,id DESC",[num(a.dealer_id)]);
+      const rows=r.rows.map((x:any)=>({...x,status:x.incentive_voucher_no?'PAID':'NOT_RECORDED'}));
+      return Response.json({rows,data:rows,count:rows.length});
+    }
     if(p==="dealer/battery-adjustment"&&a.scope==="dealer"){
       const did=num(a.dealer_id);
       const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1",[did]);
@@ -425,6 +446,39 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const rows=await pool.query('SELECT *,COALESCE(NULLIF(product_category,\'\'),CASE WHEN fro=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END) AS category FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
+    }
+    if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
+      const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=b.date||null;
+      const cc=await columns("dealer_cash_customer"),rc=await columns("dealer_cash_receipt");
+      if(!cc.size||!rc.size)return Response.json({error:"Cash receipt tables are not available."},{status:500});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        let cid=customerId;
+        if(type==="balance_payment"){
+          if(!cid)throw new Error("Previous customer is required.");
+          const chk=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[cid,did]);
+          if(!chk.rowCount)throw new Error("Customer not found.");
+        }else{
+          const input:any={dealer_id:did,name:String(b.customer_name||"").trim(),phone:String(b.customer_phone||"").trim(),customer_phone:String(b.customer_phone||"").trim(),page_no:String(b.dealer_register_page_no||"").trim()||null,vehicle_no:String(b.booking_for||"new").trim(),sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),paid_amount:num(b.amount),status:"VEHICLE_PENDING",date:date||null};
+          const keys=Object.keys(input).filter(k=>cc.has(k));
+          if(!input.name||!input.phone)throw new Error("Customer name and mobile are required.");
+          if(!keys.length)throw new Error("Customer register schema is missing required fields.");
+          const rr=await client.query('INSERT INTO dealer_cash_customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
+          cid=rr.rows[0].id;
+        }
+        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||null,customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_no:"RC-"+Date.now()};
+        const keys=Object.keys(input).filter(k=>rc.has(k));
+        const rr=await client.query('INSERT INTO dealer_cash_receipt ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
+        const receipt=rr.rows[0];
+        if(type==="balance_payment"){
+          const cust=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 FOR UPDATE",[cid]);
+          const paid=Number(cust.rows[0]?.paid_amount||0)+num(b.amount);
+          await client.query("UPDATE dealer_cash_customer SET paid_amount=$1 WHERE id=$2",[paid,cid]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,receipt},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(a.scope==="dealer" && p==="battery-withdrawal"){
       const did=num(a.dealer_id), batteryNo=String(b.battery_no||"").trim();
