@@ -1220,15 +1220,6 @@ async function mutation(req:Request,params:any,method:string){
     return genericWrite(req,path,table,method);
   }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
 }
-  sql+=" ORDER BY id DESC LIMIT 1000";
-  const r=await pool.query(sql,args);
-  return Response.json({rows:r.rows,data:r.rows,items:r.rows,count:r.rowCount,
-    ...(table==="dealer"?{dealers:r.rows}:{}),
-    ...(table==="customer"?{customers:r.rows}:{}),
-    ...(table==="loan_workflow"?{applications:r.rows}:{}),
-    ...(table==="simple_master"?{masters:r.rows}:{})
-  });
-}
 function isAdmin(a:any){
   return a?.scope==="staff" && (Boolean(a?.is_super_user) || String(a?.department||"").trim().toLowerCase()==="admin");
 }
