@@ -997,7 +997,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
             const stock=await client.query("SELECT COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END),0) AS qty FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1))",[item.product_name]);
             if(Number(stock.rows[0]?.qty||0)<qty)throw new Error("Insufficient stock for "+item.product_name+". Available: "+Number(stock.rows[0]?.qty||0));
           }
-          await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,$5,NOW(),$6,$1)",            [String(row.challan_no||("DC-"+id)),row.date||null,item.product_name,qty,reason,workType]);
+          await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,$5,NOW(),$6,$1)",
+            [String(row.challan_no||("DC-"+id)),row.date||null,item.product_name,qty,reason,workType]);
         }
         const r=await client.query("UPDATE delivery_challan SET cancelled=$1 WHERE id=$2 RETURNING *",[nextCancelled,id]);
         if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[nextCancelled?"Manufacturing":"Delivery Challan",r.rows[0].vehicle_id]);
