@@ -77,6 +77,11 @@ async function ensureBatteryRegisterSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS battery_register_entry_no_idx ON battery_register_entry (battery_no)");
   await pool.query("CREATE INDEX IF NOT EXISTS battery_register_entry_source_idx ON battery_register_entry (source_type,source_id)");
 }
+async function ensureFactoryCheckSchema(){
+  await pool.query("CREATE TABLE IF NOT EXISTS factory_check_report (id bigserial PRIMARY KEY, production_voucher_id integer NOT NULL UNIQUE, date date NOT NULL DEFAULT CURRENT_DATE, product_name text, quantity numeric NOT NULL DEFAULT 1, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
+  await pool.query("CREATE TABLE IF NOT EXISTS factory_check_item (id bigserial PRIMARY KEY, report_id integer NOT NULL REFERENCES factory_check_report(id) ON DELETE CASCADE, raw_item_name text NOT NULL, expected_qty numeric NOT NULL DEFAULT 0, consumed_qty numeric NOT NULL DEFAULT 0, unit text, additional boolean NOT NULL DEFAULT false, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
+  await pool.query("CREATE INDEX IF NOT EXISTS factory_check_item_report_idx ON factory_check_item(report_id)");
+}
 function parseItems(v:any){if(Array.isArray(v))return v;if(typeof v==="string"){try{const x=JSON.parse(v);return Array.isArray(x)?x:[]}catch{return []}}return []}
 function purchaseBatteryItems(items:any[]){return parseItems(items).filter((x:any)=>Boolean(x?.is_battery)||String(x?.item_type||"").toLowerCase()==="battery"||String(x?.battery_maker||"").trim()!=="").map((x:any)=>({battery_maker:String(x.battery_maker||"").trim(),qty:Math.max(0,Math.trunc(num(x.qty)))})).filter((x:any)=>x.battery_maker&&x.qty>0)}
 async function syncBatteryPurchaseBill(client:any,bill:any){
@@ -268,6 +273,30 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const invoices=all.rows.slice(start,start+per);
       const challans=await pool.query("SELECT dc.*,d.name AS dealer_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4 FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE COALESCE(dc.cancelled,false)=false AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) ORDER BY dc.date DESC,dc.id DESC LIMIT 1000");
       return Response.json({invoices,rows:invoices,data:invoices,uninvoiced_challans:challans.rows,page,per_page:per,total:all.rowCount,total_pages:Math.max(1,Math.ceil(all.rowCount/per))});
+    }
+    if(p==="factory-check-reports"){
+      await ensureFactoryCheckSchema();
+      const u=new URL(req.url),status=String(u.searchParams.get("status")||"all"),search=String(u.searchParams.get("search")||"").trim(),args:any[]=[],w:string[]=[];
+      if(status!=="all"){args.push(status.toUpperCase());w.push("f.status=$"+args.length);}
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(f.product_name,'') ILIKE $"+args.length+" OR COALESCE(pv.vou_no,'') ILIKE $"+args.length+" OR COALESCE(pv.chassis_no,'') ILIKE $"+args.length+")");}
+      const where=w.length?" WHERE "+w.join(" AND "):"";
+      const r=await pool.query("SELECT f.*,pv.vou_no,pv.chassis_no,pv.motor_no,pv.formula_name FROM factory_check_report f JOIN production_voucher pv ON pv.id=f.production_voucher_id"+where+" ORDER BY f.date DESC,f.id DESC",args);
+      const ids=r.rows.map((x:any)=>x.id);
+      const items=ids.length?await pool.query("SELECT * FROM factory_check_item WHERE report_id=ANY($1::bigint[]) ORDER BY id",[ids]):{rows:[]};
+      const grouped:any={};for(const x of items.rows)(grouped[x.report_id] ||= []).push(x);
+      return Response.json({reports:r.rows.map((x:any)=>({...x,items:grouped[x.id]||[]})),rows:r.rows,items:items.rows});
+    }
+    if(p.startsWith("factory-check-reports/") && p.endsWith("/preview")){
+      await ensureFactoryCheckSchema();const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Report id required."},{status:400});
+      const r=await pool.query("SELECT f.*,pv.vou_no,pv.chassis_no,pv.motor_no,pv.product_name AS pv_product_name,pv.quantity AS pv_quantity,pv.formula_name FROM factory_check_report f JOIN production_voucher pv ON pv.id=f.production_voucher_id WHERE f.id=$1",[id]);
+      if(!r.rowCount)return Response.json({error:"Factory Check Report not found."},{status:404});
+      const items=await pool.query("SELECT * FROM factory_check_item WHERE report_id=$1 ORDER BY id",[id]);
+      return Response.json({report:r.rows[0],items:items.rows});
+    }
+    if(p==="factory-check-pending-production"){
+      await ensureFactoryCheckSchema();
+      const r=await pool.query("SELECT pv.* FROM production_voucher pv LEFT JOIN factory_check_report f ON f.production_voucher_id=pv.id WHERE f.id IS NULL ORDER BY pv.date DESC,pv.id DESC LIMIT 500");
+      return Response.json({vouchers:r.rows,rows:r.rows});
     }
     if(p==="dashboard"){
       const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production]=await Promise.all([
@@ -653,6 +682,40 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         await toggleBatteryRegisterForDelivery(client,{...r.rows[0],dealer_name:dealerName,dealer_id:did,vehicle_id:vehicleId},false);
         await client.query("COMMIT");return Response.json({success:true,row:r.rows[0],data:r.rows[0],dispatch_items:products},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="factory-check-reports"){
+      await ensureFactoryCheckSchema();
+      const pvId=idOf(b.production_voucher_id);if(!pvId)return Response.json({error:"Production Voucher is required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const pv=await client.query("SELECT * FROM production_voucher WHERE id=$1 FOR UPDATE",[pvId]);if(!pv.rowCount)throw new Error("Production Voucher not found.");
+        const existing=await client.query("SELECT id FROM factory_check_report WHERE production_voucher_id=$1",[pvId]);if(existing.rowCount){await client.query("COMMIT");return Response.json({success:true,id:existing.rows[0].id,already_exists:true});}
+        const qty=Math.max(1,num(pv.rows[0].quantity)||1);
+        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[pv.rows[0].product_name||"",String(pv.rows[0].formula_name||"")]);
+        const report=await client.query("INSERT INTO factory_check_report (production_voucher_id,date,product_name,quantity,status,remarks) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,'PENDING',$5) RETURNING *",[pvId,pv.rows[0].date||null,pv.rows[0].product_name||"",qty,"Checklist created from Production Formula. Approval is informational and does not block production."]);
+        for(const line of formula.rows)await client.query("INSERT INTO factory_check_item (report_id,raw_item_name,expected_qty,consumed_qty,unit,additional,status) VALUES ($1,$2,$3,$4,$5,false,'PENDING')",[report.rows[0].id,line.raw_item_name,num(line.qty)*qty,num(line.qty)*qty,line.unit||"PCS"]);
+        await client.query("COMMIT");return Response.json({success:true,report:report.rows[0]},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p.startsWith("factory-check-reports/") && p.endsWith("/approve")){
+      await ensureFactoryCheckSchema();const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Report id required."},{status:400});
+      const r=await pool.query("UPDATE factory_check_report SET status='APPROVED',approved_by=$1,approved_at=NOW() WHERE id=$2 RETURNING *",[String(a.user_id||a.username||a.name||"Staff"),id]);
+      if(!r.rowCount)return Response.json({error:"Factory Check Report not found."},{status:404});
+      return Response.json({success:true,report:r.rows[0]});
+    }
+    if(p.startsWith("factory-check-items/") && p.endsWith("/approve")){
+      await ensureFactoryCheckSchema();const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Item id required."},{status:400});
+      const r=await pool.query("UPDATE factory_check_item SET status='APPROVED',approved_by=$1,approved_at=NOW() WHERE id=$2 RETURNING *",[String(a.user_id||a.username||a.name||"Staff"),id]);
+      if(!r.rowCount)return Response.json({error:"Factory Check Item not found."},{status:404});
+      return Response.json({success:true,item:r.rows[0]});
+    }
+    if(p.startsWith("factory-check-reports/") && p.endsWith("/parts")){
+      await ensureFactoryCheckSchema();const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Report id required."},{status:400});
+      const name=String(b.raw_item_name||"").trim(),qty=Math.max(0,num(b.qty)||0),unit=String(b.unit||"PCS").trim()||"PCS";
+      if(!name||qty<=0)return Response.json({error:"Part name and quantity are required."},{status:400});
+      const r=await pool.query("INSERT INTO factory_check_item (report_id,raw_item_name,expected_qty,consumed_qty,unit,additional,status,remarks) VALUES ($1,$2,0,$3,$4,true,'PENDING',$5) RETURNING *",[id,name,qty,unit,String(b.remarks||"Additional part requested from Factory Check")]);
+      return Response.json({success:true,item:r.rows[0]},{status:201});
     }
     if(p==="tax-invoices"){
       const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
