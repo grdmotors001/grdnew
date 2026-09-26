@@ -65,6 +65,7 @@ export function DeliveryChallanPage() {
   const [dealers, setDealers] = useState([]);
   const [batteryMakers, setBatteryMakers] = useState([]);
   const [colourMasters, setColourMasters] = useState([]);
+  const [dispatchItems, setDispatchItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
   const [form, setForm] = useState({ date: today(), ...blankAccessories() });
@@ -76,7 +77,7 @@ export function DeliveryChallanPage() {
   const load = (p = page, s = search) => {
     const params = new URLSearchParams({ page: p, per_page: 50 });
     if (s) params.set('search', s);
-    get(`/delivery-challans?${params}`).then(setData).catch((e) => setError(e.message));
+    get(`/delivery-challans?${params}`).then((d) => { setData(d); setDispatchItems(d.dispatch_items || []); }).catch((e) => setError(e.message));
   };
 
   useEffect(() => {
@@ -115,7 +116,7 @@ export function DeliveryChallanPage() {
 
   const openNew = () => {
     setEditRow(null);
-    setForm({ date: today(), challan_no: data?.suggested_challan_no || '', ...blankAccessories() });
+    setForm({ date: today(), challan_no: data?.suggested_challan_no || '', dispatch_selected: {}, ...blankAccessories() });
     setOpen(true);
   };
 
@@ -153,7 +154,12 @@ export function DeliveryChallanPage() {
   const save = (e) => {
     e.preventDefault();
     run(async () => {
-      await post('/delivery-challans', form);
+      await post('/delivery-challans', {
+        ...form,
+        dispatch_items: dispatchItems
+          .filter((item) => !!form.dispatch_selected?.[item.id])
+          .map((item) => ({ product_id: Number(item.id), qty: 1 })),
+      });
       setOpen(false);
       setPage(1);
       load(1, search);
@@ -310,6 +316,36 @@ export function DeliveryChallanPage() {
                 value={form}
                 onChange={(next) => setForm({ ...form, ...next })}
               />
+
+              {dispatchItems.length > 0 && (
+                <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
+                  <b style={{ display: 'block', marginBottom: 8 }}>Dispatch Items</b>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                    {dispatchItems.map((item) => {
+                      const checked = !!form.dispatch_selected?.[item.id];
+                      const stock = Number(item.stock_qty || 0);
+                      return (
+                        <label key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 10px', border: '1px solid #e4e7ec', borderRadius: 8, background: checked ? '#f8fafc' : '#fff' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <input type="checkbox" checked={checked && stock > 0} disabled={stock <= 0}
+                              onChange={(e) => setForm({
+                                ...form,
+                                dispatch_selected: { ...(form.dispatch_selected || {}), [item.id]: e.target.checked },
+                              })} />
+                            <span>{item.name}</span>
+                          </span>
+                          <span className={stock > 0 ? 'muted' : 'pill d'} style={{ fontSize: 12 }}>
+                            Stock: {stock}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                    Checked Dispatch items will be deducted from stock when the challan is saved.
+                  </div>
+                </div>
+              )}
 
               <Field label="Remarks" value={form.remarks1} onChange={(v) => setForm({ ...form, remarks1: v })} />
             </div>
