@@ -312,7 +312,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({vehicles:r.rows,rows:r.rows,count:r.rowCount});
     }
     if(p==="dashboard"){
-      const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production]=await Promise.all([
+      const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production,todayChallans,todayBills,todayProduction]=await Promise.all([
         pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100"),
         pool.query("SELECT COALESCE(stage,'Unknown') AS stage,COUNT(*)::int AS count FROM vehicle GROUP BY stage"),
         pool.query("SELECT COALESCE(d.month,i.month) AS month,COALESCE(d.delivery_challan,0)::int AS delivery_challan,COALESCE(i.tax_invoice,0)::int AS tax_invoice FROM (SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*)::int AS delivery_challan FROM delivery_challan WHERE COALESCE(cancelled,false)=false AND date >= date_trunc('month',CURRENT_DATE)-INTERVAL '11 months' GROUP BY 1) d FULL OUTER JOIN (SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*)::int AS tax_invoice FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND date >= date_trunc('month',CURRENT_DATE)-INTERVAL '11 months' GROUP BY 1) i ON i.month=d.month ORDER BY 1),
@@ -321,7 +321,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         pool.query("SELECT COUNT(*)::int AS n FROM dealer WHERE COALESCE(blocked,false)=false"),
         pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc WHERE COALESCE(dc.cancelled,false)=false AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)"),
         pool.query("SELECT COALESCE(SUM(sale_amount),0)::numeric AS sales,COALESCE(SUM(amount_received),0)::numeric AS received,COALESCE(SUM(hypothecation_amount),0)::numeric AS loan FROM tax_invoice WHERE COALESCE(cancelled,false)=false"),
-        pool.query("SELECT COUNT(*)::int AS n FROM production_voucher WHERE date >= date_trunc('month',CURRENT_DATE)")
+        pool.query("SELECT COUNT(*)::int AS n FROM production_voucher WHERE date >= date_trunc('month',CURRENT_DATE)"),
+        pool.query("SELECT dc.id,dc.date,dc.challan_no,COALESCE(NULLIF(dc.product_name,''),v.model_name) AS model_name,COALESCE(NULLIF(dc.dealer_name,''),d.name) AS dealer_name,COALESCE(NULLIF(dc.chassis_no,''),v.chassis_no) AS chassis_no,TRIM(CONCAT_WS(' ',NULLIF(v.battery_maker,''),NULLIF(v.battery_no1,''),NULLIF(v.battery_no2,''),NULLIF(v.battery_no3,''),NULLIF(v.battery_no4,''))) AS battery_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.date::date=CURRENT_DATE AND COALESCE(dc.cancelled,false)=false ORDER BY dc.date DESC,dc.id DESC LIMIT 100"),
+        pool.query("SELECT ti.id,ti.date,ti.bill_no,COALESCE(ti.dealer_name,d.name) AS dealer_name,ti.financer_name,COALESCE(NULLIF(ti.chassis_no,''),v.chassis_no) AS chassis_no,TRIM(CONCAT_WS(' ',NULLIF(v.battery_maker,''),NULLIF(v.battery_no1,''),NULLIF(v.battery_no2,''),NULLIF(v.battery_no3,''),NULLIF(v.battery_no4,''))) AS battery_name FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.date::date=CURRENT_DATE AND COALESCE(ti.cancelled,false)=false ORDER BY ti.date DESC,ti.id DESC LIMIT 100"),
+        pool.query("SELECT id,date,vou_no,product_name AS model_name,quantity FROM production_voucher WHERE date=CURRENT_DATE ORDER BY date DESC,id DESC LIMIT 100")
       ]);
       const stage_counts:any={};for(const r of stages.rows)stage_counts[r.stage]=Number(r.count||0);
       const total=Object.values(stage_counts).reduce((s:number,x:any)=>s+Number(x||0),0);
@@ -335,7 +338,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         monthly:monthly.rows,billed_monthly:billed.rows,state_sales:states.rows,cash_at_dealer:0,
         dealers:Number(dealers.rows[0]?.n||0),pending_challans:Number(pending.rows[0]?.n||0),
         sales_total:Number(sales.rows[0]?.sales||0),received_total:Number(sales.rows[0]?.received||0),
-        loan_total:Number(sales.rows[0]?.loan||0),production_this_month:Number(production.rows[0]?.n||0)
+        loan_total:Number(sales.rows[0]?.loan||0),production_this_month:Number(production.rows[0]?.n||0),
+        today_challans:todayChallans.rows,today_bills:todayBills.rows,today_production:todayProduction.rows
       });
     }
     if(p==="nav-config"){
@@ -514,13 +518,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const cols=await columns("product");
       if(!cols.size)return Response.json({error:"Product table not found."},{status:404});
       const args:any[]=[]; const where:string[]=[];
-      if(category && cols.has("product_category")){args.push(category);where.push('UPPER(COALESCE("product_category",CASE WHEN "fro"=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END))=$'+args.length);}
-        const terms:string[]=[];
-        for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
-          if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
-        }
-        if(terms.length)where.push("("+terms.join(" OR ")+")");
+      if(category && cols.has("product_category")){args.push(category);where.push('UPPER(COALESCE("product_category",CASE WHEN "fro"=\\'F\\' THEN \\'FINISHED\\' ELSE \\'RAW\\' END))=$'+args.length);}
+      const terms:string[]=[];
+      for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
+        if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
       }
+      if(terms.length)where.push("("+terms.join(" OR ")+")");
       const whereSql=where.length?" WHERE "+where.join(" AND "):"";
       const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
       const offset=(page-1)*per;
