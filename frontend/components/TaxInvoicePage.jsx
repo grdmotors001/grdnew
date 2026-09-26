@@ -162,7 +162,19 @@ export function TaxInvoicePage() {
   });
 
 
-  if (!data) return <div className="card">Loading…</div>;
+  if (!data) return (
+    <div className="card">
+      {error ? (
+        <>
+          <b>Tax Invoice load failed</b>
+          <div style={{ marginTop: 8, color: '#c0392b' }}>{error}</div>
+          <button className="btn" style={{ marginTop: 12 }} onClick={() => { setError(''); load(1, search); }}>
+            Retry
+          </button>
+        </>
+      ) : 'Loading…'}
+    </div>
+  );
 
   return (
     <>
