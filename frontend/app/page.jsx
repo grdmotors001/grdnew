@@ -34,6 +34,7 @@ import { BackupRestorePage } from '../components/BackupRestorePage';
 import { BatteryRegisterPage } from '../components/BatteryRegisterPage';
 import { FactoryCheckReportPage } from '../components/FactoryCheckReportPage';
 import { DebitNotePage } from '../components/DebitNotePage';
+import { OldRickshawInventoryPage } from '../components/OldRickshawInventoryPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
 import { ProfilePage } from '../components/ProfilePage';
@@ -84,6 +85,7 @@ const CUSTOM_PAGES = {
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
   'old-rickshaw-challan': () => <OldRickshawChallanPage />,
+  'old-rickshaw-inventory': () => <OldRickshawInventoryPage />,
   'closing-stock-premises': () => <ClosingStockPremisesPage />,
   'closing-stock-dealers': () => <ClosingStockDealersPage />,
   'closing-stock-raw': () => <ClosingStockRawPage />,
