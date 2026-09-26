@@ -58,12 +58,18 @@ export function GRDLogin({ onLogin }) {
     setError('');
     setBusy(true);
     try {
-      const data = await post(mode === 'dealer' ? '/auth/dealer-login' : '/auth/login', { userid, password });
-      if (mode === 'dealer') {
+      // One login entry point. The server auto-detects Admin/Staff/Salesman
+      // versus Dealer from the same ID + password.
+      const data = await post('/auth/login', { userid, password });
+      if (data.token) {
         setToken(data.token);
-        setPortalKind('dealer');
-        try { window.localStorage.setItem('grd_dealer_profile', JSON.stringify(data.dealer)); } catch {}
-        onLogin({ ...data.dealer, is_dealer: true });
+        setPortalKind(data.portal === 'dealer' ? 'dealer' : 'staff');
+        if (data.portal === 'dealer') {
+          try { window.localStorage.setItem('grd_dealer_profile', JSON.stringify(data.dealer || data.user)); } catch {}
+          onLogin({ ...(data.dealer || data.user), is_dealer: true, role: data.role });
+        } else {
+          onLogin(data.user);
+        }
       } else {
         setOtpToken(data.otp_token);
       }
@@ -254,16 +260,15 @@ export function GRDLogin({ onLogin }) {
         <p className="sub">{otpToken ? 'Enter the OTP sent for secure staff verification.' : 'Login to access your G.R.D. Motors account — you will land on your own dashboard automatically.'}</p>
         <div className="divider"/>
         {!otpToken ? <form onSubmit={submit}>
-          <div className="tabs">
-            <button type="button" className={'tab'+(mode==='staff'?' active':'')} onClick={()=>{setMode('staff');setUserid('');setPassword('');setError('')}}>🔒 Password Login</button>
-            <button type="button" className={'tab'+(mode==='dealer'?' active':'')} onClick={()=>{setMode('dealer');setUserid('');setPassword('');setError('')}}>▣ Dealer Login</button>
+          <div style={{padding:'10px 12px',borderRadius:10,background:'#eef7ff',color:'#24557a',fontSize:11,fontWeight:800}}>
+            🔐 Single Login — Admin · Staff · Salesman · Dealer
           </div>
           {error && <div className="error">{error}</div>}
-          <div className="field"><label>{mode==='dealer'?'Dealer ID':'Username / Mobile number'}</label><div className="wrap"><span className="icon">👤</span><input className="input" value={userid} onChange={e=>setUserid(e.target.value)} autoFocus required placeholder={mode==='dealer'?'Enter Dealer ID':'Enter username or mobile number'}/></div></div>
+          <div className="field"><label>Username / Mobile / Dealer ID</label><div className="wrap"><span className="icon">👤</span><input className="input" value={userid} onChange={e=>setUserid(e.target.value)} autoFocus required placeholder="Enter username, mobile number or Dealer ID"/></div></div>
           <div className="field"><label>Password</label><div className="wrap"><span className="icon">🔐</span><input className="input" type={showPassword?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} required placeholder="Enter password"/><button type="button" className="eye" onClick={()=>setShowPassword(v=>!v)}>{showPassword?'◉':'◌'}</button></div></div>
           <div className="forgot"><button type="button">Forgot Password?</button></div>
           <button className="loginBtn" disabled={busy}>{busy?'Checking…':'→ Login'}</button>
-          <div className="help">Dealer? Use <strong>Dealer Login</strong> tab above · Customer login is available through the customer portal.</div>
+          <div className="help">Use the same login here for Admin, Staff, Salesman and Dealer. Customer login remains in the customer portal.</div>
           <div className="secure">🛡️ Your data is safe and secure with G.R.D. Motors.</div>
         </form> : <form onSubmit={verify}>
           {error && <div className="error">{error}</div>}
