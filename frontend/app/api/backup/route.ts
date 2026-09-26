@@ -1,0 +1,1 @@
+ + JSON.stringify(await (async()=>{const fs = await import('node:fs'); return fs.readFileSync('/mnt/data/backup-route.ts','utf8')})()) + 
