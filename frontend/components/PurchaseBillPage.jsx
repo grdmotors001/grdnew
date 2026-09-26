@@ -178,7 +178,7 @@ export function PurchaseBillPage() {
                         <td data-label="Item / Description"><input value={it.item_name} placeholder={it.item_type==='battery'?'Battery':'Enter item name'} onChange={(e)=>updateItem(idx,'item_name',e.target.value)} required /></td>
                         <td data-label="Battery Company">{(it.item_type==='battery'||it.is_battery)?<select value={it.battery_maker||''} onChange={(e)=>updateItem(idx,'battery_maker',e.target.value)} required><option value="">Select Battery Company</option>{batteryMakers.map((m)=><option key={m.id||m.name} value={m.name}>{m.name}</option>)}</select>:<span className="muted">—</span>}</td>
                         <td data-label="HSN/SAC"><input value={it.hsn_code} placeholder="HSN" onChange={(e)=>updateItem(idx,'hsn_code',e.target.value)} /></td>
-                        <td data-label="Qty"><input type="number" min="0" step="0.01" value={it.qty} onChange={(e)=>updateItem(idx,'qty',e.target.value)} /></td>
+                        <td data-label="Qty"><input type="number" min={it.item_type==='battery'?1:0} step={it.item_type==='battery'?1:'0.01'} value={it.qty} onChange={(e)=>updateItem(idx,'qty',e.target.value)} /></td>
                         <td data-label="Rate"><input type="number" min="0" step="0.01" value={it.rate} onChange={(e)=>updateItem(idx,'rate',e.target.value)} /></td>
                         <td data-label="GST %"><input type="number" min="0" step="0.01" value={it.gst_rate} onChange={(e)=>updateItem(idx,'gst_rate',e.target.value)} /></td>
                         <td data-label="Taxable"><Money value={x.taxable}/></td><td data-label="GST"><Money value={x.cgst+x.sgst+x.igst}/></td><td data-label="Total"><b><Money value={x.total}/></b></td>
