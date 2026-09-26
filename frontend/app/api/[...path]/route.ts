@@ -301,6 +301,16 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT pv.* FROM production_voucher pv LEFT JOIN factory_check_report f ON f.production_voucher_id=pv.id WHERE f.id IS NULL ORDER BY pv.date DESC,pv.id DESC LIMIT 500");
       return Response.json({vouchers:r.rows,rows:r.rows});
     }
+    if(p==="billing/vehicle-inventory"){
+      const u=new URL(req.url),args:any[]=[],w:string[]=["COALESCE(ti.cancelled,false)=false"];
+      const from=u.searchParams.get("from_date"),to=u.searchParams.get("to_date"),name=String(u.searchParams.get("name")||"").trim(),search=String(u.searchParams.get("search")||"").trim();
+      if(from){args.push(from);w.push("ti.date >= $"+args.length+"::date");}
+      if(to){args.push(to);w.push("ti.date < ($"+args.length+"::date + INTERVAL '1 day')");}
+      if(name){args.push("%"+name+"%");w.push("(COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(v.model_name,'') ILIKE $"+args.length+" OR COALESCE(ti.product_name,'') ILIKE $"+args.length+")");}
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(v.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(v.motor_no,'') ILIKE $"+args.length+" OR COALESCE(to_jsonb(v)->>'umrn','') ILIKE $"+args.length+")");}
+      const r=await pool.query("SELECT ti.id,ti.date,COALESCE(ti.buyer_name,'') AS customer_name,COALESCE(v.model_name,ti.product_name,'') AS model_name,v.chassis_no,v.motor_no,COALESCE(to_jsonb(v)->>'umrn','') AS umrn,COALESCE(to_jsonb(v)->>'manufacturing_month','') AS manufacturing_month,COALESCE(v.colour_code,ti.buyer_state_code,'') AS colour_code FROM tax_invoice ti LEFT JOIN vehicle v ON v.id=ti.vehicle_id"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY ti.date DESC,ti.id DESC LIMIT 5000",args);
+      return Response.json({vehicles:r.rows,rows:r.rows,count:r.rowCount});
+    }
     if(p==="dashboard"){
       const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production]=await Promise.all([
         pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100"),
@@ -905,6 +915,14 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',NOW()) RETURNING *",[b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null]);
         await client.query("COMMIT");return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="billing/vehicle-inventory/download-txt"){
+      const ids=Array.isArray(b.invoice_ids)?b.invoice_ids.map((x:any)=>idOf(x)).filter(Boolean):[];
+      if(!ids.length)return new Response("No invoices selected.",{status:400,headers:{"Content-Type":"text/plain;charset=utf-8"}});
+      const r=await pool.query("SELECT ti.date,ti.buyer_name,COALESCE(v.model_name,ti.product_name,'') AS model_name,v.chassis_no,v.motor_no,COALESCE(to_jsonb(v)->>'umrn','') AS umrn,COALESCE(to_jsonb(v)->>'manufacturing_month','') AS manufacturing_month,COALESCE(v.colour_code,'') AS colour_code FROM tax_invoice ti LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=ANY($1::int[]) ORDER BY ti.date,ti.id",[ids]);
+      const header="DATE|CUSTOMER|MODEL|CHASSIS|MOTOR|UMRN|MANUFACTURING|COLOUR CODE";
+      const lines=r.rows.map((x:any)=>[x.date||"",x.buyer_name||"",x.model_name||"",x.chassis_no||"",x.motor_no||"",x.umrn||"",x.manufacturing_month||"",x.colour_code||""].map((v:any)=>String(v).replace(/[|\r\n]/g," ")).join("|"));
+      return new Response([header,...lines].join("\r\n"),{headers:{"Content-Type":"text/plain;charset=utf-8","Content-Disposition":"attachment; filename=\"VahanInventoryTXT.TXT\""}});
     }
     const table=tableFor(path);
     if(table)return genericWrite(req,path,table,"POST");
