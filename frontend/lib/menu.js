@@ -23,6 +23,7 @@ export const MENU = {
   Vouchers: [
     ['purchase-bills', 'Purchase Bills'],
     ['production-voucher', 'Production Voucher'],
+    ['factory-check-report', 'Factory Check Report'],
     ['delivery-challan', 'E-Rickshaw Delivery Challan'],
     ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
     ['old-rickshaw', 'Old Rickshaw'],
