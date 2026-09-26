@@ -10,7 +10,7 @@ export const MENU = {
     ['party', 'Party Master (Raw Material Purchase Parties)'],
     ['product', 'Product Master'],
     ['chassis-master', 'Chassis Master'],
-    ['battery-maker', 'Battery Maker Master'],
+    ['battery-maker', 'Battery Maker Master'], ['battery-register', 'Battery Register'],
     ['rto', 'RTO Master'],
     ['financer', 'Financer Master'],
     ['production-formula', 'Production Formula'],
