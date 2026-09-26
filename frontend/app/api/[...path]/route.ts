@@ -850,10 +850,28 @@ async function mutation(req:Request,params:any,method:string){
       return Response.json({success:true,page_no:u.rows[0]?.page_no||null});
     }
     if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
-      const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
-      const r=await pool.query("UPDATE delivery_challan SET cancelled=NOT COALESCE(cancelled,false) WHERE id=$1 RETURNING *",[id]);
-      if(r.rowCount && r.rows[0].vehicle_id) await pool.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[r.rows[0].cancelled?'Manufacturing':'Delivery Challan',r.rows[0].vehicle_id]);
-      return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Record id required."},{status:400});
+      await ensureDispatchSchema();await ensureBatteryRegisterSchema();const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE",[id]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        const row=dc.rows[0],nextCancelled=!Boolean(row.cancelled);
+        const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[id]);
+        for(const item of items.rows){
+          const qty=Math.max(0,Number(item.qty)||0);if(!qty)continue;
+          const reason=nextCancelled?"Delivery Challan Cancel Reversal":"Delivery Challan Consumption",workType=nextCancelled?"IN":"OUT";
+          if(!nextCancelled){
+            const stock=await client.query("SELECT COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END),0) AS qty FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1))",[item.product_name]);
+            if(Number(stock.rows[0]?.qty||0)<qty)throw new Error("Insufficient stock for "+item.product_name+". Available: "+Number(stock.rows[0]?.qty||0));
+          }
+          await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,$5,NOW(),$6,$1)",[String(row.challan_no||("DC-"+id)),row.date||null,item.product_name,qty,reason,workType]);
+        }
+        await client.query("UPDATE delivery_challan SET cancelled=$1 WHERE id=$2",[nextCancelled,id]);
+        await toggleBatteryRegisterForDelivery(client,row,nextCancelled);
+        if(row.vehicle_id)await client.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[nextCancelled?"Manufacturing":"Delivery Challan",row.vehicle_id]);
+        await client.query("COMMIT");return Response.json({success:true,row:{...row,cancelled:nextCancelled}});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("admin/nav-tabs/")){
       const id=idOf(path[path.length-1]);
