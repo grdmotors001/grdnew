@@ -557,6 +557,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({expenses:r.rows,rows:r.rows,count:r.rowCount});
     }
     if(p==="dealer/cash-book/customers"&&a.scope==="dealer"){
+      await ensureDealerCashSchema();
       const did=num(a.dealer_id),u=new URL(req.url),q=String(u.searchParams.get("q")||"").trim(),status=String(u.searchParams.get("status")||"").trim().toUpperCase(),payable=u.searchParams.get("payable_only")==="1";
       const cols=await columns("dealer_cash_customer"); if(!cols.size)return Response.json({error:"Customer register table not found."},{status:404});
       const args:any[]=[did],where:string[]=['dealer_id=$1'];
@@ -568,6 +569,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({customers,rows:customers,count:customers.length});
     }
     if(p==="dealer/delivery/customers"&&a.scope==="dealer"){
+      await ensureDealerCashSchema();
       const r=await pool.query("SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 AND UPPER(COALESCE(status,''))<>'DEALER_CANCEL' ORDER BY id DESC LIMIT 1000",[num(a.dealer_id)]);
       const customers=r.rows.map((x:any)=>({...x,phone:x.phone||x.customer_phone||"",balance:Math.max(0,Number(x.sale_amount||0)-Number(x.loan_amount||0)-Number(x.paid_amount||0))}));
       return Response.json({customers,rows:customers,count:customers.length});
