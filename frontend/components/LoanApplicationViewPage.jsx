@@ -21,9 +21,23 @@ const STATUS_LABELS = {
 const statusLabel = (status) => STATUS_LABELS[status] || status || '—';
 
 function isPendingBill(row) {
-  const billing = String(row.billing_status || '').toUpperCase();
-  return billing === 'PENDING_SALE' || billing === 'BILL_APPROVED' ||
-    row.status === 'DISBURSED' || row.status === 'DO_APPROVED';
+  const s = String(row.status || '').toLowerCase();
+  const tvr = String(row.tvr_status || '').toLowerCase();
+  return s === 'approved' && !['submitted','hold','failed','verified'].includes(tvr);
+}
+
+function currentStatusLabel(row) {
+  const s = String(row.status || '').toLowerCase();
+  const tvr = String(row.tvr_status || '').toLowerCase();
+  if (s === 'disbursed') return 'Disbursed';
+  if (s === 'fi_pending' || s === 'submitted') return 'Pending at FE';
+  if (s === 'fi_done') return 'Pending at DO';
+  if (s === 'approved' && tvr === 'submitted') return 'Pending at DO — TVR';
+  if (s === 'approved' && tvr === 'hold') return 'TVR On Hold';
+  if (s === 'approved' && tvr === 'failed') return 'TVR Failed';
+  if (s === 'approved' && tvr === 'verified') return 'TVR Verified — Ready for Disbursement';
+  if (s === 'approved') return 'Pending for Bill';
+  return String(row.status || row.lifecycle_status || 'Pending').replaceAll('_',' ');
 }
 
 function stageOf(row) {
@@ -39,7 +53,6 @@ export function LoanApplicationViewPage({ user }) {
   const [tab, setTab] = useState('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState(null);
-  const [history, setHistory] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -47,7 +60,7 @@ export function LoanApplicationViewPage({ user }) {
     setLoading(true);
     try {
       setError('');
-      const data = await get('/loan-application-view', { noClientCache: true });
+      const data = await get('/chfpl/loan-status', { noClientCache: true });
       setRows(data.applications || []);
     } catch (e) {
       setError(e.message || 'Could not load loan applications.');
@@ -83,21 +96,13 @@ export function LoanApplicationViewPage({ user }) {
       if (!q) return true;
       return [
         r.application_no, r.customer_name, r.dealer_name, r.loan_model_name,
-        r.loan_vehicle_type, r.status, r.fe_user_id, r.do_user_id,
-        r.billing_chassis_no, r.billing_status
+        r.loan_vehicle_type, r.status, r.lifecycle_status, r.tvr_status, r.fe_user_id, r.do_user_id,
+        r.loan_account_no, r.customer_phone
       ].join(' ').toLowerCase().includes(q);
     });
   }, [rows, tab, search]);
 
-  const open = async (row) => {
-    setSelected(row);
-    try {
-      const data = await get('/loan-application-view/' + row.id + '/history', { noClientCache: true });
-      setHistory(data.history || []);
-    } catch {
-      setHistory([]);
-    }
-  };
+  const open = (row) => setSelected(row);
 
   const tabs = [
     ['all', 'ALL APPLICATION', counts.all],
@@ -177,7 +182,7 @@ export function LoanApplicationViewPage({ user }) {
             <table className="table loanApplicationViewTable">
               <thead><tr>
                 <th>Application</th><th>Customer</th><th>Dealer</th><th>Vehicle</th>
-                <th>Current Status</th><th>FE</th><th>Submitted</th><th>Action</th>
+                <th>Current Status</th><th>Loan Account</th><th>Submitted</th><th>Action</th>
               </tr></thead>
               <tbody>
                 {filtered.map(r => <tr key={r.id}>
@@ -185,8 +190,8 @@ export function LoanApplicationViewPage({ user }) {
                   <td>{r.customer_name || '—'}</td>
                   <td>{r.dealer_name || '—'}</td>
                   <td>{r.loan_model_name || '—'}{r.loan_amount ? <><br/><span className="muted">₹{Number(r.loan_amount).toLocaleString('en-IN')}</span></> : null}</td>
-                  <td><span className="loanApplicationViewStatus">{statusLabel(r.status)}</span><br/><span className="muted">{r.billing_status && r.billing_status !== 'NOT_REQUESTED' ? r.billing_status.replaceAll('_',' ') : 'System workflow'}</span></td>
-                  <td>{r.fe_user_id || '—'}</td>
+                  <td><span className="loanApplicationViewStatus">{currentStatusLabel(r)}</span><br/><span className="muted">{r.billing_status && r.billing_status !== 'NOT_REQUESTED' ? r.billing_status.replaceAll('_',' ') : 'System workflow'}</span></td>
+                  <td>{r.loan_account_no || '—'}</td>
                   <td>{r.created_at ? formatDate(r.created_at) : '—'}</td>
                   <td><button type="button" className="btn loanApplicationViewOpen" onClick={() => open(r)}>Open</button></td>
                 </tr>)}
@@ -203,7 +208,7 @@ export function LoanApplicationViewPage({ user }) {
             <button className="btn" onClick={() => setSelected(null)}>Close</button>
           </div>
           <div className="loanApplicationViewSummary">
-            <div><span>Status</span><b>{statusLabel(selected.status)}</b></div>
+            <div><span>Status</span><b>{currentStatusLabel(selected)}</b></div>
             <div><span>Vehicle</span><b>{selected.loan_model_name || '—'}</b></div>
             <div><span>Loan Amount</span><b>₹ {Number(selected.loan_amount || 0).toLocaleString('en-IN')}</b></div>
             <div><span>FE</span><b>{selected.fe_user_id || '—'}</b></div>
@@ -212,11 +217,7 @@ export function LoanApplicationViewPage({ user }) {
             <div><span>Billing</span><b>{selected.billing_status || 'NOT_REQUESTED'}</b></div>
             <div><span>Submitted</span><b>{selected.created_at ? formatDate(selected.created_at) : '—'}</b></div>
           </div>
-          <div style={{marginTop:18}}><b>Activity History</b><div className="tablewrap" style={{marginTop:8,maxHeight:280}}>
-            <table className="table"><thead><tr><th>Time</th><th>Action</th><th>Transition</th><th>Remark</th></tr></thead><tbody>
-              {history.length ? history.map(h => <tr key={h.id}><td>{h.created_at ? new Date(h.created_at).toLocaleString('en-IN') : '—'}</td><td>{h.action}</td><td>{h.from_status || '—'} → {h.to_status || '—'}</td><td>{h.remark || h.details || '—'}</td></tr>) : <tr><td colSpan="4">No activity recorded.</td></tr>}
-            </tbody></table>
-          </div></div>
+          <div style={{marginTop:18,padding:12,border:'1px solid #e5ebf2',borderRadius:9,background:'#fbfdff'}}><b>Current Status Only</b><div className="muted" style={{marginTop:5}}>Status is read directly from CHFPL. GRD does not display the CHFPL status history here.</div></div>
         </div>
       </div>}
     </div>
