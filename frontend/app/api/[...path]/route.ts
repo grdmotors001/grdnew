@@ -857,7 +857,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="chassis-master/years"){const r=await pool.query("SELECT * FROM chassis_year_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
     if(p==="chassis-master/rule"){const r=await pool.query("SELECT * FROM chassis_rule ORDER BY id DESC LIMIT 1");return Response.json({rule:r.rows[0]||null});}
     if(p==="dealer/loan-masters"){const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");return Response.json({rows:r.rows,masters:r.rows});}
-    if(p==="dealer/ledger-accounts"||p==="dealer/ledger-masters"){const r=await pool.query("SELECT DISTINCT party_name FROM day_book WHERE party_name IS NOT NULL ORDER BY party_name");return Response.json({rows:r.rows});}
+    if((p==="dealer/ledger-accounts"||p==="dealer/ledger-masters")&&a.scope!=="dealer"){const r=await pool.query("SELECT DISTINCT party_name FROM day_book WHERE party_name IS NOT NULL ORDER BY party_name");return Response.json({rows:r.rows});}
     if(p==="factory/old-rickshaw-challans"){
       await ensureOldRickshawInventorySchema();
       const rows=await pool.query("SELECT c.*,d.name AS dealer_name FROM old_rickshaw_challan c LEFT JOIN dealer d ON d.id=c.dealer_id ORDER BY c.date DESC,c.id DESC LIMIT 1000");
@@ -865,23 +865,27 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({challans:rows.rows,rows:rows.rows,available_for_sale:available.rows,suggested_challan_no:"ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now()});
     }
     if(p==="dealer/ledger"&&a.scope==="dealer"){
-      const did=num(a.dealer_id),u=new URL(req.url),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim();
+      const did=num(a.dealer_id),u=new URL(req.url),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
       const cols=await columns("day_book");
       if(!cols.size)return Response.json({events:[],rows:[],count:0});
-      const rows=(await pool.query('SELECT * FROM day_book ORDER BY id DESC LIMIT 5000')).rows;
-      const events=rows.filter((x:any)=>{
+      const dealerRow=await pool.query("SELECT name FROM dealer WHERE id=$1 LIMIT 1",[did]);
+      const dealerName=String(dealerRow.rows[0]?.name||"").trim().toLowerCase();
+      const raw=(await pool.query("SELECT * FROM day_book ORDER BY id ASC LIMIT 5000")).rows;
+      const events=raw.filter((x:any)=>{
+        const rowDealer=String(x.dealer_id||"").trim();
         const party=String(x.party_name||x.account_name||x.account||"");
         const doc=String(x.doc_no||x.voucher_no||x.reference_no||x.bill_no||"");
         const text=[party,doc,String(x.narration||""),String(x.particulars||""),String(x.chassis_no||"")].join(" ").toLowerCase();
         const d=String(x.date||"").slice(0,10);
-        return (!from||d>=from)&&(!to||d<=to)&&(!search||text.includes(search.toLowerCase()));
+        const dealerMatch=rowDealer ? Number(rowDealer)===did : (party.trim().toLowerCase()===dealerName || String(x.dealer_name||"").trim().toLowerCase()===dealerName);
+        return dealerMatch&&(!from||d>=from)&&(!to||d<=to)&&(!search||text.includes(search));
       });
       let running=0;
-      const eventsOut=events.reverse().map((x:any,i:number)=>{
+      const eventsOut=events.map((x:any)=>{
         const debit=num(x.debit||x.dr_amount||x.debit_amount),credit=num(x.credit||x.cr_amount||x.credit_amount);
         running+=debit-credit;
         return {record_type:"day_book",record_id:x.id,date:x.date,doc_no:x.doc_no||x.voucher_no||x.bill_no||"",account:x.party_name||x.account_name||x.account||"",lines:[x.narration||x.particulars||x.description||""].filter(Boolean),debit,credit,balance:running,dc:running>=0?"Dr":"Cr",vr_type:debit?"S":"R"};
-      }).reverse();
+      });
       return Response.json({events:eventsOut,rows:eventsOut,count:eventsOut.length});
     }
     if(p==="dealer/ledger-masters"&&a.scope==="dealer"){
