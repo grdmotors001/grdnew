@@ -159,7 +159,7 @@ export const NAV_GROUPS = {
   Reports: [
 ['purchase-register', 'Purchase Register'],
     ['delivery-challan-register', 'Delivery Challan Register'], ['sale-register', 'Sale Register'],
-    ['payment-receivable-report', 'Payment Receivable'], ['hypothecation-register', 'Hypothecation Register'],
+    ['payment-receivable-report', 'Payment Receivable'], ['customer-expense-ledger', 'Customer Expense / Complete Ledger'], ['hypothecation-register', 'Hypothecation Register'],
     ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
   ],
   System: [
