@@ -1796,7 +1796,13 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!id)return Response.json({error:"Old Rickshaw id is required."},{status:400});
       const saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount),balance=Math.max(0,saleAmount-loanAmount);
       const vals:any={status:"sold",dealer_id:idOf(b.dealer_id),sale_date:b.sale_date||null,sale_amount:saleAmount,sold_amount:saleAmount,loan_amount:loanAmount,down_payment:num(b.down_payment),balance_amount:balance,file_charge:num(b.file_charge),dealer_page_no:String(b.dealer_page_no||"").trim()||null,sp_no:String(b.sp_no||"").trim()||null,sale_ref_no:String(b.sale_ref_no||"").trim()||null,sale_type:String(b.sale_type||"").trim()||null,do_number:String(b.do_number||"").trim()||null,out_name:String(b.out_name||"").trim()||null,receipt_amount:num(b.receipt_amount),receipt_no:String(b.receipt_no||"").trim()||null,ledger:String(b.ledger||"").trim()||null,resale_date:b.resale_date||null,resale_ledger:String(b.resale_ledger||"").trim()||null,customer_name:String(b.out_name||"").trim()||null,updated_at:new Date()};
-      const cols=await columns("old_rickshaw"),keys=Object.keys(vals).filter(k=>cols.has(k)),sets=keys.map((k,i)=>'"'+k+'"=
+      const cols=await columns("old_rickshaw"),keys=Object.keys(vals).filter(k=>cols.has(k)),sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>vals[k]),id]);
+      if(!r.rowCount)return Response.json({error:"Old Rickshaw record not found."},{status:404});
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]});
+    }
+    const table=tableFor(path);
+    if(table)return genericWrite(req,path,table,"POST");
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
   }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
 }
