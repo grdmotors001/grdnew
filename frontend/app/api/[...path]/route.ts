@@ -86,7 +86,13 @@ async function ensureBillingSalesSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS grd_billing_sale_dealer_idx ON grd_billing_sale(dealer_id)");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS grd_billing_sale_vehicle_unique ON grd_billing_sale(vehicle_id) WHERE vehicle_id IS NOT NULL AND status IN ('PENDING','APPROVED','BILLED')");
   await pool.query("ALTER TABLE grd_billing_sale ALTER COLUMN application_id DROP NOT NULL");
-  const extra:any={customer_name:"text",customer_phone:"text",customer_address:"text",customer_state:"text",sale_type:"text",page_no:"text",do_no:"text",internal_sale_details:"text"};
+  const extra:any={
+    customer_name:"text",customer_phone:"text",customer_address:"text",customer_state:"text",sale_type:"text",page_no:"text",do_no:"text",internal_sale_details:"text",
+    buyer_relation:"text",buyer_father_name:"text",buyer_gst_no:"text",buyer_pan:"text",buyer_aadhar:"text",buyer_dob:"date",buyer_state_code:"text",
+    state_type:"text",mode_term:"text",bank_name:"text",bank_account_no:"text",bank_ifsc:"text",rto_name:"text",despatch_through:"text",eway_bill_no:"text",license_no:"text",cvr_no:"text",cancelled_cheque_no:"text",remarks:"text",
+    amount_received:"numeric NOT NULL DEFAULT 0",financer_name:"text",hypothecation_amount:"numeric NOT NULL DEFAULT 0",vehicle_reg_no:"text",ledger_no:"text",chassis_record_no:"text",voucher_no:"text",subsidy_amount:"numeric NOT NULL DEFAULT 0",
+    gst_sale_amount:"numeric NOT NULL DEFAULT 0",gst_rate:"numeric NOT NULL DEFAULT 5",insurance_amount:"numeric NOT NULL DEFAULT 0",registration_amount:"numeric NOT NULL DEFAULT 0",discount:"numeric NOT NULL DEFAULT 0"
+  };
   for(const [col,type] of Object.entries(extra)) await pool.query('ALTER TABLE grd_billing_sale ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
 async function ensureGrdAssetSchema(){
@@ -1373,18 +1379,20 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         if(inv.rowCount)return Response.json({error:"Selected chassis is already billed."},{status:409});
       }
       if(loanAmount>saleAmount&&saleAmount>0)return Response.json({error:"Loan Amount cannot be greater than Sale Amount."},{status:400});
-      const customerName=String(b.customer_name||"").trim()||null;
+      const customerName=String(b.customer_name||b.buyer_name||"").trim()||null;
       if(!applicationId&&!customerName)return Response.json({error:"Select a Loan Approved customer or enter Customer Name manually."},{status:400});
-      const r=await pool.query(`INSERT INTO grd_billing_sale
-        (application_id,dealer_id,customer_id,vehicle_id,chassis_no,description,sale_amount,status,customer_name,customer_phone,customer_address,customer_state,sale_type,page_no,do_no,internal_sale_details)
-        VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING',$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-        [
-          applicationId||null,effectiveDealer,customerId,vehicle?.vehicle_id||null,vehicle?.chassis_no||String(b.chassis_no||"").trim()||null,
-          description||"Internal Sale",saleAmount||Number(vehicle?.sale_value||0),
-          customerName,String(b.customer_phone||"").trim()||null,String(b.customer_address||"").trim()||null,String(b.customer_state||"").trim()||null,
-          String(b.sale_type||"").trim()||null,String(b.page_no||"").trim()||null,String(b.do_no||"").trim()||null,
-          String(b.internal_sale_details||description||"").trim()||null
-        ]);
+      const values:any={
+        application_id:applicationId||null,dealer_id:effectiveDealer,customer_id:customerId,vehicle_id:vehicle?.vehicle_id||null,chassis_no:vehicle?.chassis_no||String(b.chassis_no||"").trim()||null,
+        description:description||"Internal Sale",sale_amount:saleAmount||Number(vehicle?.sale_value||0),status:"PENDING",
+        customer_name:customerName,customer_phone:String(b.customer_phone||b.buyer_mobile||"").trim()||null,customer_address:String(b.customer_address||b.buyer_address||"").trim()||null,customer_state:String(b.customer_state||b.buyer_state||"").trim()||null,
+        sale_type:String(b.sale_type||"").trim()||null,page_no:String(b.page_no||b.dealer_page_no||"").trim()||null,do_no:String(b.do_no||"").trim()||null,internal_sale_details:String(b.internal_sale_details||description||"").trim()||null,
+        buyer_relation:b.buyer_relation||null,buyer_father_name:b.buyer_father_name||null,buyer_gst_no:b.buyer_gst_no||null,buyer_pan:b.buyer_pan||null,buyer_aadhar:b.buyer_aadhar||null,buyer_dob:b.buyer_dob||null,buyer_state_code:b.buyer_state_code||null,
+        state_type:b.state_type||"I",mode_term:b.mode_term||null,bank_name:b.bank_name||null,bank_account_no:b.bank_account_no||null,bank_ifsc:b.bank_ifsc||null,rto_name:b.rto_name||null,despatch_through:b.despatch_through||null,eway_bill_no:b.eway_bill_no||null,license_no:b.license_no||null,cvr_no:b.cvr_no||null,cancelled_cheque_no:b.cancelled_cheque_no||null,remarks:b.remarks||null,
+        amount_received:num(b.amount_received),financer_name:b.financer_name||null,hypothecation_amount:num(b.hypothecation_amount||b.loan_amount),vehicle_reg_no:b.vehicle_reg_no||null,ledger_no:b.ledger_no||null,chassis_record_no:b.chassis_record_no||null,voucher_no:b.voucher_no||null,subsidy_amount:num(b.subsidy_amount),
+        gst_sale_amount:num(b.gst_sale_amount||b.sale_amount||vehicle?.sale_value),gst_rate:num(b.gst_rate||5),insurance_amount:num(b.insurance_amount),registration_amount:num(b.registration_amount),discount:num(b.discount)
+      };
+      const cols=await columns("grd_billing_sale"),keys=Object.keys(values).filter(k=>cols.has(k)),ph=keys.map((_,i)=>"$"+(i+1));
+      const r=await pool.query('INSERT INTO grd_billing_sale ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+ph.join(",")+') RETURNING *',keys.map(k=>values[k]));
       return Response.json({success:true,sale:r.rows[0]},{status:201});
     }
     if(p.startsWith("billing/pending-sales/") && p.endsWith("/approve")){
