@@ -581,43 +581,89 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="menu"){const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");return Response.json({menu:r.rows,tabs:r.rows});}
     if(p==="reports/ledger"){
       const u=new URL(req.url),dealerId=idOf(u.searchParams.get("dealer_id")),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
-      const dbCols=await columns("day_book");
-      if(!dbCols.size)return Response.json({summary:[],dealers:[],events:[],rows:[],count:0});
       const dealerCols=await columns("dealer");
       const dealerWhere=dealerCols.has("blocked")?" WHERE COALESCE(blocked,false)=false":"";
       const dealers=(await pool.query("SELECT id,name FROM dealer"+dealerWhere+" ORDER BY name,id")).rows;
-      const raw=(await pool.query("SELECT * FROM day_book ORDER BY id ASC LIMIT 10000")).rows;
       const dealerNameMap=new Map(dealers.map((d:any)=>[Number(d.id),String(d.name||"").trim().toLowerCase()]));
-      const matchesDealer=(x:any,did:number)=>{
+      const tiCols=await columns("tax_invoice"),dbCols=await columns("day_book");
+      const invoices=tiCols.size?(await pool.query("SELECT * FROM tax_invoice WHERE COALESCE(cancelled,false)=false ORDER BY date ASC,id ASC LIMIT 20000")).rows:[];
+      const daybook=dbCols.size?(await pool.query("SELECT * FROM day_book ORDER BY date ASC,id ASC LIMIT 20000")).rows:[];
+      const dealerMatch=(x:any,did:number)=>{
         const rid=Number(x.dealer_id||0);
         if(rid)return rid===did;
         const target=dealerNameMap.get(did)||"";
-        const party=String(x.party_name||x.account_name||x.account||x.dealer_name||"").trim().toLowerCase();
+        const party=String(x.dealer_name||x.party_name||x.account_name||x.account||"").trim().toLowerCase();
         return Boolean(target)&&party===target;
       };
-      const inRange=(x:any)=>{
-        const d=String(x.date||"").slice(0,10);
-        const text=[x.party_name,x.account_name,x.account,x.doc_no,x.voucher_no,x.bill_no,x.narration,x.particulars,x.description,x.chassis_no].filter(Boolean).join(" ").toLowerCase();
-        return (!from||d>=from)&&(!to||d<=to)&&(!search||text.includes(search));
-      };
+      const textOf=(x:any)=>[x.bill_no,x.voucher_no,x.doc_no,x.party_name,x.dealer_name,x.buyer_name,x.chassis_no,x.narration,x.particulars,x.description].filter(Boolean).join(" ").toLowerCase();
+      const inRange=(x:any)=>{const d=String(x.date||"").slice(0,10);return (!from||d>=from)&&(!to||d<=to)&&(!search||textOf(x).includes(search));};
+      const saleEvents=(did:number)=>invoices.filter((x:any)=>dealerMatch(x,did)&&inRange(x)).map((x:any)=>({
+        record_type:"sale",record_id:x.id,date:x.date,doc_no:x.bill_no||x.voucher_no||"",account:x.buyer_name||"Sale",
+        lines:[x.product_name,x.chassis_no].filter(Boolean),
+        debit:Math.max(0,num(x.sale_amount)-num(x.hypothecation_amount)),credit:0,vr_type:"S"
+      }));
+      const receiptEvents=(did:number)=>daybook.filter((x:any)=>dealerMatch(x,did)&&inRange(x)).map((x:any)=>({
+        record_type:"receipt",record_id:x.id,date:x.date,doc_no:x.voucher_no||x.doc_no||x.bill_no||"",
+        account:x.party_name||x.account_name||x.account||dealerNameMap.get(did)||"Day Book",
+        lines:[x.narration||x.particulars||x.description||""].filter(Boolean),
+        debit:num(x.debit||x.dr_amount||x.debit_amount||x.debit_paid),
+        credit:num(x.credit||x.cr_amount||x.credit_amount||x.credit_received),vr_type:"R"
+      })).filter((x:any)=>x.debit||x.credit);
       if(!dealerId){
         const summary=dealers.map((d:any)=>{
-          const ev=raw.filter((x:any)=>matchesDealer(x,Number(d.id)));
-          const balance=ev.reduce((s:number,x:any)=>s+num(x.debit||x.dr_amount||x.debit_amount)-num(x.credit||x.cr_amount||x.credit_amount),0);
+          const ev=[...saleEvents(Number(d.id)),...receiptEvents(Number(d.id))];
+          const balance=ev.reduce((s:number,x:any)=>s+num(x.debit)-num(x.credit),0);
           return {dealer_id:d.id,dealer_name:d.name,balance,dc:balance>=0?"Dr":"Cr"};
         });
         return Response.json({summary,dealers,events:[],rows:[],count:summary.length});
       }
       const selected=dealers.find((d:any)=>Number(d.id)===dealerId);
       if(!selected)return Response.json({error:"Dealer not found."},{status:404});
-      const events=raw.filter((x:any)=>matchesDealer(x,dealerId)&&inRange(x));
-      let running=0;
-      const out=events.map((x:any)=>{
-        const debit=num(x.debit||x.dr_amount||x.debit_amount),credit=num(x.credit||x.cr_amount||x.credit_amount);
-        running+=debit-credit;
-        return {record_type:String(x.record_type||"receipt"),record_id:x.id,date:x.date,doc_no:x.doc_no||x.voucher_no||x.bill_no||"",account:x.party_name||x.account_name||x.account||selected.name,lines:[x.narration||x.particulars||x.description||""].filter(Boolean),debit,credit,balance:running,dc:running>=0?"Dr":"Cr",vr_type:debit?"S":"R"};
+      const events=[...saleEvents(dealerId),...receiptEvents(dealerId)].sort((a:any,b:any)=>{
+        const da=String(a.date||""),db=String(b.date||"");return da.localeCompare(db)||Number(a.record_id||0)-Number(b.record_id||0);
       });
+      let running=0;
+      const out=events.map((x:any)=>{running+=num(x.debit)-num(x.credit);return {...x,balance:Math.abs(running),dc:running>=0?"Dr":"Cr"};});
       return Response.json({summary:[],dealers,events:out,rows:out,count:out.length});
+    }
+    if(p==="reports/ledger-v"){
+      const u=new URL(req.url),dealerId=idOf(u.searchParams.get("dealer_id")),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
+      const dealerCols=await columns("dealer"),dealerWhere=dealerCols.has("blocked")?" WHERE COALESCE(blocked,false)=false":"";
+      const dealers=(await pool.query("SELECT id,name FROM dealer"+dealerWhere+" ORDER BY name,id")).rows;
+      const tiCols=await columns("tax_invoice"),dbCols=await columns("day_book");
+      const invoices=tiCols.size?(await pool.query("SELECT * FROM tax_invoice WHERE COALESCE(cancelled,false)=false ORDER BY date ASC,id ASC LIMIT 20000")).rows:[];
+      const daybook=dbCols.size?(await pool.query("SELECT * FROM day_book ORDER BY date ASC,id ASC LIMIT 20000")).rows:[];
+      const dealerNameMap=new Map(dealers.map((d:any)=>[Number(d.id),String(d.name||"").trim().toLowerCase()]));
+      const match=(x:any,did:number)=>{
+        const rid=Number(x.dealer_id||0); if(rid)return rid===did;
+        const target=dealerNameMap.get(did)||"";
+        return Boolean(target)&&String(x.dealer_name||x.party_name||x.account_name||x.account||"").trim().toLowerCase()===target;
+      };
+      const build=(did:number)=>{
+        const inv=invoices.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textOf(x).includes(search)));
+        const db=daybook.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textOf(x).includes(search)));
+        const events:any[]=[];
+        for(const x of inv){
+          const received=num(x.amount_received);
+          if(!received)continue;
+          events.push({date:x.date,doc_no:x.bill_no||"",particulars:"Tax Invoice — "+(x.buyer_name||"Sale"),voucher_no:x.voucher_no||"",bill_no:x.bill_no||"",chassis_no:x.chassis_no||"",customer:x.buyer_name||"",receipt:0,amount_received:received,_kind:"invoice",_id:x.id});
+        }
+        for(const x of db){
+          const receipt=num(x.credit_received||x.credit||x.cr_amount||x.credit_amount);
+          if(!receipt)continue;
+          events.push({date:x.date,doc_no:x.voucher_no||x.doc_no||"",particulars:x.narration||x.particulars||"Day Book Receipt",voucher_no:x.voucher_no||"",bill_no:x.bill_no||"",chassis_no:x.chassis_no||"",customer:x.party_name||x.account_name||"",receipt,amount_received:0,_kind:"receipt",_id:x.id});
+        }
+        events.sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))||Number(a._id||0)-Number(b._id||0));
+        let running=0; return events.map(e=>({...e,balance:(running+=num(e.amount_received)-num(e.receipt))}));
+      };
+      if(!dealerId){
+        const summary=dealers.map((d:any)=>{const events=build(Number(d.id));return {dealer_id:d.id,dealer_name:d.name,total:events.reduce((s:number,e:any)=>s+num(e.amount_received),0)};});
+        return Response.json({summary,dealers,events:[],rows:[],count:summary.length});
+      }
+      const selected=dealers.find((d:any)=>Number(d.id)===dealerId);
+      if(!selected)return Response.json({error:"Dealer not found."},{status:404});
+      const events=build(dealerId).map((e:any)=>{const {_kind,_id,...rest}=e;return rest;});
+      return Response.json({summary:[],dealers,events,rows:events,count:events.length});
     }
     if(p==="reports/sale-register"||p==="reports/gst-register"||p==="reports/hypothecation-register"||p==="reports/subsidy"){
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
