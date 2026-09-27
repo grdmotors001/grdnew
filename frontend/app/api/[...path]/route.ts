@@ -722,11 +722,29 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("pb",u,args);
       if(search){args.push("%"+search+"%");w.push("(COALESCE(pb.bill_no,'') ILIKE $"+args.length+" OR COALESCE(pb.party_name,'') ILIKE $"+args.length+")");}
       const where=w.length?" WHERE "+w.join(" AND "):"";
-      const r=await pool.query("SELECT pb.*,0::numeric AS taxable_amt,0::numeric AS cgst_amt,0::numeric AS sgst_amt,0::numeric AS igst_amt,0::numeric AS total_amt,0::int AS item_count FROM purchase_bill pb"+where+" ORDER BY pb.date DESC,pb.id DESC",args);
-      if(u.searchParams.get("export")==="csv")return csvResponse(r.rows,"Purchase_Register.csv");
+      const raw=await pool.query("SELECT pb.* FROM purchase_bill pb"+where+" ORDER BY pb.date DESC,pb.id DESC",args);
+      const rows=raw.rows.map((pb:any)=>{
+        const items=parseItems(pb.items).map((it:any)=>{
+          const qty=num(it.qty),rate=num(it.rate),taxable=it.taxable_amt!=null?num(it.taxable_amt):qty*rate;
+          const gst=it.gst_amount!=null?num(it.gst_amount):(taxable*num(it.gst_rate))/100;
+          const cgst=it.cgst_amt!=null?num(it.cgst_amt):(String(pb.party_state_code||"07")==="07"?gst/2:0);
+          const sgst=it.sgst_amt!=null?num(it.sgst_amt):(String(pb.party_state_code||"07")==="07"?gst/2:0);
+          const igst=it.igst_amt!=null?num(it.igst_amt):(String(pb.party_state_code||"07")==="07"?0:gst);
+          const total=it.total_amt!=null?num(it.total_amt):taxable+gst;
+          return {...it,qty,rate,taxable_amt:taxable,cgst_amt:cgst,sgst_amt:sgst,igst_amt:igst,total_amt:total};
+        });
+        const taxable_amt=items.reduce((s:number,x:any)=>s+num(x.taxable_amt),0);
+        const cgst_amt=items.reduce((s:number,x:any)=>s+num(x.cgst_amt),0);
+        const sgst_amt=items.reduce((s:number,x:any)=>s+num(x.sgst_amt),0);
+        const igst_amt=items.reduce((s:number,x:any)=>s+num(x.igst_amt),0);
+        const total_amt=items.reduce((s:number,x:any)=>s+num(x.total_amt),0);
+        const total_qty=items.reduce((s:number,x:any)=>s+num(x.qty),0);
+        return {...pb,items,taxable_amt,cgst_amt,sgst_amt,igst_amt,total_amt,total_qty,item_count:items.length};
+      });
+      if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Purchase_Register.csv");
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
-      const pageRows=r.rows.slice(start,start+per),totals=pageRows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable_amt),a.cgst+=num(x.cgst_amt),a.sgst+=num(x.sgst_amt),a.igst+=num(x.igst_amt),a),{taxable:0,cgst:0,sgst:0,igst:0});
-      return Response.json({rows:pageRows,page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per)),totals});
+      const pageRows=rows.slice(start,start+per),totals=pageRows.reduce((a:any,x:any)=>(a.taxable+=num(x.taxable_amt),a.cgst+=num(x.cgst_amt),a.sgst+=num(x.sgst_amt),a.igst+=num(x.igst_amt),a.qty+=num(x.total_qty),a),{taxable:0,cgst:0,sgst:0,igst:0,qty:0});
+      return Response.json({rows:pageRows,page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),totals});
     }
     if(/^tax-invoices\/\d+$/.test(p)){
       const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Tax Invoice id required."},{status:400});
