@@ -642,7 +642,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       };
       const build=(did:number)=>{
         const inv=invoices.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textV(x).includes(search)));
-        const db=daybook.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textOf(x).includes(search)));
+        const db=daybook.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textV(x).includes(search)));
         const events:any[]=[];
         for(const x of inv){
           const received=num(x.amount_received);
