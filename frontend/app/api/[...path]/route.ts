@@ -152,6 +152,39 @@ async function ensureFactoryCheckSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_report (id bigserial PRIMARY KEY, production_voucher_id integer NOT NULL UNIQUE, date date NOT NULL DEFAULT CURRENT_DATE, product_name text, quantity numeric NOT NULL DEFAULT 1, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_item (id bigserial PRIMARY KEY, report_id integer NOT NULL REFERENCES factory_check_report(id) ON DELETE CASCADE, raw_item_name text NOT NULL, expected_qty numeric NOT NULL DEFAULT 0, consumed_qty numeric NOT NULL DEFAULT 0, unit text, additional boolean NOT NULL DEFAULT false, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE INDEX IF NOT EXISTS factory_check_item_report_idx ON factory_check_item(report_id)");
+async function ensureDailyRawMaterialChecklistSchema(){
+  await pool.query(`CREATE TABLE IF NOT EXISTS daily_raw_material_checklist (
+    id bigserial PRIMARY KEY,
+    date date NOT NULL UNIQUE,
+    production_qty numeric NOT NULL DEFAULT 0,
+    status text NOT NULL DEFAULT 'PENDING',
+    verified_by text,
+    verified_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS daily_raw_material_checklist_item (
+    id bigserial PRIMARY KEY,
+    checklist_id bigint NOT NULL REFERENCES daily_raw_material_checklist(id) ON DELETE CASCADE,
+    source_key text NOT NULL,
+    product_name text NOT NULL,
+    formula_name text,
+    production_qty numeric NOT NULL DEFAULT 0,
+    raw_item_name text NOT NULL,
+    formula_qty_per_unit numeric NOT NULL DEFAULT 0,
+    required_qty numeric NOT NULL DEFAULT 0,
+    issued_qty numeric NOT NULL DEFAULT 0,
+    difference numeric NOT NULL DEFAULT 0,
+    unit text NOT NULL DEFAULT 'PCS',
+    formula_line_id bigint,
+    verified boolean NOT NULL DEFAULT false,
+    remarks text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  `);
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS daily_raw_material_checklist_item_key_idx ON daily_raw_material_checklist_item(checklist_id,source_key)");
+  await pool.query("CREATE INDEX IF NOT EXISTS daily_raw_material_checklist_date_idx ON daily_raw_material_checklist(date)");
+}
 }
 async function ensureOldRickshawInventorySchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS old_rickshaw_inventory (
@@ -576,6 +609,66 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
       return Response.json(r.rows[0]);
     }
+    if(p==="daily-raw-material-checklist"){
+      await ensureDailyRawMaterialChecklistSchema();
+      const date=String(b.date||"").trim();
+      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return Response.json({error:"Valid date is required."},{status:400});
+      const report=(await pool.query("SELECT * FROM daily_raw_material_checklist WHERE date=$1 FOR UPDATE",[date])).rows[0];
+      if(!report)return Response.json({error:"Checklist not found for this date. Open the checklist first."},{status:404});
+      if(report.status!=="PENDING")return Response.json({error:"Checklist is already verified/locked."},{status:409});
+      const items=Array.isArray(b.items)?b.items:[];
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        for(const item of items){
+          const id=idOf(item.id);if(!id)continue;
+          const issued=Math.max(0,num(item.issued_qty));
+          await client.query("UPDATE daily_raw_material_checklist_item SET issued_qty=$1,difference=$1-required_qty,remarks=$2,verified=$3,updated_at=NOW() WHERE id=$4 AND checklist_id=$5",
+            [issued,String(item.remarks||"").trim()||null,Boolean(item.verified),id,report.id]);
+        }
+        await client.query("UPDATE daily_raw_material_checklist SET updated_at=NOW() WHERE id=$1",[report.id]);
+        await client.query("COMMIT");
+        return Response.json({success:true});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="daily-raw-material-checklist/verify"){
+      await ensureDailyRawMaterialChecklistSchema();
+      const id=idOf(b.checklist_id);if(!id)return Response.json({error:"Checklist id is required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const report=(await client.query("SELECT * FROM daily_raw_material_checklist WHERE id=$1 FOR UPDATE",[id])).rows[0];
+        if(!report)throw new Error("Checklist not found.");
+        if(report.status!=="PENDING")throw new Error("Checklist is already verified/locked.");
+        const rows=await client.query("SELECT * FROM daily_raw_material_checklist_item WHERE checklist_id=$1 ORDER BY id",[id]);
+        if(!rows.rowCount)throw new Error("No raw material lines are available for this date.");
+        for(const item of rows.rows){
+          if(!item.verified)throw new Error("Verify every raw material line before locking: "+item.raw_item_name);
+          if(Math.abs(Number(item.difference||0))>0.0000001 && !String(item.remarks||"").trim())
+            throw new Error("Remark is required for quantity mismatch: "+item.raw_item_name);
+        }
+        const r=await client.query("UPDATE daily_raw_material_checklist SET status='VERIFIED',verified_by=$1,verified_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING *",
+          [String(a.user_id||a.username||a.name||"Store"),id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,checklist:r.rows[0]});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="daily-raw-material-checklist/formula"){
+      await ensureDailyRawMaterialChecklistSchema();
+      const productName=String(b.product_name||"").trim(),formulaName=String(b.formula_name||"").trim(),
+        rawItem=String(b.raw_item_name||"").trim(),qty=num(b.qty),unit=String(b.unit||"PCS").trim()||"PCS";
+      if(!productName||!formulaName||!rawItem||qty<=0)return Response.json({error:"Product, Formula, Raw Material and positive Qty are required."},{status:400});
+      const raw=await pool.query("SELECT id FROM product WHERE COALESCE(fro,'')='R' AND lower(trim(name))=lower(trim($1)) LIMIT 1",[rawItem]);
+      if(!raw.rowCount)return Response.json({error:"Select a Raw Material from Product Master."},{status:400});
+      const existing=b.id?await pool.query("SELECT id FROM production_formula WHERE id=$1",[idOf(b.id)]):{rowCount:0};
+      let r;
+      if(existing.rowCount){
+        r=await pool.query("UPDATE production_formula SET raw_item_name=$1,qty=$2,unit=$3 WHERE id=$4 RETURNING *",[rawItem,qty,unit,idOf(b.id)]);
+      }else{
+        r=await pool.query("INSERT INTO production_formula (product_name,formula_name,raw_item_name,qty,unit) VALUES($1,$2,$3,$4,$5) RETURNING *",[productName,formulaName,rawItem,qty,unit]);
+      }
+      return Response.json({success:true,row:r.rows[0]},{status:existing.rowCount?200:201});
+    }
     if(p==="tax-invoices"){
       const u=new URL(req.url),args:any[]=[],w:string[]=[];
       const search=String(u.searchParams.get("search")||"").trim();
@@ -605,6 +698,49 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!r.rowCount)return Response.json({error:"Factory Check Report not found."},{status:404});
       const items=await pool.query("SELECT * FROM factory_check_item WHERE report_id=$1 ORDER BY id",[id]);
       return Response.json({report:r.rows[0],items:items.rows});
+    }
+    if(p==="daily-raw-material-checklist"){
+      await ensureDailyRawMaterialChecklistSchema();
+      const u=new URL(req.url),date=String(u.searchParams.get("date")||"").trim();
+      if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date))return Response.json({error:"Valid date is required."},{status:400});
+      let report=(await pool.query("SELECT * FROM daily_raw_material_checklist WHERE date=$1",[date])).rows[0];
+      if(!report){
+        const r=await pool.query("INSERT INTO daily_raw_material_checklist(date,status) VALUES($1,'PENDING') RETURNING *",[date]);
+        report=r.rows[0];
+      }
+      if(report.status==="PENDING"){
+        const production=await pool.query("SELECT product_name,COALESCE(formula_name,'') AS formula_name,COALESCE(SUM(quantity),0) AS production_qty FROM production_voucher WHERE date=$1 GROUP BY product_name,formula_name ORDER BY product_name,formula_name",[date]);
+        const totalQty=production.rows.reduce((s:any,x:any)=>s+num(x.production_qty),0);
+        await pool.query("UPDATE daily_raw_material_checklist SET production_qty=$1,updated_at=NOW() WHERE id=$2",[totalQty,report.id]);
+        const lines=await pool.query(`SELECT pv.product_name,COALESCE(pv.formula_name,'') AS formula_name,
+          COALESCE(SUM(pv.quantity),0) AS production_qty,pf.id AS formula_line_id,pf.raw_item_name,
+          pf.qty AS formula_qty_per_unit,pf.unit,
+          COALESCE(SUM(pv.quantity*pf.qty),0) AS required_qty
+          FROM production_voucher pv
+          JOIN production_formula pf ON pf.product_name=pv.product_name
+            AND COALESCE(pf.formula_name,'')=COALESCE(pv.formula_name,'')
+          WHERE pv.date=$1
+          GROUP BY pv.product_name,COALESCE(pv.formula_name,''),pf.id,pf.raw_item_name,pf.qty,pf.unit
+          ORDER BY pv.product_name,COALESCE(pv.formula_name,''),pf.id`,[date]);
+        for(const line of lines.rows){
+          const sourceKey=String(line.product_name||"")+"::"+String(line.formula_name||"")+"::"+String(line.formula_line_id||"");
+          await pool.query(`INSERT INTO daily_raw_material_checklist_item
+            (checklist_id,source_key,product_name,formula_name,production_qty,raw_item_name,formula_qty_per_unit,required_qty,issued_qty,difference,unit,formula_line_id)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,0,-$8,$9,$10)
+            ON CONFLICT(checklist_id,source_key) DO UPDATE SET
+              product_name=EXCLUDED.product_name,formula_name=EXCLUDED.formula_name,
+              production_qty=EXCLUDED.production_qty,raw_item_name=EXCLUDED.raw_item_name,
+              formula_qty_per_unit=EXCLUDED.formula_qty_per_unit,required_qty=EXCLUDED.required_qty,
+              unit=EXCLUDED.unit,formula_line_id=EXCLUDED.formula_line_id,updated_at=NOW()`,
+            [report.id,sourceKey,line.product_name,line.formula_name,num(line.production_qty),line.raw_item_name,num(line.formula_qty_per_unit),num(line.required_qty),line.unit||"PCS",num(line.formula_line_id)]);
+        }
+        report=(await pool.query("SELECT * FROM daily_raw_material_checklist WHERE id=$1",[report.id])).rows[0];
+      }
+      const items=await pool.query("SELECT * FROM daily_raw_material_checklist_item WHERE checklist_id=$1 ORDER BY product_name,formula_name,raw_item_name,id",[report.id]);
+      const production=await pool.query("SELECT product_name,COALESCE(formula_name,'') AS formula_name,COALESCE(SUM(quantity),0) AS quantity,COUNT(*)::int AS vouchers FROM production_voucher WHERE date=$1 GROUP BY product_name,formula_name ORDER BY product_name,formula_name",[date]);
+      const masters=await pool.query("SELECT id,name FROM product WHERE COALESCE(fro,'')='R' AND COALESCE(name,'')<>'' ORDER BY name,id");
+      const formulas=await pool.query("SELECT DISTINCT formula_name,product_name FROM production_formula ORDER BY product_name,formula_name");
+      return Response.json({checklist:report,items:items.rows,production:production.rows,raw_materials:masters.rows,formulas:formulas.rows});
     }
     if(p==="factory-check-pending-production"){
       await ensureFactoryCheckSchema();
