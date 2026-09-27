@@ -29,6 +29,7 @@ import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
 import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage, StockLedgerPremisesPage, StockLedgerDealersPage } from '../components/StockPages';
 import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage, GstRegisterPage, HypothecationRegisterPage, PaymentReceivablePage, SubsidyReportPage, LedgerPage, DayBookPage, LedgerVPage } from '../components/ReportPages';
+import { CustomerExpenseLedgerReportPage } from '../components/CustomerExpenseLedgerReportPage';
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { BackupRestorePage } from '../components/BackupRestorePage';
 import { BatteryRegisterPage } from '../components/BatteryRegisterPage';
@@ -104,6 +105,7 @@ const CUSTOM_PAGES = {
   'gst-register': () => <GstRegisterPage />,
   'hypothecation-register': () => <HypothecationRegisterPage />,
   'payment-receivable-report': () => <PaymentReceivablePage />,
+  'customer-expense-ledger': () => <CustomerExpenseLedgerReportPage />,
   'incentive-register': () => <IncentiveRegisterPage />,
   'insurance-rto': () => <InsuranceRtoRegisterPage />,
   'subsidy-report': () => <SubsidyReportPage />,
