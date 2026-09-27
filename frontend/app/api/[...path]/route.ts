@@ -641,7 +641,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         return Boolean(target)&&String(x.dealer_name||x.party_name||x.account_name||x.account||"").trim().toLowerCase()===target;
       };
       const build=(did:number)=>{
-        const inv=invoices.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textOf(x).includes(search)));
+        const textV=(x:any)=>[x.bill_no,x.voucher_no,x.doc_no,x.party_name,x.dealer_name,x.buyer_name,x.chassis_no,x.narration,x.particulars,x.description].filter(Boolean).join(" ").toLowerCase();
+        const inv=invoices.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textV(x).includes(search)));
         const db=daybook.filter((x:any)=>match(x,did)&&(!from||String(x.date||"").slice(0,10)>=from)&&(!to||String(x.date||"").slice(0,10)<=to)&&(!search||textOf(x).includes(search)));
         const events:any[]=[];
         for(const x of inv){
