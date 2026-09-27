@@ -24,6 +24,7 @@ export const MENU = {
     ['purchase-bills', 'Purchase Bills'],
     ['production-voucher', 'Production Voucher'],
     ['factory-check-report', 'Factory Check Report'],
+    ['daily-raw-material-checklist', 'Daily Raw Material Issue'],
     ['delivery-challan', 'E-Rickshaw Delivery Challan'],
     ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
     ['old-rickshaw', 'Old Rickshaw'],
@@ -120,7 +121,7 @@ export const NAV_GROUPS = {
   Factory: [
     ['debit-note', 'Debit Note'],
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
-    ['production-voucher', 'Production Voucher'], ['delivery-challan', 'Delivery Challan'],
+    ['production-voucher', 'Production Voucher'], ['daily-raw-material-checklist', 'Daily Raw Material Issue'], ['delivery-challan', 'Delivery Challan'],
   ],
   Battery: [
     ['battery-maker', 'Battery Maker'], ['battery-register', 'Battery Register'],
