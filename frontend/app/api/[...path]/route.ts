@@ -723,23 +723,61 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(search){args.push("%"+search+"%");w.push("(COALESCE(pb.bill_no,'') ILIKE $"+args.length+" OR COALESCE(pb.party_name,'') ILIKE $"+args.length+")");}
       const where=w.length?" WHERE "+w.join(" AND "):"";
       const raw=await pool.query("SELECT pb.* FROM purchase_bill pb"+where+" ORDER BY pb.date DESC,pb.id DESC",args);
+      const firstNum=(...vals:any[])=>{for(const v of vals){const n0=Number(v);if(Number.isFinite(n0)&&n0!==0)return n0;}return 0};
       const rows=raw.rows.map((pb:any)=>{
-        const items=parseItems(pb.items).map((it:any)=>{
-          const qty=num(it.qty),rate=num(it.rate),taxable=it.taxable_amt!=null?num(it.taxable_amt):qty*rate;
-          const gst=it.gst_amount!=null?num(it.gst_amount):(taxable*num(it.gst_rate))/100;
-          const cgst=it.cgst_amt!=null?num(it.cgst_amt):(String(pb.party_state_code||"07")==="07"?gst/2:0);
-          const sgst=it.sgst_amt!=null?num(it.sgst_amt):(String(pb.party_state_code||"07")==="07"?gst/2:0);
-          const igst=it.igst_amt!=null?num(it.igst_amt):(String(pb.party_state_code||"07")==="07"?0:gst);
-          const total=it.total_amt!=null?num(it.total_amt):taxable+gst;
-          return {...it,qty,rate,taxable_amt:taxable,cgst_amt:cgst,sgst_amt:sgst,igst_amt:igst,total_amt:total};
+        let items=parseItems(pb.items);
+        if(!items.length){
+          // Legacy purchase bills may have only header totals and no JSON item array.
+          const legacyQty=firstNum(pb.total_qty,pb.qty,pb.quantity);
+          const legacyTaxable=firstNum(pb.taxable_amt,pb.taxable_total,pb.taxable_amount,pb.subtotal,pb.amount_before_tax);
+          const legacyCgst=firstNum(pb.cgst_amt,pb.cgst_total,pb.cgst,pb.tax_cgst);
+          const legacySgst=firstNum(pb.sgst_amt,pb.sgst_total,pb.sgst,pb.tax_sgst);
+          const legacyIgst=firstNum(pb.igst_amt,pb.igst_total,pb.igst,pb.tax_igst);
+          const legacyTax=firstNum(pb.tax_total,pb.gst_total,pb.total_tax,pb.gst_amount);
+          const legacyTotal=firstNum(pb.bill_total,pb.total_amt,pb.total_amount,pb.grand_total,pb.amount);
+          if(legacyQty||legacyTaxable||legacyCgst||legacySgst||legacyIgst||legacyTax||legacyTotal){
+            const tax=legacyTax||legacyCgst+legacySgst+legacyIgst;
+            items=[{
+              item_name:pb.item_name||pb.description||"Purchase",
+              hsn_code:pb.hsn_code||pb.hsn||"",
+              qty:legacyQty,
+              rate:legacyQty?legacyTaxable/legacyQty:legacyTaxable,
+              gst_rate:legacyTaxable?tax*100/legacyTaxable:0,
+              taxable_amt:legacyTaxable,
+              cgst_amt:legacyCgst,
+              sgst_amt:legacySgst,
+              igst_amt:legacyIgst,
+              total_amt:legacyTotal||legacyTaxable+tax
+            }];
+          }
+        }
+        const normalized=items.map((it:any)=>{
+          const qty=firstNum(it.qty,it.quantity),rate=firstNum(it.rate,it.unit_rate);
+          const taxable=firstNum(it.taxable_amt,it.taxable_amount,it.subtotal,qty*rate);
+          const gst=firstNum(it.gst_amount,it.tax_amount,it.gst, (taxable*Number(it.gst_rate||it.gst_percent||0))/100);
+          const cgst=firstNum(it.cgst_amt,it.cgst,it.cgst_amount);
+          const sgst=firstNum(it.sgst_amt,it.sgst,it.sgst_amount);
+          const igst=firstNum(it.igst_amt,it.igst,it.igst_amount);
+          const total=firstNum(it.total_amt,it.total_amount,it.amount,taxable+cgst+sgst+igst+(cgst+sgst+igst?0:gst));
+          return {...it,qty,rate,taxable_amt:taxable,cgst_amt:cgst||((igst?0:gst/2)),sgst_amt:sgst||((igst?0:gst/2)),igst_amt:igst||0,total_amt:total};
         });
-        const taxable_amt=items.reduce((s:number,x:any)=>s+num(x.taxable_amt),0);
-        const cgst_amt=items.reduce((s:number,x:any)=>s+num(x.cgst_amt),0);
-        const sgst_amt=items.reduce((s:number,x:any)=>s+num(x.sgst_amt),0);
-        const igst_amt=items.reduce((s:number,x:any)=>s+num(x.igst_amt),0);
-        const total_amt=items.reduce((s:number,x:any)=>s+num(x.total_amt),0);
-        const total_qty=items.reduce((s:number,x:any)=>s+num(x.qty),0);
-        return {...pb,items,taxable_amt,cgst_amt,sgst_amt,igst_amt,total_amt,total_qty,item_count:items.length};
+        const taxable_amt=normalized.reduce((s:number,x:any)=>s+Number(x.taxable_amt||0),0);
+        const cgst_amt=normalized.reduce((s:number,x:any)=>s+Number(x.cgst_amt||0),0);
+        const sgst_amt=normalized.reduce((s:number,x:any)=>s+Number(x.sgst_amt||0),0);
+        const igst_amt=normalized.reduce((s:number,x:any)=>s+Number(x.igst_amt||0),0);
+        const total_amt=normalized.reduce((s:number,x:any)=>s+Number(x.total_amt||0),0);
+        const total_qty=normalized.reduce((s:number,x:any)=>s+Number(x.qty||0),0);
+        return {
+          ...pb,
+          items:normalized,
+          taxable_amt:taxable_amt||firstNum(pb.taxable_amt,pb.taxable_total,pb.taxable_amount),
+          cgst_amt:cgst_amt||firstNum(pb.cgst_amt,pb.cgst_total,pb.cgst),
+          sgst_amt:sgst_amt||firstNum(pb.sgst_amt,pb.sgst_total,pb.sgst),
+          igst_amt:igst_amt||firstNum(pb.igst_amt,pb.igst_total,pb.igst),
+          total_amt:total_amt||firstNum(pb.bill_total,pb.total_amt,pb.total_amount,pb.grand_total,pb.amount),
+          total_qty:total_qty||firstNum(pb.total_qty,pb.qty,pb.quantity),
+          item_count:normalized.length||Number(pb.item_count||0)
+        };
       });
       if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Purchase_Register.csv");
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
