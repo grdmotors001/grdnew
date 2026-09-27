@@ -321,7 +321,9 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
   }, [challanId]);
   if (error) return <div className="modal"><div className="modalbox" style={{maxWidth:520}}><h3>Delivery Challan Print</h3><div className="error">{error}</div><button className="btn" onClick={onClose}>Close</button></div></div>;
   if (!data) return <div className="modal"><div className="modalbox" style={{maxWidth:420}}>Loading Delivery Challan…</div></div>;
-  const { challan: c, company } = data;
+  const c = data?.challan || data?.data || null;
+  const company = data?.company || {};
+  if (!c) return <div className="modal"><div className="modalbox" style={{maxWidth:520}}><h3>Delivery Challan Print</h3><div className="error">Delivery Challan data is unavailable.</div><button className="btn" onClick={onClose}>Close</button></div></div>;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
   const logoSrc = logoFailed || !c.umrn_code ? '/UMRN/_default.png' : `/UMRN/${c.umrn_code}.jpg`;
   const colourMeta = colourMasters.find((x) =>
