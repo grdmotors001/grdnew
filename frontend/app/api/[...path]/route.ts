@@ -2025,11 +2025,6 @@ async function mutation(req:Request,params:any,method:string){
     if(!table)return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
     return genericWrite(req,path,table,method);
   }catch(e:any){console.error("[node-api mutation]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}+(i+1));
-      const r=await pool.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=
-    return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
-  }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
-}
 export async function PUT(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PUT")}
 export async function PATCH(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"PATCH")}
 export async function DELETE(req:Request,{params}:{params:Promise<{path?:string[]}>}){return mutation(req,params,"DELETE")}
