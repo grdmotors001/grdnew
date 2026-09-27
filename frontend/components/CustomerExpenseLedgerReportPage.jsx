@@ -28,7 +28,7 @@ function Detail({ row, onClose }) {
 
   return (
     <div className="modal customerLedgerModal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <style>`
+      <style>{`
         .customerLedgerPrintRoot{background:#fff;color:#172b43;max-width:1000px;margin:0 auto;padding:24px;font-family:Arial,Helvetica,sans-serif}
         .clTop{display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #173d67;padding-bottom:14px}
         .clIdentity{display:flex;gap:16px;align-items:center}.clPhoto{width:82px;height:82px;border-radius:12px;border:1px solid #d5e0e8;object-fit:cover;background:#f5f8fa}
@@ -47,7 +47,7 @@ function Detail({ row, onClose }) {
           .clActions{display:none!important}
           .customerLedgerModal{position:static!important;background:#fff!important}
         }
-      `</style>
+      `}</style>
       <div className="modalbox" style={{ maxWidth: 1080, width: '96vw' }}>
         <div className="customerLedgerPrintRoot">
           <div className="clTop">
