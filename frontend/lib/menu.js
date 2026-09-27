@@ -146,6 +146,7 @@ export const NAV_GROUPS = {
   ],
   Inventory: [
     ['old-rickshaw-inventory', 'Old Rickshaw Inventory'],
+    ['chfpl-repo-vehicles', 'CHFPL Repo Vehicles'],
     ['closing-stock-premises', 'Closing Stock - Premises'], ['closing-stock-dealers', 'Closing Stock - Dealers'],
     ['closing-stock-raw', 'Closing Stock - Raw Material'], ['stock-ledger-premises', 'Stock Ledger - Premises'],
     ['stock-ledger-dealers', 'Stock Ledger - Dealers'],
