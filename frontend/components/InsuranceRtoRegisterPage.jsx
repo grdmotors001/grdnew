@@ -17,7 +17,8 @@ export function InsuranceRtoRegisterPage(){
   const loadParties=async()=>{
     const x=await get('/masters/party');
     const type=et==='insurance'?'insurance':'rto';
-    const names=(x||[]).filter(p=>String(p.sub_category||'').toLowerCase()===type).map(p=>p.name).filter(Boolean);
+    const list=Array.isArray(x)?x:(x?.masters||x?.rows||x?.data||[]);
+    const names=list.filter(p=>String(p.sub_category||'').toLowerCase()===type).map(p=>p.name).filter(Boolean);
     setParties([...new Set(names)]);
   };
   const load=async()=>{
