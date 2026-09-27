@@ -383,7 +383,7 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
 }
 
 async function chfplBridge(path:string, query:Record<string,string>={}){
-  const base=String(process.env.CHFPL_API_URL||'').replace(/\\/$/,'');
+  const base=String(process.env.CHFPL_API_URL||'').replace(/\/$/,'');
   const secret=String(process.env.CHFPL_GRD_BRIDGE_SECRET||'');
   if(!base || !secret) throw new Error('CHFPL bridge is not configured. Set CHFPL_API_URL and CHFPL_GRD_BRIDGE_SECRET.');
   const u=new URL(base+path);
