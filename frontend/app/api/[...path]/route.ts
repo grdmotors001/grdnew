@@ -1235,23 +1235,27 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       await ensureDispatchSchema();
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
-      const dcCols=await columns("delivery_challan");
+      const dcCols=await columns("delivery_challan"),dealerCols=await columns("dealer"),vehicleCols=await columns("vehicle"),invoiceCols=await columns("tax_invoice");
       if(!dcCols.size)return Response.json({error:"Delivery Challan table not found."},{status:404});
-      const args:any[]=[]; const where:string[]=[];
+      const args:any[]=[],where:string[]=[];
       if(dcCols.has("cancelled"))where.push("COALESCE(dc.cancelled,false)=false");
       if(a.scope==="dealer" && dcCols.has("dealer_id")){args.push(num(a.dealer_id));where.push("dc.dealer_id=$"+args.length);}
       if(search){
         const terms:string[]=[];
         for(const col of ["challan_no","chassis_no","product_name"]){if(dcCols.has(col)){args.push("%"+search+"%");terms.push("dc."+col+" ILIKE $"+args.length);}}
-        if(dcCols.has("dealer_id")){args.push("%"+search+"%");terms.push("d.name ILIKE $"+args.length);}
+        if(dealerCols.has("name")&&dcCols.has("dealer_id")){args.push("%"+search+"%");terms.push("d.name ILIKE $"+args.length);}
         if(terms.length)where.push("("+terms.join(" OR ")+")");
       }
       const whereSql=where.length?" WHERE "+where.join(" AND "):"";
-      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql,args);
-      const dealerExpr=dcCols.has("dealer_name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : "d.name";
-      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
-      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY id DESC LIMIT 2000");
-      await ensureDispatchSchema();
+      const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc"+(dcCols.has("dealer_id")?" LEFT JOIN dealer d ON d.id=dc.dealer_id":"")+whereSql,args);
+      const dealerExpr=dcCols.has("dealer_name")&&dealerCols.has("name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : (dealerCols.has("name")&&dcCols.has("dealer_id")?"d.name":"''");
+      const joinDealer=dcCols.has("dealer_id")&&dealerCols.has("id")?" LEFT JOIN dealer d ON d.id=dc.dealer_id":"";
+      const invoiceExpr=invoiceCols.has("delivery_challan_id") ? "EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND "+(invoiceCols.has("cancelled")?"COALESCE(ti.cancelled,false)=false":"TRUE")+") AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no" : "false AS invoiced,'' AS bill_no";
+      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,"+invoiceExpr+" FROM delivery_challan dc"+joinDealer+whereSql+" ORDER BY "+(dcCols.has("date")?"dc.date DESC,dc.id DESC":"dc.id DESC")+" LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const stageCol=vehicleCols.has("stage");
+      const available=stageCol
+        ? await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY id DESC LIMIT 2000")
+        : await pool.query("SELECT * FROM vehicle WHERE COALESCE(to_jsonb(vehicle)->>'stage','')='Manufacturing' ORDER BY id DESC LIMIT 2000");
       const dispatch=await pool.query("SELECT p.*,COALESCE(NULLIF(p.product_category,''),CASE WHEN p.fro='F' THEN 'FINISHED' ELSE 'RAW' END) AS category,COALESCE(p.show_on_delivery_challan,false) AS show_on_delivery_challan,COALESCE(s.qty,0) AS stock_qty FROM product p LEFT JOIN (SELECT item_name,SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END) qty FROM journal_stock GROUP BY item_name) s ON lower(trim(s.item_name))=lower(trim(p.name)) WHERE UPPER(COALESCE(NULLIF(p.product_category,''),CASE WHEN p.fro='F' THEN 'FINISHED' ELSE 'RAW' END))='DISPATCH' AND COALESCE(p.show_on_delivery_challan,false)=true ORDER BY p.name");
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,dispatch_items:dispatch.rows,suggested_challan_no:"DC-"+Date.now()});
