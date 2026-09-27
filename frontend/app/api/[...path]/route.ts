@@ -348,12 +348,37 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
   return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
 }
 
+async function chfplBridge(path:string, query:Record<string,string>={}){
+  const base=String(process.env.CHFPL_API_URL||'').replace(/\\/$/,'');
+  const secret=String(process.env.CHFPL_GRD_BRIDGE_SECRET||'');
+  if(!base || !secret) throw new Error('CHFPL bridge is not configured. Set CHFPL_API_URL and CHFPL_GRD_BRIDGE_SECRET.');
+  const u=new URL(base+path);
+  for(const [k,v] of Object.entries(query)) if(v) u.searchParams.set(k,v);
+  const r=await fetch(u.toString(),{method:'GET',headers:{'x-grd-bridge-secret':secret,'Accept':'application/json'},cache:'no-store'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d?.error||'CHFPL bridge request failed');
+  return d;
+}
+
 export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>}){
   try{
     const {path=[]}=await params,p=path.join("/");
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p==="chfpl/loan-status"){
+      const q:any={};
+      if(a?.scope==="dealer") q.grd_dealer_id=String(num(a.dealer_id));
+      const d=await chfplBridge("/api/grd-dealer-loans",q);
+      return Response.json({source:"CHFPL",applications:d.applications||[],count:(d.applications||[]).length});
+    }
+    if(p==="chfpl/repo-vehicles"){
+      const q:any={status:"ALL"};
+      if(a?.scope==="dealer") q.dealer_id=String(num(a.dealer_id));
+      const d=await chfplBridge("/api/grd/repossessed",q);
+      const vehicles=(d.vehicles||[]).map((v:any)=>({...v,source:"CHFPL",current_status:v.resale_status==="SEIZED"?"HOLD":(v.resale_status||"SEIZED")}));
+      return Response.json({source:"CHFPL",vehicles,count:vehicles.length});
+    }
     if(p==="billing/pending-sales"){
       await ensureBillingSalesSchema();
       if(!billingStaff(a) && a?.scope!=="dealer")return Response.json({error:"Billing approval rights required."},{status:403});
