@@ -7,18 +7,18 @@ import { Field, ErrorBanner, Money } from './ui';
 export function BillingPendingSalesPage(){
   const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
   const [createOpen,setCreateOpen]=useState(false),[options,setOptions]=useState({applications:[],vehicles:[]});
-  const [invoiceSale,setInvoiceSale]=useState(null),[view,setView]=useState('PENDING');
+  const [invoiceSale,setInvoiceSale]=useState(null),[view,setView]=useState('PENDING'),[canApprove,setCanApprove]=useState(false);
 
   const load=async()=>{
     setLoading(true);setError('');
-    try{const r=await get('/billing/pending-sales');setRows(r.applications||[])}
+    try{const r=await get('/billing/pending-sales');setRows(r.applications||[]);setCanApprove(Boolean(r.can_approve))}
     catch(e){setError(e.message||'Could not load Pending Sales')}
     finally{setLoading(false)}
   };
   useEffect(()=>{load()},[]);
 
   const openCreate=async()=>{
-    try{const r=await get('/billing/pending-sales/options');setOptions(r);setCreateOpen(true)}
+    try{const r=await get('/billing/pending-sales/options');setOptions(r);setCanApprove(Boolean(r.can_approve));setCreateOpen(true)}
     catch(e){setError(e.message||'Could not load options')}
   };
   const approve=async id=>{
@@ -49,7 +49,7 @@ export function BillingPendingSalesPage(){
         <td><b>{r.application_no||r.application_id}</b></td><td>{r.dealer_name||'—'}</td><td>{r.customer_name||'—'}</td>
         <td>{r.chassis_no||'—'}</td><td>{r.description||'—'}</td><td><Money value={r.sale_amount}/></td>
         <td><b>{r.status}</b></td>
-        <td>{r.status==='PENDING'&&<button className="btn primary" onClick={()=>approve(r.id)}>Approve</button>}
+        <td>{r.status==='PENDING'&&canApprove&&<button className="btn primary" onClick={()=>approve(r.id)}>Approve</button>}
             {r.status==='APPROVED'&&<button className="btn primary" onClick={()=>openSale(r.id)}>Create Sale</button>}
             {r.status==='BILLED'&&<span className="pill s">Billed</span>}</td>
       </tr>)}
@@ -70,7 +70,7 @@ function CreatePendingSale({options,onClose,onSaved}){
   useEffect(()=>{if(app&&!form.sale_amount)setForm(f=>({...f,sale_amount:app.loan_amount||''}))},[app?.id]);
   const save=async()=>{setSaving(true);setError('');try{await post('/billing/pending-sales/create',form);onSaved()}catch(e){setError(e.message)}finally{setSaving(false)}};
   return <div className="modal"><div className="modalbox" style={{maxWidth:720}}>
-    <h2>Create Pending Sale</h2><p className="muted">Description admin bhi yahin se create kar sakta hai.</p><ErrorBanner message={error}/>
+    <h2>Create Pending Sale</h2><p className="muted">Sirf Loan Approved application se Pending Sale banegi. Dealer aur Admin dono create kar sakte hain.</p><ErrorBanner message={error}/>
     <div className="formgrid">
       <label className="field"><span>Loan Application</span><select className="input" value={form.application_id} onChange={e=>setForm({...form,application_id:e.target.value,vehicle_id:'',sale_amount:''})}><option value="">Select Application</option>{options.applications.map(x=><option key={x.id} value={x.id}>{x.application_no||x.id} · {x.customer_name||'—'} · {x.dealer_name||'—'}</option>)}</select></label>
       <Field label="Dealer" value={dealer} onChange={()=>{}} readOnly/>
