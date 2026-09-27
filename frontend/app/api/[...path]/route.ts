@@ -1285,6 +1285,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,handover:r.rows[0],row:r.rows[0]},{status:201});
     }
     if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
+      await ensureDealerCashSchema();
       const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=String(b.date||b.receipt_date||new Date().toISOString().slice(0,10));
       const cc=await columns("dealer_cash_customer"),rc=await columns("dealer_cash_receipt");
       if(!cc.size||!rc.size)return Response.json({error:"Cash receipt tables are not available."},{status:500});
