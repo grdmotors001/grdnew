@@ -45,13 +45,18 @@ export function DealerAllReceiptsPage() {
           <td><button className="btn" onClick={() => setEditing({...r})}>Edit</button></td>
         </tr>)}{!rows.length && <tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody>
       </table></div>
-      {editing && <div className="card" style={{marginTop:12}}>
-        <h3>Edit Receipt — {editing.receipt_no}</h3>
-        <div className="grid">
-          {field('Page No.', 'dealer_register_page_no', editing, setEditing)}
-          {field('Loan Amount', 'loan_amount', editing, setEditing, 'number')}
+      {editing && <div className="modal" style={{zIndex:10000}} onMouseDown={(e)=>{if(e.target===e.currentTarget)setEditing(null)}}>
+        <div className="modalbox" style={{maxWidth:520}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+            <div><h3 style={{margin:0}}>Edit Receipt</h3><p className="muted" style={{margin:'4px 0 0'}}>{editing.receipt_no}</p></div>
+            <button type="button" className="btn" onClick={()=>setEditing(null)}>✕</button>
+          </div>
+          <div className="grid" style={{marginTop:14}}>
+            {field('Page No.', 'dealer_register_page_no', editing, setEditing)}
+            {field('Loan Amount', 'loan_amount', editing, setEditing, 'number')}
+          </div>
+          <div className="actions" style={{marginTop:16}}><button className="btn" onClick={()=>setEditing(null)}>Cancel</button><button className="btn primary" disabled={saving} onClick={save}>{saving?'Saving…':'Save Changes'}</button></div>
         </div>
-        <div className="actions"><button className="btn primary" disabled={saving} onClick={save}>{saving?'Saving…':'Save Changes'}</button><button className="btn" onClick={()=>setEditing(null)}>Cancel</button></div>
       </div>}
     </div>
   );
@@ -216,38 +221,33 @@ export function DealerAllCustomersPage() {
         </table>
       </div>
 
-      {editing && <div className="card" style={{ marginTop: 12 }}>
-        <h2>{editing.status === 'BILLED' ? 'Edit Billed Page No.' : 'Edit Customer'}</h2>
-        {editing.status === 'BILLED' ? (
-          <>
-            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}</div>
-            <div className="actions">
+      {editing && <div className="modal" style={{zIndex:10000}} onMouseDown={(e)=>{if(e.target===e.currentTarget)setEditing(null)}}>
+        <div className="modalbox" style={{maxWidth:520}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+            <div><h2 style={{margin:0}}>{editing.status === 'BILLED' ? 'Edit Billed Page No.' : 'Edit Customer Page No.'}</h2><p className="muted" style={{margin:'4px 0 0'}}>{editing.name || editing.customer_name || ''}{editing.phone ? ' · '+editing.phone : ''}</p></div>
+            <button type="button" className="btn" onClick={()=>setEditing(null)}>✕</button>
+          </div>
+          <div className="grid" style={{marginTop:14}}>{field('Page No.', 'page_no', editing, setEditing)}</div>
+          <div className="actions" style={{marginTop:16}}>
+            <button className="btn" onClick={()=>setEditing(null)}>Cancel</button>
+            {editing.status === 'BILLED' ? (
               <button className="btn primary" disabled={saving} onClick={async () => {
                 setSaving(true); setError('');
-                try {
-                  await post('/dealer/tax-invoices/' + editing.invoice_id, { dealer_page_no: editing.page_no });
-                  setEditing(null); await load(search);
-                } catch (e) { setError(e.message || 'Could not update page number'); }
+                try { await post('/dealer/tax-invoices/' + editing.invoice_id, { dealer_page_no: editing.page_no }); setEditing(null); await load(search); }
+                catch (e) { setError(e.message || 'Could not update page number'); }
                 finally { setSaving(false); }
               }}>{saving ? 'Saving…' : 'Save Page No.'}</button>
-              <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="grid">{field('Page No.', 'page_no', editing, setEditing)}</div>
-            <div className="actions">
+            ) : (
               <button className="btn primary" disabled={saving} onClick={async () => {
                 setSaving(true); setError('');
                 try { await put('/dealer/cash-book/customers/' + editing.id, { page_no: editing.page_no }); setEditing(null); await load(search); }
                 catch (e) { setError(e.message || 'Could not update page number'); }
                 finally { setSaving(false); }
               }}>{saving ? 'Saving…' : 'Save Page No.'}</button>
-              <button className="btn" onClick={() => setEditing(null)}>Cancel</button>
-            </div>
-          </>
-        )}
-      </div>}
+            )}
+          </div>
+        </div>
+      </div>
 
       {cancelling && <div className="card" style={{ marginTop: 12, border: '1px solid currentColor' }}>
         <div className="pageHeader">
