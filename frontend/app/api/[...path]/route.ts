@@ -152,6 +152,7 @@ async function ensureFactoryCheckSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_report (id bigserial PRIMARY KEY, production_voucher_id integer NOT NULL UNIQUE, date date NOT NULL DEFAULT CURRENT_DATE, product_name text, quantity numeric NOT NULL DEFAULT 1, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_item (id bigserial PRIMARY KEY, report_id integer NOT NULL REFERENCES factory_check_report(id) ON DELETE CASCADE, raw_item_name text NOT NULL, expected_qty numeric NOT NULL DEFAULT 0, consumed_qty numeric NOT NULL DEFAULT 0, unit text, additional boolean NOT NULL DEFAULT false, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE INDEX IF NOT EXISTS factory_check_item_report_idx ON factory_check_item(report_id)");
+}
 async function ensureDailyRawMaterialChecklistSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS daily_raw_material_checklist (
     id bigserial PRIMARY KEY,
@@ -236,6 +237,7 @@ async function ensureOldRickshawInventorySchema(){
   };
   for(const [col,type] of Object.entries(odefs)) await pool.query('ALTER TABLE old_rickshaw ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
+  await pool.query(`ALTER TABLE dealer_cash_customer ADD COLUMN IF NOT EXISTS "full_name" text`);
 async function ensureCreditDebitSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS credit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,credit_note_no text,tax_invoice_id integer,delivery_challan_id integer,original_bill_no text,dealer_name text,buyer_name text,chassis_no text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,reason text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
   await pool.query(`CREATE TABLE IF NOT EXISTS debit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,debit_note_no text,party_name text,party_gst_no text,party_state_code text,original_bill_no text,reason text,remarks text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,items jsonb NOT NULL DEFAULT '[]'::jsonb,created_at timestamptz NOT NULL DEFAULT now())`);
@@ -821,6 +823,50 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="chassis-master/rule"){const r=await pool.query("SELECT * FROM chassis_rule ORDER BY id DESC LIMIT 1");return Response.json({rule:r.rows[0]||null});}
     if(p==="dealer/loan-masters"){const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");return Response.json({rows:r.rows,masters:r.rows});}
     if(p==="dealer/ledger-accounts"||p==="dealer/ledger-masters"){const r=await pool.query("SELECT DISTINCT party_name FROM day_book WHERE party_name IS NOT NULL ORDER BY party_name");return Response.json({rows:r.rows});}
+    if(p==="factory/old-rickshaw-challans"){
+      await ensureOldRickshawInventorySchema();
+      const rows=await pool.query("SELECT c.*,d.name AS dealer_name FROM old_rickshaw_challan c LEFT JOIN dealer d ON d.id=c.dealer_id ORDER BY c.date DESC,c.id DESC LIMIT 1000");
+      const available=await pool.query("SELECT * FROM old_rickshaw_inventory WHERE status='available' ORDER BY repo_date DESC NULLS LAST,id DESC LIMIT 500");
+      return Response.json({challans:rows.rows,rows:rows.rows,available_for_sale:available.rows,suggested_challan_no:"ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now()});
+    }
+    if(p==="dealer/ledger"&&a.scope==="dealer"){
+      const did=num(a.dealer_id),u=new URL(req.url),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim();
+      const cols=await columns("day_book");
+      if(!cols.size)return Response.json({events:[],rows:[],count:0});
+      const rows=(await pool.query('SELECT * FROM day_book ORDER BY id DESC LIMIT 5000')).rows;
+      const events=rows.filter((x:any)=>{
+        const party=String(x.party_name||x.account_name||x.account||"");
+        const doc=String(x.doc_no||x.voucher_no||x.reference_no||x.bill_no||"");
+        const text=[party,doc,String(x.narration||""),String(x.particulars||""),String(x.chassis_no||"")].join(" ").toLowerCase();
+        const d=String(x.date||"").slice(0,10);
+        return (!from||d>=from)&&(!to||d<=to)&&(!search||text.includes(search.toLowerCase()));
+      });
+      let running=0;
+      const eventsOut=events.reverse().map((x:any,i:number)=>{
+        const debit=num(x.debit||x.dr_amount||x.debit_amount),credit=num(x.credit||x.cr_amount||x.credit_amount);
+        running+=debit-credit;
+        return {record_type:"day_book",record_id:x.id,date:x.date,doc_no:x.doc_no||x.voucher_no||x.bill_no||"",account:x.party_name||x.account_name||x.account||"",lines:[x.narration||x.particulars||x.description||""].filter(Boolean),debit,credit,balance:running,dc:running>=0?"Dr":"Cr",vr_type:debit?"S":"R"};
+      }).reverse();
+      return Response.json({events:eventsOut,rows:eventsOut,count:eventsOut.length});
+    }
+    if(p==="dealer/ledger-masters"&&a.scope==="dealer"){
+      const dealers=await pool.query("SELECT id,code,name,mobile,address,account_no,ifsc FROM dealer WHERE COALESCE(blocked,false)=false ORDER BY name,id");
+      const types=[
+        {id:"dealer",name:"Dealer"},{id:"salesman",name:"Salesman"},{id:"financer",name:"Financer"},
+        {id:"rto_expense",name:"RTO Expense"},{id:"insurance_expense",name:"Insurance"},
+        {id:"mechanic",name:"Mechanic"},{id:"fabricator",name:"Fabricator"},{id:"expense_head",name:"Expense Head"},{id:"other",name:"Other"}
+      ];
+      return Response.json({types,dealers:dealers.rows,salesmen:[],financers:[],rtos:[],parties:[],mechanics:[],fabricators:[],expense_heads:[]});
+    }
+    if(p==="dealer/ledger-accounts"&&a.scope==="dealer"){
+      await pool.query(`CREATE TABLE IF NOT EXISTS dealer_ledger_account (
+        id bigserial PRIMARY KEY,dealer_id integer NOT NULL,account_type text NOT NULL,name text NOT NULL,code text,
+        mobile text,address text,account_no text,ifsc text,opening_balance numeric NOT NULL DEFAULT 0,
+        opening_type text NOT NULL DEFAULT 'dr',notes text,created_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      const r=await pool.query("SELECT * FROM dealer_ledger_account WHERE dealer_id=$1 ORDER BY id DESC LIMIT 500",[num(a.dealer_id)]);
+      return Response.json({accounts:r.rows,rows:r.rows,count:r.rowCount});
+    }
     if(p==="dealer/me"&&a.scope==="dealer"){
       const r=await pool.query("SELECT id,code,name,login_id,dealer_category,purchase_access,portal_modules,blocked FROM dealer WHERE id=$1",[num(a.dealer_id)]);
       const d=r.rows[0]||null;
@@ -1174,7 +1220,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           const chk=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[cid,did]);
           if(!chk.rowCount)throw new Error("Customer not found.");
         }else{
-          const input:any={dealer_id:did,name:String(b.customer_name||"").trim(),phone:String(b.customer_phone||"").trim(),customer_phone:String(b.customer_phone||"").trim(),page_no:String(b.dealer_register_page_no||"").trim()||null,vehicle_no:String(b.booking_for||"new").trim(),sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),paid_amount:num(b.amount),status:"VEHICLE_PENDING",date:date||null};
+          const input:any={dealer_id:did,name:String(b.customer_name||"").trim(),phone:String(b.customer_phone||"").trim(),full_name:String(b.customer_name||"").trim(),customer_phone:String(b.customer_phone||"").trim(),page_no:String(b.dealer_register_page_no||"").trim()||null,vehicle_no:String(b.booking_for||"new").trim(),sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),paid_amount:num(b.amount),status:"VEHICLE_PENDING",date:date||null};
           const keys=Object.keys(input).filter(k=>cc.has(k));
           if(!input.name||!input.phone)throw new Error("Customer name and mobile are required.");
           if(!keys.length)throw new Error("Customer register schema is missing required fields.");
@@ -1430,6 +1476,14 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(num(b.vehicle_id)) await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[b.dealer_name||null,num(b.vehicle_id)]);
       return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
     }
+    if(p==="factory/old-rickshaw-challans"){
+      await ensureOldRickshawInventorySchema();
+      const challan=String(b.challan_no||"").trim()||("ORC-"+Date.now()),date=b.date||null,model=String(b.model_name||"").trim(),vehicle=String(b.vehicle_no||"").trim();
+      if(!model||!vehicle)return Response.json({error:"Model and Vehicle No. are required."},{status:400});
+      const r=await pool.query("INSERT INTO old_rickshaw_challan (date,challan_no,model_name,vehicle_no,colour,toolkit,dealer_id,source,source_ref,status) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE') RETURNING *",
+        [date,challan,model,vehicle,String(b.colour||"").trim()||null,String(b.toolkit||"").trim()||null,idOf(b.dealer_id)||null,String(b.source||"manual"),String(b.source_ref||"").trim()||null]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+    }
     if(p==="production-vouchers"){
       const client=await pool.connect();
       try{
@@ -1547,6 +1601,17 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         await client.query("COMMIT");
         return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="dealer/ledger-accounts"&&method==="POST"&&a.scope==="dealer"){
+      await pool.query(`CREATE TABLE IF NOT EXISTS dealer_ledger_account (
+        id bigserial PRIMARY KEY,dealer_id integer NOT NULL,account_type text NOT NULL,name text NOT NULL,code text,
+        mobile text,address text,account_no text,ifsc text,opening_balance numeric NOT NULL DEFAULT 0,
+        opening_type text NOT NULL DEFAULT 'dr',notes text,created_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      const name=String(b.name||"").trim();if(!name)return Response.json({error:"Ledger Name is required."},{status:400});
+      const r=await pool.query("INSERT INTO dealer_ledger_account (dealer_id,account_type,name,code,mobile,address,account_no,ifsc,opening_balance,opening_type,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *",
+        [num(a.dealer_id),String(b.account_type||"dealer"),name,String(b.code||"").trim()||null,String(b.mobile||"").trim()||null,String(b.address||"").trim()||null,String(b.account_no||"").trim()||null,String(b.ifsc||"").trim()||null,num(b.opening_balance),String(b.opening_type||"dr"),String(b.notes||"").trim()||null]);
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
     }
     if(p==="dealer/submit-loan"){
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
