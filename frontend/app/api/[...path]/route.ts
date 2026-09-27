@@ -579,6 +579,44 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json(r.rows);
     }
     if(p==="menu"){const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");return Response.json({menu:r.rows,tabs:r.rows});}
+    if(p==="reports/ledger"){
+      const u=new URL(req.url),dealerId=idOf(u.searchParams.get("dealer_id")),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
+      const dbCols=await columns("day_book");
+      if(!dbCols.size)return Response.json({summary:[],dealers:[],events:[],rows:[],count:0});
+      const dealers=(await pool.query("SELECT id,name FROM dealer WHERE COALESCE(blocked,false)=false ORDER BY name,id")).rows;
+      const raw=(await pool.query("SELECT * FROM day_book ORDER BY id ASC LIMIT 10000")).rows;
+      const dealerNameMap=new Map(dealers.map((d:any)=>[Number(d.id),String(d.name||"").trim().toLowerCase()]));
+      const matchesDealer=(x:any,did:number)=>{
+        const rid=Number(x.dealer_id||0);
+        if(rid)return rid===did;
+        const target=dealerNameMap.get(did)||"";
+        const party=String(x.party_name||x.account_name||x.account||x.dealer_name||"").trim().toLowerCase();
+        return Boolean(target)&&party===target;
+      };
+      const inRange=(x:any)=>{
+        const d=String(x.date||"").slice(0,10);
+        const text=[x.party_name,x.account_name,x.account,x.doc_no,x.voucher_no,x.bill_no,x.narration,x.particulars,x.description,x.chassis_no].filter(Boolean).join(" ").toLowerCase();
+        return (!from||d>=from)&&(!to||d<=to)&&(!search||text.includes(search));
+      };
+      if(!dealerId){
+        const summary=dealers.map((d:any)=>{
+          const ev=raw.filter((x:any)=>matchesDealer(x,Number(d.id)));
+          const balance=ev.reduce((s:number,x:any)=>s+num(x.debit||x.dr_amount||x.debit_amount)-num(x.credit||x.cr_amount||x.credit_amount),0);
+          return {dealer_id:d.id,dealer_name:d.name,balance,dc:balance>=0?"Dr":"Cr"};
+        });
+        return Response.json({summary,dealers,events:[],rows:[],count:summary.length});
+      }
+      const selected=dealers.find((d:any)=>Number(d.id)===dealerId);
+      if(!selected)return Response.json({error:"Dealer not found."},{status:404});
+      const events=raw.filter((x:any)=>matchesDealer(x,dealerId)&&inRange(x));
+      let running=0;
+      const out=events.map((x:any)=>{
+        const debit=num(x.debit||x.dr_amount||x.debit_amount),credit=num(x.credit||x.cr_amount||x.credit_amount);
+        running+=debit-credit;
+        return {record_type:String(x.record_type||"receipt"),record_id:x.id,date:x.date,doc_no:x.doc_no||x.voucher_no||x.bill_no||"",account:x.party_name||x.account_name||x.account||selected.name,lines:[x.narration||x.particulars||x.description||""].filter(Boolean),debit,credit,balance:running,dc:running>=0?"Dr":"Cr",vr_type:debit?"S":"R"};
+      });
+      return Response.json({summary:[],dealers,events:out,rows:out,count:out.length});
+    }
     if(p==="reports/sale-register"||p==="reports/gst-register"||p==="reports/hypothecation-register"||p==="reports/subsidy"){
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
       if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+")");}
