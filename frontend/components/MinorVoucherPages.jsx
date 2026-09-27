@@ -38,11 +38,11 @@ export function OldRickshawPage() {
     <ErrorBanner message={!open&&!saleOpen?error:''}/>
     {data.records.length===0?<EmptyState text="No Old Rickshaw currently available in GRD stock."/>:
       <div className="tablewrap"><table className="table"><thead><tr>
-        <th>Record No.</th><th>Date</th><th>Ledger Date</th><th>Vou. No.</th><th>Status</th><th>Source</th><th>Dealer</th><th>Reg. No.</th><th>Owner</th><th>Model</th><th>Sales Man</th><th>Sale Type</th><th>DO No.</th><th>Chassis No.</th><th>Battery</th><th>Colour</th><th>Purchase Amt.</th><th>Sold Amt.</th><th>Loan Amt.</th><th>Received</th><th>Balance</th><th>SP No.</th><th>Out Name</th><th>Action</th>
+        <th>Record No.</th><th>Date</th><th>Ledger Date</th><th>Vou. No.</th><th>Status</th><th>Source</th><th>Dealer</th><th>Reg. No.</th><th>Owner</th><th>Model</th><th>Sales Man</th><th>Sale Type</th><th>DO No.</th><th>Chassis No.</th><th>Battery</th><th>Colour</th><th>Purchase Amt.</th><th>Sale Value</th><th>Loan Amt.</th><th>Received</th><th>Balance</th><th>SP No.</th><th>Out Name</th><th>Action</th>
       </tr></thead><tbody>{data.records.map(r=><tr key={r.id}>
         <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.ledger_date?formatDate(r.ledger_date):'—'}</td><td>{r.vou_no||'—'}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td><td>{r.dealer_name||'—'}</td>
         <td><b>{r.vehicle_reg_no||'—'}</b></td><td>{r.owner_name||'—'}</td><td>{r.model_name||'—'}</td><td>{r.salesman||'—'}</td><td>{r.sale_type||'—'}</td><td>{r.do_number||'—'}</td><td>{r.chassis_no||'—'}</td>
-        <td>{r.has_battery?'Yes':'No'}</td><td>{r.colour||'—'}</td><td><Money value={r.purchase_amount}/></td><td><Money value={r.sold_amount||r.sale_amount}/></td><td><Money value={r.loan_amount}/></td><td><Money value={r.receipt_amount}/></td><td><Money value={r.balance_amount}/></td><td>{r.sp_no||'—'}</td><td>{r.out_name||r.sold_to||'—'}</td>
+        <td>{r.has_battery?'Yes':'No'}</td><td>{r.colour||'—'}</td><td><Money value={r.purchase_amount}/></td><td><b><Money value={r.sale_amount||r.sold_amount}/></b></td><td><Money value={r.loan_amount}/></td><td><Money value={r.receipt_amount}/></td><td><Money value={r.balance_amount}/></td><td>{r.sp_no||'—'}</td><td>{r.out_name||r.sold_to||'—'}</td>
         <td>{r.status==='available'&&<button className="btn primary" onClick={()=>openSale(r)}>Sale to Dealer</button>} <button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td>
       </tr>)}</tbody></table></div>}
 
@@ -95,7 +95,7 @@ export function OldRickshawPage() {
       <div className="formgrid">
         <Field label="Sale Date" type="date" value={sale.sale_date} onChange={v=>setSale({...sale,sale_date:v})}/>
         <Field label="Dealer" type="select" value={sale.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setSale({...sale,dealer_id:Number(v)})} required/>
-        <Field label="Sale Amount" type="number" value={sale.sale_amount} onChange={v=>setSale({...sale,sale_amount:v})}/>
+        <Field label="Sale Value" type="number" value={sale.sale_amount} onChange={v=>setSale({...sale,sale_amount:v})}/>
         <Field label="Sale Type" type="select" value={sale.sale_type} options={[{value:'cash',label:'Cash'},{value:'finance',label:'Finance'}]} onChange={v=>setSale({...sale,sale_type:v})}/>
         <Field label="Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSale({...sale,loan_amount:v})}/>
         <Field label="Down Payment" type="number" value={sale.down_payment} onChange={v=>setSale({...sale,down_payment:v})}/>
