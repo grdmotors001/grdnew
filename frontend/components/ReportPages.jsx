@@ -74,7 +74,7 @@ export function PurchaseRegisterPage() {
       {r.data.rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Bill No.</th><th>Party</th><th>Items</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Party</th><th>Items</th><th>Qty</th><th>Taxable</th><th>CGST</th><th>SGST</th><th>IGST</th><th>Total</th><th></th></tr></thead>
             <tbody>
               {r.data.rows.map((row) => (
                 <tr key={row.id}>
@@ -82,6 +82,7 @@ export function PurchaseRegisterPage() {
                   <td><b>{row.bill_no}</b></td>
                   <td>{row.party_name}</td>
                   <td>{row.item_count}</td>
+                  <td>{row.total_qty ?? 0}</td>
                   <td><Money value={row.taxable_amt} /></td>
                   <td><Money value={row.cgst_amt} /></td>
                   <td><Money value={row.sgst_amt} /></td>
@@ -92,7 +93,7 @@ export function PurchaseRegisterPage() {
               ))}
             </tbody>
             <tfoot><tr>
-              <td colSpan={4}><b>Current Page Totals</b></td>
+              <td colSpan={5}><b>Current Page Totals</b></td>
               <td><Money value={r.data.totals.taxable} /></td>
               <td><Money value={r.data.totals.cgst} /></td>
               <td><Money value={r.data.totals.sgst} /></td>
