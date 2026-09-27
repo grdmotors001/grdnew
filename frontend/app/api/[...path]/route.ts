@@ -1063,7 +1063,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const all=await pool.query(base+" WHERE "+w.join(" AND ")+" ORDER BY dc.date DESC,dc.id DESC",args);
       const rows=all.rows.map((x:any)=>({...x,battery_name:[x.battery_maker,x.battery_no1,x.battery_no2,x.battery_no3,x.battery_no4].filter(Boolean).join(" ")}));
       const products=[...new Set(rows.map((x:any)=>String(x.product_name||"").trim()).filter(Boolean))].sort();
-      const dealerPairs:Array<[string,{id:any,name:any}]>=rows.map((x:any)=>[String(x.dealer_id||"")+"::"+String(x.dealer_name||""),{id:x.dealer_id,name:x.dealer_name}]).filter((pair:[string,{id:any,name:any}])=>Boolean(pair[1].id||pair[1].name));
+      const dealerPairs:Array<[string,{id:any,name:any}]>=rows.map((x:any)=>[String(x.dealer_id||"")+"::"+String(x.dealer_name||""),{id:x.dealer_id,name:x.dealer_name}] as [string,{id:any,name:any}]).filter((pair:[string,{id:any,name:any}])=>Boolean(pair[1].id||pair[1].name));
       const dealers=Array.from(new Map<string,{id:any,name:any}>(dealerPairs).values()).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
       const salesmen=[...new Set(rows.map((x:any)=>String(x.salesman||"").trim()).filter(Boolean))].sort();
       const batteries=[...new Set(rows.map((x:any)=>String(x.battery_maker||"").trim()).filter(Boolean))].sort();
