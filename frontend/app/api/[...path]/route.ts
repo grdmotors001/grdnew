@@ -85,6 +85,9 @@ async function ensureBillingSalesSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS grd_billing_sale_status_idx ON grd_billing_sale(status)");
   await pool.query("CREATE INDEX IF NOT EXISTS grd_billing_sale_dealer_idx ON grd_billing_sale(dealer_id)");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS grd_billing_sale_vehicle_unique ON grd_billing_sale(vehicle_id) WHERE vehicle_id IS NOT NULL AND status IN ('PENDING','APPROVED','BILLED')");
+  await pool.query("ALTER TABLE grd_billing_sale ALTER COLUMN application_id DROP NOT NULL");
+  const extra:any={customer_name:"text",customer_phone:"text",customer_address:"text",customer_state:"text",sale_type:"text",page_no:"text",do_no:"text",internal_sale_details:"text"};
+  for(const [col,type] of Object.entries(extra)) await pool.query('ALTER TABLE grd_billing_sale ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
 async function ensureGrdAssetSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS grd_asset (
@@ -444,7 +447,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         LEFT JOIN customer c ON c.id=s.customer_id
         LEFT JOIN dealer d ON d.id=s.dealer_id
         LEFT JOIN vehicle v ON v.id=s.vehicle_id
-        WHERE ${where}
+        WHERE ${where} AND s.status IN ('PENDING','APPROVED')
         ORDER BY s.created_at DESC,s.id DESC LIMIT 500`,args);
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount,can_approve:billingStaff(a)});
     }
@@ -982,6 +985,38 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query('SELECT id,username,mobile,department,is_super_user,allowed_modules FROM "user" WHERE id=$1',[num(a.sub)]);
       return Response.json({user:r.rows[0]||null});
     }
+    if(p==="dealer/pending-sales" && a.scope==="dealer"){
+      await ensureBillingSalesSchema(); await ensureGrdAssetSchema();
+      const did=num(a.dealer_id);
+      const applications=await pool.query(`
+        SELECT lw.*,
+          c.full_name AS customer_name,c.phone AS customer_phone,c.address AS customer_address,c.state AS customer_state,
+          d.name AS dealer_name
+        FROM loan_workflow lw
+        LEFT JOIN customer c ON c.id=lw.customer_id
+        LEFT JOIN dealer d ON d.id=lw.dealer_id
+        WHERE lw.dealer_id=$1
+          AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(lw.status,'')),'_',' '),'-',' ')) IN ('loan approved','approved')
+          AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.application_id=lw.id)
+        ORDER BY lw.id DESC LIMIT 1000
+      `,[did]);
+      const vehicles=await pool.query(`
+        SELECT dc.id AS challan_id,dc.vehicle_id,dc.challan_no,dc.date AS challan_date,
+          dc.chassis_no,dc.product_name,dc.sale_value,dc.dealer_id,d.name AS dealer_name,
+          v.model_name,v.colour,v.motor_no,v.controller_no,
+          v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4
+        FROM delivery_challan dc
+        LEFT JOIN dealer d ON d.id=dc.dealer_id
+        LEFT JOIN vehicle v ON v.id=dc.vehicle_id
+        WHERE dc.dealer_id=$1
+          AND COALESCE(dc.cancelled,false)=false
+          AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)
+          AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.vehicle_id=dc.vehicle_id AND s.status IN ('PENDING','APPROVED','BILLED'))
+        ORDER BY dc.date DESC NULLS LAST,dc.id DESC LIMIT 1000
+      `,[did]);
+      const dealer=await pool.query("SELECT id,name,code FROM dealer WHERE id=$1",[did]);
+      return Response.json({applications:applications.rows,vehicles:vehicles.rows,dealers:dealer.rows,count:applications.rowCount});
+    }
     if(p==="dealer/loan-status"||p==="loan-application-view"){
       const did=a.scope==="dealer"?num(a.dealer_id):null;
       const r=did?await pool.query("SELECT * FROM loan_workflow WHERE dealer_id=$1 ORDER BY id DESC",[did]):await pool.query("SELECT * FROM loan_workflow ORDER BY id DESC LIMIT 1000");
@@ -1077,6 +1112,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),filters:{product:products,dealer:dealers,salesman:salesmen,battery:batteries}});
     }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
+      await ensureDispatchSchema();
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
       const dcCols=await columns("delivery_challan");
       if(!dcCols.size)return Response.json({error:"Delivery Challan table not found."},{status:404});
@@ -1093,7 +1129,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const total=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql,args);
       const dealerExpr=dcCols.has("dealer_name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : "d.name";
       const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id) AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id"+whereSql+" ORDER BY dc.date DESC,dc.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
-      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY date DESC,id DESC LIMIT 2000");
+      const available=await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY id DESC LIMIT 2000");
       await ensureDispatchSchema();
       const dispatch=await pool.query("SELECT p.*,COALESCE(NULLIF(p.product_category,''),CASE WHEN p.fro='F' THEN 'FINISHED' ELSE 'RAW' END) AS category,COALESCE(p.show_on_delivery_challan,false) AS show_on_delivery_challan,COALESCE(s.qty,0) AS stock_qty FROM product p LEFT JOIN (SELECT item_name,SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END) qty FROM journal_stock GROUP BY item_name) s ON lower(trim(s.item_name))=lower(trim(p.name)) WHERE UPPER(COALESCE(NULLIF(p.product_category,''),CASE WHEN p.fro='F' THEN 'FINISHED' ELSE 'RAW' END))='DISPATCH' AND COALESCE(p.show_on_delivery_challan,false)=true ORDER BY p.name");
       const totalCount=Number(total.rows[0]?.n||0);
@@ -1276,32 +1312,50 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="billing/pending-sales/create"){
-      await ensureBillingSalesSchema();await ensureGrdAssetSchema();
+      await ensureBillingSalesSchema(); await ensureGrdAssetSchema();
       if(!billingStaff(a) && a?.scope!=="dealer")return Response.json({error:"Billing rights required."},{status:403});
-      const applicationId=idOf(b.application_id),vehicleId=idOf(b.vehicle_id),description=String(b.description||"").trim(),saleAmount=num(b.sale_amount);
-      if(!applicationId)return Response.json({error:"Loan Application is required."},{status:400});
-      if(!description)return Response.json({error:"Description is required."},{status:400});
-      const app=await pool.query("SELECT * FROM loan_workflow WHERE id=$1",[applicationId]);
-      if(!app.rowCount)return Response.json({error:"Loan Application not found."},{status:404});
-      const x=app.rows[0];
-      const approved=String(x.status||"").trim().toLowerCase().replace(/[_-]+/g," ");
-      if(approved!=="loan approved" && approved!=="approved")return Response.json({error:"Only Loan Approved applications can be moved to Pending Sale."},{status:409});
-      if(a?.scope==="dealer" && Number(x.dealer_id||0)!==Number(a.dealer_id||0))return Response.json({error:"You can only create Pending Sale for your own dealer applications."},{status:403});
-      const dup=await pool.query("SELECT id FROM grd_billing_sale WHERE application_id=$1",[applicationId]);
-      if(dup.rowCount)return Response.json({error:"This Loan Application is already in the sales workflow."},{status:409});
-      const asset=await pool.query("SELECT id FROM grd_asset WHERE application_id=$1 AND asset_status='AVAILABLE'",[applicationId]);
-      if(!asset.rowCount)return Response.json({error:"GRD asset is not available for this Loan Approved application."},{status:409});
+      const applicationId=idOf(b.application_id),challanId=idOf(b.delivery_challan_id||b.vehicle_id);
+      const dealerId=idOf(b.dealer_id),description=String(b.description||b.internal_sale_details||"").trim();
+      const saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount);
+      let customerId:number|null=null;
+      if(applicationId){
+        const app=await pool.query("SELECT * FROM loan_workflow WHERE id=$1",[applicationId]);
+        if(!app.rowCount)return Response.json({error:"Loan Application not found."},{status:404});
+        const x=app.rows[0],approved=String(x.status||"").trim().toLowerCase().replace(/[_-]+/g," ");
+        if(approved!=="loan approved"&&approved!=="approved")return Response.json({error:"Only Loan Approved applications can be moved to Pending Sale."},{status:409});
+        if(a?.scope==="dealer"&&Number(x.dealer_id||0)!==Number(a.dealer_id||0))return Response.json({error:"You can only create Pending Sale for your own dealer applications."},{status:403});
+        customerId=idOf(x.customer_id)||null;
+        const dup=await pool.query("SELECT id FROM grd_billing_sale WHERE application_id=$1",[applicationId]);
+        if(dup.rowCount)return Response.json({error:"This Loan Application is already in the sales workflow."},{status:409});
+      }
+      const effectiveDealer=dealerId||Number(a?.dealer_id||0);
+      if(a?.scope==="dealer"&&effectiveDealer!==Number(a.dealer_id||0))return Response.json({error:"Invalid dealer selected."},{status:403});
+      if(!effectiveDealer)return Response.json({error:"Dealer is required."},{status:400});
       let vehicle:any=null;
-      if(vehicleId){
-        const vr=await pool.query(`SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
-          WHERE dc.id=$1 AND COALESCE(dc.cancelled,false)=false`,[vehicleId]);
+      if(challanId){
+        const vr=await pool.query(`SELECT dc.*,d.name AS dealer_name,v.model_name,v.colour AS vehicle_colour,v.motor_no AS vehicle_motor_no,
+          v.controller_no AS vehicle_controller_no,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4
+          FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id
+          WHERE dc.id=$1 AND COALESCE(dc.cancelled,false)=false`,[challanId]);
         if(!vr.rowCount)return Response.json({error:"Selected chassis is not available."},{status:404});
         vehicle=vr.rows[0];
-        if(vehicle.dealer_id && Number(vehicle.dealer_id)!==Number(x.dealer_id||0))return Response.json({error:"Selected chassis belongs to another dealer."},{status:403});
+        if(Number(vehicle.dealer_id||0)!==effectiveDealer)return Response.json({error:"Selected chassis does not belong to selected dealer."},{status:403});
+        const inv=await pool.query("SELECT id FROM tax_invoice WHERE delivery_challan_id=$1 AND COALESCE(cancelled,false)=false LIMIT 1",[challanId]);
+        if(inv.rowCount)return Response.json({error:"Selected chassis is already billed."},{status:409});
       }
-      const r=await pool.query(`INSERT INTO grd_billing_sale(application_id,dealer_id,customer_id,vehicle_id,chassis_no,description,sale_amount,status)
-        VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING') RETURNING *`,
-        [applicationId,x.dealer_id||null,x.customer_id||null,vehicle?.vehicle_id||null,vehicle?.chassis_no||null,description,saleAmount||Number(vehicle?.sale_value||x.loan_amount||0)]);
+      if(loanAmount>saleAmount&&saleAmount>0)return Response.json({error:"Loan Amount cannot be greater than Sale Amount."},{status:400});
+      const customerName=String(b.customer_name||"").trim()||null;
+      if(!applicationId&&!customerName)return Response.json({error:"Select a Loan Approved customer or enter Customer Name manually."},{status:400});
+      const r=await pool.query(`INSERT INTO grd_billing_sale
+        (application_id,dealer_id,customer_id,vehicle_id,chassis_no,description,sale_amount,status,customer_name,customer_phone,customer_address,customer_state,sale_type,page_no,do_no,internal_sale_details)
+        VALUES($1,$2,$3,$4,$5,$6,$7,'PENDING',$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        [
+          applicationId||null,effectiveDealer,customerId,vehicle?.vehicle_id||null,vehicle?.chassis_no||String(b.chassis_no||"").trim()||null,
+          description||"Internal Sale",saleAmount||Number(vehicle?.sale_value||0),
+          customerName,String(b.customer_phone||"").trim()||null,String(b.customer_address||"").trim()||null,String(b.customer_state||"").trim()||null,
+          String(b.sale_type||"").trim()||null,String(b.page_no||"").trim()||null,String(b.do_no||"").trim()||null,
+          String(b.internal_sale_details||description||"").trim()||null
+        ]);
       return Response.json({success:true,sale:r.rows[0]},{status:201});
     }
     if(p.startsWith("billing/pending-sales/") && p.endsWith("/approve")){
@@ -1317,11 +1371,11 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
       const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Sale id is required."},{status:400});
       const sale=await pool.query(`SELECT s.*,lw.application_no,lw.loan_amount,lw.customer_id AS lw_customer_id,lw.dealer_id AS lw_dealer_id,
-        c.full_name AS customer_name,c.phone AS customer_phone,d.name AS dealer_name
+        c.full_name AS joined_customer_name,c.phone AS joined_customer_phone,d.name AS dealer_name
         FROM grd_billing_sale s LEFT JOIN loan_workflow lw ON lw.id=s.application_id
         LEFT JOIN customer c ON c.id=s.customer_id LEFT JOIN dealer d ON d.id=s.dealer_id WHERE s.id=$1 FOR UPDATE`,[id]);
       if(!sale.rowCount)return Response.json({error:"Sale not found."},{status:404});
-      const s=sale.rows[0];if(s.status!=="APPROVED")return Response.json({error:"Approve the sale before saving the Tax Invoice."},{status:403});
+      const s=sale.rows[0];s.customer_name=s.customer_name||s.joined_customer_name||"";s.customer_phone=s.customer_phone||s.joined_customer_phone||"";if(s.status!=="APPROVED")return Response.json({error:"Approve the sale before saving the Tax Invoice."},{status:403});
       if(s.invoice_id){const inv=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[s.invoice_id]);return Response.json({success:true,invoice:inv.rows[0]});}
       const invoice:any=b.invoice||b,cols=await columns("tax_invoice");
       const values:any={
