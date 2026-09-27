@@ -501,7 +501,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
         WHERE ${vehicleWhere}
         ORDER BY dc.date DESC,dc.id DESC LIMIT 1000`,vehicleArgs);
-      return Response.json({applications:r.rows,vehicles:ch.rows,can_approve:billingStaff(a)});
+      const dealers=await pool.query("SELECT id,code,name FROM dealer ORDER BY name,id");
+      return Response.json({applications:r.rows,vehicles:ch.rows,dealers:dealers.rows,can_approve:billingStaff(a)});
     }
     if(p==="billing/pending-sales/invoice"){
       await ensureBillingSalesSchema();
