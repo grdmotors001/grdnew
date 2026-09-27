@@ -1778,7 +1778,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const lines=r.rows.map((x:any)=>[x.umrn||"",x.chassis_no||"",monthNumber(x.manufacturing_month),x.colour_code||"","GRD","NA"].map((v:any)=>String(v).replace(/[|\r\n]/g,"")).join("|"));
       return new Response(lines.join("\r\n"),{headers:{"Content-Type":"text/plain;charset=utf-8","Content-Disposition":"attachment; filename=\""+fileName+"\""}});
     }
-    if(p==="old-rickshaws" && method==="POST"){
+    if(p==="old-rickshaws"){
       await ensureOldRickshawLegacySchema();
       const b:any=await json(req);
       if(!String(b.vehicle_reg_no||"").trim())return Response.json({error:"Vehicle Reg. No. is required."},{status:400});
@@ -1790,7 +1790,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const r=await pool.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+ph.join(",")+') RETURNING *',keys.map(k=>input[k]));
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
     }
-    if(p==="old-rickshaws/sale" && method==="POST"){
+    if(p==="old-rickshaws/sale"){
       await ensureOldRickshawLegacySchema();
       const b:any=await json(req),id=idOf(b.id);
       if(!id)return Response.json({error:"Old Rickshaw id is required."},{status:400});
