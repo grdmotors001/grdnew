@@ -1459,20 +1459,27 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="tax-invoices"){
-      const grossTaxable=num(b.gst_sale_amount||b.sale_amount);
-      const discount=Math.max(0,num(b.discount));
-      const taxable=Math.max(0,grossTaxable-discount);
-      const rate=num(b.gst_rate);
-      // Seller state is authoritative company data; never trust a client-supplied seller state.
+      const grossTaxable=num(b.gst_sale_amount||b.sale_amount),discount=Math.max(0,num(b.discount)),taxable=Math.max(0,grossTaxable-discount),rate=num(b.gst_rate);
       const companyState=await pool.query("SELECT state_code FROM company ORDER BY id LIMIT 1");
-      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim();
-      const buyerStateCode=String(b.buyer_state_code||"").trim();
-      const stateType=String(b.state_type||"").trim().toUpperCase();
-      const sameState=stateType==="I" || stateType==="INTRA" || (!stateType && !!sellerStateCode && sellerStateCode===buyerStateCode);
-      const gst=taxable*rate/100;
-      const r=await pool.query("INSERT INTO tax_invoice (bill_no,date,cancelled,delivery_challan_id,dealer_id,vehicle_id,buyer_name,buyer_gst_no,buyer_state,buyer_state_code,state_type,product_name,chassis_no,motor_no,sale_amount,gst_sale_amount,gst_rate,discount,insurance_amount,registration_amount,amount_received,subsidy_amount,created_at) VALUES (COALESCE(NULLIF($1,''),'INV-'||extract(epoch from now())::bigint),COALESCE($2::timestamptz,NOW()),false,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,NOW()) RETURNING *",
-        [String(b.bill_no||""),b.date||null,num(b.delivery_challan_id)||null,num(b.dealer_id)||null,num(b.vehicle_id)||null,b.buyer_name||null,b.buyer_gst_no||null,b.buyer_state||null,b.buyer_state_code||null,b.state_type||null,b.product_name||null,b.chassis_no||null,b.motor_no||null,num(b.sale_amount),taxable,rate,num(b.discount),num(b.insurance_amount),num(b.registration_amount),num(b.amount_received),num(b.subsidy_amount)]);
-      if(num(b.vehicle_id)) await pool.query("UPDATE vehicle SET stage='Tax Invoice',dealer_name=COALESCE($1,dealer_name) WHERE id=$2",[b.dealer_name||null,num(b.vehicle_id)]);
+      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim(),buyerStateCode=String(b.buyer_state_code||"").trim(),stateType=String(b.state_type||"").trim().toUpperCase();
+      const sameState=stateType==="I"||stateType==="INTRA"||(!stateType&&!!sellerStateCode&&sellerStateCode===buyerStateCode),gst=taxable*rate/100;
+      const cols=await columns("tax_invoice");
+      if(!cols.size)return Response.json({error:"Tax Invoice table not found."},{status:500});
+      const values:any={
+        bill_no:String(b.bill_no||"").trim()||("INV-"+Date.now()),date:b.date||null,cancelled:false,delivery_challan_id:num(b.delivery_challan_id)||null,
+        dealer_id:num(b.dealer_id)||null,vehicle_id:num(b.vehicle_id)||null,buyer_name:b.buyer_name||null,buyer_gst_no:b.buyer_gst_no||null,
+        buyer_state:b.buyer_state||null,buyer_state_code:b.buyer_state_code||null,state_type:b.state_type||null,product_name:b.product_name||null,
+        chassis_no:b.chassis_no||null,motor_no:b.motor_no||null,sale_amount:num(b.sale_amount),gst_sale_amount:taxable,gst_rate:rate,
+        discount:num(b.discount),insurance_amount:num(b.insurance_amount),registration_amount:num(b.registration_amount),
+        amount_received:num(b.amount_received),subsidy_amount:num(b.subsidy_amount),dealer_name:b.dealer_name||null,created_at:new Date()
+      };
+      const keys=Object.keys(values).filter(k=>cols.has(k)),ph=keys.map((_,i)=>"$"+(i+1));
+      if(!keys.length)return Response.json({error:"No compatible Tax Invoice columns found."},{status:500});
+      const r=await pool.query('INSERT INTO tax_invoice ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+ph.join(",")+') RETURNING *',keys.map(k=>values[k]));
+      if(num(b.vehicle_id)){
+        const vc=await columns("vehicle");
+        if(vc.has("stage")) await pool.query("UPDATE vehicle SET stage='Tax Invoice'"+(vc.has("dealer_name")?",dealer_name=COALESCE($1,dealer_name)":"")+" WHERE id="+(vc.has("dealer_name")?"$2":"$1"),vc.has("dealer_name")?[b.dealer_name||null,num(b.vehicle_id)]:[num(b.vehicle_id)]);
+      }
       return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
     }
     if(p==="factory/old-rickshaw-challans"){
