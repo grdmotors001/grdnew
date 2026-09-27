@@ -87,8 +87,13 @@ export function GRDLogin({ onLogin }) {
     try {
       const data = await post('/auth/verify-otp', { otp_token: otpToken, otp });
       setToken(data.token);
-      setPortalKind('staff');
-      onLogin(data.user);
+      setPortalKind(data.portal === 'dealer' ? 'dealer' : 'staff');
+      if (data.portal === 'dealer') {
+        try { window.localStorage.setItem('grd_dealer_profile', JSON.stringify(data.dealer || data.user)); } catch {}
+        onLogin({ ...(data.dealer || data.user), is_dealer: true, role: data.role });
+      } else {
+        onLogin(data.user);
+      }
     } catch (e) {
       setError(e.message || 'OTP verification failed');
     } finally {
