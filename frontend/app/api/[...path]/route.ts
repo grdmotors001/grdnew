@@ -249,11 +249,14 @@ async function ensureDealerCashSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_expense (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL DEFAULT CURRENT_DATE,expense_no text,category text,category_label text,amount numeric NOT NULL DEFAULT 0,paid_to text,remarks text,folio text,status text NOT NULL DEFAULT 'ACTIVE',created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_handover (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL DEFAULT CURRENT_DATE,handover_no text,amount numeric NOT NULL DEFAULT 0,sent_to text,remarks text,folio text,status text NOT NULL DEFAULT 'pending',created_at timestamptz NOT NULL DEFAULT now())");
   const defs:any={
+    dealer_cash_receipt:{dealer_id:"integer",customer_id:"bigint",date:"date NOT NULL DEFAULT CURRENT_DATE",receipt_date:"date",receipt_type:"text",payment_mode:"text NOT NULL DEFAULT 'cash'",receipt_no:"text",customer_name:"text",customer_phone:"text",dealer_register_page_no:"text",sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",amount:"numeric NOT NULL DEFAULT 0",reference_no:"text",remarks:"text",request_id:"text"},
     dealer_cash_expense:{dealer_id:"integer",date:"date",expense_no:"text",category:"text",category_label:"text",amount:"numeric NOT NULL DEFAULT 0",paid_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'ACTIVE'"},
     dealer_cash_handover:{dealer_id:"integer",date:"date",handover_no:"text",amount:"numeric NOT NULL DEFAULT 0",sent_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'pending'"}
   };
   for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table]))
     await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  await pool.query("UPDATE dealer_cash_receipt SET date=COALESCE(date,receipt_date,CURRENT_DATE) WHERE date IS NULL");
+  await pool.query("UPDATE dealer_cash_receipt SET receipt_date=COALESCE(receipt_date,date,CURRENT_DATE) WHERE receipt_date IS NULL");
 }
 
 async function ensureRepairSchema(){
@@ -905,8 +908,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({receipts:receipts.rows,expenses:expenses.rows.map((x:any)=>({...x,category_label:x.category_label||x.category||"",folio:x.folio||""})),handovers:handovers.rows,summary:{opening_balance:opening,cash_received:cashReceived,expenses:expenseTotal,ho_handover:handoverTotal,net_movement:cashReceived-expenseTotal-handoverTotal,closing_balance:closing}});
     }
     if(p==="dealer/cash-book/all-receipts"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT * FROM dealer_cash_receipt WHERE dealer_id=$1 ORDER BY date DESC,id DESC LIMIT 2000",[num(a.dealer_id)]);
-      return Response.json({receipts:r.rows,rows:r.rows,count:r.rowCount});
+      await ensureDealerCashSchema();
+      const r=await pool.query("SELECT *,COALESCE(date,receipt_date) AS display_date FROM dealer_cash_receipt WHERE dealer_id=$1 ORDER BY COALESCE(date,receipt_date) DESC,id DESC LIMIT 2000",[num(a.dealer_id)]);
+      const rows=r.rows.map((x:any)=>({...x,date:x.date||x.receipt_date||null}));
+      return Response.json({receipts:rows,rows,count:rows.length});
     }
     if(p==="dealer/cash-book/all-expenses"&&a.scope==="dealer"){
       await ensureDealerCashSchema();
@@ -927,7 +932,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(p==="dealer/delivery/customers"&&a.scope==="dealer"){
       await ensureDealerCashSchema();
-      const r=await pool.query("SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 AND UPPER(COALESCE(status,''))<>'DEALER_CANCEL' ORDER BY id DESC LIMIT 1000",[num(a.dealer_id)]);
+      const r=await pool.query("SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 AND UPPER(COALESCE(status,''))='VEHICLE_PENDING' ORDER BY id DESC LIMIT 1000",[num(a.dealer_id)]);
       const customers=r.rows.map((x:any)=>({...x,phone:x.phone||x.customer_phone||"",balance:Math.max(0,Number(x.sale_amount||0)-Number(x.loan_amount||0)-Number(x.paid_amount||0))}));
       return Response.json({customers,rows:customers,count:customers.length});
     }
@@ -1209,7 +1214,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,handover:r.rows[0],row:r.rows[0]},{status:201});
     }
     if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
-      const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=b.date||null;
+      const did=num(a.dealer_id),type=String(b.receipt_type||"new_booking"),customerId=idOf(b.customer_id),date=String(b.date||b.receipt_date||new Date().toISOString().slice(0,10));
       const cc=await columns("dealer_cash_customer"),rc=await columns("dealer_cash_receipt");
       if(!cc.size||!rc.size)return Response.json({error:"Cash receipt tables are not available."},{status:500});
       const client=await pool.connect();
@@ -1228,7 +1233,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           const rr=await client.query('INSERT INTO dealer_cash_customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
           cid=rr.rows[0].id;
         }
-        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||null,customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_no:"RC-"+Date.now()};
+        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||null,customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_date:date,receipt_no:"RC-"+Date.now()};
         const keys=Object.keys(input).filter(k=>rc.has(k));
         const rr=await client.query('INSERT INTO dealer_cash_receipt ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
         const receipt=rr.rows[0];
