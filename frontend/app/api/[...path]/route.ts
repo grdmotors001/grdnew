@@ -186,7 +186,6 @@ async function ensureDailyRawMaterialChecklistSchema(){
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS daily_raw_material_checklist_item_key_idx ON daily_raw_material_checklist_item(checklist_id,source_key)");
   await pool.query("CREATE INDEX IF NOT EXISTS daily_raw_material_checklist_date_idx ON daily_raw_material_checklist(date)");
 }
-}
 async function ensureOldRickshawInventorySchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS old_rickshaw_inventory (
     id bigserial PRIMARY KEY,
