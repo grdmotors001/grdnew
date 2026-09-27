@@ -247,7 +247,7 @@ export function DealerAllCustomersPage() {
             )}
           </div>
         </div>
-      </div>
+      </div>}
 
       {cancelling && <div className="card" style={{ marginTop: 12, border: '1px solid currentColor' }}>
         <div className="pageHeader">
