@@ -364,6 +364,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
   try{
     const {path=[]}=await params,p=path.join("/");
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
+    // Server-to-server master bridge for CHFPL. This endpoint intentionally
+    // does not use the browser JWT because CHFPL authenticates with the
+    // dedicated bridge secret.
+    if(p==="integration/masters"){
+      const bridgeSecret=String(process.env.GRD_BRIDGE_SECRET||process.env.CHFPL_GRD_BRIDGE_SECRET||"").trim();
+      const supplied=String(req.headers.get("x-grd-bridge-secret")||"").trim();
+      if(!bridgeSecret || !supplied || supplied!==bridgeSecret){
+        return Response.json({success:false,error:"Invalid GRD bridge secret."},{status:401});
+      }
+      const dealers=await pool.query("SELECT id,code,name,mobile,state_code FROM dealer WHERE COALESCE(blocked,false)=false ORDER BY name,id");
+      const models=await pool.query("SELECT id,name,code FROM product WHERE COALESCE(fro,'')<>'R' AND COALESCE(name,'')<>'' ORDER BY name,id");
+      return Response.json({success:true,dealers:dealers.rows,models:models.rows});
+    }
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     if(p==="chfpl/loan-status"){
