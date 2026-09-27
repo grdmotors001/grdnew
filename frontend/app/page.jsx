@@ -41,6 +41,7 @@ import { ProfilePage } from '../components/ProfilePage';
 import { BalanceSheetPage, ProfitLossPage } from '../components/FinancialReportsPage';
 import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { LoanApplicationViewPage } from '../components/LoanApplicationViewPage';
+import { ChfplRepoVehiclesPage } from '../components/ChfplRepoVehiclesPage';
 import { SIMPLE_MASTERS, keyForPath, routeForKey } from '../lib/menu';
 
 const CUSTOM_PAGES = {
@@ -93,6 +94,7 @@ const CUSTOM_PAGES = {
   'stock-ledger-dealers': () => <StockLedgerDealersPage />,
   'loan-workflow': (ctx) => <LoanWorkflowPage user={ctx.user} />,
   'loan-application-view': (ctx) => <LoanApplicationViewPage user={ctx.user} />,
+  'chfpl-repo-vehicles': () => <ChfplRepoVehiclesPage />,
   'purchase-register': () => <PurchaseRegisterPage />,
   'production-register': () => <ProductionRegisterPage />,
   'delivery-challan-register': () => <DeliveryChallanRegisterPage />,
