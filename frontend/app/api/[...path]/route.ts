@@ -397,6 +397,7 @@ async function chfplBridge(path:string, query:Record<string,string>={}){
 export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>}){
   try{
     const {path=[]}=await params,p=path.join("/");
+    const b:any=await json(req);
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     // Server-to-server master bridge for CHFPL. This endpoint intentionally
     // does not use the browser JWT because CHFPL authenticates with the
@@ -1062,7 +1063,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const all=await pool.query(base+" WHERE "+w.join(" AND ")+" ORDER BY dc.date DESC,dc.id DESC",args);
       const rows=all.rows.map((x:any)=>({...x,battery_name:[x.battery_maker,x.battery_no1,x.battery_no2,x.battery_no3,x.battery_no4].filter(Boolean).join(" ")}));
       const products=[...new Set(rows.map((x:any)=>String(x.product_name||"").trim()).filter(Boolean))].sort();
-      const dealers=[...new Map(rows.map((x:any)=>[String(x.dealer_id||"")+"::"+String(x.dealer_name||""),{id:x.dealer_id,name:x.dealer_name}]).filter(([k,v]:any)=>v.id||v.name))].map(([k,v]:any)=>v).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
+      const dealerPairs:Array<[string,{id:any,name:any}]>=rows.map((x:any)=>[String(x.dealer_id||"")+"::"+String(x.dealer_name||""),{id:x.dealer_id,name:x.dealer_name}]).filter((pair:[string,{id:any,name:any}])=>Boolean(pair[1].id||pair[1].name));
+      const dealers=Array.from(new Map<string,{id:any,name:any}>(dealerPairs).values()).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
       const salesmen=[...new Set(rows.map((x:any)=>String(x.salesman||"").trim()).filter(Boolean))].sort();
       const batteries=[...new Set(rows.map((x:any)=>String(x.battery_maker||"").trim()).filter(Boolean))].sort();
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||100)),start=(page-1)*per;
@@ -1608,7 +1610,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
-    if(p==="dealer/ledger-accounts"&&method==="POST"&&a.scope==="dealer"){
+    if(p==="dealer/ledger-accounts"&&a.scope==="dealer"){
       await pool.query(`CREATE TABLE IF NOT EXISTS dealer_ledger_account (
         id bigserial PRIMARY KEY,dealer_id integer NOT NULL,account_type text NOT NULL,name text NOT NULL,code text,
         mobile text,address text,account_no text,ifsc text,opening_balance numeric NOT NULL DEFAULT 0,
