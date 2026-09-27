@@ -583,7 +583,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const u=new URL(req.url),dealerId=idOf(u.searchParams.get("dealer_id")),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
       const dbCols=await columns("day_book");
       if(!dbCols.size)return Response.json({summary:[],dealers:[],events:[],rows:[],count:0});
-      const dealers=(await pool.query("SELECT id,name FROM dealer WHERE COALESCE(blocked,false)=false ORDER BY name,id")).rows;
+      const dealerCols=await columns("dealer");
+      const dealerWhere=dealerCols.has("blocked")?" WHERE COALESCE(blocked,false)=false":"";
+      const dealers=(await pool.query("SELECT id,name FROM dealer"+dealerWhere+" ORDER BY name,id")).rows;
       const raw=(await pool.query("SELECT * FROM day_book ORDER BY id ASC LIMIT 10000")).rows;
       const dealerNameMap=new Map(dealers.map((d:any)=>[Number(d.id),String(d.name||"").trim().toLowerCase()]));
       const matchesDealer=(x:any,did:number)=>{
