@@ -41,9 +41,11 @@ function currentStatusLabel(row) {
 }
 
 function stageOf(row) {
-  if (row.status === 'FE_ASSIGNED') return 'FE';
-  if (row.status === 'FE_APPROVED' || row.status === 'FE_SUBMITTED' || row.status === 'DISBURSEMENT_PENDING' || row.status === 'DO_APPROVED') return 'DO';
-  if (row.status === 'TVR_PENDING') return 'TVR';
+  const s = String(row.status || '').toLowerCase();
+  const tvr = String(row.tvr_status || '').toLowerCase();
+  if (s === 'fi_pending' || s === 'submitted') return 'FE';
+  if (s === 'fi_done' || (s === 'approved' && tvr === 'submitted')) return 'DO';
+  if (s === 'approved' && ['hold','failed','verified'].includes(tvr)) return 'TVR';
   return '';
 }
 
@@ -95,9 +97,9 @@ export function LoanApplicationViewPage({ user }) {
       if (!matchTab) return false;
       if (!q) return true;
       return [
-        r.application_no, r.customer_name, r.dealer_name, r.loan_model_name,
+        r.application_no, r.customer_name, r.customer_phone, r.dealer_name, r.vehicle_model_name,
         r.loan_vehicle_type, r.status, r.lifecycle_status, r.tvr_status, r.fe_user_id, r.do_user_id,
-        r.loan_account_no, r.customer_phone
+        r.loan_account_no, r.tenure_months
       ].join(' ').toLowerCase().includes(q);
     });
   }, [rows, tab, search]);
@@ -189,10 +191,10 @@ export function LoanApplicationViewPage({ user }) {
                   <td><b>{r.application_no || '—'}</b></td>
                   <td>{r.customer_name || '—'}</td>
                   <td>{r.dealer_name || '—'}</td>
-                  <td>{r.loan_model_name || '—'}{r.loan_amount ? <><br/><span className="muted">₹{Number(r.loan_amount).toLocaleString('en-IN')}</span></> : null}</td>
-                  <td><span className="loanApplicationViewStatus">{currentStatusLabel(r)}</span><br/><span className="muted">{r.billing_status && r.billing_status !== 'NOT_REQUESTED' ? r.billing_status.replaceAll('_',' ') : 'System workflow'}</span></td>
+                  <td>{r.vehicle_model_name || '—'}{r.loan_amount_requested ? <><br/><span className="muted">₹{Number(r.loan_amount_requested).toLocaleString('en-IN')}</span></> : null}</td>
+                  <td><span className="loanApplicationViewStatus">{currentStatusLabel(r)}</span><br/><span className="muted">{r.tvr_status ? ('TVR: ' + r.tvr_status.replaceAll('_',' ')) : 'CHFPL current status'}</span></td>
                   <td>{r.loan_account_no || '—'}</td>
-                  <td>{r.created_at ? formatDate(r.created_at) : '—'}</td>
+                  <td>{r.submitted_at ? formatDate(r.submitted_at) : '—'}</td>
                   <td><button type="button" className="btn loanApplicationViewOpen" onClick={() => open(r)}>Open</button></td>
                 </tr>)}
                 {!filtered.length && <tr><td colSpan="8"><div className="loanApplicationViewEmpty">No applications found.</div></td></tr>}
@@ -209,12 +211,12 @@ export function LoanApplicationViewPage({ user }) {
           </div>
           <div className="loanApplicationViewSummary">
             <div><span>Status</span><b>{currentStatusLabel(selected)}</b></div>
-            <div><span>Vehicle</span><b>{selected.loan_model_name || '—'}</b></div>
-            <div><span>Loan Amount</span><b>₹ {Number(selected.loan_amount || 0).toLocaleString('en-IN')}</b></div>
-            <div><span>FE</span><b>{selected.fe_user_id || '—'}</b></div>
-            <div><span>DO</span><b>{selected.do_user_id || '—'}</b></div>
-            <div><span>Chassis</span><b>{selected.billing_chassis_no || '—'}</b></div>
-            <div><span>Billing</span><b>{selected.billing_status || 'NOT_REQUESTED'}</b></div>
+            <div><span>Vehicle</span><b>{selected.vehicle_model_name || '—'}</b></div>
+            <div><span>Loan Amount</span><b>₹ {Number(selected.loan_amount_requested || 0).toLocaleString('en-IN')}</b></div>
+            <div><span>FE</span><b>{selected.lifecycle_status || '—'}</b></div>
+            <div><span>DO</span><b>{selected.tvr_status || '—'}</b></div>
+            <div><span>Chassis</span><b>{selected.loan_account_no || '—'}</b></div>
+            <div><span>Billing</span><b>{selected.status || '—'}</b></div>
             <div><span>Submitted</span><b>{selected.created_at ? formatDate(selected.created_at) : '—'}</b></div>
           </div>
           <div style={{marginTop:18,padding:12,border:'1px solid #e5ebf2',borderRadius:9,background:'#fbfdff'}}><b>Current Status Only</b><div className="muted" style={{marginTop:5}}>Status is read directly from CHFPL. GRD does not display the CHFPL status history here.</div></div>
