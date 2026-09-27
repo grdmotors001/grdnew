@@ -77,7 +77,17 @@ export function DeliveryChallanPage() {
   const load = (p = page, s = search) => {
     const params = new URLSearchParams({ page: p, per_page: 50 });
     if (s) params.set('search', s);
-    get(`/delivery-challans?${params}`).then((d) => { setData(d); setDispatchItems(d.dispatch_items || []); }).catch((e) => setError(e.message));
+    get(`/delivery-challans?${params}`).then((d) => {
+      const safe = {
+        ...d,
+        challans: Array.isArray(d?.challans) ? d.challans : (Array.isArray(d?.rows) ? d.rows : []),
+        available_vehicles: Array.isArray(d?.available_vehicles) ? d.available_vehicles : [],
+        dispatch_items: Array.isArray(d?.dispatch_items) ? d.dispatch_items : [],
+        page: Number(d?.page || p), per_page: Number(d?.per_page || 50),
+        total: Number(d?.total || 0), total_pages: Number(d?.total_pages || 1),
+      };
+      setData(safe); setDispatchItems(safe.dispatch_items);
+    }).catch((e) => setError(e.message));
   };
 
   useEffect(() => {
