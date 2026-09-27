@@ -86,6 +86,49 @@ async function ensureBillingSalesSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS grd_billing_sale_dealer_idx ON grd_billing_sale(dealer_id)");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS grd_billing_sale_vehicle_unique ON grd_billing_sale(vehicle_id) WHERE vehicle_id IS NOT NULL AND status IN ('PENDING','APPROVED','BILLED')");
 }
+async function ensureGrdAssetSchema(){
+  await pool.query(`CREATE TABLE IF NOT EXISTS grd_asset (
+    id bigserial PRIMARY KEY,
+    application_id integer NOT NULL UNIQUE,
+    dealer_id integer,
+    customer_id integer,
+    asset_status text NOT NULL DEFAULT 'AVAILABLE',
+    source text NOT NULL DEFAULT 'CHFPL',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS grd_asset_dealer_idx ON grd_asset(dealer_id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS grd_asset_status_idx ON grd_asset(asset_status)");
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION grd_create_asset_on_loan_approved() RETURNS trigger AS $$
+    BEGIN
+      IF LOWER(REPLACE(REPLACE(TRIM(COALESCE(NEW.status,'')),'_',' '),'-',' ')) IN ('loan approved','approved')
+         AND LOWER(REPLACE(REPLACE(TRIM(COALESCE(OLD.status,'')),'_',' '),'-',' ')) NOT IN ('loan approved','approved') THEN
+        INSERT INTO grd_asset(application_id,dealer_id,customer_id,asset_status,source,updated_at)
+        VALUES(NEW.id,NEW.dealer_id,NEW.customer_id,'AVAILABLE','CHFPL',NOW())
+        ON CONFLICT(application_id) DO UPDATE SET
+          dealer_id=EXCLUDED.dealer_id,customer_id=EXCLUDED.customer_id,asset_status='AVAILABLE',updated_at=NOW();
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  await pool.query("DROP TRIGGER IF EXISTS grd_asset_on_loan_approved ON loan_workflow");
+  await pool.query(`
+    CREATE TRIGGER grd_asset_on_loan_approved
+    AFTER UPDATE OF status ON loan_workflow
+    FOR EACH ROW EXECUTE FUNCTION grd_create_asset_on_loan_approved()
+  `);
+  // Backfill any already-approved CHFPL loans so existing records also become usable GRD assets.
+  await pool.query(`
+    INSERT INTO grd_asset(application_id,dealer_id,customer_id,asset_status,source,updated_at)
+    SELECT lw.id,lw.dealer_id,lw.customer_id,'AVAILABLE','CHFPL',NOW()
+    FROM loan_workflow lw
+    WHERE LOWER(REPLACE(REPLACE(TRIM(COALESCE(lw.status,'')),'_',' '),'-',' ')) IN ('loan approved','approved')
+    ON CONFLICT(application_id) DO UPDATE SET
+      dealer_id=EXCLUDED.dealer_id,customer_id=EXCLUDED.customer_id,asset_status='AVAILABLE',updated_at=NOW()
+  `);
+}
 function billingStaff(a:any){
   return a?.scope==="staff" && (Boolean(a?.is_super_user) ||
     ["admin","billing","accounts","head office","head-office"].includes(String(a?.department||"").trim().toLowerCase()));
@@ -330,7 +373,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount,can_approve:billingStaff(a)});
     }
     if(p==="billing/pending-sales/options"){
-      await ensureBillingSalesSchema();
+      await ensureBillingSalesSchema();await ensureGrdAssetSchema();
       if(!billingStaff(a) && a?.scope!=="dealer")return Response.json({error:"Billing rights required."},{status:403});
       const args:any[]=[];
       let dealerWhere="";
@@ -1007,7 +1050,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="billing/pending-sales/create"){
-      await ensureBillingSalesSchema();
+      await ensureBillingSalesSchema();await ensureGrdAssetSchema();
       if(!billingStaff(a) && a?.scope!=="dealer")return Response.json({error:"Billing rights required."},{status:403});
       const applicationId=idOf(b.application_id),vehicleId=idOf(b.vehicle_id),description=String(b.description||"").trim(),saleAmount=num(b.sale_amount);
       if(!applicationId)return Response.json({error:"Loan Application is required."},{status:400});
@@ -1020,6 +1063,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(a?.scope==="dealer" && Number(x.dealer_id||0)!==Number(a.dealer_id||0))return Response.json({error:"You can only create Pending Sale for your own dealer applications."},{status:403});
       const dup=await pool.query("SELECT id FROM grd_billing_sale WHERE application_id=$1",[applicationId]);
       if(dup.rowCount)return Response.json({error:"This Loan Application is already in the sales workflow."},{status:409});
+      const asset=await pool.query("SELECT id FROM grd_asset WHERE application_id=$1 AND asset_status='AVAILABLE'",[applicationId]);
+      if(!asset.rowCount)return Response.json({error:"GRD asset is not available for this Loan Approved application."},{status:409});
       let vehicle:any=null;
       if(vehicleId){
         const vr=await pool.query(`SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
