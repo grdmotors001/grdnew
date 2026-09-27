@@ -33,6 +33,7 @@ import { PlaceholderPage } from '../components/PlaceholderPage';
 import { BackupRestorePage } from '../components/BackupRestorePage';
 import { BatteryRegisterPage } from '../components/BatteryRegisterPage';
 import { FactoryCheckReportPage } from '../components/FactoryCheckReportPage';
+import { DailyRawMaterialChecklistPage } from '../components/DailyRawMaterialChecklistPage';
 import { DebitNotePage } from '../components/DebitNotePage';
 import { OldRickshawInventoryPage } from '../components/OldRickshawInventoryPage';
 import { DealerPortal } from '../components/DealerPortal';
@@ -82,6 +83,7 @@ const CUSTOM_PAGES = {
   'battery-addition': () => <BatteryAdditionPage />,
   'battery-register': () => <BatteryRegisterPage />,
   'factory-check-report': () => <FactoryCheckReportPage />,
+  'daily-raw-material-checklist': () => <DailyRawMaterialChecklistPage />,
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
