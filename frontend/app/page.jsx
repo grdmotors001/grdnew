@@ -157,8 +157,8 @@ export default function App() {
           setUser({ ...dealer, is_dealer: true });
         })
       : portal === 'staff'
-        ? get('/auth/me', { preserveAuthOn401: true }).then(setUser)
-        : get('/auth/me', { preserveAuthOn401: true }).then(setUser)
+        ? get('/auth/me', { preserveAuthOn401: true }).then((result) => setUser(result?.user || result))
+        : get('/auth/me', { preserveAuthOn401: true }).then((result) => setUser(result?.user || result))
             .catch(() => get('/dealer/me', { preserveAuthOn401: true }).then((dealer) => {
               setPortalKind('dealer');
               window.localStorage.setItem('grd_dealer_profile', JSON.stringify(dealer));
