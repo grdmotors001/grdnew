@@ -255,8 +255,8 @@ async function ensureDealerCashSchema(){
   };
   for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table]))
     await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
-  await pool.query("UPDATE dealer_cash_receipt SET date=COALESCE(date,receipt_date,CURRENT_DATE) WHERE date IS NULL");
-  await pool.query("UPDATE dealer_cash_receipt SET receipt_date=COALESCE(receipt_date,date,CURRENT_DATE) WHERE receipt_date IS NULL");
+  await pool.query("UPDATE dealer_cash_receipt SET date=COALESCE(receipt_date,date,CURRENT_DATE)");
+  await pool.query("UPDATE dealer_cash_receipt SET receipt_date=COALESCE(receipt_date,date,CURRENT_DATE)");
 }
 
 async function ensureRepairSchema(){
