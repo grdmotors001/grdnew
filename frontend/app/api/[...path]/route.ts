@@ -2577,7 +2577,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           grd_model_code:model ? (String(model.code||"").trim()||null) : null,
           grd_model_name:model ? String(model.name||"").trim() : null,
           vehicle_type:String(vehicleLoan.vehicle_type||b.loan_vehicle_type||"3W").trim()||"3W",
-          vehicle_price:num(vehicleLoan.vehicle_price||model.ex_showroom_price||model.sale_price)
+          vehicle_price:num(vehicleLoan.vehicle_price||model?.ex_showroom_price||model?.sale_price)
         },
         loan_type:b.loan_type||"NEW",
         dealer_register_page_no:b.dealer_register_page_no||null,
