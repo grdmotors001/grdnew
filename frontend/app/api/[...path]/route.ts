@@ -735,10 +735,37 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       for(const row of applications){
         const cid=idOf(row.id);
         if(!cid) continue;
-        await pool.query(
-          "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR application_no=$3",
-          [cid,String(row.status||"submitted").trim()||"submitted",String(row.application_no||"").trim()]
+        const status=String(row.status||"submitted").trim()||"submitted";
+        const applicationNo=String(row.application_no||"").trim();
+
+        // First use the immutable CHFPL id or GRD application number when
+        // already linked.
+        const linked=await pool.query(
+          "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR application_no=$3 RETURNING id",
+          [cid,status,applicationNo]
         );
+        if(linked.rowCount) continue;
+
+        // Safe one-time reconciliation for older PENDING_CHFPL_SYNC rows
+        // created before the CHFPL id was saved. Match only on the same
+        // dealer, customer phone, loan amount and a tight submission window.
+        // If more than one candidate exists, do not guess.
+        const dealerId=idOf(row.grd_dealer_id);
+        const phone=String(row.customer_phone||"").replace(/\\D/g,"");
+        const amount=num(row.loan_amount_requested);
+        const submittedAt=String(row.submitted_at||"").trim();
+        if(dealerId && phone && amount>0 && submittedAt){
+          const candidates=await pool.query(
+            "SELECT lw.id FROM loan_workflow lw LEFT JOIN customer c ON c.id=lw.customer_id WHERE lw.dealer_id=$1 AND lw.status='PENDING_CHFPL_SYNC' AND lw.chfpl_loan_id IS NULL AND regexp_replace(COALESCE(c.phone,''),'\\\\D','','g')=$2 AND ABS(COALESCE(lw.loan_amount,0)-$3::numeric)<0.01 AND ABS(EXTRACT(EPOCH FROM (COALESCE(lw.created_at,NOW())-$4::timestamptz)))<=900 ORDER BY ABS(EXTRACT(EPOCH FROM (COALESCE(lw.created_at,NOW())-$4::timestamptz))) LIMIT 2",
+            [dealerId,phone,amount,submittedAt]
+          );
+          if(candidates.rowCount===1){
+            await pool.query(
+              "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE id=$3 AND chfpl_loan_id IS NULL",
+              [cid,status,candidates.rows[0].id]
+            );
+          }
+        }
       }
 
       const pendingArgs:any[]=[];
