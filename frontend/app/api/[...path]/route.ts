@@ -124,6 +124,18 @@ async function productLogo(name:string,model:string){
 }
 // Schema DDL only needs to run once per server process. Running ~40 CREATE/ALTER
 // statements on every request made /billing/pending-sales/options hang for many seconds.
+let loanWorkflowBridgeSchemaReady:Promise<void>|null=null;
+function ensureLoanWorkflowBridgeSchema():Promise<void>{
+  if(!loanWorkflowBridgeSchemaReady){
+    loanWorkflowBridgeSchemaReady=ensureLoanWorkflowBridgeSchemaOnce().catch((e:any)=>{loanWorkflowBridgeSchemaReady=null;throw e});
+  }
+  return loanWorkflowBridgeSchemaReady;
+}
+async function ensureLoanWorkflowBridgeSchemaOnce(){
+  await pool.query("ALTER TABLE loan_workflow ADD COLUMN IF NOT EXISTS chfpl_loan_id bigint");
+  await pool.query("ALTER TABLE loan_workflow ADD COLUMN IF NOT EXISTS chfpl_status_updated_at timestamptz");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS loan_workflow_chfpl_loan_id_uq ON loan_workflow(chfpl_loan_id) WHERE chfpl_loan_id IS NOT NULL");
+}
 let billingSalesSchemaReady:Promise<void>|null=null;
 function ensureBillingSalesSchema():Promise<void>{
   if(!billingSalesSchemaReady){
@@ -625,6 +637,34 @@ async function chfplBridge(path:string, query:Record<string,string>={}){
   return d;
 }
 
+async function chfplSubmitLoan(body:any){
+  const base=String(process.env.CHFPL_API_URL||'').replace(/\/$/,'');
+  const bridgeSecret=String(process.env.CHFPL_GRD_BRIDGE_SECRET||'').trim();
+  if(!base || !bridgeSecret) return {ok:false,error:'CHFPL bridge is not configured.'};
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),30000);
+  try{
+    const r=await fetch(base+'/api/grd-submit-loan',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-grd-bridge-secret':bridgeSecret,
+        'Accept':'application/json'
+      },
+      body:JSON.stringify(body),
+      signal:controller.signal,
+      cache:'no-store'
+    });
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)return {ok:false,error:d?.error||'CHFPL loan submission failed.'};
+    return {ok:true,data:d};
+  }catch(e:any){
+    return {ok:false,error:e?.name==='AbortError'?'CHFPL submission timed out.':(e?.message||'CHFPL submission failed.')};
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>}){
   try{
     const {path=[]}=await params,p=path.join("/");
@@ -674,7 +714,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({source:"CHFPL",vehicles,count:vehicles.length});
     }
     if(p==="billing/pending-sales"){
-      await ensureBillingSalesSchema();
+      await ensureLoanWorkflowBridgeSchema(); await ensureBillingSalesSchema();
       if(!billingStaff(a) && a?.scope!=="dealer")return Response.json({error:"Billing approval rights required."},{status:403});
       const args:any[]=[];
       let where="1=1";
@@ -692,6 +732,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount,can_approve:billingStaff(a)});
     }
     if(p==="billing/pending-sales/options"){
+      await ensureLoanWorkflowBridgeSchema();
       // Do not run ensureGrdAssetSchema() here. That function recreates a trigger and
       // backfills the entire loan_workflow table on every options request, which can
       // block long enough for the browser request to time out. The options endpoint
@@ -1512,7 +1553,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({user:r.rows[0]||null});
     }
     if(p==="dealer/pending-sales" && a.scope==="dealer"){
-      await ensureBillingSalesSchema(); await ensureGrdAssetSchema();
+      await ensureLoanWorkflowBridgeSchema(); await ensureBillingSalesSchema(); await ensureGrdAssetSchema();
       const did=num(a.dealer_id);
       const applications=await pool.query(`
         SELECT lw.*,
@@ -1544,6 +1585,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({applications:applications.rows,vehicles:vehicles.rows,dealers:dealer.rows,count:applications.rowCount});
     }
     if(p==="dealer/loan-status"||p==="loan-application-view"){
+      await ensureLoanWorkflowBridgeSchema();
       const did=a.scope==="dealer"?num(a.dealer_id):null;
       const r=did?await pool.query("SELECT * FROM loan_workflow WHERE dealer_id=$1 ORDER BY id DESC",[did]):await pool.query("SELECT * FROM loan_workflow ORDER BY id DESC LIMIT 1000");
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount});
@@ -1767,8 +1809,27 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
   try{
     const {path=[]}=await params,p=path.join("/");
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
-    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     const b:any=await json(req);
+
+    // CHFPL -> GRD status webhook is server-to-server. Check the bridge
+    // secret before JWT auth so CHFPL does not need a browser/session token.
+    if(p==="loan-status-webhook"){
+      const expected=String(process.env.CHFPL_GRD_BRIDGE_SECRET||"").trim();
+      const supplied=String(req.headers.get("x-grd-bridge-secret")||"").trim();
+      if(!expected || !supplied || supplied!==expected)
+        return Response.json({success:false,error:"Invalid CHFPL bridge secret."},{status:401});
+      const chfplLoanId=idOf(b.chfpl_loan_id),status=String(b.status||"").trim();
+      if(!chfplLoanId||!status)return Response.json({success:false,error:"chfpl_loan_id and status are required."},{status:400});
+      await ensureLoanWorkflowBridgeSchema();
+      const r=await pool.query(
+        "UPDATE loan_workflow SET status=$1,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$2 RETURNING id,application_no,status,chfpl_loan_id",
+        [status,chfplLoanId]
+      );
+      if(!r.rowCount)return Response.json({success:false,error:"GRD loan not found for chfpl_loan_id."},{status:404});
+      return Response.json({success:true,application:r.rows[0]});
+    }
+
+    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
 
     // Profile endpoints are self-service: any authenticated staff user may
     // update their own profile/password without needing an admin module flag.
@@ -2448,10 +2509,122 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
     }
     if(p==="dealer/submit-loan"){
+      await ensureLoanWorkflowBridgeSchema();
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id);
-      const r=await pool.query("INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,created_at,updated_at) VALUES (COALESCE(NULLIF($1,''),'APP-'||extract(epoch from now())::bigint),$2,$3,'SUBMITTED',$4,$5,$6,NOW(),NOW()) RETURNING *",
-        [String(b.application_no||""),did,num(b.customer_id),num(b.loan_amount),b.loan_model_name||null,b.loan_vehicle_type||"new"]);
-      return Response.json({success:true,application:r.rows[0]},{status:201});
+      if(!did)return Response.json({error:"Dealer not found."},{status:400});
+
+      const dealer=(await pool.query("SELECT id,code,name,login_id,mobile FROM dealer WHERE id=$1 LIMIT 1",[did])).rows[0];
+      if(!dealer)return Response.json({error:"Dealer not found."},{status:404});
+
+      const borrower=b.borrower||{};
+      const guarantor=b.guarantor||{};
+      const coBorrower=b.co_borrower||{};
+      const vehicleLoan={...(b.vehicle_loan||{})};
+      const modelId=idOf(vehicleLoan.vehicle_model_id||vehicleLoan.grd_model_id);
+      if(!modelId)return Response.json({error:"Vehicle model is required."},{status:400});
+
+      const model=(await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId])).rows[0];
+      if(!model)return Response.json({error:"Selected vehicle model not found."},{status:404});
+
+      // If this is a new customer, keep a local GRD customer record as well.
+      // Existing customer_id is preserved exactly as submitted by the dealer.
+      let customerId=idOf(b.customer_id);
+      if(!customerId){
+        const cc=await columns("customer");
+        const input:any={
+          full_name:String(borrower.full_name||"").trim()||null,
+          phone:String(borrower.phone||"").trim()||null,
+          email:String(borrower.email||"").trim()||null,
+          dob:borrower.dob||null,
+          gender:String(borrower.gender||"").trim()||null,
+          pan:String(borrower.pan||"").trim()||null,
+          occupation:String(borrower.occupation||"").trim()||null,
+          monthly_income:num(borrower.monthly_income)||null,
+          pincode:String(borrower.pincode||"").trim()||null,
+          city:String(borrower.city||"").trim()||null,
+          state:String(borrower.state||"").trim()||null,
+          address:String(borrower.address||"").trim()||null
+        };
+        const keys=Object.keys(input).filter(k=>cc.has(k));
+        if(keys.length){
+          const ins=await pool.query('INSERT INTO customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>input[k]));
+          customerId=Number(ins.rows[0]?.id)||null;
+        }
+      }
+
+      const localNo=String(b.application_no||"").trim()||("APP-"+Date.now());
+      const initial=await pool.query(
+        "INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,chfpl_status_updated_at,created_at,updated_at) VALUES ($1,$2,$3,'PENDING_CHFPL_SYNC',$4,$5,$6,NOW(),NOW(),NOW()) RETURNING *",
+        [localNo,did,customerId,num(vehicleLoan.loan_amount_requested||b.loan_amount),String(model.name||vehicleLoan.grd_model_name||"").trim()||null,String(vehicleLoan.vehicle_type||b.loan_vehicle_type||"3W").trim()||"3W"]
+      );
+      const local=initial.rows[0];
+
+      const bridgeBody={
+        grd_submission_ref:String(local.id),
+        dealer:{
+          grd_dealer_id:did,
+          code:String(dealer.code||dealer.login_id||"").trim(),
+          login_id:String(dealer.login_id||"").trim()||null,
+          name:String(dealer.name||"").trim(),
+          mobile:String(dealer.mobile||"").trim()||null
+        },
+        borrower,
+        guarantor,
+        co_borrower:coBorrower,
+        vehicle_loan:{
+          ...vehicleLoan,
+          grd_model_id:modelId,
+          grd_model_code:String(model.code||"").trim()||null,
+          grd_model_name:String(model.name||"").trim(),
+          vehicle_type:String(vehicleLoan.vehicle_type||b.loan_vehicle_type||"3W").trim()||"3W",
+          vehicle_price:num(vehicleLoan.vehicle_price||model.ex_showroom_price||model.sale_price)
+        },
+        loan_type:b.loan_type||"NEW",
+        dealer_register_page_no:b.dealer_register_page_no||null,
+        customer_photo:b.customer_photo||null,
+        documents:Array.isArray(b.documents)?b.documents:[]
+      };
+
+      const submitted=await chfplSubmitLoan(bridgeBody);
+      if(!submitted.ok){
+        console.error("[dealer/submit-loan] CHFPL sync pending:",submitted.error);
+        return Response.json({
+          success:true,
+          sync_status:"PENDING_CHFPL_SYNC",
+          application:null,
+          application_id:local.id,
+          message:"Loan saved in GRD. CHFPL sync is pending.",
+          sync_error:submitted.error
+        },{status:202});
+      }
+
+      const remote=submitted.data||{};
+      const chfplLoanId=idOf(remote.application_id);
+      if(!chfplLoanId){
+        console.error("[dealer/submit-loan] CHFPL returned no application_id");
+        return Response.json({
+          success:true,
+          sync_status:"PENDING_CHFPL_SYNC",
+          application:null,
+          application_id:local.id,
+          message:"Loan saved in GRD. CHFPL sync is pending.",
+          sync_error:"CHFPL did not return application_id."
+        },{status:202});
+      }
+
+      const updated=await pool.query(
+        "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE id=$3 RETURNING *",
+        [chfplLoanId,String(remote.status||"submitted").trim()||"submitted",local.id]
+      );
+      return Response.json({
+        success:true,
+        sync_status:"SYNCED",
+        application:updated.rows[0],
+        application_id:local.id,
+        chfpl_loan_id:chfplLoanId,
+        application_no:remote.application_no||updated.rows[0]?.application_no||null,
+        status:remote.status||"submitted"
+      },{status:201});
     }
     if(p==="billing/vehicle-inventory/download-txt"){
       const ids=Array.isArray(b.invoice_ids)?b.invoice_ids.map((x:any)=>idOf(x)).filter(Boolean):[];
