@@ -2574,6 +2574,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!customerId){
         const cc=await columns("customer");
         const input:any={
+          dealer_id:did,
           full_name:String(borrower.full_name||"").trim()||null,
           phone:String(borrower.phone||"").trim()||null,
           email:String(borrower.email||"").trim()||null,
