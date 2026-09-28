@@ -751,12 +751,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         // dealer, customer phone, loan amount and a tight submission window.
         // If more than one candidate exists, do not guess.
         const dealerId=idOf(row.grd_dealer_id);
-        const phone=String(row.customer_phone||"").replace(/\\D/g,"");
+        const phone=String(row.customer_phone||"").replace(/\D/g,"");
         const amount=num(row.loan_amount_requested);
         const submittedAt=String(row.submitted_at||"").trim();
         if(dealerId && phone && amount>0 && submittedAt){
           const candidates=await pool.query(
-            "SELECT lw.id FROM loan_workflow lw LEFT JOIN customer c ON c.id=lw.customer_id WHERE lw.dealer_id=$1 AND lw.status='PENDING_CHFPL_SYNC' AND lw.chfpl_loan_id IS NULL AND regexp_replace(COALESCE(c.phone,''),'\\\\D','','g')=$2 AND ABS(COALESCE(lw.loan_amount,0)-$3::numeric)<0.01 AND ABS(EXTRACT(EPOCH FROM (COALESCE(lw.created_at,NOW())-$4::timestamptz)))<=900 ORDER BY ABS(EXTRACT(EPOCH FROM (COALESCE(lw.created_at,NOW())-$4::timestamptz))) LIMIT 2",
+            "SELECT lw.id FROM loan_workflow lw LEFT JOIN customer c ON c.id=lw.customer_id WHERE lw.dealer_id=$1 AND lw.status='PENDING_CHFPL_SYNC' AND lw.chfpl_loan_id IS NULL AND regexp_replace(COALESCE(c.phone,''),'\\D','','g')=$2 AND ABS(COALESCE(lw.loan_amount,0)-$3::numeric)<0.01 AND ABS(EXTRACT(EPOCH FROM (COALESCE(lw.created_at,NOW())-$4::timestamptz)))<=900 ORDER BY ABS(EXTRACT(EPOCH FROM (COALESCE(lw.created_at,NOW())-$4::timestamptz))) LIMIT 2",
             [dealerId,phone,amount,submittedAt]
           );
           if(candidates.rowCount===1){
