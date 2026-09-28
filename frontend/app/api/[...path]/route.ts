@@ -560,7 +560,7 @@ function isAdmin(a:any){
 }
 function canRead(a:any,p:string){
   // Dealers may only read their explicitly scoped portal endpoints.
-  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me";
+  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me" || p==="billing/pending-sales/options";
   return true;
 }
 // Dealer battery portal writes are explicitly gated by the module flags
