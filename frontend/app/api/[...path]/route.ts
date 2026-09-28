@@ -717,7 +717,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // Dealer Loan Status must be a live CHFPL read. The local loan_workflow
     // table is only the GRD bridge/cache and can otherwise remain stale when
     // a CHFPL status changes after the loan was submitted.
-    if(p==="dealer/loan-status"){
+    if(p==="dealer/loan-status"||p==="loan-application-view"){
       const q:any={};
       if(a?.scope==="dealer") q.grd_dealer_id=String(num(a.dealer_id));
       const remote=await chfplBridge("/api/grd-dealer-loans",q);
@@ -997,8 +997,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!selected)return Response.json({error:"Dealer not found."},{status:404});
       const events=[...saleEvents(dealerId),...receiptEvents(dealerId),...shopExpenseEvents(dealerId)].sort((a:any,b:any)=>{
         const da=String(a.date||""),db=String(b.date||"");return da.localeCompare(db)||Number(a.record_id||0)-Number(b.record_id||0);
-      });
-      let running=0;
+      });      let running=0;
       const out=events.map((x:any)=>{running+=num(x.debit)-num(x.credit);return {...x,balance:Math.abs(running),dc:running>=0?"Dr":"Cr"};});
       return Response.json({summary:[],dealers,events:out,rows:out,count:out.length});
     }
@@ -1997,8 +1996,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     if(p==="admin/nav-tabs"){
       const label=String(b.label||"").trim(); if(!label)return Response.json({error:"Tab name is required."},{status:400});
       const existing=await pool.query("SELECT key FROM nav_tab"); const keys=new Set(existing.rows.map((x:any)=>String(x.key)));
-      let key=String(b.key||"").trim(); if(!key||keys.has(key)){key=label.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"custom-tab"; let i=2; while(keys.has(key))key=key+"-"+i++;}
-      const max=await pool.query("SELECT COALESCE(MAX(position),0)::int AS n FROM nav_tab");
+      let key=String(b.key||"").trim(); if(!key||keys.has(key)){key=label.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"custom-tab"; let i=2; while(keys.has(key))key=key+"-"+i++;}      const max=await pool.query("SELECT COALESCE(MAX(position),0)::int AS n FROM nav_tab");
       const r=await pool.query("INSERT INTO nav_tab (key,label,icon,position,hidden,items) VALUES ($1,$2,$3,$4,false,$5) RETURNING *",[key,label,b.icon||null,Number(max.rows[0]?.n||0)+1,Array.isArray(b.items)?b.items:[]]);
       return Response.json(r.rows[0],{status:201});
     }
