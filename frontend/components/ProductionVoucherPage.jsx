@@ -30,6 +30,8 @@ export function ProductionVoucherPage() {
   // "Formula A" / "Formula B") — list all formulas registered for the
   // chosen product so the user picks which BOM gets auto-copied.
   const formulasForProduct = formulas.filter((g) => g.product_name === form.product_name);
+  const batteryNos = [1, 2, 3, 4, 5].map((n) => form[`battery_no${n}`] || '');
+  const batteryCount = batteryNos.filter((v) => String(v).trim()).length;
 
   // 17,000+ production vouchers (and 500,000+ BOM item rows total) exist
   // in production -- fetch one page at a time (backend paginates and no
@@ -54,7 +56,7 @@ export function ProductionVoucherPage() {
 
   const rows = data?.vouchers || [];
 
-  const openNew = () => { setEditingId(null); setForm({ date: today(), quantity: 1, formula_name: '' }); setBomPreview(null); setOpen(true); };
+  const openNew = () => { setEditingId(null); setForm({ date: today(), quantity: 1, formula_name: '', battery_no1: '', battery_no2: '', battery_no3: '', battery_no4: '', battery_no5: '' }); setBomPreview(null); setOpen(true); };
   const openEdit = async (id) => {
     try {
       const d = await get(`/production-vouchers/${id}`);
@@ -155,14 +157,15 @@ export function ProductionVoucherPage() {
 
       {open && (
         <div className="modal">
-          <form className="modalbox" onSubmit={save} style={{ maxWidth: 760, padding: 0 }}>
+          <form className="modalbox" onSubmit={save} style={{ maxWidth: 1120, padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '18px 24px 12px', borderBottom: '1px solid var(--line)' }}>
               <h2 style={{ margin: 0 }}>{editingId ? 'Edit Production Voucher' : 'New Production Voucher'}</h2>
               <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Raw material is deducted from stock as per the selected formula.</div>
             </div>
 
-            <div style={{ padding: '16px 24px' }}>
-              <ErrorBanner message={error} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(360px, .95fr)', minHeight: 620 }}>
+              <div style={{ padding: '16px 24px', borderRight: '1px solid var(--line)', overflowY: 'auto', maxHeight: '72vh' }}>
+                <ErrorBanner message={error} />
 
               <div style={sectionTitle}>Product</div>
               <div className="formgrid">
@@ -216,25 +219,89 @@ export function ProductionVoucherPage() {
                 <Field label="Battery Maker" type="select" value={form.battery_maker || ''}
                        options={batteryMakers.map((p) => ({ value: p.name, label: p.name }))}
                        onChange={(v) => setForm({ ...form, battery_maker: v })} />
-                <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
-                <Field label="Other" value={form.other} onChange={(v) => setForm({ ...form, other: v })} />
               </div>
 
-              {bomPreview && (
-                <div style={{ marginTop: 18 }}>
-                  <div style={sectionTitle}>Raw material (auto-copied from formula)</div>
-                  {bomPreview.length === 0 ? (
-                    <p className="muted" style={{ margin: 0 }}>No BOM set up for this product yet — set one up in Production Formula.</p>
-                  ) : (
-                    <ul style={{ fontSize: 13, margin: 0, paddingLeft: 18, maxHeight: 160, overflow: 'auto', columns: 2, columnGap: 24 }}>
-                      {bomPreview.map((l) => <li key={l.id}>{l.raw_item_name} — {l.qty} {l.unit}</li>)}
-                    </ul>
-                  )}
+              <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--line)', borderRadius: 10, background: 'rgba(180,80,35,.05)' }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>Battery (Max 5)</div>
+                <div className="formgrid" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Field key={n} label={`Battery No. ${n}`} value={form[`battery_no${n}`] || ''}
+                           onChange={(v) => setForm({ ...form, [`battery_no${n}`]: v })} />
+                  ))}
                 </div>
-              )}
+                <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+                  Actual battery quantity: <b>{batteryCount || 0}</b> / 5
+                </div>
+              </div>
+
+              <Field label="Other" value={form.other} onChange={(v) => setForm({ ...form, other: v })} />
+              </div>
+
+              </div>
+
+              <aside style={{ padding: 16, background: 'rgba(180,80,35,.035)', overflowY: 'auto', maxHeight: '72vh' }}>
+                <div style={{ padding: 14, border: '1px solid var(--line)', borderRadius: 12, background: 'var(--modal-bg)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 10, display: 'grid', placeItems: 'center', background: 'rgba(180,80,35,.10)', fontSize: 20 }}>📦</div>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 800 }}>Raw Material Preview</div>
+                      <div className="muted" style={{ fontSize: 11 }}>Items deducted from stock as per selected formula</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                    <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
+                      <div className="muted" style={{ fontSize: 10 }}>Formula</div>
+                      <b style={{ fontSize: 12 }}>{form.formula_name || '—'}</b>
+                    </div>
+                    <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
+                      <div className="muted" style={{ fontSize: 10 }}>Total Items</div>
+                      <b style={{ fontSize: 12 }}>{bomPreview?.length || 0}</b>
+                    </div>
+                    <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
+                      <div className="muted" style={{ fontSize: 10 }}>Production Qty</div>
+                      <b style={{ fontSize: 12 }}>{form.quantity || 1}</b>
+                    </div>
+                    <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
+                      <div className="muted" style={{ fontSize: 10 }}>Battery Count</div>
+                      <b style={{ fontSize: 12 }}>{batteryCount} / 5</b>
+                    </div>
+                  </div>
+
+                  {!bomPreview ? (
+                    <div className="muted" style={{ padding: 20, textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 8 }}>
+                      Product/Formulation select karte hi raw material preview yahan dikhega.
+                    </div>
+                  ) : bomPreview.length === 0 ? (
+                    <div className="muted" style={{ padding: 20, textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 8 }}>
+                      No BOM set up for this product yet.
+                    </div>
+                  ) : (
+                    <div style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '30px minmax(0,1fr) 58px 72px', gap: 6, padding: '8px 10px', background: 'rgba(0,0,0,.03)', fontSize: 10, fontWeight: 800 }}>
+                        <span>#</span><span>Item Name</span><span>Unit</span><span style={{ textAlign: 'right' }}>Total Qty</span>
+                      </div>
+                      <div style={{ maxHeight: 430, overflowY: 'auto' }}>
+                        {bomPreview.map((l, i) => (
+                          <div key={l.id || i} style={{ display: 'grid', gridTemplateColumns: '30px minmax(0,1fr) 58px 72px', gap: 6, padding: '8px 10px', borderTop: '1px solid var(--line)', fontSize: 11 }}>
+                            <span className="muted">{i + 1}</span>
+                            <span>{l.raw_item_name}</span>
+                            <span>{l.unit || '—'}</span>
+                            <b style={{ textAlign: 'right' }}>{Number(l.qty || 0) * Number(form.quantity || 1)}</b>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'rgba(0,120,220,.07)', fontSize: 11 }}>
+                    <b>Battery note:</b> battery quantity can be 1 to 5 depending on actual fitting. Enter Battery No. in the left section.
+                  </div>
+                </div>
+              </aside>
             </div>
 
-            <div className="actions" style={{ padding: '12px 24px', borderTop: '1px solid var(--line)', justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--modal-bg)' }}>
+            <div className="actions" style={{ padding: '12px 24px', borderTop: '1px solid var(--line)', justifyContent: 'flex-end', background: 'var(--modal-bg)' }}>
               <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
               <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
             </div>
