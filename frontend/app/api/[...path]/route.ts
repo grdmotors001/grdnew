@@ -747,9 +747,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         if(linked.rowCount) continue;
 
         // Do not auto-match older pending rows using dealer/phone/amount/time.
-        // Those fields are not a unique loan identity. Older rows remain
-        // PENDING_CHFPL_SYNC until an explicit immutable link is available.
-      const pendingArgs:any[]=[];
+        // Those fields are not a unique loan identity. Older rows remain\n        // PENDING_CHFPL_SYNC until an explicit immutable link is available.\n      }\n\n      const pendingArgs:any[]=[];
       let pendingWhere="status='PENDING_CHFPL_SYNC'";
       if(a?.scope==="dealer"){
         pendingArgs.push(num(a.dealer_id));
