@@ -62,7 +62,7 @@ export function LoanApplicationViewPage({ user }) {
     setLoading(true);
     try {
       setError('');
-      const data = await get('/chfpl/loan-status', { noClientCache: true });
+      const data = await get('/dealer/loan-status', { noClientCache: true });
       setRows(data.applications || []);
     } catch (e) {
       setError(e.message || 'Could not load loan applications.');
@@ -71,11 +71,7 @@ export function LoanApplicationViewPage({ user }) {
     }
   };
 
-  useEffect(() => {
-    load();
-    const timer = setInterval(load, 15000);
-    return () => clearInterval(timer);
-  }, [isAdmin]);
+  useEffect(() => { load(); }, [isAdmin]);
 
   const counts = useMemo(() => ({
     all: rows.length,
