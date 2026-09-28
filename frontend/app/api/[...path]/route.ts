@@ -1437,7 +1437,11 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="chassis-master/months"){const r=await pool.query("SELECT * FROM chassis_month_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
     if(p==="chassis-master/years"){const r=await pool.query("SELECT * FROM chassis_year_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
     if(p==="chassis-master/rule"){const r=await pool.query("SELECT * FROM chassis_rule ORDER BY id DESC LIMIT 1");return Response.json({rule:r.rows[0]||null});}
-    if(p==="dealer/loan-masters"){const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");return Response.json({rows:r.rows,masters:r.rows});}
+    if(p==="dealer/loan-masters"){
+      const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");
+      const models=await pool.query("SELECT id,name,code FROM product WHERE COALESCE(fro,'')<>'R' AND COALESCE(name,'')<>'' ORDER BY name,id");
+      return Response.json({rows:r.rows,masters:r.rows,models:models.rows});
+    }
     if((p==="dealer/ledger-accounts"||p==="dealer/ledger-masters")&&a.scope!=="dealer"){const r=await pool.query("SELECT DISTINCT party_name FROM day_book WHERE party_name IS NOT NULL ORDER BY party_name");return Response.json({rows:r.rows});}
     if(p==="factory/old-rickshaw-challans"){
       await ensureOldRickshawInventorySchema();
@@ -2583,10 +2587,9 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const coBorrower=b.co_borrower||{};
       const vehicleLoan={...(b.vehicle_loan||{})};
       const modelId=idOf(vehicleLoan.vehicle_model_id||vehicleLoan.grd_model_id);
-      const model=modelId
-        ? (await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId])).rows[0]
-        : null;
-      if(modelId && !model)return Response.json({error:"Selected vehicle model not found."},{status:404});
+      if(!modelId)return Response.json({error:"Vehicle model select karein."},{status:400});
+      const model=(await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId])).rows[0];
+      if(!model)return Response.json({error:"Selected vehicle model not found."},{status:404});
 
       // If this is a new customer, keep a local GRD customer record as well.
       // Existing customer_id is preserved exactly as submitted by the dealer.
