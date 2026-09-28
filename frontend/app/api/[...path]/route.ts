@@ -1858,7 +1858,11 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     const table=tableFor(path);
     if(table)return genericGet(req,path,table);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
-  }catch(e:any){console.error("[node-api GET]",e);return Response.json({error:e.message||"Internal server error"},{status:500});}
+  } catch (e) {
+    const message=e instanceof Error ? e.message : "Internal server error";
+    console.error("[node-api GET]",e);
+    return Response.json({error:message},{status:500});
+  }
 }
 
 export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}>}){
