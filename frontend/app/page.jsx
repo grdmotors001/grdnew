@@ -26,6 +26,7 @@ import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { VahanInventoryPage } from '../components/VahanInventoryPage';
 import { OldRickshawChallanPage } from '../components/OldRickshawChallanPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
+import { CashHandoverApprovalPage } from '../components/CashHandoverApprovalPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
 import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage, StockLedgerPremisesPage, StockLedgerDealersPage } from '../components/StockPages';
 import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage, GstRegisterPage, HypothecationRegisterPage, PaymentReceivablePage, SubsidyReportPage, LedgerPage, DayBookPage, LedgerVPage } from '../components/ReportPages';
@@ -55,7 +56,7 @@ const CUSTOM_PAGES = {
   'showroom-all-receipt': () => <DealerCashReceiptPage />,
   'showroom-expenses-reports': () => <PlaceholderPage label="Expenses Reports" />,
   'showroom-cashbook': () => <DayBookPage />,
-  'showroom-cash-handover': () => <CashAtDealerPage />,
+  'showroom-cash-handover': () => <><CashHandoverApprovalPage /><CashAtDealerPage /></>,
   'showroom-online-payment': () => <PlaceholderPage label="Online Payment" />,
   company: () => <CompanyMasterPage />,
   dealer: () => <DealerPage />,
@@ -70,7 +71,7 @@ const CUSTOM_PAGES = {
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
   'vahan-inventory': () => <VahanInventoryPage />,
-  'cash-at-dealer': () => <CashAtDealerPage />,
+  'cash-at-dealer': () => <><CashHandoverApprovalPage /><CashAtDealerPage /></>,
   'dealer-cash-receipt': () => <DealerCashReceiptPage />,
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,

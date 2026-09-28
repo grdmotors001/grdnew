@@ -3,6 +3,15 @@ import { Pool } from "pg";
 export const dynamic="force-dynamic";
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3,ssl:{rejectUnauthorized:false}});
 const secret=process.env.JWT_SECRET||"grd-node-change-this-secret";
+// tax_invoice has no stored taxable/GST/total columns; print reads taxable_value / cgst_amount / bill_total, so compute them here (alias: ti).
+const TI_TAXABLE="GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)";
+const TI_STATE_INTRA="COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'";
+const TI_CALC=`${TI_TAXABLE} AS taxable_value,
+  CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS cgst_amount,
+  CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS sgst_amount,
+  CASE WHEN ${TI_STATE_INTRA} THEN 0 ELSE ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/100 END AS igst_amount,
+  ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/100 AS tax_amount,
+  ${TI_TAXABLE}+${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/100+COALESCE(ti.insurance_amount,0)+COALESCE(ti.registration_amount,0) AS bill_total`;
 function auth(req:Request){const h=req.headers.get("authorization")||"",t=h.startsWith("Bearer ")?h.slice(7):"";if(!t)return null;try{return jwt.verify(t,secret) as any}catch{return null}}
 function pick(o:any,...k:string[]){for(const x of k){if(o?.[x]!=null&&String(o[x]).trim()!=="")return o[x]}return ""}
 async function productLogo(name:string,model:string){
@@ -16,7 +25,7 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){
  try{
   const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
   const {id}=await params;const u=new URL(req.url),doc=String(u.searchParams.get("doc")||"invoice");
-  const r=await pool.query("SELECT ti.*,row_to_json(d) AS dealer_json,row_to_json(v) AS vehicle_json FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=$1",[Number(id)]);
+  const r=await pool.query("SELECT ti.*,"+TI_CALC+",row_to_json(d) AS dealer_json,row_to_json(v) AS vehicle_json FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=$1",[Number(id)]);
   if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
   const x=r.rows[0],d=x.dealer_json||{},v=x.vehicle_json||{};
   const invoice={...x,dealer_name:pick(x,"dealer_name")||d.name||"",dealer_code:d.code||"",dealer_mobile:d.mobile||"",dealer_gst_no:d.gst_no||"",dealer_address1:d.address1||"",dealer_address2:d.address2||"",product_name:pick(x,"product_name")||v.model_name||"",chassis_no:pick(x,"chassis_no")||v.chassis_no||"",motor_no:pick(x,"motor_no")||v.motor_no||"",colour:pick(x,"colour")||v.colour||"",battery_maker:v.battery_maker||"",battery_no1:v.battery_no1||"",battery_no2:v.battery_no2||"",battery_no3:v.battery_no3||"",battery_no4:v.battery_no4||"",umrn_code:"",colour_code:v.colour_code||""};

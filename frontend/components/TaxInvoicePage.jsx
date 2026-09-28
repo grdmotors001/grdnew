@@ -61,10 +61,12 @@ export function TaxInvoicePage() {
   // 16,000+ tax invoices exist in production -- fetch one page at a time
   // (backend paginates) instead of the whole table at once, which used to
   // time out / 500 the request.
-  const load = (p = page, s = search) => {
+  const load = (p = page, s = search, refreshChallans = false) => {
     const params = new URLSearchParams({ page: p, per_page: 50 });
     if (s) params.set('search', s);
-    get(`/tax-invoices?${params}`).then(setData).catch((e) => setError(e.message));
+    // Un-invoiced challans are fetched only on the first load (and after saves via load(1,'',true)); paging/search reuse them.
+    if (data && !refreshChallans) params.set('challans', '0');
+    get(`/tax-invoices?${params}`).then((d) => setData((prev) => ({ ...d, uninvoiced_challans: d.uninvoiced_challans ?? prev?.uninvoiced_challans ?? [] }))).catch((e) => setError(e.message));
   };
   useEffect(() => { load(1, search); }, []);
 
@@ -161,13 +163,13 @@ export function TaxInvoicePage() {
       else await post('/tax-invoices', form);
       setOpen(false);
       setEditingId(null);
-      load();
+      load(page, search, true);
     });
   };
 
   const remove = (id) => {
     if (!confirm('Delete this Tax Invoice permanently?')) return;
-    run(async () => { await del(`/tax-invoices/${id}`); setOpen(false); setEditingId(null); load(); });
+    run(async () => { await del(`/tax-invoices/${id}`); setOpen(false); setEditingId(null); load(page, search, true); });
   };
 
   const generateEInvoice = (id) => run(async () => {

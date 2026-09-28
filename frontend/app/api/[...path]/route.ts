@@ -1,7 +1,9 @@
 import jwt from "jsonwebtoken";
-import { Pool } from "pg";
+import { Pool, types } from "pg";
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
+// DATE columns ko plain "YYYY-MM-DD" string rakho (JS Date banne se timezone ke karan 1 din pichhe ho jaata tha: 2026-09-27T18:30:00.000Z).
+types.setTypeParser(1082,(v:string)=>v);
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const secret=process.env.JWT_SECRET||"grd-node-change-this-secret";
 
@@ -13,6 +15,16 @@ function auth(req:Request){
 }
 const json=async(req:Request)=>await req.json().catch(()=>({}));
 const num=(v:any)=>Number.isFinite(Number(v))?Number(v):0;
+// tax_invoice has no stored taxable/GST/total columns (legacy model computes them). Screens, print and the dealer portal read
+// taxable_value / cgst_amount / sgst_amount / igst_amount / tax_amount / bill_total, so every tax_invoice read that feeds them adds this (alias: ti).
+const TI_TAXABLE="GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)";
+const TI_STATE_INTRA="COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'";
+const TI_CALC=`${TI_TAXABLE} AS taxable_value,
+  CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS cgst_amount,
+  CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS sgst_amount,
+  CASE WHEN ${TI_STATE_INTRA} THEN 0 ELSE ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/100 END AS igst_amount,
+  ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/100 AS tax_amount,
+  ${TI_TAXABLE}+${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/100+COALESCE(ti.insurance_amount,0)+COALESCE(ti.registration_amount,0) AS bill_total`;
 const snake=(s:string)=>s.replace(/[A-Z]/g,m=>"_"+m.toLowerCase()).replace(/^_/,"");
 const idOf=(v:any)=>{const n=Number(v);return Number.isInteger(n)&&n>0?n:null};
 function csvCell(v:any){const s=String(v??"");return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
@@ -61,6 +73,11 @@ function tableFor(path:string[]){
   if(path[0]==="masters")return "simple_master";
   return TABLES[full]||TABLES[path[0]]||null;
 }
+// pg returns DATE columns as JS Date objects; String(Date).slice(0,10) gives "Mon Sep 28" (invalid for ::date). Always use ymd().
+function ymd(v:any):string{
+  if(v instanceof Date){if(isNaN(v.getTime()))return "";return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");}
+  return String(v||"").slice(0,10);
+}
 async function columns(table:string){
   const r=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1",[table]);
   return new Set(r.rows.map((x:any)=>x.column_name));
@@ -105,7 +122,16 @@ async function productLogo(name:string,model:string){
   const keys=[umrn,String(x.chassis_item_code||"").trim(),String(x.name||name||model||"").trim()].filter((k,i,a)=>k&&a.indexOf(k)===i);
   return {umrn_code:umrn,logo_keys:keys};
 }
-async function ensureBillingSalesSchema(){
+// Schema DDL only needs to run once per server process. Running ~40 CREATE/ALTER
+// statements on every request made /billing/pending-sales/options hang for many seconds.
+let billingSalesSchemaReady:Promise<void>|null=null;
+function ensureBillingSalesSchema():Promise<void>{
+  if(!billingSalesSchemaReady){
+    billingSalesSchemaReady=ensureBillingSalesSchemaOnce().catch((e:any)=>{billingSalesSchemaReady=null;throw e});
+  }
+  return billingSalesSchemaReady;
+}
+async function ensureBillingSalesSchemaOnce(){
   await pool.query(`CREATE TABLE IF NOT EXISTS grd_billing_sale (
     id bigserial PRIMARY KEY,
     application_id integer NOT NULL UNIQUE,
@@ -131,11 +157,18 @@ async function ensureBillingSalesSchema(){
     buyer_relation:"text",buyer_father_name:"text",buyer_gst_no:"text",buyer_pan:"text",buyer_aadhar:"text",buyer_dob:"date",buyer_state_code:"text",
     state_type:"text",mode_term:"text",bank_name:"text",bank_account_no:"text",bank_ifsc:"text",rto_name:"text",despatch_through:"text",eway_bill_no:"text",license_no:"text",cvr_no:"text",cancelled_cheque_no:"text",remarks:"text",
     amount_received:"numeric NOT NULL DEFAULT 0",financer_name:"text",hypothecation_amount:"numeric NOT NULL DEFAULT 0",vehicle_reg_no:"text",ledger_no:"text",chassis_record_no:"text",voucher_no:"text",subsidy_amount:"numeric NOT NULL DEFAULT 0",
-    gst_sale_amount:"numeric NOT NULL DEFAULT 0",gst_rate:"numeric NOT NULL DEFAULT 5",insurance_amount:"numeric NOT NULL DEFAULT 0",registration_amount:"numeric NOT NULL DEFAULT 0",discount:"numeric NOT NULL DEFAULT 0"
+    gst_sale_amount:"numeric NOT NULL DEFAULT 0",gst_rate:"numeric NOT NULL DEFAULT 5",insurance_amount:"numeric NOT NULL DEFAULT 0",registration_amount:"numeric NOT NULL DEFAULT 0",discount:"numeric NOT NULL DEFAULT 0",dealer_cash_customer_id:"bigint"
   };
   for(const [col,type] of Object.entries(extra)) await pool.query('ALTER TABLE grd_billing_sale ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
-async function ensureGrdAssetSchema(){
+let grdAssetSchemaReady:Promise<void>|null=null;
+function ensureGrdAssetSchema():Promise<void>{
+  if(!grdAssetSchemaReady){
+    grdAssetSchemaReady=ensureGrdAssetSchemaOnce().catch((e:any)=>{grdAssetSchemaReady=null;throw e});
+  }
+  return grdAssetSchemaReady;
+}
+async function ensureGrdAssetSchemaOnce(){
   await pool.query(`CREATE TABLE IF NOT EXISTS grd_asset (
     id bigserial PRIMARY KEY,
     application_id integer NOT NULL UNIQUE,
@@ -196,6 +229,24 @@ async function ensureBatteryRegisterSchema(){
 }
 async function ensureProductionVoucherSchema(){
   await pool.query("ALTER TABLE production_voucher ADD COLUMN IF NOT EXISTS formula_name text");
+}
+const NORM=(c:string)=>"lower(regexp_replace(btrim(COALESCE("+c+",'')),'\\s+',' ','g'))";
+let _pfSchemaDone=false;
+// production_formula.formula_name: column guarantee + blank/NULL rows get product name (same as UI rule "khali = product ka naam"),
+// so formula name always shows and rename/save can match rows.
+async function ensureProductionFormulaSchema(){
+  if(_pfSchemaDone)return;
+  await ensureProductionVoucherSchema();
+  await pool.query("ALTER TABLE production_formula ADD COLUMN IF NOT EXISTS formula_name text");
+  // 1) product_name in formula rows -> exact Product Master name (fixes stray spaces / case so Voucher & Checklist lookups match)
+  await pool.query("UPDATE production_formula pf SET product_name=p.name FROM (SELECT DISTINCT ON ("+NORM("name")+") name,"+NORM("name")+" AS k FROM product ORDER BY "+NORM("name")+",id) p WHERE "+NORM("pf.product_name")+"=p.k AND pf.product_name<>p.name");
+  await pool.query("UPDATE production_voucher pv SET product_name=p.name FROM (SELECT DISTINCT ON ("+NORM("name")+") name,"+NORM("name")+" AS k FROM product ORDER BY "+NORM("name")+",id) p WHERE "+NORM("pv.product_name")+"=p.k AND pv.product_name<>p.name");
+  // 2) formula_name: trim; blank -> product name
+  await pool.query("UPDATE production_formula SET formula_name=btrim(formula_name) WHERE formula_name IS NOT NULL AND formula_name<>btrim(formula_name)");
+  await pool.query("UPDATE production_voucher SET formula_name=btrim(formula_name) WHERE formula_name IS NOT NULL AND formula_name<>btrim(formula_name)");
+  await pool.query("UPDATE production_formula SET formula_name=product_name WHERE COALESCE(BTRIM(formula_name),'')='' AND COALESCE(product_name,'')<>''");
+  await pool.query("UPDATE production_voucher v SET formula_name=v.product_name WHERE COALESCE(BTRIM(v.formula_name),'')='' AND EXISTS (SELECT 1 FROM production_formula f WHERE f.product_name=v.product_name) AND (SELECT COUNT(DISTINCT f.formula_name) FROM production_formula f WHERE f.product_name=v.product_name)=1");
+  _pfSchemaDone=true;
 }
 async function ensureFactoryCheckSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_report (id bigserial PRIMARY KEY, production_voucher_id integer NOT NULL UNIQUE, date date NOT NULL DEFAULT CURRENT_DATE, product_name text, quantity numeric NOT NULL DEFAULT 1, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
@@ -308,27 +359,120 @@ async function ensureOldRickshawInventorySchema(){
   };
   for(const [col,type] of Object.entries(odefs)) await pool.query('ALTER TABLE old_rickshaw ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
-  await pool.query(`ALTER TABLE dealer_cash_customer ADD COLUMN IF NOT EXISTS "full_name" text`);
 async function ensureCreditDebitSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS credit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,credit_note_no text,tax_invoice_id integer,delivery_challan_id integer,original_bill_no text,dealer_name text,buyer_name text,chassis_no text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,reason text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
   await pool.query(`CREATE TABLE IF NOT EXISTS debit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,debit_note_no text,party_name text,party_gst_no text,party_state_code text,original_bill_no text,reason text,remarks text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,items jsonb NOT NULL DEFAULT '[]'::jsonb,created_at timestamptz NOT NULL DEFAULT now())`);
   const defs:any={credit_note:{credit_note_no:"text",tax_invoice_id:"integer",delivery_challan_id:"integer",original_bill_no:"text",dealer_name:"text",buyer_name:"text",chassis_no:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",reason:"text",remarks:"text"},debit_note:{debit_note_no:"text",party_name:"text",party_gst_no:"text",party_state_code:"text",original_bill_no:"text",reason:"text",remarks:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",items:"jsonb NOT NULL DEFAULT '[]'::jsonb"}};
   for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table])) await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
-async function ensureDealerCashSchema(){
+// Dealer customer register helpers.
+// - name: old imports keep it in full_name; new receipt bookings may only have it on the receipt.
+// - status: nothing ever wrote BILLED on dealer_cash_customer, so it is derived from Tax Invoices
+//   (old desktop-app bills) and from grd_billing_sale rows that reached BILLED (new flow).
+const normReg=(v:any)=>String(v??"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+const normPhone=(v:any)=>String(v??"").replace(/\D/g,"").slice(-10);
+async function enrichCashCustomers(rows:any[]):Promise<any[]>{
+  if(!rows.length)return rows;
+  const ids=rows.map((r:any)=>num(r.id)).filter(Boolean);
+  const dealerIds=[...new Set(rows.map((r:any)=>num(r.dealer_id)).filter(Boolean))];
+  const dn=await pool.query("SELECT id,lower(btrim(name)) AS n FROM dealer WHERE id = ANY($1::int[])",[dealerIds]);
+  const dealerName=new Map<number,string>(dn.rows.map((x:any)=>[Number(x.id),String(x.n||"")]));
+  const nameToId=new Map<string,number>(dn.rows.map((x:any)=>[String(x.n||""),Number(x.id)]));
+  const [rc,inv,sale]=await Promise.all([
+    pool.query("SELECT DISTINCT ON (customer_id) customer_id,customer_name,customer_phone FROM dealer_cash_receipt WHERE customer_id = ANY($1::bigint[]) AND COALESCE(btrim(customer_name),'')<>'' ORDER BY customer_id,id",[ids]),
+    pool.query("SELECT ti.dealer_id,lower(btrim(ti.dealer_name)) AS dname,ti.buyer_name,to_jsonb(ti)->>'vehicle_reg_no' AS reg,to_jsonb(ti)->>'dealer_page_no' AS pg,to_jsonb(ti)->>'buyer_mobile' AS mobile FROM tax_invoice ti WHERE COALESCE(ti.cancelled,false)=false AND (ti.dealer_id = ANY($1::int[]) OR lower(btrim(ti.dealer_name)) = ANY($2::text[]))",[dealerIds,[...nameToId.keys()]]),
+    pool.query("SELECT DISTINCT dealer_cash_customer_id AS id FROM grd_billing_sale WHERE status='BILLED' AND dealer_cash_customer_id = ANY($1::bigint[])",[ids])
+  ]);
+  const rcMap=new Map<number,any>(rc.rows.map((x:any)=>[Number(x.customer_id),x]));
+  const saleSet=new Set<number>(sale.rows.map((x:any)=>Number(x.id)));
+  const regs=new Map<number,Set<string>>(),pgs=new Map<number,Set<string>>(),blankByMobile=new Map<string,number>(),blankByName=new Map<string,number>();
+  const normName=(v:any)=>String(v??"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim();
+  for(const x of inv.rows){
+    const d=Number(x.dealer_id)||nameToId.get(String(x.dname||""))||0;
+    // Bill made to the dealer itself (registered / out-of-Delhi dealers): not a customer sale, never matched.
+    if(normName(x.buyer_name)&&normName(x.buyer_name)===normName(dealerName.get(d)))continue;
+    const reg=normReg(x.reg),pg=String(x.pg||"").trim(),mb=normPhone(x.mobile),nm=normName(x.buyer_name);
+    if(reg.length>=5){if(!regs.has(d))regs.set(d,new Set());regs.get(d)!.add(reg)}
+    else if(mb.length===10){const k=d+"|"+mb;blankByMobile.set(k,(blankByMobile.get(k)||0)+1)} // bill without Vehicle No.
+    else if(nm){const k=d+"|"+nm;blankByName.set(k,(blankByName.get(k)||0)+1)} // bill without Vehicle No. and mobile
+    if(pg&&mb){if(!pgs.has(d))pgs.set(d,new Set());pgs.get(d)!.add(pg+"|"+mb)}
+  }
+  // Fallback for old bills that have no Vehicle No.: one such bill marks one (oldest) imported customer
+  // of that dealer+mobile as billed. Fresh bookings (vehicle_no 'new'/'old') are never matched this way.
+  const fallbackBilled=new Set<number>();
+  for(const r of [...rows].sort((x:any,y:any)=>Number(x.id)-Number(y.id))){
+    const d=Number(r.dealer_id),reg=normReg(r.vehicle_no),cur=String(r.status||"").toUpperCase();
+    if(cur==="DEALER_CANCEL"||saleSet.has(Number(r.id))||reg==="NEW"||reg==="OLD")continue;
+    if(reg.length>=5&&regs.get(d)?.has(reg))continue;
+    const rr=rcMap.get(Number(r.id));
+    const k=d+"|"+normPhone(String(r.phone||r.customer_phone||rr?.customer_phone||""));
+    const left=blankByMobile.get(k)||0;
+    if(left>0){blankByMobile.set(k,left-1);fallbackBilled.add(Number(r.id));continue}
+    // Old sales with neither Vehicle No. nor mobile: register name is 'NAME 1103' (name + serial), the bill has just 'NAME'.
+    const full=normName(r.name||r.full_name||rr?.customer_name),stripped=full.replace(/\s+\d+$/,"").trim();
+    for(const cand of [full,stripped]){
+      const nk=d+"|"+cand,nl=cand?blankByName.get(nk)||0:0;
+      if(nl>0){blankByName.set(nk,nl-1);fallbackBilled.add(Number(r.id));break}
+    }
+  }
+  return rows.map((r:any)=>{
+    const rr=rcMap.get(Number(r.id));
+    const name=String(r.name||"").trim()||String(r.full_name||"").trim()||String(rr?.customer_name||"").trim();
+    const phone=String(r.phone||"").trim()||String(r.customer_phone||"").trim()||String(rr?.customer_phone||"").trim();
+    const d=Number(r.dealer_id),reg=normReg(r.vehicle_no),pg=String(r.page_no||"").trim();
+    const billed=saleSet.has(Number(r.id))||fallbackBilled.has(Number(r.id))||(reg.length>=5&&regs.get(d)?.has(reg))||(pg&&pgs.get(d)?.has(pg+"|"+normPhone(phone)));
+    const cur=String(r.status||"").trim().toUpperCase();
+    const status=cur==="DEALER_CANCEL"?cur:(billed?"BILLED":(cur||"VEHICLE_PENDING"));
+    return {...r,name,phone,status,balance:Math.max(0,Number(r.sale_amount||0)-Number(r.loan_amount||0)-Number(r.paid_amount||0))};
+  });
+}
+let dealerCashSchemaReady:Promise<void>|null=null;
+function ensureDealerCashSchema():Promise<void>{
+  if(!dealerCashSchemaReady){
+    dealerCashSchemaReady=ensureDealerCashSchemaOnce().catch((e:any)=>{dealerCashSchemaReady=null;throw e});
+  }
+  return dealerCashSchemaReady;
+}
+// Dealer ke haath me cash = cash receipts - expenses - ACCEPTED handovers. Pending handover abhi dealer ke paas hi maana jata hai.
+async function dealerCashPosition(did:number,client:any=pool){
+  const r=await client.query("SELECT (SELECT COALESCE(SUM(amount),0) FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash') AS rc,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_expense WHERE dealer_id=$1) AS ex,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_handover WHERE dealer_id=$1 AND lower(COALESCE(status,'pending'))='accepted') AS acc,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_handover WHERE dealer_id=$1 AND lower(COALESCE(status,'pending'))='pending') AS pend",[did]);
+  const x=r.rows[0]||{},cash=num(x.rc)-num(x.ex)-num(x.acc),pending=num(x.pend);
+  return {cash_received:num(x.rc),expenses:num(x.ex),ho_handover:num(x.acc),pending_handover:pending,cash_at_dealer:cash,available_for_handover:cash-pending};
+}
+// Showroom / branch ke shop expense dealer ledger me CREDIT ban ke aate hain: dealer ne HO ke hisaab ka cash kharch kiya,
+// isliye HO ko dena wala balance utna kam hota hai. Ye sirf ledger view hai - admin Day Book / cash me koi entry nahi banti.
+function shopExpenseLedgerEvents(rows:any[]){
+  return rows.filter((x:any)=>String(x.status||"ACTIVE").toUpperCase()==="ACTIVE"&&num(x.amount)>0).map((x:any)=>{
+    const label=String(x.category_label||x.category||"Shop Expense").trim();
+    const narration="Shop Expense - "+label+(x.paid_to?" - "+x.paid_to:"")+(x.remarks?" ("+x.remarks+")":"");
+    return {record_type:"shop_expense",record_id:x.id,date:x.date,doc_no:x.expense_no||"",account:"Shop Expense",narration,lines:[narration],debit:0,credit:num(x.amount),vr_type:"E"};
+  });
+}
+async function ensureDealerCashSchemaOnce(){
   await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_customer (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,name text NOT NULL,phone text,customer_phone text,page_no text,vehicle_no text,sale_amount numeric NOT NULL DEFAULT 0,loan_amount numeric NOT NULL DEFAULT 0,paid_amount numeric NOT NULL DEFAULT 0,status text NOT NULL DEFAULT 'VEHICLE_PENDING',date date NOT NULL DEFAULT CURRENT_DATE,created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_receipt (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,customer_id bigint,date date NOT NULL DEFAULT CURRENT_DATE,receipt_type text,payment_mode text NOT NULL DEFAULT 'cash',receipt_no text,customer_name text,customer_phone text,dealer_register_page_no text,sale_amount numeric NOT NULL DEFAULT 0,loan_amount numeric NOT NULL DEFAULT 0,amount numeric NOT NULL DEFAULT 0,reference_no text,remarks text,request_id text,created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_expense (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL DEFAULT CURRENT_DATE,expense_no text,category text,category_label text,amount numeric NOT NULL DEFAULT 0,paid_to text,remarks text,folio text,status text NOT NULL DEFAULT 'ACTIVE',created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_handover (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL DEFAULT CURRENT_DATE,handover_no text,amount numeric NOT NULL DEFAULT 0,sent_to text,remarks text,folio text,status text NOT NULL DEFAULT 'pending',created_at timestamptz NOT NULL DEFAULT now())");
   const defs:any={
+    // Older DBs already have dealer_cash_customer without these columns (CREATE TABLE IF NOT EXISTS skips them).
+    dealer_cash_customer:{dealer_id:"integer",name:"text",full_name:"text",phone:"text",customer_phone:"text",page_no:"text",vehicle_no:"text",sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",paid_amount:"numeric NOT NULL DEFAULT 0",status:"text NOT NULL DEFAULT 'VEHICLE_PENDING'",date:"date",created_at:"timestamptz NOT NULL DEFAULT now()"},
     dealer_cash_receipt:{dealer_id:"integer",customer_id:"bigint",date:"date NOT NULL DEFAULT CURRENT_DATE",receipt_date:"date",receipt_type:"text",payment_mode:"text NOT NULL DEFAULT 'cash'",receipt_no:"text",customer_name:"text",customer_phone:"text",dealer_register_page_no:"text",sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",amount:"numeric NOT NULL DEFAULT 0",reference_no:"text",remarks:"text",request_id:"text"},
-    dealer_cash_expense:{dealer_id:"integer",date:"date",expense_no:"text",category:"text",category_label:"text",amount:"numeric NOT NULL DEFAULT 0",paid_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'ACTIVE'"},
-    dealer_cash_handover:{dealer_id:"integer",date:"date",handover_no:"text",amount:"numeric NOT NULL DEFAULT 0",sent_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'pending'"}
+    dealer_cash_expense:{dealer_id:"integer",date:"date",expense_date:"date",expense_no:"text",category:"text",category_label:"text",amount:"numeric NOT NULL DEFAULT 0",paid_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'ACTIVE'"},
+    dealer_cash_handover:{dealer_id:"integer",date:"date",handover_date:"date",handover_no:"text",amount:"numeric NOT NULL DEFAULT 0",sent_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'pending'",accepted_at:"timestamptz",accepted_by:"text",reject_reason:"text",day_book_id:"bigint"}
   };
   for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table]))
     await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  // Backfill once: old imports store the name in full_name; receipt bookings may only have it on the receipt.
+  await pool.query("UPDATE dealer_cash_customer SET name=btrim(full_name) WHERE COALESCE(btrim(name),'')='' AND COALESCE(btrim(full_name),'')<>''");
+  await pool.query("UPDATE dealer_cash_customer SET phone=btrim(customer_phone) WHERE COALESCE(btrim(phone),'')='' AND COALESCE(btrim(customer_phone),'')<>''");
+  await pool.query("UPDATE dealer_cash_customer c SET name=r.customer_name FROM (SELECT DISTINCT ON (customer_id) customer_id,btrim(customer_name) AS customer_name FROM dealer_cash_receipt WHERE customer_id IS NOT NULL AND COALESCE(btrim(customer_name),'')<>'' ORDER BY customer_id,id) r WHERE r.customer_id=c.id AND COALESCE(btrim(c.name),'')=''");
   await pool.query("UPDATE dealer_cash_receipt SET date=COALESCE(receipt_date,date,CURRENT_DATE)");
   await pool.query("UPDATE dealer_cash_receipt SET receipt_date=COALESCE(receipt_date,date,CURRENT_DATE)");
+  await pool.query("UPDATE dealer_cash_expense SET date=COALESCE(date,expense_date,CURRENT_DATE) WHERE date IS NULL");
+  await pool.query("UPDATE dealer_cash_expense SET expense_date=COALESCE(expense_date,date,CURRENT_DATE) WHERE expense_date IS NULL");
+  // Purani DB me handover_date NOT NULL hoti hai; date aur handover_date dono ko sync rakho.
+  await pool.query("UPDATE dealer_cash_handover SET date=COALESCE(date,handover_date,CURRENT_DATE) WHERE date IS NULL");
+  await pool.query("UPDATE dealer_cash_handover SET handover_date=COALESCE(handover_date,date,CURRENT_DATE) WHERE handover_date IS NULL");
 }
 
 async function ensureRepairSchema(){
@@ -440,10 +584,10 @@ function canWrite(a:any,p:string){
   const key=p.startsWith("masters/") ? p : p.split("/")[0];
   return mods.includes(p) || mods.includes(key);
 }
-async function genericWrite(req:Request,path:string[],table:string,method:string){
+async function genericWrite(req:Request,path:string[],table:string,method:string,parsedBody?:any){
   const cols=await columns(table);
   if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
-  const body:any=await json(req),input:any={};
+  const body:any=parsedBody!==undefined?parsedBody:await json(req),input:any={};
   for(const [k,v] of Object.entries(body||{})){
     const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
   }
@@ -501,6 +645,21 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p==="reports/cash-at-dealer"&&a.scope==="staff"){
+      await ensureDealerCashSchema();
+      const u=new URL(req.url),only=idOf(u.searchParams.get("dealer_id"));
+      const ds=await pool.query("SELECT id,code,name FROM dealer WHERE LOWER(COALESCE(dealer_category,'')) IN ('showroom','branch')"+(only?" AND id=$1":"")+" ORDER BY name",only?[only]:[]);
+      const rows:any[]=[];
+      for(const d of ds.rows){const c=await dealerCashPosition(Number(d.id));rows.push({dealer_id:d.id,dealer_code:d.code,dealer_name:d.name,cash_received:c.cash_received,expenses:c.expenses,ho_handover:c.ho_handover,pending_handover:c.pending_handover,cash_at_dealer:c.cash_at_dealer});}
+      return Response.json({rows,total_cash_at_dealer:rows.reduce((s,x)=>s+num(x.cash_at_dealer),0),total_pending_handover:rows.reduce((s,x)=>s+num(x.pending_handover),0)});
+    }
+    if(p==="admin/cash-handovers"){
+      if(!isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
+      await ensureDealerCashSchema();
+      const st=String(new URL(req.url).searchParams.get("status")||"").trim().toLowerCase();
+      const r=await pool.query("SELECT h.*,d.name AS dealer_name,d.code AS dealer_code FROM dealer_cash_handover h LEFT JOIN dealer d ON d.id=h.dealer_id"+(st?" WHERE lower(COALESCE(h.status,'pending'))=$1":"")+" ORDER BY (lower(COALESCE(h.status,'pending'))='pending') DESC,h.date DESC,h.id DESC LIMIT 500",st?[st]:[]);
+      return Response.json({handovers:r.rows,rows:r.rows,count:r.rowCount});
+    }
     if(p==="chfpl/loan-status"){
       const q:any={};
       if(a?.scope==="dealer") q.grd_dealer_id=String(num(a.dealer_id));
@@ -521,7 +680,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       let where="1=1";
       if(a?.scope==="dealer"){args.push(num(a.dealer_id));where+=" AND s.dealer_id=$"+args.length;}
       const r=await pool.query(`SELECT s.*,lw.application_no,lw.status AS loan_status,lw.loan_amount,lw.loan_model_name,lw.loan_vehicle_type,
-        c.full_name AS customer_name,c.phone AS customer_phone,d.name AS dealer_name,
+        COALESCE(NULLIF(s.customer_name,''),c.full_name) AS customer_name,COALESCE(NULLIF(s.customer_phone,''),c.phone) AS customer_phone,d.name AS dealer_name,
         v.model_name,v.motor_no,v.controller_no,v.colour
         FROM grd_billing_sale s
         LEFT JOIN loan_workflow lw ON lw.id=s.application_id
@@ -529,37 +688,94 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         LEFT JOIN dealer d ON d.id=s.dealer_id
         LEFT JOIN vehicle v ON v.id=s.vehicle_id
         WHERE ${where} AND s.status IN ('PENDING','APPROVED')
-        ORDER BY s.created_at DESC,s.id DESC LIMIT 500`,args);
+        ORDER BY s.created_at DESC,s.id DESC LIMIT 800`,args);
       return Response.json({applications:r.rows,rows:r.rows,count:r.rowCount,can_approve:billingStaff(a)});
     }
     if(p==="billing/pending-sales/options"){
-      await ensureBillingSalesSchema();await ensureGrdAssetSchema();
+      // Do not run ensureGrdAssetSchema() here. That function recreates a trigger and
+      // backfills the entire loan_workflow table on every options request, which can
+      // block long enough for the browser request to time out. The options endpoint
+      // only reads existing data and does not need the GRD asset backfill.
       if(!billingStaff(a) && a?.scope!=="dealer")return Response.json({error:"Billing rights required."},{status:403});
+      // Staged loading (UI asks: dealers -> that dealer's stock -> that dealer's customers/loans).
+      const optUrl=new URL(req.url),part=String(optUrl.searchParams.get("part")||"");
+      if(part){
+        const isDealer=a?.scope==="dealer";
+        const did=isDealer?num(a.dealer_id):num(optUrl.searchParams.get("dealer_id"));
+        if(part==="dealers"){
+          const dr=await pool.query("SELECT id,code,name,dealer_category FROM dealer WHERE COALESCE(blocked,false)=false"+(isDealer?" AND id=$1":"")+" ORDER BY name,id",isDealer?[did]:[]);
+          return Response.json({dealers:dr.rows,can_approve:billingStaff(a)});
+        }
+        if(!did)return Response.json({error:"Dealer is required."},{status:400});
+        if(part==="vehicles"){
+          await ensureBillingSalesSchema();
+          // Already billed / already in a pending sale chassis are not offered (they always failed on save).
+          const vr=await pool.query(`SELECT dc.id AS challan_id,dc.vehicle_id,dc.chassis_no,dc.challan_no,dc.product_name,dc.sale_value,dc.date,dc.dealer_id,d.name AS dealer_name,v.model_name,v.colour
+            FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id
+            WHERE dc.dealer_id=$1 AND COALESCE(dc.cancelled,false)=false AND dc.vehicle_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE COALESCE(ti.cancelled,false)=false AND (ti.delivery_challan_id=dc.id OR (COALESCE(ti.chassis_no,'')<>'' AND ti.chassis_no=dc.chassis_no)))
+              AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.vehicle_id=dc.vehicle_id AND s.status IN ('PENDING','APPROVED','BILLED'))
+            ORDER BY dc.date DESC,dc.id DESC LIMIT 1000`,[did]);
+          return Response.json({vehicles:vr.rows,can_approve:billingStaff(a)});
+        }
+        if(part==="customers"){
+          await ensureBillingSalesSchema();await ensureDealerCashSchema();
+          const approvedSql=`LOWER(REPLACE(REPLACE(TRIM(COALESCE(lw.status,'')),'_',' '),'-',' ')) IN ('loan approved','approved')`;
+          const [lr,cr]=await Promise.all([
+            pool.query(`SELECT lw.id,lw.application_no,lw.status,lw.do_no,lw.loan_amount,lw.loan_model_name,lw.loan_vehicle_type,c.full_name AS customer_name,c.phone AS customer_phone,lw.dealer_id
+              FROM loan_workflow lw LEFT JOIN customer c ON c.id=lw.customer_id
+              WHERE ${approvedSql} AND lw.dealer_id=$1 AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.application_id=lw.id)
+              ORDER BY lw.id DESC LIMIT 500`,[did]),
+            pool.query(`SELECT c.* FROM dealer_cash_customer c JOIN dealer d ON d.id=c.dealer_id
+              WHERE c.dealer_id=$1 AND LOWER(COALESCE(d.dealer_category,'')) IN ('showroom','branch')
+                AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.dealer_cash_customer_id=c.id AND s.status IN ('PENDING','APPROVED','BILLED'))
+                AND UPPER(COALESCE(c.status,''))<>'DEALER_CANCEL'
+              ORDER BY c.id DESC LIMIT 2000`,[did])
+          ]);
+          const cash=(await enrichCashCustomers(cr.rows)).filter((x:any)=>x.status!=="BILLED").map((x:any)=>({...x,booking_for:x.vehicle_no}));
+          return Response.json({applications:lr.rows,cash_customers:cash,can_approve:billingStaff(a)});
+        }
+        return Response.json({error:"Unknown part."},{status:400});
+      }
+      await ensureBillingSalesSchema();
+      await ensureDealerCashSchema();
       const manualOnly=new URL(req.url).searchParams.get("manual")==="1";
-      let applications:any[]=[];
+      let appsP:Promise<any>=Promise.resolve({rows:[]});
       if(!manualOnly){
         const args:any[]=[];
         let dealerWhere="";
         if(a?.scope==="dealer"){args.push(num(a.dealer_id));dealerWhere=" AND lw.dealer_id=$"+args.length;}
         const approved=`LOWER(REPLACE(REPLACE(TRIM(COALESCE(lw.status,'')),'_',' '),'-',' ')) IN ('loan approved','approved')`;
-        const r=await pool.query(`SELECT lw.id,lw.application_no,lw.status,lw.loan_amount,lw.loan_model_name,lw.loan_vehicle_type,
+        appsP=pool.query(`SELECT lw.id,lw.application_no,lw.status,lw.do_no,lw.loan_amount,lw.loan_model_name,lw.loan_vehicle_type,
           c.full_name AS customer_name,c.phone AS customer_phone,d.name AS dealer_name,lw.dealer_id
           FROM loan_workflow lw
           LEFT JOIN customer c ON c.id=lw.customer_id
           LEFT JOIN dealer d ON d.id=lw.dealer_id
           WHERE ${approved} AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.application_id=lw.id)${dealerWhere}
           ORDER BY lw.id DESC LIMIT 500`,args);
-        applications=r.rows;
       }
       const vehicleArgs:any[]=[];
       let vehicleWhere="COALESCE(dc.cancelled,false)=false AND dc.vehicle_id IS NOT NULL";
       if(a?.scope==="dealer"){vehicleArgs.push(num(a.dealer_id));vehicleWhere+=" AND dc.dealer_id=$"+vehicleArgs.length;}
-      const ch=await pool.query(`SELECT dc.id AS challan_id,dc.vehicle_id,dc.chassis_no,dc.product_name,dc.sale_value,dc.date,dc.dealer_id,d.name AS dealer_name
+      const chP=pool.query(`SELECT dc.id AS challan_id,dc.vehicle_id,dc.chassis_no,dc.product_name,dc.sale_value,dc.date,dc.dealer_id,d.name AS dealer_name
         FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
         WHERE ${vehicleWhere}
         ORDER BY dc.date DESC,dc.id DESC LIMIT 1000`,vehicleArgs);
-      const dealers=await pool.query("SELECT id,code,name FROM dealer ORDER BY name,id");
-      return Response.json({applications,vehicles:ch.rows,dealers:dealers.rows,can_approve:billingStaff(a)});
+      const dealersP=pool.query("SELECT id,code,name,dealer_category FROM dealer WHERE COALESCE(blocked,false)=false ORDER BY name,id");
+      const ccArgs:any[]=[];
+      let ccDealer="";
+      if(a?.scope==="dealer"){ccArgs.push(num(a.dealer_id));ccDealer=" AND c.dealer_id=$"+ccArgs.length;}
+      const cashP=pool.query(`SELECT c.*
+        FROM dealer_cash_customer c JOIN dealer d ON d.id=c.dealer_id
+        WHERE LOWER(COALESCE(d.dealer_category,'')) IN ('showroom','branch')
+          AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.dealer_cash_customer_id=c.id AND s.status IN ('PENDING','APPROVED','BILLED'))${ccDealer}
+          AND UPPER(COALESCE(c.status,''))<>'DEALER_CANCEL'
+        ORDER BY c.id DESC LIMIT 2000`,ccArgs);
+      // Independent reads: run in parallel instead of one after another.
+      const [appsR,ch,dealers,cashCustomers]=await Promise.all([appsP,chP,dealersP,cashP]);
+      // name/phone resolved + old/new billed customers removed (they cannot be sold again).
+      const cashList=(await enrichCashCustomers(cashCustomers.rows)).filter((x:any)=>x.status!=="BILLED").map((x:any)=>({...x,booking_for:x.vehicle_no}));
+      return Response.json({applications:appsR.rows,vehicles:ch.rows,dealers:dealers.rows,cash_customers:cashList,can_approve:billingStaff(a)});
     }
     if(p==="billing/pending-sales/invoice"){
       await ensureBillingSalesSchema();
@@ -567,7 +783,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const id=idOf(new URL(req.url).searchParams.get("id"));
       if(!id)return Response.json({error:"Sale id is required."},{status:400});
       const r=await pool.query(`SELECT s.*,lw.application_no,lw.loan_amount,lw.loan_model_name,lw.loan_vehicle_type,
-        c.full_name AS customer_name,c.phone AS customer_phone,c.address AS customer_address,c.state AS customer_state,
+        COALESCE(NULLIF(s.customer_name,''),c.full_name) AS customer_name,COALESCE(NULLIF(s.customer_phone,''),c.phone) AS customer_phone,COALESCE(NULLIF(s.customer_address,''),c.address) AS customer_address,COALESCE(NULLIF(s.customer_state,''),c.state) AS customer_state,
         d.name AS dealer_name,v.model_name,v.motor_no,v.controller_no,v.colour
         FROM grd_billing_sale s
         LEFT JOIN loan_workflow lw ON lw.id=s.application_id
@@ -577,13 +793,27 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!r.rowCount)return Response.json({error:"Pending Sale not found."},{status:404});
       const x=r.rows[0];
       if(x.status!=="APPROVED")return Response.json({error:"Pending Sale must be approved before Create Sale."},{status:403});
+      if(["OLD RICKSHAW","BATTERY"].includes(String(x.sale_type||"").toUpperCase()))return Response.json({error:"Old Rickshaw / Battery sale par GST Tax Invoice nahi banta. 'Complete Sale (No GST)' use karo."},{status:409});
       if(x.invoice_id){const inv=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[x.invoice_id]);return Response.json({sale:x,invoice:inv.rows[0]||null});}
+      const hyp=num(x.hypothecation_amount)||num(x.loan_amount);
       return Response.json({sale:x,invoice:{
         date:new Date().toISOString().slice(0,10),buyer_name:x.customer_name||"",buyer_mobile:x.customer_phone||"",
         buyer_address:x.customer_address||"",buyer_state:x.customer_state||"",dealer_name:x.dealer_name||"",
         product_name:x.model_name||x.loan_model_name||"",chassis_no:x.chassis_no||"",motor_no:x.motor_no||"",
-        controller_no:x.controller_no||"",colour:x.colour||"",sale_amount:num(x.sale_amount),gst_sale_amount:num(x.sale_amount),
-        gst_rate:5,hypothecation_amount:num(x.loan_amount),amount_received:0,mode_term:"CHFPL",remarks:x.description||""
+        controller_no:x.controller_no||"",colour:x.colour||"",
+        sale_amount:num(x.sale_amount),gst_sale_amount:num(x.gst_sale_amount)||num(x.sale_amount),
+        gst_rate:num(x.gst_rate)||5,hypothecation_amount:hyp,amount_received:num(x.amount_received),
+        mode_term:x.mode_term||"CHFPL",remarks:x.remarks||x.description||"",
+        dealer_page_no:x.page_no||"",buyer_relation:x.buyer_relation||"",buyer_father_name:x.buyer_father_name||"",
+        buyer_gst_no:x.buyer_gst_no||"",buyer_pan:x.buyer_pan||"",buyer_aadhar:x.buyer_aadhar||"",
+        buyer_dob:x.buyer_dob?String(x.buyer_dob instanceof Date?x.buyer_dob.toISOString():x.buyer_dob).slice(0,10):"",
+        buyer_state_code:x.buyer_state_code||"",state_type:x.state_type||"I",bank_name:x.bank_name||"",
+        bank_account_no:x.bank_account_no||"",bank_ifsc:x.bank_ifsc||"",rto_name:x.rto_name||"",
+        despatch_through:x.despatch_through||"",eway_bill_no:x.eway_bill_no||"",license_no:x.license_no||"",
+        cvr_no:x.cvr_no||"",cancelled_cheque_no:x.cancelled_cheque_no||"",financer_name:x.financer_name||"",
+        vehicle_reg_no:x.vehicle_reg_no||"",ledger_no:x.ledger_no||"",chassis_record_no:x.chassis_record_no||"",
+        voucher_no:x.voucher_no||"",subsidy_amount:num(x.subsidy_amount),do_no:x.do_no||"",
+        insurance_amount:num(x.insurance_amount),registration_amount:num(x.registration_amount),discount:num(x.discount)
       }});
     }
     if(p==="credit-notes"){
@@ -654,7 +884,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         return Boolean(target)&&party===target;
       };
       const textOf=(x:any)=>[x.bill_no,x.voucher_no,x.doc_no,x.party_name,x.dealer_name,x.buyer_name,x.chassis_no,x.narration,x.particulars,x.description].filter(Boolean).join(" ").toLowerCase();
-      const inRange=(x:any)=>{const d=String(x.date||"").slice(0,10);return (!from||d>=from)&&(!to||d<=to)&&(!search||textOf(x).includes(search));};
+      const inRange=(x:any)=>{const d=ymd(x.date);return (!from||d>=from)&&(!to||d<=to)&&(!search||textOf(x).includes(search));};
+      let shopExpenseRows:any[]=[];
+      try{await ensureDealerCashSchema();shopExpenseRows=(await pool.query("SELECT * FROM dealer_cash_expense ORDER BY date ASC,id ASC LIMIT 20000")).rows;}catch(e){console.error("[ledger shop expenses]",e)}
+      const shopExpenseEvents=(did:number)=>shopExpenseLedgerEvents(shopExpenseRows.filter((x:any)=>Number(x.dealer_id)===did)).filter((x:any)=>inRange(x));
       const saleEvents=(did:number)=>invoices.filter((x:any)=>dealerMatch(x,did)&&inRange(x)).map((x:any)=>({
         record_type:"sale",record_id:x.id,date:x.date,doc_no:x.bill_no||x.voucher_no||"",account:x.buyer_name||"Sale",
         lines:[x.product_name,x.chassis_no].filter(Boolean),
@@ -669,7 +902,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       })).filter((x:any)=>x.debit||x.credit);
       if(!dealerId){
         const summary=dealers.map((d:any)=>{
-          const ev=[...saleEvents(Number(d.id)),...receiptEvents(Number(d.id))];
+          const ev=[...saleEvents(Number(d.id)),...receiptEvents(Number(d.id)),...shopExpenseEvents(Number(d.id))];
           const balance=ev.reduce((s:number,x:any)=>s+num(x.debit)-num(x.credit),0);
           return {dealer_id:d.id,dealer_name:d.name,balance,dc:balance>=0?"Dr":"Cr"};
         });
@@ -677,7 +910,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       }
       const selected=dealers.find((d:any)=>Number(d.id)===dealerId);
       if(!selected)return Response.json({error:"Dealer not found."},{status:404});
-      const events=[...saleEvents(dealerId),...receiptEvents(dealerId)].sort((a:any,b:any)=>{
+      const events=[...saleEvents(dealerId),...receiptEvents(dealerId),...shopExpenseEvents(dealerId)].sort((a:any,b:any)=>{
         const da=String(a.date||""),db=String(b.date||"");return da.localeCompare(db)||Number(a.record_id||0)-Number(b.record_id||0);
       });
       let running=0;
@@ -835,7 +1068,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(/^tax-invoices\/\d+$/.test(p)){
       const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Tax Invoice id required."},{status:400});
-      const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      const r=await pool.query("SELECT ti.*,"+TI_CALC+" FROM tax_invoice ti WHERE ti.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
       return Response.json(r.rows[0]);
     }
@@ -904,11 +1137,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const search=String(u.searchParams.get("search")||"").trim();
       if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $1 OR COALESCE(ti.buyer_name,'') ILIKE $1 OR COALESCE(ti.chassis_no,'') ILIKE $1 OR COALESCE(ti.motor_no,'') ILIKE $1)");}
       const where=w.length?" WHERE "+w.join(" AND "):"";
-      const all=await pool.query("SELECT ti.* FROM tax_invoice ti"+where+" ORDER BY ti.date DESC,ti.id DESC",args);
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
-      const invoices=all.rows.slice(start,start+per);
-      const challans=await pool.query("SELECT dc.*,d.name AS dealer_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4 FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE COALESCE(dc.cancelled,false)=false AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) ORDER BY dc.date DESC,dc.id DESC LIMIT 1000");
-      return Response.json({invoices,rows:invoices,data:invoices,uninvoiced_challans:challans.rows,page,per_page:per,total:all.rowCount,total_pages:Math.max(1,Math.ceil(all.rowCount/per))});
+      // Only the requested page is read from the DB (was: whole 16k+ table fetched, sorted and sliced in JS).
+      // Un-invoiced challans are needed once for the "New Tax Invoice" form, not on every page/search click.
+      const wantChallans=u.searchParams.get("challans")!=="0";
+      const [pg,cnt,challans]=await Promise.all([
+        pool.query("SELECT ti.*,"+TI_CALC+" FROM tax_invoice ti"+where+" ORDER BY ti.date DESC,ti.id DESC LIMIT "+per+" OFFSET "+start,args),
+        pool.query("SELECT COUNT(*)::int AS n FROM tax_invoice ti"+where,args),
+        wantChallans?pool.query("SELECT dc.*,d.name AS dealer_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4 FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE COALESCE(dc.cancelled,false)=false AND NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) ORDER BY dc.date DESC,dc.id DESC LIMIT 1000"):Promise.resolve(null)
+      ]);
+      const invoices=pg.rows,total=cnt.rows[0]?.n||0;
+      const out:any={invoices,rows:invoices,data:invoices,page,per_page:per,total,total_pages:Math.max(1,Math.ceil(total/per))};
+      if(challans)out.uninvoiced_challans=challans.rows;
+      return Response.json(out);
     }
     if(p==="factory-check-reports"){
       await ensureFactoryCheckSchema();
@@ -1032,19 +1273,67 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM production_formula WHERE product_code=$1 OR product_name=$1 ORDER BY id",[product]);
       return Response.json({rows:r.rows,items:r.rows,data:r.rows});
     }
+    // Production Voucher list: paginated + search (page / per_page / search). The generic handler
+    // returned no "vouchers" key and ignored paging, so the screen always showed "No records found".
+    if(p==="production-vouchers"){
+      await ensureProductionVoucherSchema();
+      const u=new URL(req.url),page=Math.max(1,Math.trunc(num(u.searchParams.get("page"))||1)),per=Math.min(200,Math.max(1,Math.trunc(num(u.searchParams.get("per_page"))||50)));
+      const search=String(u.searchParams.get("search")||"").trim(),args:any[]=[];let where="";
+      if(search){args.push("%"+search+"%");where=" WHERE (v.vou_no ILIKE $1 OR v.chassis_no ILIKE $1 OR v.motor_no ILIKE $1 OR v.product_name ILIKE $1)";}
+      const total=Number((await pool.query("SELECT COUNT(*)::int AS n FROM production_voucher v"+where,args)).rows[0]?.n||0);
+      const r=await pool.query("SELECT v.* FROM production_voucher v"+where+" ORDER BY v.date DESC,v.id DESC LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      return Response.json({vouchers:r.rows,rows:r.rows,total,page,per_page:per,total_pages:Math.max(1,Math.ceil(total/per))});
+    }
+    if(/^production-vouchers\/\d+$/.test(p)){
+      const r=await pool.query("SELECT * FROM production_voucher WHERE id=$1",[idOf(path[1])]);
+      if(!r.rowCount)return Response.json({error:"Production Voucher not found."},{status:404});
+      return Response.json({voucher:r.rows[0]});
+    }
     if(p==="production-formulas"){
+      await ensureProductionFormulaSchema();
       const r=await pool.query("SELECT * FROM production_formula ORDER BY product_name,formula_name,id");
       const grouped:any[]=[]; const map=new Map<string,any>();
-      for(const row of r.rows){const key=String(row.formula_name||"")+"::"+String(row.product_name||"");let g=map.get(key);if(!g){g={formula_name:row.formula_name,product_name:row.product_name,lines:[]};map.set(key,g);grouped.push(g)}g.lines.push(row)}
+      for(const row of r.rows){if(!String(row.formula_name||"").trim())row.formula_name=row.product_name;const key=String(row.formula_name||"")+"::"+String(row.product_name||"");let g=map.get(key);if(!g){g={formula_name:row.formula_name,product_name:row.product_name,lines:[]};map.set(key,g);grouped.push(g)}g.lines.push(row)}
       const products=await pool.query("SELECT name,fro FROM product ORDER BY name");
       return Response.json({grouped,rows:r.rows,lines:r.rows,finished_products:products.rows.filter((x:any)=>x.fro!=="R"),raw_materials:products.rows.filter((x:any)=>x.fro==="R")});
     }
     if(p==="production-formulas/lines"){
       const u=new URL(req.url),args:any[]=[];const w:string[]=[];
       const product=u.searchParams.get("product_name")||u.searchParams.get("product")||"";const formula=u.searchParams.get("formula_name")||"";
-      if(product){args.push(product);w.push("product_name=$"+args.length)}if(formula){args.push(formula);w.push("formula_name=$"+args.length)}
+      await ensureProductionFormulaSchema();
+      if(product){args.push(product);w.push(NORM("product_name")+"="+NORM("$"+args.length))}if(formula){args.push(formula);w.push(NORM("formula_name")+"="+NORM("$"+args.length))}
       const r=await pool.query("SELECT * FROM production_formula"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY id",args);
       return Response.json({rows:r.rows,items:r.rows,data:r.rows,lines:r.rows});
+    }
+    // Next Chassis / Motor / Controller No. for a Production Voucher (was missing -> fell into the generic
+    // table handler and crashed with a 500). Format: <item code><month letter><year letter><running serial>.
+    // Month letters A..M skip "I"; year letters come from chassis_year_code. The running serial continues from
+    // the latest voucher of the same model (motor/controller continue their own trailing number).
+    if(p==="production-vouchers/generate-code"){
+      const u=new URL(req.url),product=String(u.searchParams.get("product")||u.searchParams.get("product_name")||"").trim();
+      if(!product)return Response.json({error:"Product is required."},{status:400});
+      const dt=String(u.searchParams.get("date")||"").slice(0,10),d=/^\d{4}-\d{2}-\d{2}$/.test(dt)?dt:new Date().toISOString().slice(0,10);
+      const monthLetter="ABCDEFGHJKLM"[Number(d.slice(5,7))-1]||"";
+      const yr=await pool.query("SELECT code FROM chassis_year_code WHERE year=$1::int LIMIT 1",[Number(d.slice(0,4))]);
+      const yearLetter=String(yr.rows[0]?.code||"").trim();
+      if(!monthLetter||!yearLetter)return Response.json({error:"No chassis year code set for "+d.slice(0,4)+" in Chassis Master."},{status:400});
+      const pr=await pool.query("SELECT to_jsonb(product)->>'chassis_item_code' AS code FROM product WHERE lower(btrim(name))=lower(btrim($1::text)) ORDER BY (fro='F') DESC,id DESC LIMIT 1",[product]);
+      let itemCode=String(pr.rows[0]?.code||"").trim();
+      const last=await pool.query("SELECT chassis_no,motor_no,controller_no FROM production_voucher WHERE lower(btrim(product_name))=lower(btrim($1::text)) AND COALESCE(chassis_no,'')<>'' ORDER BY date DESC,id DESC LIMIT 1",[product]);
+      const L=last.rows[0]||{};
+      const missing=!itemCode;
+      if(missing&&L.chassis_no){const m=String(L.chassis_no).match(/^(.*?)[A-Za-z]{2}\d+$/);if(m)itemCode=m[1];}
+      if(!itemCode)return Response.json({error:"Chassis Item Code is not set for this product in Product Master."},{status:400});
+      const bump=(v:any,by:number)=>{const m=String(v||"").match(/^(.*?)(\d+)$/);if(!m)return "";return m[1]+(BigInt(m[2])+BigInt(by)).toString().padStart(m[2].length,"0")};
+      const tail=String(L.chassis_no||"").match(/(\d+)$/);
+      let chassis="",k=1;
+      for(;k<=200;k++){
+        const serial=tail?(BigInt(tail[1])+BigInt(k)).toString().padStart(tail[1].length,"0"):String(k).padStart(4,"0");
+        chassis=itemCode+monthLetter+yearLetter+serial;
+        const dup=await pool.query("SELECT 1 FROM vehicle WHERE chassis_no=$1::text UNION ALL SELECT 1 FROM production_voucher WHERE chassis_no=$1::text LIMIT 1",[chassis]);
+        if(!dup.rowCount)break;
+      }
+      return Response.json({chassis_no:chassis,motor_no:bump(L.motor_no,k),controller_no:bump(L.controller_no,k),missing_item_code:missing});
     }
     if(p==="chassis-master/months"){const r=await pool.query("SELECT * FROM chassis_month_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
     if(p==="chassis-master/years"){const r=await pool.query("SELECT * FROM chassis_year_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
@@ -1069,17 +1358,23 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const party=String(x.party_name||x.account_name||x.account||"");
         const doc=String(x.doc_no||x.voucher_no||x.reference_no||x.bill_no||"");
         const text=[party,doc,String(x.narration||""),String(x.particulars||""),String(x.chassis_no||"")].join(" ").toLowerCase();
-        const d=String(x.date||"").slice(0,10);
+        const d=ymd(x.date);
         const dealerMatch=rowDealer ? Number(rowDealer)===did : (party.trim().toLowerCase()===dealerName || String(x.dealer_name||"").trim().toLowerCase()===dealerName);
         return dealerMatch&&(!from||d>=from)&&(!to||d<=to)&&(!search||text.includes(search));
       });
       let running=0;
       const eventsOut=events.map((x:any)=>{
-        const debit=num(x.debit||x.dr_amount||x.debit_amount),credit=num(x.credit||x.cr_amount||x.credit_amount);
-        running+=debit-credit;
-        return {record_type:"day_book",record_id:x.id,date:x.date,doc_no:x.doc_no||x.voucher_no||x.bill_no||"",account:x.party_name||x.account_name||x.account||"",lines:[x.narration||x.particulars||x.description||""].filter(Boolean),debit,credit,balance:running,dc:running>=0?"Dr":"Cr",vr_type:debit?"S":"R"};
+        const debit=num(x.debit||x.dr_amount||x.debit_amount||x.debit_paid),credit=num(x.credit||x.cr_amount||x.credit_amount||x.credit_received);
+        return {record_type:"day_book",record_id:x.id,date:x.date,doc_no:x.doc_no||x.voucher_no||x.vr_no||x.bill_no||"",account:x.party_name||x.account_name||x.account||"",lines:[x.narration||x.particulars||x.description||""].filter(Boolean),debit,credit,vr_type:debit?"S":"R"};
       });
-      return Response.json({events:eventsOut,rows:eventsOut,count:eventsOut.length});
+      // Shop expenses (dealer ne HO ke cash se kharch kiye) bhi credit ke roop me dikhte hain.
+      await ensureDealerCashSchema();
+      const exRows=(await pool.query("SELECT * FROM dealer_cash_expense WHERE dealer_id=$1 ORDER BY date ASC,id ASC LIMIT 5000",[did])).rows;
+      const exEvents=shopExpenseLedgerEvents(exRows).filter((x:any)=>{const d=ymd(x.date);return (!from||d>=from)&&(!to||d<=to)&&(!search||[x.doc_no,x.narration].join(" ").toLowerCase().includes(search));});
+      const merged=[...eventsOut,...exEvents].sort((x:any,y:any)=>String(x.date||"").slice(0,10).localeCompare(String(y.date||"").slice(0,10))||(x.record_type===y.record_type?Number(x.record_id||0)-Number(y.record_id||0):(x.record_type==="day_book"?-1:1)));
+      let bal=0;
+      const finalRows=merged.map((x:any)=>{bal+=num(x.debit)-num(x.credit);return {...x,balance:bal,dc:bal>=0?"Dr":"Cr"};});
+      return Response.json({events:finalRows,rows:finalRows,count:finalRows.length});
     }
     if(p==="dealer/ledger-masters"&&a.scope==="dealer"){
       const dealers=await pool.query("SELECT id,code,name,mobile,address,account_no,ifsc FROM dealer WHERE COALESCE(blocked,false)=false ORDER BY name,id");
@@ -1124,17 +1419,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const runRange=async(table:string,extra:string)=>{const args:any[]=[did],q:string[]=[];if(from){args.push(from);q.push(table+".date >= $"+args.length+"::date");}if(to){args.push(to);q.push(table+".date <= $"+args.length+"::date");}const sql="SELECT * FROM "+table+" WHERE dealer_id=$1"+(extra?" AND "+extra:"")+(q.length?" AND "+q.join(" AND "):"")+" ORDER BY date,id";return pool.query(sql,args);};
       const receipts=await runRange("dealer_cash_receipt","lower(COALESCE(payment_mode,'cash'))='cash'");
       const expenses=await runRange("dealer_cash_expense","");
-      const handovers=await runRange("dealer_cash_handover","");
+      const handovers=await runRange("dealer_cash_handover","lower(COALESCE(status,'pending'))='accepted'");
+      const pendingHandovers=await runRange("dealer_cash_handover","lower(COALESCE(status,'pending'))='pending'");
+      const rejectedHandovers=await runRange("dealer_cash_handover","lower(COALESCE(status,'pending'))='rejected'");
       const priorDate=from||"9999-12-31";
       const priorReceipts=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash' AND date < $2::date",[did,priorDate]);
       const priorExpenses=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_expense WHERE dealer_id=$1 AND date < $2::date",[did,priorDate]);
-      const priorHandovers=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_handover WHERE dealer_id=$1 AND date < $2::date",[did,priorDate]);
+      const priorHandovers=await pool.query("SELECT COALESCE(SUM(amount),0) AS n FROM dealer_cash_handover WHERE dealer_id=$1 AND lower(COALESCE(status,'pending'))='accepted' AND date < $2::date",[did,priorDate]);
       const opening=num(priorReceipts.rows[0]?.n)-num(priorExpenses.rows[0]?.n)-num(priorHandovers.rows[0]?.n);
       const cashReceived=receipts.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
       const expenseTotal=expenses.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
       const handoverTotal=handovers.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
       const closing=opening+cashReceived-expenseTotal-handoverTotal;
-      return Response.json({receipts:receipts.rows,expenses:expenses.rows.map((x:any)=>({...x,category_label:x.category_label||x.category||"",folio:x.folio||""})),handovers:handovers.rows,summary:{opening_balance:opening,cash_received:cashReceived,expenses:expenseTotal,ho_handover:handoverTotal,net_movement:cashReceived-expenseTotal-handoverTotal,closing_balance:closing}});
+      return Response.json({receipts:receipts.rows,expenses:expenses.rows.map((x:any)=>({...x,category_label:x.category_label||x.category||"",folio:x.folio||""})),handovers:handovers.rows,pending_handovers:pendingHandovers.rows,rejected_handovers:rejectedHandovers.rows,summary:{pending_handover:pendingHandovers.rows.reduce((s:number,x:any)=>s+num(x.amount),0),opening_balance:opening,cash_received:cashReceived,expenses:expenseTotal,ho_handover:handoverTotal,net_movement:cashReceived-expenseTotal-handoverTotal,closing_balance:closing}});
     }
     if(p==="dealer/cash-book/all-receipts"&&a.scope==="dealer"){
       await ensureDealerCashSchema();
@@ -1148,21 +1445,21 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({expenses:r.rows,rows:r.rows,count:r.rowCount});
     }
     if(p==="dealer/cash-book/customers"&&a.scope==="dealer"){
-      await ensureDealerCashSchema();
-      const did=num(a.dealer_id),u=new URL(req.url),q=String(u.searchParams.get("q")||"").trim(),status=String(u.searchParams.get("status")||"").trim().toUpperCase(),payable=u.searchParams.get("payable_only")==="1";
+      await ensureDealerCashSchema();await ensureBillingSalesSchema();
+      const did=num(a.dealer_id),u=new URL(req.url),q=String(u.searchParams.get("q")||"").trim().toLowerCase(),status=String(u.searchParams.get("status")||"").trim().toUpperCase(),payable=u.searchParams.get("payable_only")==="1";
       const cols=await columns("dealer_cash_customer"); if(!cols.size)return Response.json({error:"Customer register table not found."},{status:404});
-      const args:any[]=[did],where:string[]=['dealer_id=$1'];
-      if(status&&cols.has("status")){args.push(status);where.push("UPPER(COALESCE(status,''))=$"+args.length);}
-      if(q){const parts=["name","phone","page_no","vehicle_no"].filter(x=>cols.has(x));if(parts.length){args.push("%"+q+"%");const n=args.length;where.push("("+parts.map(x=>"COALESCE(\""+x+"\",'') ILIKE $"+n).join(" OR ")+")");}}
-      const r=await pool.query('SELECT * FROM dealer_cash_customer WHERE '+where.join(" AND ")+' ORDER BY id DESC LIMIT 1000',args);
-      let customers=r.rows.map((x:any)=>({...x,phone:x.phone||x.customer_phone||"",balance:Math.max(0,Number(x.sale_amount||0)-Number(x.loan_amount||0)-Number(x.paid_amount||0))}));
+      const r=await pool.query('SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 ORDER BY id DESC LIMIT 2000',[did]);
+      let customers=await enrichCashCustomers(r.rows);
+      // Search/status are applied after enrichment so resolved name + derived BILLED status are what gets matched.
+      if(status)customers=customers.filter((x:any)=>x.status===status);
+      if(q)customers=customers.filter((x:any)=>[x.name,x.phone,x.page_no,x.vehicle_no].join(" ").toLowerCase().includes(q));
       if(payable)customers=customers.filter((x:any)=>x.balance>0);
       return Response.json({customers,rows:customers,count:customers.length});
     }
     if(p==="dealer/delivery/customers"&&a.scope==="dealer"){
-      await ensureDealerCashSchema();
-      const r=await pool.query("SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 AND UPPER(COALESCE(status,''))='VEHICLE_PENDING' ORDER BY id DESC LIMIT 1000",[num(a.dealer_id)]);
-      const customers=r.rows.map((x:any)=>({...x,phone:x.phone||x.customer_phone||"",balance:Math.max(0,Number(x.sale_amount||0)-Number(x.loan_amount||0)-Number(x.paid_amount||0))}));
+      await ensureDealerCashSchema();await ensureBillingSalesSchema();
+      const r=await pool.query("SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 AND UPPER(COALESCE(status,''))='VEHICLE_PENDING' ORDER BY id DESC LIMIT 2000",[num(a.dealer_id)]);
+      const customers=(await enrichCashCustomers(r.rows)).filter((x:any)=>x.status==="VEHICLE_PENDING");
       return Response.json({customers,rows:customers,count:customers.length});
     }
     if(p==="dealer/incentive-record"&&a.scope==="dealer"){
@@ -1193,7 +1490,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({challans:r.rows});
     }
     if(p==="dealer/tax-invoices"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT ti.* FROM tax_invoice ti LEFT JOIN delivery_challan dc ON ti.delivery_challan_id=dc.id WHERE ti.cancelled=false AND (ti.dealer_id=$1 OR dc.dealer_id=$1) ORDER BY ti.date DESC,ti.id DESC",[num(a.dealer_id)]);
+      const r=await pool.query("SELECT ti.*,"+TI_CALC+" FROM tax_invoice ti LEFT JOIN delivery_challan dc ON ti.delivery_challan_id=dc.id WHERE ti.cancelled=false AND (ti.dealer_id=$1 OR dc.dealer_id=$1) ORDER BY ti.date DESC,ti.id DESC",[num(a.dealer_id)]);
       return Response.json({invoices:r.rows});
     }
     if(p==="dealer/seized-vehicles"&&a.scope==="dealer"){
@@ -1297,14 +1594,15 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       await ensureDispatchSchema();
       const u=new URL(req.url);
       const page=Math.max(1,num(u.searchParams.get("page"))||1);
-      const per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50));
+      const per=Math.min(1000,Math.max(1,num(u.searchParams.get("per_page"))||50));
       const search=String(u.searchParams.get("search")||"").trim();
       const fro=String(u.searchParams.get("fro")||"").trim().toUpperCase();
       const category=String(u.searchParams.get("category")||"").trim().toUpperCase();
       const cols=await columns("product");
       if(!cols.size)return Response.json({error:"Product table not found."},{status:404});
       const args:any[]=[]; const where:string[]=[];
-      if(category && cols.has("product_category")){args.push(category);where.push('UPPER(COALESCE("product_category",CASE WHEN "fro"=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END))=$'+args.length);}
+      if(fro && cols.has("fro")){args.push(fro);where.push('UPPER(COALESCE("fro",\'\'))=$'+args.length);}
+      if(category && cols.has("product_category")){args.push(category);where.push('UPPER(COALESCE(NULLIF("product_category",\'\'),CASE WHEN "fro"=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END))=$'+args.length);}
       const terms:string[]=[];
       for(const col of ["name","code","hsn_code","chassis_item_code","umrn_code"]){
         if(cols.has(col)){args.push("%"+search+"%");terms.push('"'+col+'" ILIKE $'+args.length);}
@@ -1313,7 +1611,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const whereSql=where.length?" WHERE "+where.join(" AND "):"";
       const total=await pool.query('SELECT COUNT(*)::int AS n FROM "product"'+whereSql,args);
       const offset=(page-1)*per;
-      const rows=await pool.query('SELECT *,COALESCE(NULLIF(product_category,\'\'),CASE WHEN fro=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END) AS category FROM "product"'+whereSql+" ORDER BY id DESC LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
+      const rows=await pool.query('SELECT *,COALESCE(NULLIF(product_category,\'\'),CASE WHEN fro=\'F\' THEN \'FINISHED\' ELSE \'RAW\' END) AS category FROM "product"'+whereSql+((fro||category)?" ORDER BY name,id":" ORDER BY id DESC")+" LIMIT $"+(args.length+1)+" OFFSET $"+(args.length+2),[...args,per,offset]);
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
     }
@@ -1518,6 +1816,61 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     }
 
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    // Production Formula: naam ya model (Finished Product) badalna - us formula ki saari lines + pending vouchers ka formula_name/product_name.
+    if(p==="production-formulas/rename"){
+      await ensureProductionFormulaSchema();
+      const oldProduct=String(b.old_product_name||b.product_name||"").trim(),newProduct=String(b.new_product_name||oldProduct).trim();
+      const oldName=String(b.old_formula_name||"").trim(),newName=String(b.new_formula_name||"").trim();
+      const ids:number[]=(Array.isArray(b.ids)?b.ids:[]).map((x:any)=>Number(x)).filter((x:number)=>Number.isFinite(x)&&x>0);
+      if(!newProduct||!newName)return Response.json({error:"Product aur naya Formula Name zaroori hai."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        // Rows to rename: by id (exact) when the screen sends them, else by normalised product+formula name.
+        let rowsQ:any;
+        if(ids.length)rowsQ=await client.query("SELECT id,product_name,formula_name FROM production_formula WHERE id=ANY($1::bigint[])",[ids]);
+        else rowsQ=await client.query("SELECT id,product_name,formula_name FROM production_formula WHERE "+NORM("product_name")+"="+NORM("$1")+" AND "+NORM("formula_name")+"="+NORM("$2"),[oldProduct,oldName]);
+        if(!rowsQ.rowCount){
+          const dbg=await client.query("SELECT DISTINCT product_name,formula_name FROM production_formula WHERE "+NORM("product_name")+" LIKE '%'||"+NORM("$1")+"||'%' LIMIT 5",[oldProduct]);
+          throw new Error("Purana formula nahi mila. Search: ["+oldProduct+"]/["+oldName+"]. DB me is product ke formula: "+(dbg.rows.map((x:any)=>"["+x.product_name+"]/["+x.formula_name+"]").join(", ")||"koi nahi"));
+        }
+        const rowIds=rowsQ.rows.map((x:any)=>Number(x.id));
+        const prevProduct=String(rowsQ.rows[0].product_name||""),prevName=String(rowsQ.rows[0].formula_name||"");
+        const clash=await client.query("SELECT 1 FROM production_formula WHERE "+NORM("product_name")+"="+NORM("$1")+" AND "+NORM("formula_name")+"="+NORM("$2")+" AND id<>ALL($3::bigint[]) LIMIT 1",[newProduct,newName,rowIds]);
+        if(clash.rowCount)throw new Error("\""+newProduct+"\" me \""+newName+"\" naam ka formula pehle se hai.");
+        const r=await client.query("UPDATE production_formula SET formula_name=$1,product_name=$2 WHERE id=ANY($3::bigint[])",[newName,newProduct,rowIds]);
+        await client.query("UPDATE production_voucher SET formula_name=$3,product_name=$4 WHERE "+NORM("product_name")+"="+NORM("$1")+" AND "+NORM("formula_name")+"="+NORM("$2"),[prevProduct,prevName,newName,newProduct]);
+        await client.query("COMMIT");
+        return Response.json({success:true,updated:r.rowCount});
+      }catch(e:any){await client.query("ROLLBACK");return Response.json({error:e.message||"Rename failed"},{status:400})}finally{client.release()}
+    }
+    // Production Formula: poora formula ek request me save (id wali lines update, bina id wali nayi insert) - ek transaction me.
+    if(p==="production-formulas/save"){
+      await ensureProductionFormulaSchema();
+      const product=String(b.product_name||"").trim(),formula=String(b.formula_name||"").trim();
+      const lines:any[]=Array.isArray(b.lines)?b.lines:[];
+      if(!product||!formula)return Response.json({error:"Product aur Formula Name zaroori hai."},{status:400});
+      if(!lines.length)return Response.json({error:"Kam se kam ek raw material line chahiye."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        let updated=0,inserted=0;
+        for(const l of lines){
+          const rawItem=String(l.raw_item_name||"").trim(),qty=num(l.qty),unit=String(l.unit||"PCS").trim()||"PCS";
+          if(!rawItem||qty<=0)throw new Error("Har line me Raw Material aur 0 se zyada Qty zaroori hai.");
+          const raw=await client.query("SELECT 1 FROM product WHERE COALESCE(fro,'')='R' AND lower(trim(name))=lower(trim($1)) LIMIT 1",[rawItem]);
+          if(!raw.rowCount)throw new Error("\""+rawItem+"\" Product Master ke Raw Material me nahi hai.");
+          const id=idOf(l.id);
+          if(id){
+            const r=await client.query("UPDATE production_formula SET raw_item_name=$1,qty=$2,unit=$3 WHERE id=$4 AND "+NORM("product_name")+"="+NORM("$5")+" AND "+NORM("formula_name")+"="+NORM("$6"),[rawItem,qty,unit,id,product,formula]);
+            if(r.rowCount){updated++;continue;}
+          }
+          await client.query("INSERT INTO production_formula (product_name,formula_name,raw_item_name,qty,unit) VALUES ($1,$2,$3,$4,$5)",[product,formula,rawItem,qty,unit]);inserted++;
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,updated,inserted});
+      }catch(e:any){await client.query("ROLLBACK");return Response.json({error:e.message||"Save failed"},{status:400})}finally{client.release()}
+    }
     if(p==="hr/employees"){
       await ensureHRSchemas();
       const r=await pool.query("INSERT INTO hr_employee (employee_code,name,department,designation,mobile,photo_url,joining_date,machine_user_id,basic_salary,hra,other_allowance,overtime_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",[String(b.employee_code||"").trim(),String(b.name||"").trim(),b.department||null,b.designation||null,b.mobile||null,b.photo_url||null,b.joining_date||null,b.machine_user_id||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate)]);
@@ -1549,16 +1902,64 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const did=num(a.dealer_id),amount=num(b.amount);
       if(amount<=0)return Response.json({error:"Expense amount is required."},{status:400});
       const no="EXP-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5);
-      const r=await pool.query("INSERT INTO dealer_cash_expense (dealer_id,date,expense_no,category,category_label,amount,paid_to,remarks,folio,status) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,'ACTIVE') RETURNING *",[did,b.date||null,no,String(b.category||"other"),String(b.category_label||b.category||"").trim(),amount,String(b.paid_to||"").trim()||null,String(b.remarks||"").trim()||null,String(b.folio||"").trim()||null]);
+      // Purani DB me expense_date NOT NULL hoti hai; date aur expense_date dono sync rakho (handover jaisa).
+      const eDate=String(b.date||b.expense_date||"").slice(0,10)||new Date().toISOString().slice(0,10);
+      const ec=await columns("dealer_cash_expense");
+      const ein:any={dealer_id:did,date:eDate,expense_date:eDate,expense_no:no,category:String(b.category||"other"),category_label:String(b.category_label||b.category||"").trim(),amount,paid_to:String(b.paid_to||"").trim()||null,remarks:String(b.remarks||"").trim()||null,folio:String(b.folio||"").trim()||null,status:"ACTIVE"};
+      const ek=Object.keys(ein).filter(k=>ec.has(k));
+      const r=await pool.query('INSERT INTO dealer_cash_expense ('+ek.map(k=>'"'+k+'"').join(",")+') VALUES ('+ek.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',ek.map(k=>ein[k]));
       return Response.json({success:true,expense:r.rows[0],row:r.rows[0]},{status:201});
     }
     if(a.scope==="dealer" && p==="dealer/cash-book/handover"){
       await ensureDealerCashSchema();
       const did=num(a.dealer_id),amount=num(b.amount);
       if(amount<=0)return Response.json({error:"Handover amount is required."},{status:400});
+      const pos=await dealerCashPosition(did);
+      if(amount>pos.available_for_handover+0.001)return Response.json({error:"Handover amount cash in hand se zyada hai. Available: Rs "+Math.max(0,pos.available_for_handover).toLocaleString("en-IN")+(pos.pending_handover>0?" (Rs "+pos.pending_handover.toLocaleString("en-IN")+" pehle se pending acceptance me hai)":"")},{status:400});
       const no="HO-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5);
-      const r=await pool.query("INSERT INTO dealer_cash_handover (dealer_id,date,handover_no,amount,sent_to,remarks,folio,status) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,'pending') RETURNING *",[did,b.date||null,no,amount,String(b.sent_to||"").trim()||null,String(b.remarks||"").trim()||null,String(b.folio||"").trim()||null]);
+      const hDate=String(b.date||b.handover_date||"").slice(0,10)||new Date().toISOString().slice(0,10);
+      const hc=await columns("dealer_cash_handover");
+      const hin:any={dealer_id:did,date:hDate,handover_date:hDate,handover_no:no,amount,sent_to:String(b.sent_to||"").trim()||null,remarks:String(b.remarks||"").trim()||null,folio:String(b.folio||"").trim()||null,status:"pending"};
+      const hk=Object.keys(hin).filter(k=>hc.has(k));
+      const r=await pool.query('INSERT INTO dealer_cash_handover ('+hk.map(k=>'"'+k+'"').join(",")+') VALUES ('+hk.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',hk.map(k=>hin[k]));
       return Response.json({success:true,handover:r.rows[0],row:r.rows[0]},{status:201});
+    }
+    // Admin (Head Office): dealer ka cash handover accept / reject.
+    // Accept = dealer ke cashbook me OUT (accepted status se) + admin Day Book me IN (credit entry).
+    if(/^admin\/cash-handovers\/\d+\/(accept|reject)$/.test(p)){
+      if(!isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
+      await ensureDealerCashSchema();
+      const id=idOf(path[2]),action=path[3];
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const cur=await client.query("SELECT h.*,d.name AS dealer_name FROM dealer_cash_handover h LEFT JOIN dealer d ON d.id=h.dealer_id WHERE h.id=$1 FOR UPDATE OF h",[id]);
+        if(!cur.rowCount)throw new Error("Handover not found.");
+        const h=cur.rows[0];
+        if(String(h.status||"pending").toLowerCase()!=="pending")throw new Error("Ye handover pehle hi "+h.status+" ho chuka hai.");
+        const who=String(a.full_name||a.username||a.name||a.sub||"admin");
+        if(action==="reject"){
+          const upd=await client.query("UPDATE dealer_cash_handover SET status='rejected',accepted_at=NOW(),accepted_by=$1,reject_reason=$2 WHERE id=$3 RETURNING *",[who,String(b.reason||"").trim()||null,id]);
+          await client.query("COMMIT");return Response.json({success:true,handover:upd.rows[0]});
+        }
+        // Admin Day Book me IN entry (columns jo table me hain wahi bharenge).
+        const dbc=await columns("day_book");let dayBookId:any=null;
+        if(dbc.size){
+          const dt=ymd(h.date)||new Date().toISOString().slice(0,10);
+          // day_book.vr_no purani DB me integer hai -> handover_no (text) nahi ja sakta. Numeric ho to next number lo; handover no narration me rehta hai.
+          const vt=(await client.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='day_book' AND column_name='vr_no'")).rows[0]?.data_type||"";
+          let vrNo:any=h.handover_no;
+          if(["integer","bigint","smallint","numeric"].includes(vt)){vrNo=Number((await client.query("SELECT COALESCE(MAX(vr_no),0)+1 AS n FROM day_book")).rows[0]?.n||1);}
+          const entry:any={date:dt,vr_no:vrNo,dealer_name:h.dealer_name||"",dealer_id:h.dealer_id,credit_received:num(h.amount),debit_paid:0,payment_mode:"cash",mode:"cash",
+            narration:"Cash handover received from "+(h.dealer_name||"dealer")+" ("+h.handover_no+")"+(h.remarks?" - "+h.remarks:""),folio:h.folio||null};
+          const keys=Object.keys(entry).filter(k=>dbc.has(k));
+          const ins=await client.query('INSERT INTO day_book ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>entry[k]));
+          dayBookId=ins.rows[0]?.id||null;
+        }
+        const upd=await client.query("UPDATE dealer_cash_handover SET status='accepted',accepted_at=NOW(),accepted_by=$1,day_book_id=$2 WHERE id=$3 RETURNING *",[who,dayBookId,id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,handover:upd.rows[0],day_book_id:dayBookId});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
       await ensureDealerCashSchema();
@@ -1573,6 +1974,13 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           if(!cid)throw new Error("Previous customer is required.");
           const chk=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[cid,did]);
           if(!chk.rowCount)throw new Error("Customer not found.");
+          // Balance payment form sirf customer_id bhejta hai; receipt row (customer_name NOT NULL) ke liye details customer register se lo.
+          const [ec]=await enrichCashCustomers([chk.rows[0]]);
+          b.customer_name=String(b.customer_name||"").trim()||ec?.name||"";
+          b.customer_phone=String(b.customer_phone||"").trim()||ec?.phone||"";
+          b.dealer_register_page_no=String(b.dealer_register_page_no||"").trim()||String(chk.rows[0].page_no||"").trim();
+          b.sale_amount=chk.rows[0].sale_amount;
+          b.loan_amount=chk.rows[0].loan_amount;
         }else{
           const input:any={dealer_id:did,name:String(b.customer_name||"").trim(),phone:String(b.customer_phone||"").trim(),full_name:String(b.customer_name||"").trim(),customer_phone:String(b.customer_phone||"").trim(),page_no:String(b.dealer_register_page_no||"").trim()||null,vehicle_no:String(b.booking_for||"new").trim(),sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),paid_amount:num(b.amount),status:"VEHICLE_PENDING",date:date||null};
           const keys=Object.keys(input).filter(k=>cc.has(k));
@@ -1581,7 +1989,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           const rr=await client.query('INSERT INTO dealer_cash_customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
           cid=rr.rows[0].id;
         }
-        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||null,customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_date:date,receipt_no:"RC-"+Date.now()};
+        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||"-",customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_date:date,receipt_no:"RC-"+Date.now()};
         const keys=Object.keys(input).filter(k=>rc.has(k));
         const rr=await client.query('INSERT INTO dealer_cash_receipt ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
         const receipt=rr.rows[0];
@@ -1643,6 +2051,11 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const effectiveDealer=dealerId||Number(a?.dealer_id||0);
       if(a?.scope==="dealer"&&effectiveDealer!==Number(a.dealer_id||0))return Response.json({error:"Invalid dealer selected."},{status:403});
       if(!effectiveDealer)return Response.json({error:"Dealer is required."},{status:400});
+      // Dealers can create their own Pending Sale only if they are a Showroom / Branch.
+      if(a?.scope==="dealer"){
+        const dc=await pool.query("SELECT LOWER(COALESCE(dealer_category,'')) AS cat FROM dealer WHERE id=$1",[effectiveDealer]);
+        if(!["showroom","branch"].includes(String(dc.rows[0]?.cat||"")))return Response.json({error:"Create Sale sirf Showroom / Branch dealer ke liye hai."},{status:403});
+      }
       let vehicle:any=null;
       if(challanId){
         const vr=await pool.query(`SELECT dc.*,d.name AS dealer_name,v.model_name,v.colour AS vehicle_colour,v.motor_no AS vehicle_motor_no,
@@ -1657,12 +2070,19 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       }
       if(loanAmount>saleAmount&&saleAmount>0)return Response.json({error:"Loan Amount cannot be greater than Sale Amount."},{status:400});
       const customerName=String(b.customer_name||b.buyer_name||"").trim()||null;
+      const cashCustId=idOf(b.dealer_cash_customer_id);
+      if(cashCustId){
+        const cc=await pool.query("SELECT id,dealer_id FROM dealer_cash_customer WHERE id=$1",[cashCustId]);
+        if(!cc.rowCount||Number(cc.rows[0].dealer_id)!==effectiveDealer)return Response.json({error:"Selected customer does not belong to selected dealer."},{status:403});
+        const dupc=await pool.query("SELECT id FROM grd_billing_sale WHERE dealer_cash_customer_id=$1 AND status IN ('PENDING','APPROVED','BILLED') LIMIT 1",[cashCustId]);
+        if(dupc.rowCount)return Response.json({error:"This customer already has a Pending Sale."},{status:409});
+      }
       if(!applicationId&&!customerName)return Response.json({error:"Select a Loan Approved customer or enter Customer Name manually."},{status:400});
       const values:any={
-        application_id:applicationId||null,dealer_id:effectiveDealer,customer_id:customerId,vehicle_id:vehicle?.vehicle_id||null,chassis_no:vehicle?.chassis_no||String(b.chassis_no||"").trim()||null,
+        application_id:applicationId||null,dealer_cash_customer_id:cashCustId||null,dealer_id:effectiveDealer,customer_id:customerId,vehicle_id:vehicle?.vehicle_id||null,chassis_no:vehicle?.chassis_no||String(b.chassis_no||"").trim()||null,
         description:description||"Internal Sale",sale_amount:saleAmount||Number(vehicle?.sale_value||0),status:"PENDING",
         customer_name:customerName,customer_phone:String(b.customer_phone||b.buyer_mobile||"").trim()||null,customer_address:String(b.customer_address||b.buyer_address||"").trim()||null,customer_state:String(b.customer_state||b.buyer_state||"").trim()||null,
-        sale_type:String(b.sale_type||"").trim()||null,page_no:String(b.page_no||b.dealer_page_no||"").trim()||null,do_no:String(b.do_no||"").trim()||null,internal_sale_details:String(b.internal_sale_details||description||"").trim()||null,
+        sale_type:(({NEW:"NEW RICKSHAW",OLD:"OLD RICKSHAW",BATTERY:"BATTERY"} as any)[String(b.sale_category||"").toUpperCase()]||String(b.sale_type||"").trim()||null),page_no:String(b.page_no||b.dealer_page_no||"").trim()||null,do_no:String(b.do_no||"").trim()||null,internal_sale_details:String(b.internal_sale_details||description||"").trim()||null,
         buyer_relation:b.buyer_relation||null,buyer_father_name:b.buyer_father_name||null,buyer_gst_no:b.buyer_gst_no||null,buyer_pan:b.buyer_pan||null,buyer_aadhar:b.buyer_aadhar||null,buyer_dob:b.buyer_dob||null,buyer_state_code:b.buyer_state_code||null,
         state_type:b.state_type||"I",mode_term:b.mode_term||null,bank_name:b.bank_name||null,bank_account_no:b.bank_account_no||null,bank_ifsc:b.bank_ifsc||null,rto_name:b.rto_name||null,despatch_through:b.despatch_through||null,eway_bill_no:b.eway_bill_no||null,license_no:b.license_no||null,cvr_no:b.cvr_no||null,cancelled_cheque_no:b.cancelled_cheque_no||null,remarks:b.remarks||null,
         amount_received:num(b.amount_received),financer_name:b.financer_name||null,hypothecation_amount:num(b.hypothecation_amount||b.loan_amount),vehicle_reg_no:b.vehicle_reg_no||null,ledger_no:b.ledger_no||null,chassis_record_no:b.chassis_record_no||null,voucher_no:b.voucher_no||null,subsidy_amount:num(b.subsidy_amount),
@@ -1671,6 +2091,14 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const cols=await columns("grd_billing_sale"),keys=Object.keys(values).filter(k=>cols.has(k)),ph=keys.map((_,i)=>"$"+(i+1));
       const r=await pool.query('INSERT INTO grd_billing_sale ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+ph.join(",")+') RETURNING *',keys.map(k=>values[k]));
       return Response.json({success:true,sale:r.rows[0]},{status:201});
+    }
+    if(p.startsWith("billing/pending-sales/") && p.endsWith("/complete")){
+      await ensureBillingSalesSchema();
+      if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Sale id is required."},{status:400});
+      const r=await pool.query("UPDATE grd_billing_sale SET status='BILLED',updated_at=NOW() WHERE id=$1 AND status='APPROVED' AND UPPER(COALESCE(sale_type,'')) IN ('OLD RICKSHAW','BATTERY') RETURNING *",[id]);
+      if(!r.rowCount)return Response.json({error:"Only approved Old Rickshaw / Battery sales can be completed without GST invoice."},{status:409});
+      return Response.json({success:true,sale:r.rows[0]});
     }
     if(p.startsWith("billing/pending-sales/") && p.endsWith("/approve")){
       await ensureBillingSalesSchema();
@@ -1687,19 +2115,30 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const sale=await pool.query(`SELECT s.*,lw.application_no,lw.loan_amount,lw.customer_id AS lw_customer_id,lw.dealer_id AS lw_dealer_id,
         c.full_name AS joined_customer_name,c.phone AS joined_customer_phone,d.name AS dealer_name
         FROM grd_billing_sale s LEFT JOIN loan_workflow lw ON lw.id=s.application_id
-        LEFT JOIN customer c ON c.id=s.customer_id LEFT JOIN dealer d ON d.id=s.dealer_id WHERE s.id=$1 FOR UPDATE`,[id]);
+        LEFT JOIN customer c ON c.id=s.customer_id LEFT JOIN dealer d ON d.id=s.dealer_id WHERE s.id=$1 FOR UPDATE OF s`,[id]);
       if(!sale.rowCount)return Response.json({error:"Sale not found."},{status:404});
       const s=sale.rows[0];s.customer_name=s.customer_name||s.joined_customer_name||"";s.customer_phone=s.customer_phone||s.joined_customer_phone||"";if(s.status!=="APPROVED")return Response.json({error:"Approve the sale before saving the Tax Invoice."},{status:403});
+      if(["OLD RICKSHAW","BATTERY"].includes(String(s.sale_type||"").toUpperCase()))return Response.json({error:"Bill No. sirf New Rickshaw par banta hai. Old Rickshaw / Battery ke liye Complete Sale (No GST) use karo."},{status:409});
       if(s.invoice_id){const inv=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[s.invoice_id]);return Response.json({success:true,invoice:inv.rows[0]});}
       const invoice:any=b.invoice||b,cols=await columns("tax_invoice");
+      // Internal Sale Amount and Loan / Hypothecation Amount are frozen at approval: always taken from the approved sale, never from the form.
+      const lockedSale=num(s.sale_amount),lockedLoan=num(s.hypothecation_amount)||num(s.loan_amount);
+      const t=(k:string)=>{const v=invoice[k];return v===undefined||v===null||String(v).trim()===""?null:String(v).trim()};
       const values:any={
         date:invoice.date||new Date().toISOString().slice(0,10),bill_no:null,buyer_name:String(invoice.buyer_name||s.customer_name||"").trim()||null,
         buyer_mobile:String(invoice.buyer_mobile||s.customer_phone||"").trim()||null,buyer_address:invoice.buyer_address||null,buyer_state:invoice.buyer_state||null,
         dealer_name:String(invoice.dealer_name||s.dealer_name||"").trim()||null,product_name:invoice.product_name||null,chassis_no:invoice.chassis_no||s.chassis_no||null,
         motor_no:invoice.motor_no||null,controller_no:invoice.controller_no||null,colour:invoice.colour||null,
-        sale_amount:num(invoice.sale_amount||s.sale_amount),gst_sale_amount:num(invoice.gst_sale_amount||invoice.sale_amount||s.sale_amount),
-        gst_rate:num(invoice.gst_rate)||5,hypothecation_amount:num(invoice.hypothecation_amount||s.loan_amount),amount_received:num(invoice.amount_received),
-        mode_term:invoice.mode_term||"CHFPL",remarks:invoice.remarks||s.description||null,vehicle_id:s.vehicle_id||null,delivery_challan_id:null
+        sale_amount:lockedSale,gst_sale_amount:num(invoice.gst_sale_amount||lockedSale),
+        gst_rate:num(invoice.gst_rate)||5,hypothecation_amount:lockedLoan,amount_received:num(invoice.amount_received),
+        mode_term:invoice.mode_term||"CHFPL",remarks:invoice.remarks||s.description||null,vehicle_id:s.vehicle_id||null,delivery_challan_id:null,
+        dealer_page_no:t("dealer_page_no"),buyer_relation:t("buyer_relation"),buyer_father_name:t("buyer_father_name"),buyer_gst_no:t("buyer_gst_no"),
+        buyer_pan:t("buyer_pan"),buyer_aadhar:t("buyer_aadhar"),buyer_dob:t("buyer_dob"),buyer_state_code:t("buyer_state_code"),state_type:t("state_type")||"I",
+        bank_name:t("bank_name"),bank_account_no:t("bank_account_no"),bank_ifsc:t("bank_ifsc"),rto_name:t("rto_name"),despatch_through:t("despatch_through"),
+        eway_bill_no:t("eway_bill_no"),license_no:t("license_no"),cvr_no:t("cvr_no"),cancelled_cheque_no:t("cancelled_cheque_no"),financer_name:t("financer_name"),
+        vehicle_reg_no:t("vehicle_reg_no"),ledger_no:t("ledger_no"),chassis_record_no:t("chassis_record_no"),voucher_no:t("voucher_no"),
+        subsidy_amount:num(invoice.subsidy_amount),do_no:t("do_no"),insurance_amount:num(invoice.insurance_amount),
+        registration_amount:num(invoice.registration_amount),discount:num(invoice.discount)
       };
       const keys=Object.keys(values).filter(k=>cols.has(k));const rr=await pool.connect();
       try{
@@ -1885,6 +2324,11 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           if(dup.rowCount)throw new Error("Chassis No. already exists.");
         }
         const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
+        // Ek model ke 2-3 formula ho sakte hain: formula chune bina sab formulas ka stock ek saath kat jata, isliye zaroori.
+        if(!String(b.formula_name||"").trim()){
+          const fc=await client.query("SELECT COUNT(DISTINCT formula_name)::int AS n FROM production_formula WHERE product_name=$1",[b.product_name||""]);
+          if(Number(fc.rows[0]?.n||0)>1)throw new Error("Is model ke ek se zyada formula hain. Formula Name select karein.");
+        }
         const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,formula_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()) RETURNING *",
           [String(b.vou_no||""),b.date||null,b.product_name||"",String(b.formula_name||""),qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
         if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
@@ -1953,7 +2397,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,data:r.rows[0]||null});
     }
     if(p.startsWith("tax-invoices/") && p.endsWith("/print")){
-      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT ti.*,"+TI_CALC+" FROM tax_invoice ti WHERE ti.id=$1",[id]);
       return Response.json({success:true,data:r.rows[0]||null});
     }
     if(p==="battery-swap-vouchers"){
@@ -2043,7 +2487,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]});
     }
     const table=tableFor(path);
-    if(table)return genericWrite(req,path,table,"POST");
+    if(table)return genericWrite(req,path,table,"POST",b);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
   }catch(e:any){console.error("[node-api POST]",e);return Response.json({error:e.message||"Internal server error"},{status:500})}
 }
@@ -2057,6 +2501,58 @@ async function mutation(req:Request,params:any,method:string){
     const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
 
+    // Production Formula: poora formula (ek product + formula name ki saari lines) delete.
+    if(method==="DELETE" && p==="production-formulas/by-product"){
+      await ensureProductionFormulaSchema();
+      const u=new URL(req.url),product=String(u.searchParams.get("product_name")||"").trim(),formula=String(u.searchParams.get("formula_name")||"").trim();
+      if(!product)return Response.json({error:"Product zaroori hai."},{status:400});
+      const r=await pool.query("DELETE FROM production_formula WHERE "+NORM("product_name")+"="+NORM("$1")+" AND "+NORM("formula_name")+"="+NORM("$2"),[product,formula]);
+      return Response.json({success:r.rowCount>0,deleted:r.rowCount});
+    }
+
+    if(p.startsWith("billing/pending-sales/") && (method==="PUT" || method==="PATCH" || method==="DELETE")){
+      await ensureBillingSalesSchema();
+      if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
+      const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Sale id is required."},{status:400});
+      const cur=await pool.query("SELECT * FROM grd_billing_sale WHERE id=$1",[id]);
+      if(!cur.rowCount)return Response.json({error:"Sale not found."},{status:404});
+      const s=cur.rows[0];
+      if(method==="DELETE"){
+        // Approved / Billed sales can never be deleted.
+        if(s.status!=="PENDING")return Response.json({error:"Approved / Billed sale delete nahi ho sakti."},{status:409});
+        const r=await pool.query("DELETE FROM grd_billing_sale WHERE id=$1 AND status='PENDING' RETURNING id",[id]);
+        if(!r.rowCount)return Response.json({error:"Approved / Billed sale delete nahi ho sakti."},{status:409});
+        return Response.json({success:true});
+      }
+      if(s.status==="BILLED")return Response.json({error:"Billed sale edit nahi ho sakti."},{status:409});
+      const b:any=await json(req);
+      const txt=(k:string,...alts:string[])=>{for(const x of [k,...alts])if(b[x]!==undefined)return String(b[x]??"").trim()||null;return undefined};
+      const numv=(...ks:string[])=>{for(const x of ks)if(b[x]!==undefined)return num(b[x]);return undefined};
+      const patch:any={
+        customer_name:txt("customer_name","buyer_name"),customer_phone:txt("customer_phone","buyer_mobile"),customer_address:txt("customer_address","buyer_address"),
+        customer_state:txt("customer_state","buyer_state"),page_no:txt("page_no","dealer_page_no"),do_no:txt("do_no"),internal_sale_details:txt("internal_sale_details"),
+        description:txt("description"),buyer_relation:txt("buyer_relation"),buyer_father_name:txt("buyer_father_name"),buyer_gst_no:txt("buyer_gst_no"),buyer_pan:txt("buyer_pan"),
+        buyer_aadhar:txt("buyer_aadhar"),buyer_dob:txt("buyer_dob"),buyer_state_code:txt("buyer_state_code"),state_type:txt("state_type"),mode_term:txt("mode_term"),
+        bank_name:txt("bank_name"),bank_account_no:txt("bank_account_no"),bank_ifsc:txt("bank_ifsc"),rto_name:txt("rto_name"),despatch_through:txt("despatch_through"),
+        eway_bill_no:txt("eway_bill_no"),license_no:txt("license_no"),cvr_no:txt("cvr_no"),cancelled_cheque_no:txt("cancelled_cheque_no"),remarks:txt("remarks"),
+        financer_name:txt("financer_name"),vehicle_reg_no:txt("vehicle_reg_no"),ledger_no:txt("ledger_no"),chassis_record_no:txt("chassis_record_no"),voucher_no:txt("voucher_no"),
+        amount_received:numv("amount_received"),subsidy_amount:numv("subsidy_amount"),gst_sale_amount:numv("gst_sale_amount"),gst_rate:numv("gst_rate"),
+        insurance_amount:numv("insurance_amount"),registration_amount:numv("registration_amount"),discount:numv("discount")
+      };
+      // Internal Sale Amount + Loan Amount: editable only while PENDING, frozen once APPROVED.
+      if(s.status==="PENDING"){
+        patch.sale_amount=numv("sale_amount");
+        patch.hypothecation_amount=numv("hypothecation_amount","loan_amount");
+        const sa=patch.sale_amount??num(s.sale_amount),la=patch.hypothecation_amount??num(s.hypothecation_amount);
+        if(sa>0&&la>sa)return Response.json({error:"Loan Amount cannot be greater than Sale Amount."},{status:400});
+        if(patch.customer_name===null)return Response.json({error:"Customer Name required hai."},{status:400});
+      }
+      const cols=await columns("grd_billing_sale"),keys=Object.keys(patch).filter(k=>patch[k]!==undefined&&cols.has(k));
+      if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
+      const r=await pool.query('UPDATE grd_billing_sale SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+',updated_at=NOW() WHERE id=$'+(keys.length+1)+' AND status IN (\'PENDING\',\'APPROVED\') RETURNING *',[...keys.map(k=>patch[k]),id]);
+      if(!r.rowCount)return Response.json({error:"Sale could not be updated."},{status:409});
+      return Response.json({success:true,sale:r.rows[0]});
+    }
     if(p.startsWith("purchase-bills/") && (method==="PUT" || method==="PATCH" || method==="DELETE")){
       const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Purchase Bill id required."},{status:400});
       const client=await pool.connect();
@@ -2092,7 +2588,7 @@ async function mutation(req:Request,params:any,method:string){
       return Response.json({success:true,data:r.rows[0]||null});
     }
     if(p.startsWith("tax-invoices/") && p.endsWith("/print") && method==="POST"){
-      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM tax_invoice WHERE id=$1",[id]);
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT ti.*,"+TI_CALC+" FROM tax_invoice ti WHERE ti.id=$1",[id]);
       return Response.json({success:true,data:r.rows[0]||null});
     }
     if(p.startsWith("dealer/cash-book/receipts/") && method==="PUT" && a.scope==="dealer"){

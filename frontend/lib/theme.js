@@ -10,6 +10,7 @@ export const THEMES = [
   { id:'maroon-cream', name:'Maroon + cream', description:'Warm, rich', colors:{bg:'#FDF6F3',surface:'#FFFFFF',primary:'#4A1B0C',primaryHover:'#712B13',accent:'#D85A30',textPrimary:'#3A1509',textSecondary:'#5F5E5A',border:'#F0997B'} },
   { id:'teal-charcoal', name:'Teal + charcoal', description:'Modern, calm', colors:{bg:'#F2F9F6',surface:'#FFFFFF',primary:'#04342C',primaryHover:'#085041',accent:'#1D9E75',textPrimary:'#04342C',textSecondary:'#5F5E5A',border:'#9FE1CB'} },
   { id:'purple-lavender', name:'Purple + lavender', description:'Creative, soft', colors:{bg:'#F5F4FE',surface:'#FFFFFF',primary:'#26215C',primaryHover:'#3C3489',accent:'#7F77DD',textPrimary:'#26215C',textSecondary:'#5F5E5A',border:'#CECBF6'} },
+  { id:'midnight-dark', name:'Midnight dark', description:'Deep, modern dark', colors:{bg:'#0B1220',surface:'#111827',primary:'#0F172A',primaryHover:'#1E293B',accent:'#38BDF8',textPrimary:'#F8FAFC',textSecondary:'#CBD5E1',border:'#334155'} },
   { id:'coral-sand', name:'Coral + sand', description:'Friendly, vibrant', colors:{bg:'#FBF6F0',surface:'#FFFFFF',primary:'#993C1D',primaryHover:'#D85A30',accent:'#F0997B',textPrimary:'#3A1509',textSecondary:'#5F5E5A',border:'#F5C4B3'} },
 ];
 

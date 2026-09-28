@@ -5,6 +5,7 @@ import { Field, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 
 const today = () => new Date().toISOString().slice(0, 10);
+const sectionTitle = { fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', margin: '18px 0 8px' };
 
 export function ProductionVoucherPage() {
   const [data, setData] = useState(null);
@@ -41,7 +42,7 @@ export function ProductionVoucherPage() {
   };
   useEffect(() => {
     load(1, search);
-    get('/products?fro=F&page=1&per_page=1000').then((d) => setProducts(d.products || []));
+    get('/products?fro=F&category=FINISHED&page=1&per_page=1000').then((d) => setProducts(d.products || []));
     get('/production-formulas').then((d) => setFormulas(d.grouped || []));
     get('/masters/colour').then((d) => setColours(d.masters || d || [])).catch(() => {});
     get('/masters/battery-maker').then((d) => setBatteryMakers(d.masters || d || [])).catch(() => {});
@@ -73,7 +74,7 @@ export function ProductionVoucherPage() {
       if (gen.missing_item_code) {
         setError('Note: this product has no Chassis Item Code set in Product Master — used a fallback prefix.');
       }
-    });
+    }).catch(() => {});
   };
 
   const previewBom = async (productName = form.product_name, formulaName = form.formula_name) => {
@@ -89,6 +90,7 @@ export function ProductionVoucherPage() {
 
   const save = (e) => {
     e.preventDefault();
+    if (formulasForProduct.length > 0 && !form.formula_name) { setError('Formula Name select karein — is model ke formula ke hisaab se raw material stock se kategi.'); return; }
     run(async () => {
       if (editingId) await put(`/production-vouchers/${editingId}`, form);
       else await post('/production-vouchers', form);
@@ -153,76 +155,86 @@ export function ProductionVoucherPage() {
 
       {open && (
         <div className="modal">
-          <form className="modalbox" onSubmit={save} style={{ maxWidth: 720 }}>
-            <h2>{editingId ? "Edit Production Voucher" : "New Production Voucher"}</h2>
-            <ErrorBanner message={error} />
-            <div className="formgrid">
-              <Field label="Finished Product" type="select" value={form.product_name}
-                     options={finishedProducts.map((p) => p.name)}
-                     onChange={(v) => {
-                       // If this product has exactly one formula, pre-select it —
-                       // otherwise leave it for the user to choose below.
-                       const matches = formulas.filter((g) => g.product_name === v);
-                       const autoFormula = matches.length === 1 ? matches[0].formula_name : '';
-                       setForm({ ...form, product_name: v, formula_name: autoFormula });
-                       setBomPreview(null);
-                       if (v) previewBom(v, autoFormula);
-                     }} required />
-              <Field label="Formula Name" type="select" value={form.formula_name}
-                     options={formulasForProduct.map((g) => g.formula_name)}
-                     onChange={(v) => { setForm({ ...form, formula_name: v }); previewBom(form.product_name, v); }} />
-              <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
-              <Field label="Vou. No." value={form.vou_no} onChange={(v) => setForm({ ...form, vou_no: v })} />
-              <Field label="Quantity" type="number" value={form.quantity} onChange={(v) => setForm({ ...form, quantity: v })} />
+          <form className="modalbox" onSubmit={save} style={{ maxWidth: 760, padding: 0 }}>
+            <div style={{ padding: '18px 24px 12px', borderBottom: '1px solid var(--line)' }}>
+              <h2 style={{ margin: 0 }}>{editingId ? 'Edit Production Voucher' : 'New Production Voucher'}</h2>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Raw material is deducted from stock as per the selected formula.</div>
             </div>
 
-            {form.product_name && formulasForProduct.length === 0 && (
-              <p className="muted" style={{ marginTop: -6, marginBottom: 12 }}>
-                No formula set up for this product yet — set one up in Production Formula.
-              </p>
-            )}
+            <div style={{ padding: '16px 24px' }}>
+              <ErrorBanner message={error} />
 
-            <div className="actions" style={{ margin: '12px 0' }}>
-              <button type="button" className="btn" onClick={generateCode} disabled={busy}>Generate Chassis/Motor/Controller No.</button>
-              <button type="button" className="btn" onClick={() => previewBom()}>Preview BOM to be Auto-Copied</button>
-            </div>
-
-            <div className="formgrid">
-              <Field label="Chassis No." value={form.chassis_no} onChange={(v) => setForm({ ...form, chassis_no: v })} required />
-              <Field label="Motor No." value={form.motor_no} onChange={(v) => setForm({ ...form, motor_no: v })} />
-              <Field label="Controller No." value={form.controller_no} onChange={(v) => setForm({ ...form, controller_no: v })} />
-              <Field label="Differential No." value={form.differential_no} onChange={(v) => setForm({ ...form, differential_no: v })} />
-              <Field label="Colour" type="select" value={form.colour || ''}
-                     options={colours.map((p) => ({ value: p.name, label: p.code ? `${p.code} — ${p.name}` : p.name }))}
-                     onChange={(v) => {
-                       const x = colours.find((p) => String(p.name) === String(v));
-                       setForm({ ...form, colour: v, colour_code: x?.code || form.colour_code });
-                     }} />
-              <Field label="Colour Code" value={form.colour_code} onChange={(v) => setForm({ ...form, colour_code: v })} />
-              <Field label="Battery Maker" type="select" value={form.battery_maker || ''}
-                     options={batteryMakers.map((p) => ({ value: p.name, label: p.name }))}
-                     onChange={(v) => setForm({ ...form, battery_maker: v })} />
-              <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
-              <Field label="Mechanic" type="select" value={form.machnic || ''}
-                     options={mechanics.map((p) => ({ value: p.name, label: p.name }))}
-                     onChange={(v) => setForm({ ...form, machnic: v })} />
-              <Field label="Other" value={form.other} onChange={(v) => setForm({ ...form, other: v })} />
-            </div>
-
-            {bomPreview && (
-              <div style={{ marginTop: 14 }}>
-                <b style={{ fontSize: 13 }}>Will auto-copy from Production Formula (leave item lines blank to use this):</b>
-                {bomPreview.length === 0 ? (
-                  <p className="muted">No BOM set up for this product yet — set one up in Production Formula.</p>
-                ) : (
-                  <ul style={{ fontSize: 13, marginTop: 6 }}>
-                    {bomPreview.map((l) => <li key={l.id}>{l.raw_item_name} — {l.qty} {l.unit}</li>)}
-                  </ul>
-                )}
+              <div style={sectionTitle}>Product</div>
+              <div className="formgrid">
+                <Field label="Finished Product" type="select" value={form.product_name}
+                       options={finishedProducts.map((p) => p.name)}
+                       onChange={(v) => {
+                         // If this product has exactly one formula, pre-select it —
+                         // otherwise leave it for the user to choose below.
+                         const matches = formulas.filter((g) => g.product_name === v);
+                         const autoFormula = matches.length === 1 ? matches[0].formula_name : '';
+                         setForm({ ...form, product_name: v, formula_name: autoFormula });
+                         setBomPreview(null);
+                         if (v) previewBom(v, autoFormula);
+                       }} required />
+                <Field label="Formula Name" type="select" value={form.formula_name}
+                       options={formulasForProduct.map((g) => g.formula_name)}
+                       onChange={(v) => { setForm({ ...form, formula_name: v }); previewBom(form.product_name, v); }} />
+                <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+                <Field label="Vou. No." value={form.vou_no} onChange={(v) => setForm({ ...form, vou_no: v })} />
+                <Field label="Quantity" type="number" value={form.quantity} onChange={(v) => setForm({ ...form, quantity: v })} />
               </div>
-            )}
+              {form.product_name && formulasForProduct.length === 0 && (
+                <p className="muted" style={{ margin: '8px 0 0' }}>
+                  No formula set up for this product yet — set one up in Production Formula.
+                </p>
+              )}
 
-            <div className="actions" style={{ marginTop: 18 }}>
+              <div style={{ ...sectionTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Vehicle Numbers</span>
+                <button type="button" className="btn" onClick={generateCode} disabled={busy}>Generate Chassis / Motor / Controller No.</button>
+              </div>
+              <div className="formgrid">
+                <Field label="Chassis No." value={form.chassis_no} onChange={(v) => setForm({ ...form, chassis_no: v })} required />
+                <Field label="Motor No." value={form.motor_no} onChange={(v) => setForm({ ...form, motor_no: v })} />
+                <Field label="Controller No." value={form.controller_no} onChange={(v) => setForm({ ...form, controller_no: v })} />
+                <Field label="Differential No." value={form.differential_no} onChange={(v) => setForm({ ...form, differential_no: v })} />
+              </div>
+
+              <div style={sectionTitle}>Colour, Battery &amp; Mechanic</div>
+              <div className="formgrid">
+                {/* Only the colour NAME is shown; the code is still saved silently. */}
+                <Field label="Colour" type="select" value={form.colour || ''}
+                       options={colours.map((p) => ({ value: p.name, label: p.name }))}
+                       onChange={(v) => {
+                         const x = colours.find((p) => String(p.name) === String(v));
+                         setForm({ ...form, colour: v, colour_code: x?.code || (v ? form.colour_code : '') });
+                       }} />
+                <Field label="Mechanic" type="select" value={form.machnic || ''}
+                       options={mechanics.map((p) => ({ value: p.name, label: p.name }))}
+                       onChange={(v) => setForm({ ...form, machnic: v })} />
+                <Field label="Battery Maker" type="select" value={form.battery_maker || ''}
+                       options={batteryMakers.map((p) => ({ value: p.name, label: p.name }))}
+                       onChange={(v) => setForm({ ...form, battery_maker: v })} />
+                <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
+                <Field label="Other" value={form.other} onChange={(v) => setForm({ ...form, other: v })} />
+              </div>
+
+              {bomPreview && (
+                <div style={{ marginTop: 18 }}>
+                  <div style={sectionTitle}>Raw material (auto-copied from formula)</div>
+                  {bomPreview.length === 0 ? (
+                    <p className="muted" style={{ margin: 0 }}>No BOM set up for this product yet — set one up in Production Formula.</p>
+                  ) : (
+                    <ul style={{ fontSize: 13, margin: 0, paddingLeft: 18, maxHeight: 160, overflow: 'auto', columns: 2, columnGap: 24 }}>
+                      {bomPreview.map((l) => <li key={l.id}>{l.raw_item_name} — {l.qty} {l.unit}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="actions" style={{ padding: '12px 24px', borderTop: '1px solid var(--line)', justifyContent: 'flex-end', position: 'sticky', bottom: 0, background: 'var(--modal-bg)' }}>
               <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
               <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
             </div>

@@ -521,8 +521,8 @@
 /* Preset theme chooser: click a theme to apply it; the small check button marks the active choice. */
 .themeChooser{position:absolute;top:38px;right:0;width:auto;max-width:calc(100vw - 28px);padding:8px;display:flex;flex-wrap:wrap;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 32px #0003;z-index:100}
 .themeChooserCollapsed{top:32px;right:auto;left:34px}
-.themeCard{width:28px;height:28px;padding:0;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform .12s ease,border-color .12s ease}
-.themeCard:hover{transform:scale(1.1)}
+.themeCard{width:84px;height:30px;padding:0;border-radius:7px;border:2px solid transparent;cursor:pointer;overflow:hidden;transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
+.themeCard:hover{transform:scale(1.04)}
 .themeCard.selected{border-color:var(--ink);box-shadow:0 0 0 1px var(--card),0 0 0 2px var(--ink)}
 .themeColorButton{background:var(--accent);color:#fff}
 @media(max-width:700px){.themeChooser{top:38px;left:0;right:auto}.themeChooserCollapsed{left:34px;right:auto;top:32px}}

@@ -205,7 +205,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   key={theme.id}
   type="button"
   className={'themeCard'+(pendingTheme===theme.id?' selected':'')}
-  style={{background:`linear-gradient(135deg, ${theme.colors.primary} 50%, ${theme.colors.accent} 50%)`}}
+  style={{background:`linear-gradient(90deg, ${theme.colors.primary} 0 33.333%, ${theme.colors.accent} 33.333% 66.666%, ${theme.colors.bg} 66.666% 100%)`}}
   title={theme.name}
   aria-label={theme.name}
   onClick={() => { changeTheme(theme.id); setPendingTheme(theme.id); setShowPalette(false); }}
@@ -227,7 +227,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   key={theme.id}
   type="button"
   className={'themeCard'+(pendingTheme===theme.id?' selected':'')}
-  style={{background:`linear-gradient(135deg, ${theme.colors.primary} 50%, ${theme.colors.accent} 50%)`}}
+  style={{background:`linear-gradient(90deg, ${theme.colors.primary} 0 33.333%, ${theme.colors.accent} 33.333% 66.666%, ${theme.colors.bg} 66.666% 100%)`}}
   title={theme.name}
   aria-label={theme.name}
   onClick={() => { changeTheme(theme.id); setPendingTheme(theme.id); setShowPalette(false); }}

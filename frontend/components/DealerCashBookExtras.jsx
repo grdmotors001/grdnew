@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { get, post, put } from '../lib/api';
+import { printCashReceipt } from '../lib/printReceipt';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -14,13 +15,21 @@ const categories = [
   ['rent', 'Rent Expense'], ['repairing', 'Repairing Expense'], ['makhi_commission', 'Makhi / Commission Expense'], ['other', 'Other Expense'],
 ];
 
-export function DealerAllReceiptsPage() {
+export function DealerAllReceiptsPage({ dealer } = {}) {
   const [rows, setRows] = useState([]);
+  const [custs, setCusts] = useState([]);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const load = () => get('/dealer/cash-book/all-receipts').then((d) => setRows(d.receipts || [])).catch((e) => setError(e.message || 'Could not load receipts'));
+  const load = () => { get('/dealer/cash-book/customers').then((d) => setCusts(d.customers || [])).catch(() => {}); return get('/dealer/cash-book/all-receipts').then((d) => setRows(d.receipts || [])).catch((e) => setError(e.message || 'Could not load receipts')); };
   useEffect(() => { load(); }, []);
+  // Receipt ke baad customer ka balance = abhi ka balance + is receipt ke baad aayi receipts ka total.
+  const printRow = (r) => {
+    const c = custs.find((x) => String(x.id) === String(r.customer_id));
+    let balanceAfter;
+    if (c) balanceAfter = Math.max(0, Number(c.balance || 0) + rows.filter((x) => String(x.customer_id) === String(r.customer_id) && Number(x.id) > Number(r.id)).reduce((t, x) => t + Number(x.amount || 0), 0));
+    printCashReceipt({ ...r, sale_amount: r.sale_amount || c?.sale_amount, loan_amount: r.loan_amount || c?.loan_amount, customer_name: r.customer_name || c?.name, customer_phone: r.customer_phone || c?.phone, dealer_register_page_no: r.dealer_register_page_no || c?.page_no, balance_after: balanceAfter }, { dealerName: dealer?.name || dealer?.dealer_name || '' });
+  };
   const save = async () => {
     if (!editing) return;
     setSaving(true); setError('');
@@ -42,7 +51,7 @@ export function DealerAllReceiptsPage() {
         <tbody>{rows.map((r) => <tr key={r.id}>
           <td>{r.date}</td><td><b>{r.receipt_no}</b></td><td>{r.customer_name}<div className="muted">{r.customer_phone || ''}</div></td>
           <td>{money(r.amount)}</td><td>{money(r.loan_amount)}</td><td>{r.dealer_register_page_no || '—'}</td>
-          <td><button className="btn" onClick={() => setEditing({...r})}>Edit</button></td>
+          <td><div className="actions"><button className="btn" title="58mm thermal receipt print" onClick={() => printRow(r)}>🖨 Print</button><button className="btn" onClick={() => setEditing({...r})}>Edit</button></div></td>
         </tr>)}{!rows.length && <tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody>
       </table></div>
       {editing && <div className="modal" style={{zIndex:10000}} onMouseDown={(e)=>{if(e.target===e.currentTarget)setEditing(null)}}>
@@ -274,10 +283,10 @@ export function DealerExpenseCreatePage() {
 
 export function DealerHandoverCreatePage() {
   const [handover, setHandover] = useState({ date: today(), amount: '', sent_to: '', remarks: '' });
-  const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [recent, setRecent] = useState([]);
-  const loadRecent = () => { const from = new Date(); from.setDate(from.getDate() - 14); const q = '?from=' + from.toISOString().slice(0, 10) + '&to=' + today(); get('/dealer/cash-book' + q).then((d) => setRecent(d.handovers || [])).catch(() => {}); };
+  const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [recent, setRecent] = useState([]); const [cash, setCash] = useState(null);
+  const loadRecent = () => { const from = new Date(); from.setDate(from.getDate() - 14); const q = '?from=' + from.toISOString().slice(0, 10) + '&to=' + today(); get('/dealer/cash-book' + q).then((d) => { setRecent([...(d.pending_handovers || []), ...(d.handovers || []), ...(d.rejected_handovers || [])].sort((x, y) => String(y.date).localeCompare(String(x.date)) || y.id - x.id)); setCash({ inHand: Number(d.summary?.closing_balance || 0), pending: Number(d.summary?.pending_handover || 0) }); }).catch(() => {}); };
   useEffect(() => { loadRecent(); }, []);
   const submit = async (e) => { e.preventDefault(); setSaving(true); setError(''); try { const d = await post('/dealer/cash-book/handover', handover); setMessage(`Handover ${d.handover.handover_no} saved — waiting for Head Office to accept.`); setHandover({ ...handover, amount: '', sent_to: '', remarks: '' }); loadRecent(); setTimeout(() => setMessage(''), 4000); } catch (e2) { setError(e2.message || 'Could not save'); } finally { setSaving(false); } };
   const statusLabel = (s) => s === 'accepted' ? 'Accepted ✓' : s === 'rejected' ? 'Rejected' : 'Pending Acceptance';
-  return <div><form className="card" onSubmit={submit}><h2>Cash Handover to Head Office</h2>{error && <div className="error">{error}</div>}{message && <div className="card" style={{ marginBottom: 12 }}>{message}</div>}<div className="grid">{field('Date', 'date', handover, setHandover, 'date')}{field('Amount', 'amount', handover, setHandover, 'number')}{field('Sent To / Received By', 'sent_to', handover, setHandover)}{field('Remarks', 'remarks', handover, setHandover)}</div><button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Record HO Handover'}</button></form><div className="card" style={{ marginTop: 12 }}><div className="pageHeader"><h2 style={{ margin: 0 }}>Recent Handovers</h2><button className="btn" onClick={loadRecent}>↻ Refresh</button></div><div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Handover No.</th><th>Amount</th><th>Status</th></tr></thead><tbody>{recent.map((h) => <tr key={h.id}><td>{h.date}</td><td>{h.handover_no}</td><td>{money(h.amount)}</td><td>{statusLabel(h.status)}</td></tr>)}{!recent.length && <tr><td colSpan="4" className="muted">No handovers in the last 14 days.</td></tr>}</tbody></table></div></div></div>;
+  return <div><form className="card" onSubmit={submit}><h2>Cash Handover to Head Office</h2>{cash && <div className="muted" style={{ marginBottom: 10 }}>Cash in hand: <b>{money(cash.inHand)}</b>{cash.pending > 0 && <> · Pending acceptance: <b>{money(cash.pending)}</b> · Handover ke liye available: <b>{money(cash.inHand - cash.pending)}</b></>}<br />Head Office accept karega tab hi ye cash aapke cashbook se out hoga.</div>}{error && <div className="error">{error}</div>}{message && <div className="card" style={{ marginBottom: 12 }}>{message}</div>}<div className="grid">{field('Date', 'date', handover, setHandover, 'date')}{field('Amount', 'amount', handover, setHandover, 'number')}{field('Sent To / Received By', 'sent_to', handover, setHandover)}{field('Remarks', 'remarks', handover, setHandover)}</div><button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Record HO Handover'}</button> <button type="button" className="btn" disabled title="Coming soon" style={{opacity:.6,cursor:'not-allowed',marginLeft:8}}>🏦 Pay to Head Office Bank via Cashfree <span className="muted">(Coming soon)</span></button></form><div className="card" style={{ marginTop: 12 }}><div className="pageHeader"><h2 style={{ margin: 0 }}>Recent Handovers</h2><button className="btn" onClick={loadRecent}>↻ Refresh</button></div><div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Handover No.</th><th>Amount</th><th>Status</th></tr></thead><tbody>{recent.map((h) => <tr key={h.id}><td>{h.date}</td><td>{h.handover_no}</td><td>{money(h.amount)}</td><td>{statusLabel(h.status)}</td></tr>)}{!recent.length && <tr><td colSpan="4" className="muted">No handovers in the last 14 days.</td></tr>}</tbody></table></div></div></div>;
 }

@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 import { Money, Field, ErrorBanner } from './ui';
+import { printCashReceipt } from '../lib/printReceipt';
 
 const today=()=>new Date().toISOString().slice(0,10);
 
-export function DealerCashReceiptPage() {
+export function DealerCashReceiptPage({dealer}={}) {
   const [customers,setCustomers]=useState([]);
   const [type,setType]=useState('new_booking');
   const [form,setForm]=useState({
@@ -50,7 +51,11 @@ export function DealerCashReceiptPage() {
            dealer_register_page_no:form.page_no,sale_amount:Number(form.sale_amount),booking_for:form.booking_for,loan_amount:Number(form.loan_amount||0),
            amount:Number(form.amount),payment_mode:form.payment_mode,reference_no:form.reference_no,remarks:form.remarks,request_id:requestId};
       const r=await post('/dealer/cash-book/receipt',payload);
-      setReceipt(r.receipt); await loadCustomers();
+      // Print ke liye: is receipt ke baad customer ka baaki balance.
+      const balanceAfter=type==='balance_payment'
+        ? Math.max(0,balance-Number(form.amount||0))
+        : Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0)-Number(form.amount||0));
+      setReceipt({...r.receipt,balance_after:balanceAfter}); await loadCustomers();
       setForm(x=>({...x,customer_id:'',customer_name:'',customer_phone:'',page_no:'',sale_amount:'',loan_amount:'',amount:'',reference_no:'',remarks:''}));
       setSubmissionId('');
     }catch(e){setError(e.message||'Could not create receipt')}
@@ -67,7 +72,7 @@ export function DealerCashReceiptPage() {
       {receipt&&<div className="card" style={{padding:12,marginBottom:14,border:'1px solid #b7e4c7',background:'#f1fff5',color:'#176b35'}}>
         <b>✓ Receipt saved successfully</b>
         <div style={{marginTop:5}}><b>Receipt No.: {receipt.receipt_no}</b></div><div className="muted" style={{marginTop:5}}>{receipt.customer_name} · ₹ {Number(receipt.amount||0).toLocaleString('en-IN')} · {receipt.date}</div>
-        <button type="button" className="btn primary" style={{marginTop:9}} onClick={()=>window.print()}>Print Receipt</button>
+        <button type="button" className="btn primary" style={{marginTop:9}} onClick={()=>printCashReceipt(receipt,{dealerName:dealer?.name||dealer?.dealer_name||''})}>🖨 Print Receipt (58mm)</button>
       </div>}
 
       <div className="actions" style={{marginBottom:12}}>
@@ -87,7 +92,7 @@ export function DealerCashReceiptPage() {
             <div className="card" style={{padding:10}}><small className="muted">Paid</small><b>₹ {Number(selected?.paid_amount||0).toLocaleString('en-IN')}</b></div>
             <div className="card" style={{padding:10}}><small className="muted">Outstanding Balance</small><b>₹ {balance.toLocaleString('en-IN')}</b></div>
             <Field label="Receipt Amount" type="number" value={form.amount} onChange={v=>set('amount',v)} required/>
-            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b></div>
+            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b><div style={{marginTop:8}}><button type="button" className="btn" disabled title="Coming soon" style={{opacity:.6,cursor:'not-allowed'}}>💳 Pay via Cashfree <span className="muted">(Coming soon)</span></button></div></div>
             <Field label="Reference No." value={form.reference_no} onChange={v=>set('reference_no',v)}/>
             <Field label="Remarks" value={form.remarks} onChange={v=>set('remarks',v)}/>
           </div>
@@ -103,7 +108,7 @@ export function DealerCashReceiptPage() {
             ]} onChange={v=>set('booking_for',v)}/>
             <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>set('loan_amount',v)}/>
             <Field label="Receipt Amount" type="number" value={form.amount} onChange={v=>set('amount',v)} required/>
-            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b></div>
+            <div className="card" style={{padding:10}}><small className="muted">Payment Mode</small><b>Cash</b><div style={{marginTop:8}}><button type="button" className="btn" disabled title="Coming soon" style={{opacity:.6,cursor:'not-allowed'}}>💳 Pay via Cashfree <span className="muted">(Coming soon)</span></button></div></div>
             <Field label="Reference No." value={form.reference_no} onChange={v=>set('reference_no',v)}/>
             <Field label="Remarks" value={form.remarks} onChange={v=>set('remarks',v)}/>
           </div>

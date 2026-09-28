@@ -25,7 +25,7 @@ export function DealerCashBook(){
       <div className="card"><div className="muted">Opening</div><div className="metric">{money(opening)}</div></div>
       <div className="card"><div className="muted">Cash Received</div><div className="metric">{money(data.summary?.cash_received)}</div></div>
       <div className="card"><div className="muted">Expenses</div><div className="metric">{money(data.summary?.expenses)}</div></div>
-      <div className="card"><div className="muted">HO Handover</div><div className="metric">{money(data.summary?.ho_handover)}</div></div>
+      <div className="card"><div className="muted">HO Handover (Accepted)</div><div className="metric">{money(data.summary?.ho_handover)}</div>{Number(data.summary?.pending_handover||0)>0&&<small className="muted">Pending: {money(data.summary?.pending_handover)}</small>}</div>
       <div className="card"><div className="muted">Closing Cash</div><div className="metric">{money(closing)}</div></div>
     </div>
     <div className="actions dealerTabs" style={{marginTop:16,flexWrap:'wrap'}}>

@@ -758,7 +758,7 @@ export function LedgerPage() {
   // Sale rows (and their linked Hypothecation/direct-received CASH rows)
   // are tinted blue; Day Book receipts are tinted green — so the two kinds
   // of entries are visually distinct at a glance.
-  const rowTint = (e) => (e.vr_type === 'S' ? '#eef4ff' : '#eafaf1');
+  const rowTint = (e) => (e.vr_type === 'S' ? '#eef4ff' : e.vr_type === 'E' ? '#fff6e5' : '#eafaf1');
   const groupBorder = '1.5px solid #7d95c9';
   const groupRowStyle = (e) => ({
     cursor: e.record_type ? 'pointer' : 'default',

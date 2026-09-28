@@ -1,14 +1,13 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
+import { Palette } from 'lucide-react';
 import { THEMES, useTheme } from '../lib/theme';
 import { formatDate } from '../lib/date';
 import { DealerCashBook } from './DealerCashBook';
-import { DealerDelivery } from './DealerDelivery';
 import { DealerNewLoanForm } from './DealerNewLoanForm';
 import { DealerPaymentPage } from './DealerPaymentPage';
 import { DealerCashReceiptPage } from './DealerCashReceiptPage';
-import { CashAtDealerPage } from './CashAtDealerPage';
 import { ExpensePaymentVoucherPage } from './ExpensePaymentVoucherPage';
 import { DealerCustomerInvoicePage } from './DealerCustomerInvoicePage';
 import { DealerLedgerPage } from './DealerLedgerPage';
@@ -20,7 +19,7 @@ import { Field, ErrorBanner } from './ui';
 const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Rickshaw Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
   {label:'Report', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['incentive','Incentive Record'],['expenses-reports','Expenses Reports']]},
-  {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['expenses-create','Expenses Create'],['handover-create','Record Handover'],['cash-handover','Cash Handover'],['payments','Online Payment']]},
+  {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['expenses-create','Expenses Create'],['handover-create','Cash Handover'],['payments','Online Payment']]},
   {label:'Pending Sales', items:[['old-rickshaw-sales','Old Rickshaw Sale'],['ledger','Ledger']]},
   {label:'Battery Adjustment', items:[['battery-stock','Battery Stock'],['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
 ];
@@ -41,7 +40,6 @@ const nav = [
   ['challans', '▤', 'Delivery Challans'],
   ['invoices', '▥', 'Tax Invoices'],
   ['cashbook', '₹', 'Bahikhata'],
-  ['delivery', '✓', 'Delivery'],
   ['payments', '↔', 'Online Payment'],
   ['ledger', '▤', 'Ledger'],
   ['pending-sales', '▤', 'Pending Sales'],
@@ -85,12 +83,11 @@ export function DealerPortal({ dealer, onLogout }) {
   const [showPalette, setShowPalette] = useState(false);
   const [pendingTheme, setPendingTheme] = useState(themeId);
   useEffect(() => { setPendingTheme(themeId); }, [themeId]);
-  const selectTheme = (id) => setPendingTheme(id);
-  const applySelectedTheme = () => { changeTheme(pendingTheme); setShowPalette(false); };
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const canPurchase = dealer.purchase_access === true;
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
-  const canDelivery = canCashBook;
+  const dealerCategory = (dealer.dealer_category || 'dealer').toLowerCase();
+  const canCreateSale = ['showroom', 'branch'].includes(dealerCategory);
   const portalModuleList = Array.isArray(dealer?.portal_modules)
     ? dealer.portal_modules.map((x) => String(x).trim()).filter(Boolean)
     : String(dealer?.portal_modules || '').split(',').map((x) => x.trim()).filter(Boolean);
@@ -105,7 +102,7 @@ export function DealerPortal({ dealer, onLogout }) {
   // and lands on whichever of them is actually enabled for that dealer.
   const canBatteryAdjustment = canBatteryWithdrawal || canBatterySwap || canBatteryAddition;
   const defaultBatteryTab = canBatteryWithdrawal ? 'battery-withdrawal' : canBatterySwap ? 'battery-swap' : 'battery-addition';
-  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'delivery' || canDelivery) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
+  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'create-sale' || canCreateSale) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
   if (canBatteryAdjustment) {
     const batteryEntry = ['battery-adjustment', '🔋', 'Battery Adjustment'];
     const insertAt = sidebarEntries.findIndex(([key]) => key === 'old-rickshaw-sales');
@@ -160,14 +157,14 @@ export function DealerPortal({ dealer, onLogout }) {
   const dealerCode = String(dealer?.code || dealer?.login_id || dealer?.dealer_code || '');
 
   const standaloneForm =
-    tab === 'create-sale' ? <DealerCreateSaleForm stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
+    (tab === 'create-sale' && canCreateSale) ? <DealerCreateSaleForm dealer={dealer} stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
     tab === 'newloan' ? <DealerNewLoanForm onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-withdrawal' && canBatteryWithdrawal) ? <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-swap' && canBatterySwap) ? <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-addition' && canBatteryAddition) ? <DealerBatteryAddition dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'old-rickshaw-sales' && canOldRickshawSales) ? <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'customer-invoice' && canPurchase) ? <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} /> :
-    (tab === 'delivery' && canDelivery) ? <DealerDelivery onBack={() => setTab('dashboard')} /> : null;
+    null;
 
   return (<div className="dealerShell">
     <style>{`
@@ -290,13 +287,17 @@ export function DealerPortal({ dealer, onLogout }) {
           <button type="button" className="grdHeaderIcon" title="Office Chat" aria-label="Office Chat" onClick={()=>{ if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen(v=>!v); }}>💬</button>
           <button type="button" className="grdHeaderIcon" title="Notifications" aria-label="Notifications">🔔</button>
           <div className="themePaletteWrap">
-            <button type="button" className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><span style={{fontSize:14}}>🎨</span></button>
+            <button type="button" className="themeColorButton" onClick={() => setShowPalette(v => !v)} title="Themes" aria-label="Open themes"><Palette size={14}/></button>
             {showPalette && <div className="themeChooser" role="dialog" aria-label="Choose theme">
-              {THEMES.map(theme => <button key={theme.id} type="button" className={'themeCard'+(pendingTheme===theme.id?' selected':'')} onClick={() => selectTheme(theme.id)}>
-                <span className="themeCardSwatches">{[theme.colors.bg,theme.colors.primary,theme.colors.accent].map(c=><i key={c} style={{background:c}}/>)}</span>
-                <span className="themeCardText"><b>{theme.name}</b><small>{theme.description}</small></span>
-                {pendingTheme===theme.id && <span role="button" className="themeApplyButton" onClick={(e) => { e.stopPropagation(); applySelectedTheme(); }}>Apply</span>}
-              </button>)}
+              {THEMES.map(theme => <button
+                key={theme.id}
+                type="button"
+                className={'themeCard'+(pendingTheme===theme.id?' selected':'')}
+                style={{background:`linear-gradient(90deg, ${theme.colors.primary} 0 33.333%, ${theme.colors.accent} 33.333% 66.666%, ${theme.colors.bg} 66.666% 100%)`}}
+                title={theme.name}
+                aria-label={theme.name}
+                onClick={() => { changeTheme(theme.id); setPendingTheme(theme.id); setShowPalette(false); }}
+              />)}
             </div>}
           </div>
           <div className="grdHeaderUser"><div className="grdHeaderAvatar">{dealerName.slice(0,1).toUpperCase()}</div><strong>{dealerName}</strong><span>⌄</span></div>
@@ -324,8 +325,6 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='all-expenses' && canCashBook && <DealerAllExpenses/>}
         {tab==='incentive' && canCashBook && <DealerIncentiveRegister dealer={dealer}/>}
         {tab==='receipt-create' && canCashBook && <DealerCashReceiptPage dealer={dealer}/>}
-        {tab==='cash-handover' && canCashBook && <CashAtDealerPage/>}
-        {tab==='delivery' && canDelivery && <DealerDelivery onBack={() => setTab('dashboard')}/>}
         {tab==='purchases' && canPurchase && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
@@ -335,11 +334,11 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
-        {tab==='all-receipt' && <DealerAllReceiptsPage />}
+        {tab==='all-receipt' && <DealerAllReceiptsPage dealer={dealer} />}
         {tab==='all-customers' && <DealerAllCustomersPage />}
         {tab==='expenses-create' && <DealerExpenseCreatePage />}
         {tab==='handover-create' && <DealerHandoverCreatePage />}
-        {!['cashbook','receipt-create','expenses-create','handover-create','cash-handover','all-receipt','all-customers','delivery','purchases','payments','ledger','pending-sales','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
+        {!['cashbook','receipt-create','expenses-create','handover-create','cash-handover','all-receipt','all-customers','purchases','payments','ledger','pending-sales','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
         {tab==='loan-status' && <DealerLoanStatusTable rows={loans} onRefresh={loadLoanStatus}/>}
         {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
       </>}
@@ -481,110 +480,114 @@ function DealerDealerModulePlaceholder({title,description,onBack}) {
   return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{title}</h3><p>{description}</p></div><button type="button" className="btn" onClick={onBack}>Back</button></div><div className="dealerEmpty">Module screen is ready.</div></div></div>;
 }
 
-function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
-  const [date,setDate]=useState(new Date().toISOString().slice(0,10));
+function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
+  // Showroom / Branch dealers create their own Pending Sale. It goes to Billing (Open for Approve) exactly like an admin-created one.
+  // Dealer = logged-in dealer (auto). Sale type New / Old / Battery comes from the customer's booking.
   const [customers,setCustomers]=useState([]);
+  const [vehicles,setVehicles]=useState([]);
+  const [dealerName,setDealerName]=useState(dealer?.name||dealer?.dealer_name||'');
   const [customerId,setCustomerId]=useState('');
-  const [customerError,setCustomerError]=useState('');
-  const [type,setType]=useState('');
   const [item,setItem]=useState('');
+  const [batteryQty,setBatteryQty]=useState('1');
+  const [batteryNos,setBatteryNos]=useState(['']);
   const [saleAmount,setSaleAmount]=useState('');
-  const [loanAmount,setLoanAmount]=useState('');
-  const [balance,setBalance]=useState(0);
-  const [dealerPageNo,setDealerPageNo]=useState('');
+  const [loanAmount,setLoanAmount]=useState('0');
   const [doNo,setDoNo]=useState('');
+  const [remarks,setRemarks]=useState('');
+  const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
 
-  const load=async()=>{
-    try{
-      // Create Sale only depends on the local booking/customer register.
-      // Do not load CHFPL loan lists here; this keeps the screen fast.
-      const r=await get('/dealer/delivery/customers', {noClientCache:true, timeoutMs:10000});
-      setCustomers(r.customers||[]);
-      setCustomerError('');
-    }catch(e){
-      setCustomers([]);
-      setCustomerError(e.message||'Could not load booking customers');
-    }
-  };
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const [d,v,c]=await Promise.all([
+          get('/billing/pending-sales/options?part=dealers',{noClientCache:true,timeoutMs:30000}),
+          get('/billing/pending-sales/options?part=vehicles',{noClientCache:true,timeoutMs:30000}),
+          get('/billing/pending-sales/options?part=customers',{noClientCache:true,timeoutMs:30000})
+        ]);
+        setDealerName(d.dealers?.[0]?.name||dealerName);
+        setVehicles(v.vehicles||[]);
+        setCustomers(c.cash_customers||[]);
+      }catch(e){setError(e.message||'Could not load customers / stock')}
+      finally{setLoading(false)}
+    })();
+  },[]);
 
-  useEffect(()=>{load()},[]);
-
-  const newItems=stock?.vehicles||[];
-  const oldItems=oldStock?.rickshaws||[];
-  const batteryItems=batteryStock?.batteries||[];
-  const options=type==='new' ? newItems : type==='old' ? oldItems : type==='battery' ? batteryItems : [];
-  const optionValue=(v)=>String(v.id ?? v.chassis_no ?? v.vehicle_reg_no ?? v.battery_no ?? '');
-  const selected=options.find(v=>optionValue(v)===String(item));
   const selectedCustomer=customers.find(c=>String(c.id)===String(customerId));
+  const bookedType=String(selectedCustomer?.booking_for||selectedCustomer?.vehicle_no||'').trim().toLowerCase();
+  const type=['new','old','battery'].includes(bookedType)?bookedType:'';
+  const typeLabel=type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'—';
+
+  const options=type==='new'
+    ? vehicles.map(v=>({value:String(v.challan_id),label:[v.chassis_no,v.model_name||v.product_name,v.colour].filter(Boolean).join(' · ')||'New Rickshaw',raw:v}))
+    : type==='old'
+    ? (oldStock?.rickshaws||[]).map(v=>({value:String(v.id),label:[v.model_name,v.battery_name,v.vehicle_reg_no].filter(Boolean).join(' · ')||'Old Rickshaw',raw:v}))
+    : [];
+  const selected=options.find(o=>o.value===String(item))?.raw;
+
+  // Battery sale: Qty ke barabar battery-number select boxes, dealer ke battery stock se (duplicate number nahi).
+  const stockBatteries=useMemo(()=>{
+    const seen=new Set();
+    return (batteryStock?.batteries||[]).filter(v=>{
+      const no=String(v.battery_no||'').trim().toUpperCase();
+      if(!no||seen.has(no))return false;
+      seen.add(no);return true;
+    });
+  },[batteryStock]);
+  const qtyNum=Math.max(1,Math.min(Number(batteryQty)||1,stockBatteries.length||1,50));
+  const pickedBatteries=batteryNos.slice(0,qtyNum).map(no=>stockBatteries.find(b=>String(b.battery_no).trim()===String(no).trim())).filter(Boolean);
+  const batteryReady=type==='battery'&&pickedBatteries.length===qtyNum;
+  const changeBatteryQty=v=>{
+    setBatteryQty(v);
+    const n=Math.max(1,Math.min(Number(v)||1,stockBatteries.length||1,50));
+    setBatteryNos(cur=>Array.from({length:n},(_,i)=>cur[i]||''));
+  };
+  const setBatteryNoAt=(i,v)=>setBatteryNos(cur=>{const nx=[...cur];nx[i]=v;return nx});
 
   useEffect(()=>{
-    if(!selectedCustomer){
-      setType('');
-      setItem('');
-      setSaleAmount('');
-      setLoanAmount('');
-      setBalance(0);
-      setDealerPageNo('');
-      setDoNo('');
-      return;
-    }
-
-    const bookedType=String(selectedCustomer.vehicle_no||'').trim().toLowerCase();
-    setType(['new','old','battery'].includes(bookedType) ? bookedType : '');
-    setItem('');
-
-    // Booking is the source of truth for these values.
-    const bookedSale=Number(selectedCustomer.sale_amount||0);
-    const bookedLoan=Number(selectedCustomer.loan_amount||0);
-    const paid=Number(selectedCustomer.paid_amount||0);
-    setSaleAmount(bookedSale ? String(bookedSale) : '');
-    setLoanAmount(bookedLoan ? String(bookedLoan) : '0');
-    setBalance(Math.max(0, bookedSale - bookedLoan - paid));
-    setDealerPageNo(selectedCustomer.page_no||'');
+    setItem('');setBatteryQty('1');setBatteryNos(['']);
+    if(!selectedCustomer){setSaleAmount('');setLoanAmount('0');setDoNo('');return}
+    // Booking is the source of truth for amounts.
+    setSaleAmount(String(Number(selectedCustomer.sale_amount||0)||''));
+    setLoanAmount(String(Number(selectedCustomer.loan_amount||0)||0));
     setDoNo('');
   },[selectedCustomer?.id]);
 
-  useEffect(()=>{
-    const sale=Number(saleAmount||0);
-    const loan=Number(loanAmount||0);
-    const paid=Number(selectedCustomer?.paid_amount||0);
-    setBalance(Math.max(0, sale-loan-paid));
-  },[saleAmount,loanAmount,selectedCustomer?.paid_amount]);
-
-  const optionLabel=(v)=>{
-    if(type==='new') return [v.chassis_no,v.model_name,v.colour].filter(Boolean).join(' · ') || 'New Rickshaw';
-    if(type==='old') return [v.model_name,v.battery_name,v.vehicle_reg_no].filter(Boolean).join(' · ') || 'Old Rickshaw';
-    return [v.battery_maker,v.battery_no].filter(Boolean).join(' · ') || 'Battery';
-  };
-
-  const customerLabel=(c)=>[
-    c.page_no ? ('Page: '+c.page_no) : '',
-    c.name,
-    c.phone,
-    c.vehicle_no ? ('Type: '+String(c.vehicle_no).toUpperCase()) : ''
-  ].filter(Boolean).join(' · ');
+  const paid=Number(selectedCustomer?.paid_amount||0);
+  const balance=Math.max(0,Number(saleAmount||0)-Number(loanAmount||0)-paid);
+  const customerLabel=c=>[c.page_no?('Page: '+c.page_no):'',c.name,c.phone,(c.booking_for||c.vehicle_no)?('Type: '+String(c.booking_for||c.vehicle_no).toUpperCase()):''].filter(Boolean).join(' · ');
 
   const save=async()=>{
-    if(!selectedCustomer || !selected || !type) return;
-    setSaving(true); setError('');
+    if(!selectedCustomer||!type||(type==='battery'?!batteryReady:!selected))return;
+    setSaving(true);setError('');
     try{
-      const payload={
-        date,
-        customer_id:selectedCustomer.id,
-        delivery_type:type,
-        vehicle_id:type==='new'?Number(selected.id):null,
-        old_rickshaw_id:type==='old'?Number(selected.id):null,
-        battery_no:type==='battery'?selected.battery_no:null,
-        battery_qty:type==='battery'?1:0,
-        sale_amount:Number(selectedCustomer.sale_amount||0),
-        loan_amount:Number(loanAmount||0),
-        dealer_page_no:dealerPageNo || null,
-        do_no:doNo.trim() || null,
-      };
-      await post('/dealer/delivery',payload);
-      alert('Sale saved successfully.');
+      if(!(Number(saleAmount)>0))throw new Error('Booking me Sale Amount nahi hai. Pehle customer booking me Sale Amount bharo.');
+      if(Number(loanAmount||0)>Number(saleAmount||0))throw new Error('Loan Amount Sale Amount se zyada nahi ho sakta.');
+      let description,extra={};
+      if(type==='new'){
+        extra={vehicle_id:Number(selected.challan_id),delivery_challan_id:Number(selected.challan_id)};
+        description='Internal Sale';
+      }else if(type==='old'){
+        description='Old Rickshaw · '+[selected.vehicle_reg_no,selected.model_name].filter(Boolean).join(' · ');
+        extra={vehicle_id:null,delivery_challan_id:null,vehicle_reg_no:selected.vehicle_reg_no||''};
+      }else{
+        const makers=[...new Set(pickedBatteries.map(b=>String(b.battery_maker||'').trim()).filter(Boolean))].join(' / ');
+        description='Battery · '+[makers,'Qty '+qtyNum,pickedBatteries.map(b=>String(b.battery_no).trim()).join(', ')].filter(Boolean).join(' · ');
+        extra={vehicle_id:null,delivery_challan_id:null};
+      }
+      await post('/billing/pending-sales/create',{
+        sale_category:type.toUpperCase(),dealer_id:Number(dealer?.dealer_id||dealer?.id||0)||undefined,
+        dealer_cash_customer_id:Number(selectedCustomer.id),
+        buyer_name:selectedCustomer.name||'',customer_name:selectedCustomer.name||'',
+        buyer_mobile:selectedCustomer.phone||'',customer_phone:selectedCustomer.phone||'',
+        dealer_page_no:selectedCustomer.page_no||'',
+        sale_amount:Number(saleAmount),loan_amount:Number(loanAmount||0),hypothecation_amount:Number(loanAmount||0),
+        amount_received:paid,do_no:doNo.trim()||'',
+        description,internal_sale_details:[description,remarks.trim()].filter(Boolean).join(' | '),
+        ...extra
+      });
+      alert('Sale Billing ko approval ke liye bhej di gayi hai.');
       onBack();
     }catch(e){setError(e.message||'Could not save sale')}
     finally{setSaving(false)}
@@ -593,45 +596,63 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
   return <div className="grdFormPage dealerCreateSalePage">
     <div className="dealerPanel dealerCreateSalePanel">
       <div className="dealerPanelHead">
-        <div><h3>Create Sale</h3><p>Customer select karte hi booking ke exact Sale Type aur Sale Amount automatically lock ho jayenge.</p></div>
+        <div><h3>Create Sale</h3><p>Customer select karte hi booking ka Sale Type (New / Old / Battery) aur Sale Amount automatically aa jayenge. Save ke baad sale Billing approval me jaati hai.</p></div>
         <button type="button" className="btn" onClick={onBack}>Back</button>
       </div>
 
       {error&&<div className="error" style={{marginBottom:12}}>{error}</div>}
+      {loading?<div className="dealerEmpty">Loading customers and stock…</div>:
       <div className="dealerCreateSaleGrid">
-        <label>Date
-          <input className="input" type="date" value={date} onChange={e=>setDate(e.target.value)} />
+        <label>Dealer
+          <input className="input" value={dealerName||'—'} readOnly />
         </label>
 
-        <label>Customer
+        <label>Customer (booking)
           <select className="input" value={customerId} onChange={e=>setCustomerId(e.target.value)}>
-            <option value="">{customerError ? 'Unable to load customers' : customers.length ? 'Select Customer' : 'No Vehicle Pending Customer'}</option>
+            <option value="">{customers.length?'Select Customer':'No Vehicle Pending Customer'}</option>
             {customers.map(c=><option key={c.id} value={c.id}>{customerLabel(c)}</option>)}
           </select>
         </label>
 
         <label>Dealer Page No.
-          <input className="input" value={dealerPageNo} readOnly />
+          <input className="input" value={selectedCustomer?.page_no||''} readOnly />
         </label>
 
-        <label>Sale Type
-          <input className="input" value={type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'—'} readOnly />
+        <label>Sale Type (booking se)
+          <input className="input" value={typeLabel} readOnly />
         </label>
 
-        <label className="dealerCreateSaleItemField">Select {type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'Stock Item'}
+        {type==='battery' ? <>
+          <label>Battery Qty
+            <input className="input" type="number" min="1" max={stockBatteries.length||1} value={batteryQty} onChange={e=>changeBatteryQty(e.target.value)} />
+            <small className="muted">Stock me available: {stockBatteries.length}</small>
+          </label>
+          {Array.from({length:qtyNum},(_,i)=>{
+            const taken=new Set(batteryNos.slice(0,qtyNum).filter((x,j)=>j!==i&&x).map(x=>String(x).trim()));
+            return <label key={i}>Battery No. {i+1}
+              <select className="input" value={batteryNos[i]||''} onChange={e=>setBatteryNoAt(i,e.target.value)}>
+                <option value="">{stockBatteries.length?'Select Battery No.':'Stock me koi battery nahi hai'}</option>
+                {stockBatteries.filter(b=>!taken.has(String(b.battery_no).trim())).map(b=><option key={b.battery_no} value={String(b.battery_no).trim()}>{[b.battery_no,b.battery_maker].filter(Boolean).join(' · ')}</option>)}
+              </select>
+            </label>;
+          })}
+        </> :         <label className="dealerCreateSaleItemField">Select {type?typeLabel:'Stock Item'}
           <select className="input" value={item} onChange={e=>setItem(e.target.value)} disabled={!type}>
-            <option value="">{type ? 'Select item' : 'Select customer first'}</option>
-            {options.map(v=><option key={optionValue(v)} value={optionValue(v)}>{optionLabel(v)}</option>)}
+            <option value="">{!type?'Select customer first':options.length?'Select item':'Stock me koi item nahi hai'}</option>
+            {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-        </label>
+        </label>}
 
         <label>Sale Amount
-          <input className="input" type="number" min="0" value={saleAmount} readOnly />
+          <input className="input" type="number" value={saleAmount} readOnly />
         </label>
 
         <label>Loan Amount
-          <input className="input" type="number" min="0" max={saleAmount || undefined} value={loanAmount}
-            onChange={e=>setLoanAmount(e.target.value)} disabled={!selectedCustomer} />
+          <input className="input" type="number" min="0" max={saleAmount||undefined} value={loanAmount} onChange={e=>setLoanAmount(e.target.value)} disabled={!selectedCustomer} />
+        </label>
+
+        <label>Amount Received (booking)
+          <input className="input" type="number" value={paid} readOnly />
         </label>
 
         <label>Balance
@@ -641,23 +662,27 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
         <label>DO No. (Optional)
           <input className="input" value={doNo} onChange={e=>setDoNo(e.target.value)} placeholder="Enter DO No. (optional)" />
         </label>
-      </div>
+
+        <label>Remarks (Optional)
+          <input className="input" value={remarks} onChange={e=>setRemarks(e.target.value)} />
+        </label>
+      </div>}
 
       {selectedCustomer && <div className="dealerCreateSalePreview">
-        <div className="dealerCreateSalePreviewHead"><strong>Booking</strong><span>{String(type||'').toUpperCase()}</span></div>
+        <div className="dealerCreateSalePreviewHead"><strong>Booking</strong><span>{typeLabel.toUpperCase()}</span></div>
         <div className="dealerCreateSalePreviewGrid">
           <div><span>Name</span><b>{selectedCustomer.name||'—'}</b></div>
           <div><span>Phone</span><b>{selectedCustomer.phone||'—'}</b></div>
-          <div><span>Booking Paid</span><b>₹ {Number(selectedCustomer.paid_amount||0).toLocaleString('en-IN')}</b></div>
+          <div><span>Booking Paid</span><b>₹ {paid.toLocaleString('en-IN')}</b></div>
         </div>
       </div>}
 
-      {selected && <div className="dealerCreateSalePreview">
-        <div className="dealerCreateSalePreviewHead"><strong>Vehicle</strong><span>{type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':'Battery'}</span></div>
+      {(type==='battery'?batteryReady:selected) && <div className="dealerCreateSalePreview">
+        <div className="dealerCreateSalePreviewHead"><strong>Vehicle</strong><span>{typeLabel}</span></div>
         <div className="dealerCreateSalePreviewGrid">
           {type==='new' && <>
             <div><span>Chassis</span><b>{selected.chassis_no||'—'}</b></div>
-            <div><span>Model</span><b>{selected.model_name||'—'}</b></div>
+            <div><span>Model</span><b>{selected.model_name||selected.product_name||'—'}</b></div>
             <div><span>Colour</span><b>{selected.colour||'—'}</b></div>
           </>}
           {type==='old' && <>
@@ -666,8 +691,9 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
             <div><span>Vehicle No.</span><b>{selected.vehicle_reg_no||'—'}</b></div>
           </>}
           {type==='battery' && <>
-            <div><span>Battery Make</span><b>{selected.battery_maker||'—'}</b></div>
-            <div><span>Battery No.</span><b>{selected.battery_no||'—'}</b></div>
+            <div><span>Battery Make</span><b>{[...new Set(pickedBatteries.map(b=>b.battery_maker).filter(Boolean))].join(' / ')||'—'}</b></div>
+            <div><span>Qty</span><b>{qtyNum}</b></div>
+            <div><span>Battery No(s).</span><b>{pickedBatteries.map(b=>b.battery_no).join(', ')||'—'}</b></div>
           </>}
         </div>
       </div>}
@@ -675,9 +701,9 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
       <div className="actions dealerCreateSaleActions">
         <button type="button" className="btn" onClick={onBack}>Cancel</button>
         <button type="button" className="btn primary"
-          disabled={saving || !date || !selectedCustomer || !type || !item || Number(loanAmount||0)>Number(saleAmount||0)}
+          disabled={saving||loading||!selectedCustomer||!type||(type==='battery'?!batteryReady:!item)||Number(loanAmount||0)>Number(saleAmount||0)}
           onClick={save}>
-          {saving?'Saving…':'Save'}
+          {saving?'Saving…':'Save & Send for Approval'}
         </button>
       </div>
     </div>
@@ -685,13 +711,20 @@ function DealerCreateSaleForm({stock,oldStock,batteryStock,onBack}) {
 }
 
 function DealerAllExpenses(){
-  const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[search,setSearch]=useState('');
-  useEffect(()=>{get('/expense-payment-voucher').then(r=>setRows(r.vouchers||[])).catch(e=>setError(e.message||'Could not load expenses')).finally(()=>setLoading(false))},[]);
+  const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[search,setSearch]=useState(''),[cat,setCat]=useState('');
+  useEffect(()=>{get('/dealer/cash-book/all-expenses').then(r=>setRows(r.expenses||r.rows||[])).catch(e=>setError(e.message||'Could not load expenses')).finally(()=>setLoading(false))},[]);
+  const label=r=>r.category_label||r.category||'Other';
+  const cats=[...new Set(rows.map(label))].sort();
   const q=search.trim().toLowerCase();
-  const filtered=rows.filter(r=>[r.date,r.voucher_no,r.expense_type_name,r.pay_to_name,r.chassis_no,r.work_model_name].join(' ').toLowerCase().includes(q));
-  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>All Expenses</h3><p>All expense / work payment vouchers</p></div><input className="input dealerSearch" placeholder="Search expense, voucher, customer/chassis…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
-    {error&&<div className="error">{error}</div>}{loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Expense</th><th>Pay To</th><th>Chassis / Booking</th><th>Amount</th><th>Status</th><th>Payment</th></tr></thead><tbody>
-      {filtered.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.voucher_no}</b></td><td>{r.expense_type_name}</td><td>{r.pay_to_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>₹ {Number(r.amount||0).toLocaleString('en-IN')}</td><td>{r.status}</td><td>{r.payment_status}</td></tr>)}{!filtered.length&&<tr><td colSpan="8" className="muted">No expenses found.</td></tr>}</tbody></table></div>}
+  const filtered=rows.filter(r=>(!cat||label(r)===cat)&&[r.date,r.expense_no,label(r),r.paid_to,r.remarks].join(' ').toLowerCase().includes(q));
+  const total=filtered.reduce((t,r)=>t+Number(r.amount||0),0);
+  const byCat=Object.entries(filtered.reduce((m,r)=>{m[label(r)]=(m[label(r)]||0)+Number(r.amount||0);return m},{})).sort((a,b)=>b[1]-a[1]);
+  const inr=n=>'\u20b9 '+Number(n||0).toLocaleString('en-IN');
+  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>All Expenses</h3><p>Shop expenses \u2014 category wise</p></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><select className="input" value={cat} onChange={e=>setCat(e.target.value)}><option value="">All Categories</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</select><input className="input dealerSearch" placeholder="Search expense no, paid to, remarks\u2026" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
+    {error&&<div className="error">{error}</div>}
+    {!loading&&!!byCat.length&&<div className="grid" style={{margin:'12px 0'}}><div className="card" style={{padding:10}}><small className="muted">Total{cat?' \u2014 '+cat:''}</small><b>{inr(total)}</b></div>{!cat&&byCat.map(([c,v])=><div className="card" key={c} style={{padding:10,cursor:'pointer'}} onClick={()=>setCat(c)}><small className="muted">{c}</small><b>{inr(v)}</b></div>)}</div>}
+    {loading?<div className="dealerEmpty">Loading\u2026</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Expense No.</th><th>Category</th><th>Paid To</th><th>Remarks</th><th>Amount</th></tr></thead><tbody>
+      {filtered.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.expense_no||'\u2014'}</b></td><td>{label(r)}</td><td>{r.paid_to||'\u2014'}</td><td>{r.remarks||'\u2014'}</td><td>{inr(r.amount)}</td></tr>)}{!filtered.length&&<tr><td colSpan="6" className="muted">No expenses found.</td></tr>}</tbody><tfoot><tr><th colSpan="5">Total</th><th>{inr(total)}</th></tr></tfoot></table></div>}
   </div></div>
 }
 
