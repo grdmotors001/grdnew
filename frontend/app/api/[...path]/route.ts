@@ -2521,10 +2521,10 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const coBorrower=b.co_borrower||{};
       const vehicleLoan={...(b.vehicle_loan||{})};
       const modelId=idOf(vehicleLoan.vehicle_model_id||vehicleLoan.grd_model_id);
-      if(!modelId)return Response.json({error:"Vehicle model is required."},{status:400});
-
-      const model=(await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId])).rows[0];
-      if(!model)return Response.json({error:"Selected vehicle model not found."},{status:404});
+      const model=modelId
+        ? (await pool.query("SELECT * FROM product WHERE id=$1 LIMIT 1",[modelId])).rows[0]
+        : null;
+      if(modelId && !model)return Response.json({error:"Selected vehicle model not found."},{status:404});
 
       // If this is a new customer, keep a local GRD customer record as well.
       // Existing customer_id is preserved exactly as submitted by the dealer.
@@ -2555,7 +2555,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const localNo=String(b.application_no||"").trim()||("APP-"+Date.now());
       const initial=await pool.query(
         "INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,chfpl_status_updated_at,created_at,updated_at) VALUES ($1,$2,$3,'PENDING_CHFPL_SYNC',$4,$5,$6,NOW(),NOW(),NOW()) RETURNING *",
-        [localNo,did,customerId,num(vehicleLoan.loan_amount_requested||b.loan_amount),String(model.name||vehicleLoan.grd_model_name||"").trim()||null,String(vehicleLoan.vehicle_type||b.loan_vehicle_type||"3W").trim()||"3W"]
+        [localNo,did,customerId,num(vehicleLoan.loan_amount_requested||b.loan_amount),String(model?.name||vehicleLoan.grd_model_name||"").trim()||null,String(vehicleLoan.vehicle_type||b.loan_vehicle_type||"3W").trim()||"3W"]
       );
       const local=initial.rows[0];
 
@@ -2573,9 +2573,9 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         co_borrower:coBorrower,
         vehicle_loan:{
           ...vehicleLoan,
-          grd_model_id:modelId,
-          grd_model_code:String(model.code||"").trim()||null,
-          grd_model_name:String(model.name||"").trim(),
+          grd_model_id:modelId||null,
+          grd_model_code:model ? (String(model.code||"").trim()||null) : null,
+          grd_model_name:model ? String(model.name||"").trim() : null,
           vehicle_type:String(vehicleLoan.vehicle_type||b.loan_vehicle_type||"3W").trim()||"3W",
           vehicle_price:num(vehicleLoan.vehicle_price||model.ex_showroom_price||model.sale_price)
         },
