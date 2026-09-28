@@ -59,8 +59,6 @@ export function DealerNewLoanForm({ onBack }) {
   const [guarantor,setGuarantor]=useState(blankPerson);
   const [coBorrower,setCoBorrower]=useState(blankPerson);
   const [customerId,setCustomerId]=useState('');
-  const [customerSearch,setCustomerSearch]=useState('');
-  const [customers,setCustomers]=useState([]);
   const [vehicleLoan,setVehicleLoan]=useState({vehicle_model_id:'',loan_amount_requested:'80000',tenure_months:'36'});
   const [loanType,setLoanType]=useState('NEW');
   const [loanMasters,setLoanMasters]=useState({models:[],loan_types:[]});
@@ -78,20 +76,6 @@ export function DealerNewLoanForm({ onBack }) {
     }).catch(()=>{});
     return()=>{cancelled=true};
   },[]);
-
-  useEffect(()=>{
-    let cancelled=false;
-    const timer=setTimeout(()=>get('/dealer/customers?search='+encodeURIComponent(customerSearch))
-      .then(d=>{if(!cancelled)setCustomers(d.customers||[])}).catch(()=>{}),250);
-    return()=>{cancelled=true;clearTimeout(timer)};
-  },[customerSearch]);
-
-  function selectCustomer(c){
-    setCustomerId(String(c.id));
-    setBorrower({...borrower,full_name:c.full_name||'',phone:c.phone||'',email:c.email||'',dob:c.dob||'',gender:c.gender||'',pan:c.pan||'',occupation:c.occupation||'',monthly_income:c.monthly_income||'',pincode:c.pincode||'',city:c.city||'',state:c.state||'',address:c.address||'',aadhaar:''});
-    setCustomerSearch(c.full_name);
-    setCustomers([]);
-  }
 
   function setVehicle(k,v){
     setVehicleLoan(prev=>({...prev,[k]:v}));
@@ -148,13 +132,7 @@ export function DealerNewLoanForm({ onBack }) {
 
     <div className="dealerLoanLayout">
       <div className="dealerLoanMain">
-        {step==='borrower'&&<><div className="dealerCustomerPicker">
-          <div><span className="dealerFormEyebrow">CUSTOMER LINK</span><h2>Find Existing Customer</h2><p>Select an existing GRD customer or enter a new borrower below.</p></div>
-          <div className="dealerSearchWrap"><span>⌕</span><input className="input" placeholder="Search name, mobile or PAN…" value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);if(customerId)setCustomerId('')}} />
-            {customers.length>0&&<div className="dealerCustomerResults">{customers.map(c=><button type="button" key={c.id} onClick={()=>selectCustomer(c)}><b>{c.full_name}</b><span>{c.phone}{c.pan?' · '+c.pan:''}</span></button>)}</div>}
-          </div>
-          <div className={'dealerCustomerStatus '+(customerId?'selected':'')}>{customerId?'✓ Existing GRD customer selected':'＋ No customer selected — Submit will create the customer in GRD'}</div>
-        </div><PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/><div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">KYC DOCUMENTS</span><h2>Photo & Documents</h2></div></div><div className="dealerPersonGrid"><label>Customer Photo *<input className="input" type="file" accept="image/*" capture="environment" onChange={e=>setCustomerPhoto(e.target.files?.[0]||null)} required/><small className="muted">Customer photo required</small></label><label className="dealerSpan2">Documents *<input className="input" type="file" multiple accept="image/*,.pdf" onChange={e=>{const files=Array.from(e.target.files||[]);setDocuments(files);setDocumentPreviews(files.map(f=>f.name));}} required/><small className="muted">KYC/other required documents upload karein</small>{documentPreviews.length>0&&<div className="muted" style={{marginTop:6}}>{documentPreviews.join(' • ')}</div>}</label></div></div></>}
+        {step==='borrower'&&<><PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/><div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">KYC DOCUMENTS</span><h2>Photo & Documents</h2></div></div><div className="dealerPersonGrid"><label>Customer Photo *<input className="input" type="file" accept="image/*" capture="environment" onChange={e=>setCustomerPhoto(e.target.files?.[0]||null)} required/><small className="muted">Customer photo required</small></label><label className="dealerSpan2">Documents *<input className="input" type="file" multiple accept="image/*,.pdf" onChange={e=>{const files=Array.from(e.target.files||[]);setDocuments(files);setDocumentPreviews(files.map(f=>f.name));}} required/><small className="muted">KYC/other required documents upload karein</small>{documentPreviews.length>0&&<div className="muted" style={{marginTop:6}}>{documentPreviews.join(' • ')}</div>}</label></div></div></>}
         {step==='guarantor'&&<PersonFields value={guarantor} setValue={setGuarantor} title="Guaranter" relationLabel="Relation with Borrower"/>}
         {step==='coBorrower'&&<PersonFields value={coBorrower} setValue={setCoBorrower} title="Co-Borrower" relationLabel="Relation with Borrower" compact/>}
         {step==='loan'&&<LoanDetails vehicleLoan={vehicleLoan} setVehicle={setVehicle} loanType={loanType} setLoanType={setLoanType} loanMasters={loanMasters}/>}
