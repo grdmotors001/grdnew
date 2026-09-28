@@ -713,6 +713,50 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const vehicles=(d.vehicles||[]).map((v:any)=>({...v,source:"CHFPL",current_status:v.resale_status==="SEIZED"?"HOLD":(v.resale_status||"SEIZED")}));
       return Response.json({source:"CHFPL",vehicles,count:vehicles.length});
     }
+
+    // Dealer Loan Status must be a live CHFPL read. The local loan_workflow
+    // table is only the GRD bridge/cache and can otherwise remain stale when
+    // a CHFPL status changes after the loan was submitted.
+    if(p==="dealer/loan-status"){
+      const q:any={};
+      if(a?.scope==="dealer") q.grd_dealer_id=String(num(a.dealer_id));
+      const remote=await chfplBridge("/api/grd-dealer-loans",q);
+      const applications=Array.isArray(remote?.applications)?remote.applications:[];
+      await ensureLoanWorkflowBridgeSchema();
+
+      // Reconcile every live CHFPL row into the local bridge by CHFPL id.
+      // This makes Refresh recover status changes even when a webhook was
+      // delayed/missed. Existing GRD-only pending submissions are preserved.
+      for(const row of applications){
+        const cid=idOf(row.id);
+        if(!cid) continue;
+        await pool.query(
+          "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR application_no=$3",
+          [cid,String(row.status||"submitted").trim()||"submitted",String(row.application_no||"").trim()]
+        );
+      }
+
+      const pendingArgs:any[]=[];
+      let pendingWhere="status='PENDING_CHFPL_SYNC'";
+      if(a?.scope==="dealer"){
+        pendingArgs.push(num(a.dealer_id));
+        pendingWhere+=" AND dealer_id=$1";
+      }
+      const pending=await pool.query(
+        "SELECT lw.* FROM loan_workflow lw WHERE "+pendingWhere+" ORDER BY lw.id DESC LIMIT 100",
+        pendingArgs
+      );
+
+      // Live CHFPL rows are authoritative. Keep only genuinely unsynced
+      // local submissions in addition to them.
+      const liveIds=new Set(applications.map((x:any)=>Number(idOf(x.id))).filter(Boolean));
+      const unsynced=pending.rows.filter((x:any)=>!x.chfpl_loan_id && !liveIds.has(Number(x.id)));
+      return Response.json({
+        source:"CHFPL",
+        applications:[...applications,...unsynced],
+        count:applications.length+unsynced.length
+      });
+    }
     if(p==="billing/pending-sales"){
       await ensureLoanWorkflowBridgeSchema(); await ensureBillingSalesSchema();
       if(!billingStaff(a) && a?.scope!=="dealer")return Response.json({error:"Billing approval rights required."},{status:403});
