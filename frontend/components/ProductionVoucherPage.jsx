@@ -237,8 +237,6 @@ export function ProductionVoucherPage() {
               <Field label="Other" value={form.other} onChange={(v) => setForm({ ...form, other: v })} />
               </div>
 
-              </div>
-
               <aside style={{ padding: 16, background: 'rgba(180,80,35,.035)', overflowY: 'auto', maxHeight: '72vh' }}>
                 <div style={{ padding: 14, border: '1px solid var(--line)', borderRadius: 12, background: 'var(--modal-bg)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
