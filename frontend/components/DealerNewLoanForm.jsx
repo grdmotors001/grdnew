@@ -134,8 +134,8 @@ export function DealerNewLoanForm({ onBack }) {
 
   if(success) return <div className="dealerLoanPage"><div className="dealerSuccessCard">
     <div className="dealerSuccessIcon">✓</div><span className="dealerFormEyebrow">APPLICATION SAVED</span><h1>Loan Application Submitted</h1>
-    <div className="dealerSuccessGrid"><div><small>Customer</small><b>{success.customer?.full_name||borrower.full_name}</b></div><div><small>Application No.</small><b>{success.application_no||'Pending CHFPL sync'}</b></div></div>
-    <p className="muted">Borrower, Guaranter aur Co-Borrower details submission ke saath linked hain.</p><button className="btn primary" onClick={onBack}>Back to Dealer Dashboard</button>
+    <div className="dealerSuccessGrid"><div><small>Customer</small><b>{success.customer?.full_name||borrower.full_name}</b></div><div><small>Application No.</small><b>{success.sync_status==='PENDING_CHFPL_SYNC'?'Pending CHFPL sync':(success.application_no||'Pending CHFPL sync')}</b></div></div>
+    <p className="muted">{success.sync_status==='PENDING_CHFPL_SYNC'?'Loan GRD me save ho gaya hai. CHFPL sync pending hai; status automatically update ho jayega.':'Borrower, Guaranter aur Co-Borrower details submission ke saath linked hain.'}</p><button className="btn primary" onClick={onBack}>Back to Dealer Dashboard</button>
   </div></div>;
 
   const steps=[
