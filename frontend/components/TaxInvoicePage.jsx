@@ -20,6 +20,24 @@ export function TaxInvoicePage() {
   const [financers, setFinancers] = useState([]);
   const [pendingLoans, setPendingLoans] = useState([]);
   const [loanSearch, setLoanSearch] = useState('');
+  const [customers, setCustomers] = useState([]);
+  const loadCustomers = (dealerId) => {
+    if (!dealerId) { setCustomers([]); return; }
+    get('/billing-customers?dealer_id=' + dealerId)
+      .then((d) => setCustomers(Array.isArray(d) ? d : (d.rows || [])))
+      .catch(() => setCustomers([]));
+  };
+  const pickCustomer = (id) => {
+    const c = customers.find((x) => String(x.id) === String(id));
+    if (!c) { setForm((f) => ({ ...f, customer_id: '' })); return; }
+    setForm((f) => ({
+      ...f, customer_id: c.id, buyer_name: c.name || '', buyer_relation: c.relation || f.buyer_relation,
+      buyer_father_name: c.father_name || '', buyer_address: c.address || '', buyer_mobile: c.mobile || '',
+      buyer_gst_no: c.gst_no || '', buyer_pan: c.pan || '', buyer_aadhar: c.aadhar || '',
+      buyer_dob: c.dob ? String(c.dob).slice(0, 10) : '', buyer_state: c.state || '',
+      buyer_state_code: c.state_code || '', license_no: c.license_no || '',
+    }));
+  };
   const searchPendingLoans = async (value='') => {
     setLoanSearch(value);
     try {
@@ -96,8 +114,9 @@ export function TaxInvoicePage() {
 
   const pickChallan = (id) => {
     const c = data.uninvoiced_challans.find((x) => x.id === Number(id));
+    loadCustomers(c?.dealer_id);
     setForm((f) => ({
-      ...f, challan_id: Number(id),
+      ...f, challan_id: Number(id), dealer_id: c?.dealer_id || f.dealer_id, vehicle_id: c?.vehicle_id || f.vehicle_id, customer_id: '',
       // Dealer comes from the Delivery Challan and is kept separate from the
       // actual retail Customer — it's no longer auto-filled into buyer_name,
       // since Buyer/Customer and Dealer are different people/entities.
@@ -328,6 +347,15 @@ export function TaxInvoicePage() {
                   </div>
                   <div className="formgrid">
                   <Field label="Dealer Page No." value={form.dealer_page_no} onChange={(v) => setForm({ ...form, dealer_page_no: v })} />
+                  {customers.length > 0 && (
+                    <div className="field">
+                      <label>Select Customer (this dealer)</label>
+                      <select value={form.customer_id || ''} onChange={(e) => pickCustomer(e.target.value)}>
+                        <option value="">— New customer / type below —</option>
+                        {customers.map((c) => <option key={c.id} value={c.id}>{c.name}{c.mobile ? ' — ' + c.mobile : ''}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <Field label="Customer Name" value={form.buyer_name} onChange={(v) => setForm({ ...form, buyer_name: v })} required />
                   <Field label="Buyer Relation" value={form.buyer_relation} onChange={(v) => setForm({ ...form, buyer_relation: v })} />
                   <Field label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={(v) => setForm({ ...form, buyer_father_name: v })} />

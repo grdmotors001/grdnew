@@ -307,18 +307,25 @@ function AccCol({ items, c }) {
 
 const UMRN_LOGO_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
 
-function UMRNLogo({ umrn, alt = '', className, style }) {
+// Tries every candidate file name (UMRN code, then chassis item code, then product name),
+// in exact / lower / UPPER case and each image extension, before showing _default.png.
+function UMRNLogo({ umrn, keys, alt = '', className, style }) {
   const [attempt, setAttempt] = useState(0);
+  const list = [];
+  [...(Array.isArray(keys) ? keys : []), umrn].forEach((k) => {
+    const t = String(k || '').trim();
+    if (!t) return;
+    [t, t.toLowerCase(), t.toUpperCase()].forEach((v) => { if (!list.includes(v)) list.push(v); });
+  });
+  const candidates = [];
+  list.forEach((k) => UMRN_LOGO_EXTENSIONS.forEach((ext) => candidates.push(`/UMRN/${encodeURIComponent(k)}.${ext}`)));
+  const sig = candidates.join('|');
 
   useEffect(() => {
     setAttempt(0);
-  }, [umrn]);
+  }, [sig]);
 
-  const src = !umrn
-    ? '/UMRN/_default.png'
-    : attempt < UMRN_LOGO_EXTENSIONS.length
-      ? `/UMRN/${encodeURIComponent(String(umrn).trim())}.${UMRN_LOGO_EXTENSIONS[attempt]}`
-      : '/UMRN/_default.png';
+  const src = attempt < candidates.length ? candidates[attempt] : '/UMRN/_default.png';
 
   return (
     <img
@@ -326,7 +333,7 @@ function UMRNLogo({ umrn, alt = '', className, style }) {
       alt={alt}
       className={className}
       style={style}
-      onError={() => setAttempt((i) => Math.min(i + 1, UMRN_LOGO_EXTENSIONS.length))}
+      onError={() => setAttempt((i) => Math.min(i + 1, candidates.length))}
     />
   );
 }
@@ -477,7 +484,7 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
             </div>
           </div>
           <div className="vehicle-image-box">
-            <UMRNLogo umrn={c.umrn_code} alt={c.product_name || ''} />
+            <UMRNLogo umrn={c.umrn_code} keys={c.logo_keys} alt={c.product_name || ''} />
           </div>
         </div>
 
@@ -722,7 +729,7 @@ export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose
             </div>
             <div className="footer-side">
               <div className="qr-placeholder">QR CODE</div>
-              <div className="flag-logo"><UMRNLogo umrn={umrn} alt={i.product_name || ''} /></div>
+              <div className="flag-logo"><UMRNLogo umrn={umrn} keys={p.logo_keys || i.logo_keys} alt={i.product_name || ''} /></div>
             </div>
           </div>
 
