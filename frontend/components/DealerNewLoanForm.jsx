@@ -75,10 +75,6 @@ export function DealerNewLoanForm({ onBack }) {
       if(cancelled)return;
       const masters=d||{};
       setLoanMasters(masters);
-      setVehicleLoan(prev=>({
-        ...prev,
-        vehicle_model_id:prev.vehicle_model_id || String(masters.models?.[0]?.id || ''),
-      }));
     }).catch(()=>{});
     return()=>{cancelled=true};
   },[]);
@@ -152,15 +148,13 @@ export function DealerNewLoanForm({ onBack }) {
 
     <div className="dealerLoanLayout">
       <div className="dealerLoanMain">
-        <div className="dealerCustomerPicker">
+        {step==='borrower'&&<><div className="dealerCustomerPicker">
           <div><span className="dealerFormEyebrow">CUSTOMER LINK</span><h2>Find Existing Customer</h2><p>Select an existing GRD customer or enter a new borrower below.</p></div>
           <div className="dealerSearchWrap"><span>⌕</span><input className="input" placeholder="Search name, mobile or PAN…" value={customerSearch} onChange={e=>{setCustomerSearch(e.target.value);if(customerId)setCustomerId('')}} />
             {customers.length>0&&<div className="dealerCustomerResults">{customers.map(c=><button type="button" key={c.id} onClick={()=>selectCustomer(c)}><b>{c.full_name}</b><span>{c.phone}{c.pan?' · '+c.pan:''}</span></button>)}</div>}
           </div>
           <div className={'dealerCustomerStatus '+(customerId?'selected':'')}>{customerId?'✓ Existing GRD customer selected':'＋ No customer selected — Submit will create the customer in GRD'}</div>
-        </div>
-
-        {step==='borrower'&&<><PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/><div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">KYC DOCUMENTS</span><h2>Photo & Documents</h2></div></div><div className="dealerPersonGrid"><label>Customer Photo *<input className="input" type="file" accept="image/*" capture="environment" onChange={e=>setCustomerPhoto(e.target.files?.[0]||null)} required/><small className="muted">Customer photo required</small></label><label className="dealerSpan2">Documents *<input className="input" type="file" multiple accept="image/*,.pdf" onChange={e=>{const files=Array.from(e.target.files||[]);setDocuments(files);setDocumentPreviews(files.map(f=>f.name));}} required/><small className="muted">KYC/other required documents upload karein</small>{documentPreviews.length>0&&<div className="muted" style={{marginTop:6}}>{documentPreviews.join(' • ')}</div>}</label></div></div></>}
+        </div><PersonFields value={borrower} setValue={setBorrower} title="Borrower / Customer / Applicant"/><div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">KYC DOCUMENTS</span><h2>Photo & Documents</h2></div></div><div className="dealerPersonGrid"><label>Customer Photo *<input className="input" type="file" accept="image/*" capture="environment" onChange={e=>setCustomerPhoto(e.target.files?.[0]||null)} required/><small className="muted">Customer photo required</small></label><label className="dealerSpan2">Documents *<input className="input" type="file" multiple accept="image/*,.pdf" onChange={e=>{const files=Array.from(e.target.files||[]);setDocuments(files);setDocumentPreviews(files.map(f=>f.name));}} required/><small className="muted">KYC/other required documents upload karein</small>{documentPreviews.length>0&&<div className="muted" style={{marginTop:6}}>{documentPreviews.join(' • ')}</div>}</label></div></div></>}
         {step==='guarantor'&&<PersonFields value={guarantor} setValue={setGuarantor} title="Guaranter" relationLabel="Relation with Borrower"/>}
         {step==='coBorrower'&&<PersonFields value={coBorrower} setValue={setCoBorrower} title="Co-Borrower" relationLabel="Relation with Borrower" compact/>}
         {step==='loan'&&<LoanDetails vehicleLoan={vehicleLoan} setVehicle={setVehicle} loanType={loanType} setLoanType={setLoanType} loanMasters={loanMasters}/>}
@@ -191,7 +185,7 @@ function LoanDetails({vehicleLoan,setVehicle,loanType,setLoanType,loanMasters}){
   return <div className="dealerLoanDetails">
     <div className="dealerFormCard"><div className="dealerFormCardHead"><div><span className="dealerFormEyebrow">VEHICLE & LOAN</span><h2>Loan Details</h2></div></div>
       <div className="dealerPersonGrid"><label>Loan Type *<select className="input" value={loanType} onChange={e=>setLoanType(e.target.value)}><option value="NEW">NEW MODEL</option><option value="OLD">OLD MODEL</option></select></label>
-      <label>Model Name *<select className="input" value={vehicleLoan.vehicle_model_id} onChange={e=>setV('vehicle_model_id',e.target.value)}><option value="">Select model</option>{(loanMasters.models||[]).map(m=><option key={m.id} value={m.id}>{m.name}{m.code?' · '+m.code:''}</option>)}</select></label>
+      <label>Model Name<select className="input" value={vehicleLoan.vehicle_model_id} onChange={e=>setV('vehicle_model_id',e.target.value)}><option value="">Select model</option>{(loanMasters.models||[]).map(m=><option key={m.id} value={m.id}>{m.name}{m.code?' · '+m.code:''}</option>)}</select></label>
       <label>Loan Amount Requested *<input className="input" type="number" min="1" placeholder="₹ Loan amount" value={vehicleLoan.loan_amount_requested} onChange={e=>setV('loan_amount_requested',e.target.value)}/></label>
       <label>Tenure (Months) *<select className="input" value={vehicleLoan.tenure_months} onChange={e=>setV('tenure_months',e.target.value)}><option value="">Select tenure</option>{[12,18,24,30,36,48].map(x=><option key={x}>{x}</option>)}</select></label>
       </div>
