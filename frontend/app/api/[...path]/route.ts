@@ -719,7 +719,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // a CHFPL status changes after the loan was submitted.
     if(p==="dealer/loan-status"||p==="loan-application-view"){
       const q:any={};
-      if(a?.scope==="dealer") q.grd_dealer_id=String(num(a.dealer_id));
+      if(a?.scope==="dealer"){
+        q.grd_dealer_id=String(num(a.dealer_id));
+        const dealerIdentity=await pool.query("SELECT code FROM dealer WHERE id=$1 LIMIT 1",[num(a.dealer_id)]);
+        const dealerCode=String(dealerIdentity.rows[0]?.code||"").trim();
+        if(dealerCode) q.grd_dealer_code=dealerCode;
+      }
       const remote=await chfplBridge("/api/grd-dealer-loans",q);
       const applications=Array.isArray(remote?.applications)?remote.applications:[];
       await ensureLoanWorkflowBridgeSchema();
