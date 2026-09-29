@@ -844,6 +844,27 @@ async function chfplSubmitLoan(body:any){
   }
 }
 
+// ---- Portal (dealer / salesman) self-service helpers ----
+function pwVerifyHash(crypto:any,hash:string,password:string){
+  hash=String(hash||"");
+  let m=hash.match(/^pbkdf2:(sha1|sha256|sha512):(\d+)\$([^$]+)\$([^$]+)$/);
+  if(m){
+    const actual=crypto.pbkdf2Sync(password,m[3],Number(m[2]),Math.floor(m[4].length/2),m[1]).toString("hex");
+    return actual.length===m[4].length && crypto.timingSafeEqual(Buffer.from(actual),Buffer.from(m[4]));
+  }
+  m=hash.match(/^scrypt:(\d+):(\d+):(\d+)\$([^$]+)\$([^$]+)$/);
+  if(m){
+    const N=Number(m[1]),rr=Number(m[2]),pp=Number(m[3]);
+    const actual=crypto.scryptSync(password,m[4],Buffer.from(m[5],"hex").length,{N,r:rr,p:pp,maxmem:Math.max(128*N*rr+1024,64*1024*1024)}).toString("hex");
+    return actual.length===m[5].length && crypto.timingSafeEqual(Buffer.from(actual),Buffer.from(m[5]));
+  }
+  return false;
+}
+function pwMakeHash(crypto:any,password:string){
+  const salt=crypto.randomBytes(16).toString("hex");
+  return "pbkdf2:sha256:260000$"+salt+"$"+crypto.pbkdf2Sync(password,salt,260000,32,"sha256").toString("hex");
+}
+
 export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>}){
   try{
     const {path=[]}=await params,p=path.join("/");
@@ -1660,19 +1681,61 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM dealer_ledger_account WHERE dealer_id=$1 ORDER BY id DESC LIMIT 500",[num(a.dealer_id)]);
       return Response.json({accounts:r.rows,rows:r.rows,count:r.rowCount});
     }
+    // Closing Stock - with Dealers (staff/salesman). Was falling through to the generic journal_stock table list, so the page got
+    // an array instead of {vehicles,summary} and crashed ("This page couldn't load"). Salesman logins see only their own dealers.
+    if(p==="stock/closing-dealers"&&a.scope!=="dealer"){
+      const sm=String(a.department||"").trim().toLowerCase()==="salesman"?String(a.username||"").trim():"";
+      const args:any[]=[];let extra="";
+      if(sm){args.push(sm);extra=" AND lower(trim(COALESCE(v.dealer_name,''))) IN (SELECT lower(trim(name)) FROM dealer WHERE lower(trim(COALESCE(salesman,'')))=lower(trim($1)))";}
+      const r=await pool.query("SELECT v.id,v.date,v.chassis_no,v.model_name,v.motor_no,v.colour,v.dealer_name FROM vehicle v WHERE v.stage='Delivery Challan' AND COALESCE(trim(v.dealer_name),'')<>''"+extra+" ORDER BY v.dealer_name,v.date DESC,v.id DESC",args);
+      const m=new Map<string,any>();
+      for(const x of r.rows){const k=String(x.dealer_name||"")+"|"+String(x.model_name||"");const e=m.get(k)||{dealer_name:x.dealer_name||"",model_name:x.model_name||"",qty:0};e.qty++;m.set(k,e);}
+      return Response.json({vehicles:r.rows,summary:[...m.values()],count:r.rowCount});
+    }
     if(p==="dealer/me"&&a.scope==="dealer"){
       const r=await pool.query("SELECT id,code,name,login_id,dealer_category,purchase_access,portal_modules,blocked FROM dealer WHERE id=$1",[num(a.dealer_id)]);
       const d=r.rows[0]||null;
       if(!d)return Response.json({error:"Dealer not found."},{status:404});
       d.purchase_access=Boolean(d.purchase_access);
       d.portal_modules=String(d.portal_modules||"").split(",").map((x:any)=>x.trim()).filter(Boolean);
+      if(String(a.role||"")==="salesman"){d.is_salesman=true;d.salesman=String(a.salesman||a.username||"");d.role="salesman";}
       return Response.json({dealer:d});
+    }
+    if(p==="dealer/profile"&&a.scope==="dealer"){
+      if(String(a.role||"")==="salesman"){
+        const ucols=await columns("user");
+        const wanted=["id","username","mobile","department","full_name","email","date_of_birth","address"];
+        const select=wanted.filter((c)=>ucols.has(c)).map((c)=>'"'+c+'"').join(",");
+        const r=await pool.query('SELECT '+(select||'id,username')+' FROM "user" WHERE id=$1',[num(a.sub)]);
+        if(!r.rowCount)return Response.json({error:"User not found."},{status:404});
+        return Response.json({profile:{...r.rows[0],kind:"salesman",editable:true}});
+      }
+      const dcols=await columns("dealer");
+      const wanted=["id","code","name","login_id","dealer_category","mobile","email","address","gstin","state"];
+      const select=wanted.filter((c)=>dcols.has(c)).map((c)=>'"'+c+'"').join(",");
+      const r=await pool.query('SELECT '+(select||'id,name')+' FROM dealer WHERE id=$1',[num(a.dealer_id)]);
+      if(!r.rowCount)return Response.json({error:"Dealer not found."},{status:404});
+      return Response.json({profile:{...r.rows[0],kind:"dealer",editable:false}});
     }
     if(p==="dealer/stock"&&a.scope==="dealer"){
       const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1",[num(a.dealer_id)]);
       const name=dr.rows[0]?.name||"";
       const r=await pool.query("SELECT * FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) ORDER BY date DESC,id DESC",[name]);
       return Response.json({vehicles:r.rows,count:r.rowCount});
+    }
+    if(p==="dealer/rickshaw-battery-options"){
+      const ou=new URL(req.url),otype=String(ou.searchParams.get("type")||"new").toLowerCase();
+      const odid=a.scope==="dealer"?num(a.dealer_id):num(ou.searchParams.get("dealer_id"));
+      if(!odid)return Response.json({rickshaws:[]});
+      const nums=(r:any)=>[r.battery_no1,r.battery_no2,r.battery_no3,r.battery_no4].map((x:any)=>String(x||"").trim()).filter(Boolean);
+      if(otype.includes("old")){
+        const orr=await pool.query("SELECT id,vehicle_reg_no,chassis_no,model_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4 FROM old_rickshaw WHERE dealer_id=$1 AND status IN ('available','sold') ORDER BY date DESC,id DESC",[odid]);
+        return Response.json({rickshaws:orr.rows.map((r:any)=>({id:r.id,reg_no:r.vehicle_reg_no,chassis_no:r.chassis_no,model_name:r.model_name,battery_maker:r.battery_maker,battery_numbers:nums(r),has_battery:nums(r).length>0}))});
+      }
+      const odr=await pool.query("SELECT name FROM dealer WHERE id=$1",[odid]);
+      if(!odr.rowCount)return Response.json({rickshaws:[]});
+      const nr=await pool.query("SELECT id,chassis_no,model_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4 FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) ORDER BY date DESC,id DESC",[odr.rows[0].name]);
+      return Response.json({rickshaws:nr.rows.map((r:any)=>({id:r.id,reg_no:null,chassis_no:r.chassis_no,model_name:r.model_name,battery_maker:r.battery_maker,battery_numbers:nums(r),has_battery:nums(r).length>0}))});
     }
     if(p==="dealer/old-rickshaws"&&a.scope==="dealer"){
       const r=await pool.query("SELECT * FROM old_rickshaw WHERE dealer_id=$1 AND status IN ('available','sold') ORDER BY CASE WHEN status='available' THEN 0 ELSE 1 END,date DESC,id DESC",[num(a.dealer_id)]);
@@ -1848,22 +1911,6 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const totals=rows.reduce((a:any,x:any)=>(a.value+=x.value_amt,a.loan+=x.loan_amt,a.received+=x.amt_recd,a.balance+=x.balance,a),{value:0,loan:0,received:0,balance:0});
       if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Payment_Receivable_Report.csv");
       return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),totals});
-    }
-    if(p.startsWith("users/") && p.endsWith("/password")){
-      const uid=idOf(path[path.length-2]),body:any=await json(req),np=String(body.new_password||""),cp=String(body.confirm_password||"");
-      if(!uid)return Response.json({error:"User id required."},{status:400});
-      if(!np||np!==cp)return Response.json({error:"Passwords do not match."},{status:400});
-      const crypto=await import("crypto"),salt=crypto.randomBytes(16).toString("hex"),hash=crypto.pbkdf2Sync(np,salt,260000,32,"sha256").toString("hex"),value="pbkdf2:sha256:260000$"+salt+"$"+hash;
-      const r=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2 RETURNING id,username',[value,uid]);
-      return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
-    }
-    if(p.startsWith("users/") && p.endsWith("/option-setting")){
-      const uid=idOf(path[path.length-2]),body:any=await json(req),modules=Array.isArray(body.modules)?body.modules.map((x:any)=>String(x).trim()).filter(Boolean):[];
-      if(!uid)return Response.json({error:"User id required."},{status:400});
-      const meta=await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='user' AND column_name='allowed_modules'");
-      const value=String(meta.rows[0]?.data_type||"").toLowerCase()==="array"?modules:modules.join(",");
-      const r=await pool.query('UPDATE "user" SET allowed_modules=$1 WHERE id=$2 RETURNING id,username,allowed_modules',[value,uid]);
-      return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
     if(p==="products"){
       await ensureDispatchSchema();
@@ -2206,6 +2253,37 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!r.rowCount)return Response.json({error:"User not found."},{status:404});
       const row={...r.rows[0]};delete row.password_hash;
       return Response.json({success:true,user:row});
+    }
+
+    if(p==="dealer/profile"){
+      if(a.scope!=="dealer"||String(a.role||"")!=="salesman")return Response.json({error:"Profile is managed by admin for dealer logins."},{status:403});
+      const uid=num(a.sub),cols=await columns("user"),input:any={};
+      for(const key of ["full_name","mobile","email","address","date_of_birth"]){
+        if(!cols.has(key))continue;
+        const value=b[key];
+        input[key]=key==="date_of_birth" ? (String(value||"").trim()||null) : String(value??"").trim();
+      }
+      const keys=Object.keys(input);
+      if(!keys.length)return Response.json({error:"Profile fields are not available."},{status:400});
+      const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
+      const r=await pool.query('UPDATE "user" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING id',[...keys.map(k=>input[k]),uid]);
+      if(!r.rowCount)return Response.json({error:"User not found."},{status:404});
+      return Response.json({success:true});
+    }
+    if(p==="dealer/change-password"){
+      if(a.scope!=="dealer")return Response.json({error:"Portal password only."},{status:403});
+      const current=String(b.current_password||""),next=String(b.new_password||""),confirm=String(b.confirm_password||"");
+      if(!current||!next)return Response.json({error:"Current and new password are required."},{status:400});
+      if(next!==confirm)return Response.json({error:"New password and confirm password do not match."},{status:400});
+      if(next.length<4)return Response.json({error:"New password must be at least 4 characters."},{status:400});
+      const isSm=String(a.role||"")==="salesman";
+      const table=isSm?'"user"':'dealer',id=isSm?num(a.sub):num(a.dealer_id);
+      const r=await pool.query('SELECT password_hash FROM '+table+' WHERE id=$1',[id]);
+      if(!r.rowCount)return Response.json({error:"Account not found."},{status:404});
+      const crypto=await import("crypto");
+      if(!pwVerifyHash(crypto,r.rows[0].password_hash,current))return Response.json({error:"Current password is incorrect."},{status:400});
+      await pool.query('UPDATE '+table+' SET password_hash=$1 WHERE id=$2',[pwMakeHash(crypto,next),id]);
+      return Response.json({success:true});
     }
 
     if(p==="auth/change-password"){
@@ -2919,12 +2997,15 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const fromTable=fromType.includes("old")?"old_rickshaw":"vehicle",toTable=toType.includes("old")?"old_rickshaw":"vehicle";
       const fromId=idOf(b.from_id),toId=idOf(b.to_id);
       if(!fromId||!toId)return Response.json({error:"Source and target are required."},{status:400});
+      if(fromTable===toTable&&fromId===toId)return Response.json({error:"Source and target must be different rickshaws."},{status:400});
       if(a.scope==="dealer"){
         const did=num(a.dealer_id);
         const dr=await pool.query("SELECT name FROM dealer WHERE id=$1",[did]);
         if(!dr.rowCount)return Response.json({error:"Dealer not found."},{status:404});
-        const owned=await pool.query("SELECT id FROM vehicle WHERE id=ANY($1::int[]) AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2))",[ [fromId,toId], dr.rows[0].name ]);
-        if(owned.rowCount!==2)return Response.json({error:"Both vehicles must be in your dealer stock."},{status:403});
+        const ownedNew=async(id:number,table:string)=>table==="old_rickshaw"
+          ?(await pool.query("SELECT id FROM old_rickshaw WHERE id=$1 AND dealer_id=$2",[id,did])).rowCount===1
+          :(await pool.query("SELECT id FROM vehicle WHERE id=$1 AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2))",[id,dr.rows[0].name])).rowCount===1;
+        if(!(await ownedNew(fromId,fromTable))||!(await ownedNew(toId,toTable)))return Response.json({error:"Both rickshaws must be in your dealer stock."},{status:403});
       }
       const client=await pool.connect();
       try{
@@ -3111,6 +3192,23 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const r=await pool.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>vals[k]),id]);
       if(!r.rowCount)return Response.json({error:"Old Rickshaw record not found."},{status:404});
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]});
+    }
+    // User Master: reset password + save Module Access (Permissions). Must live in POST (was mistakenly inside GET -> fell to genericWrite -> "No valid fields supplied.").
+    if(p.startsWith("users/") && p.endsWith("/password")){
+      const uid=idOf(path[path.length-2]),body:any=b,np=String(body.new_password||""),cp=String(body.confirm_password||"");
+      if(!uid)return Response.json({error:"User id required."},{status:400});
+      if(!np||np!==cp)return Response.json({error:"Passwords do not match."},{status:400});
+      const crypto=await import("crypto"),salt=crypto.randomBytes(16).toString("hex"),hash=crypto.pbkdf2Sync(np,salt,260000,32,"sha256").toString("hex"),value="pbkdf2:sha256:260000$"+salt+"$"+hash;
+      const r=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2 RETURNING id,username',[value,uid]);
+      return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
+    }
+    if(p.startsWith("users/") && p.endsWith("/option-setting")){
+      const uid=idOf(path[path.length-2]),body:any=b,modules=Array.isArray(body.modules)?body.modules.map((x:any)=>String(x).trim()).filter(Boolean):[];
+      if(!uid)return Response.json({error:"User id required."},{status:400});
+      const meta=await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='user' AND column_name='allowed_modules'");
+      const value=String(meta.rows[0]?.data_type||"").toLowerCase()==="array"?modules:modules.join(",");
+      const r=await pool.query('UPDATE "user" SET allowed_modules=$1 WHERE id=$2 RETURNING id,username,allowed_modules',[value,uid]);
+      return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
     const table=tableFor(path);
     if(table)return genericWrite(req,path,table,"POST",b);

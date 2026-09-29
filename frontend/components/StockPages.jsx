@@ -15,7 +15,7 @@ export function ClosingStockPremisesPage() {
   if (error) return <ErrorBanner message={error} />;
   if (!data) return <div className="card">Loading…</div>;
   const q = search.trim().toLowerCase();
-  const vehicles = data.vehicles.filter((v) => [v.date, v.chassis_no, v.model_name, v.motor_no, v.colour].join(' ').toLowerCase().includes(q));
+  const vehicles = (data.vehicles || []).filter((v) => [v.date, v.chassis_no, v.model_name, v.motor_no, v.colour].join(' ').toLowerCase().includes(q));
   return (
     <>
       <div className="card" style={{ marginBottom: 14 }}>
@@ -23,7 +23,7 @@ export function ClosingStockPremisesPage() {
         <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Model</th><th>Colour</th><th>Qty</th></tr></thead>
-            <tbody>{data.summary.map((s, i) => <tr key={i}><td data-label="Model">{s.model_name}</td><td data-label="Colour">{s.colour}</td><td data-label="Qty">{s.qty}</td></tr>)}</tbody>
+            <tbody>{(data.summary || []).map((s, i) => <tr key={i}><td data-label="Model">{s.model_name}</td><td data-label="Colour">{s.colour}</td><td data-label="Qty">{s.qty}</td></tr>)}</tbody>
           </table>
         </div>
       </div>
@@ -50,7 +50,7 @@ export function ClosingStockDealersPage() {
   if (error) return <ErrorBanner message={error} />;
   if (!data) return <div className="card">Loading…</div>;
   const q = search.trim().toLowerCase();
-  const vehicles = data.vehicles.filter((v) => [v.date, v.chassis_no, v.model_name, v.dealer_name].join(' ').toLowerCase().includes(q));
+  const vehicles = (data.vehicles || []).filter((v) => [v.date, v.chassis_no, v.model_name, v.dealer_name].join(' ').toLowerCase().includes(q));
   return (
     <>
       <div className="card" style={{ marginBottom: 14 }}>
@@ -58,7 +58,7 @@ export function ClosingStockDealersPage() {
         <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
           <table className="table">
             <thead><tr><th>Dealer</th><th>Model</th><th>Qty</th></tr></thead>
-            <tbody>{data.summary.map((s, i) => <tr key={i}><td data-label="Dealer">{s.dealer_name}</td><td data-label="Model">{s.model_name}</td><td data-label="Qty">{s.qty}</td></tr>)}</tbody>
+            <tbody>{(data.summary || []).map((s, i) => <tr key={i}><td data-label="Dealer">{s.dealer_name}</td><td data-label="Model">{s.model_name}</td><td data-label="Qty">{s.qty}</td></tr>)}</tbody>
           </table>
         </div>
       </div>

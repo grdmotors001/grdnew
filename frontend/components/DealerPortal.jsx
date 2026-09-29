@@ -15,6 +15,7 @@ import { DealerLedgerPage } from './DealerLedgerPage';
 import { DealerPendingSalesPage } from './DealerPendingSalesPage';
 import { DealerAllReceiptsPage, DealerAllCustomersPage, DealerExpenseCreatePage, DealerHandoverCreatePage } from './DealerCashBookExtras';
 import { ChatWidget } from './ChatWidget';
+import { DealerProfilePage, DealerPasswordPage } from './DealerProfilePage';
 import { Field, ErrorBanner } from './ui';
 
 const dealerHeaderSections = [
@@ -54,6 +55,8 @@ const nav = [
   ['receipt-create', '🧾', 'Create Receipt'],
   ['repair-receipt', '🔧', 'Repair Receipt'],
   ['create-sale', '＋', 'Create Sale'],
+  ['profile', '👤', 'My Profile'],
+  ['password', '🔑', 'Password'],
 ];
 
 // Old Rickshaw Stock, Battery Stock and Seized Vehicles are no longer
@@ -158,6 +161,9 @@ export function DealerPortal({ dealer, onLogout }) {
 
   const dealerName = String(dealer?.name || dealer?.full_name || 'Dealer');
   const dealerCode = String(dealer?.code || dealer?.login_id || dealer?.dealer_code || '');
+  // Salesman logins open the portal of their dealer: show the salesman's own name, dealer name goes underneath.
+  const isSalesman = Boolean(dealer?.is_salesman || dealer?.role === 'salesman');
+  const personName = isSalesman ? String(dealer?.salesman || 'Salesman') : dealerName;
 
   const standaloneForm =
     (tab === 'create-sale' && canCreateSale) ? <DealerCreateSaleForm dealer={dealer} stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
@@ -249,7 +255,7 @@ export function DealerPortal({ dealer, onLogout }) {
     `}</style>
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
-      <div className="dealerProfileMini"><div className="dealerAvatar">{dealerName.slice(0,1).toUpperCase()}</div><div><strong>{dealerName}</strong><span>{dealerCode}</span></div></div>
+      <div className="dealerProfileMini"><div className="dealerAvatar">{personName.slice(0,1).toUpperCase()}</div><div><strong>{personName}</strong><span>{isSalesman ? dealerName : dealerCode}</span></div></div>
       <nav className="dealerSideNav">{sidebarEntries.map(([key,icon,label]) =>
         <button key={key} className={'dealerNavItem'+((key==='battery-adjustment'?isBatteryAdjustmentActive:tab===key)?' active':'')} onClick={()=>goToSidebarTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
@@ -303,7 +309,7 @@ export function DealerPortal({ dealer, onLogout }) {
               />)}
             </div>}
           </div>
-          <div className="grdHeaderUser"><div className="grdHeaderAvatar">{dealerName.slice(0,1).toUpperCase()}</div><strong>{dealerName}</strong><span>⌄</span></div>
+          <div className="grdHeaderUser"><div className="grdHeaderAvatar">{personName.slice(0,1).toUpperCase()}</div><strong>{personName}</strong><span>⌄</span></div>
           <button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button>
         </div>
       </header>
@@ -318,8 +324,10 @@ export function DealerPortal({ dealer, onLogout }) {
         )}
       </nav>
       {standaloneForm || <>
-      {tab==='dashboard' && <DealerDashboard dealerName={dealerName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab} canCashBook={canCashBook}/>} 
-      {tab!=='dashboard' && <>
+      {tab==='dashboard' && <DealerDashboard dealerName={personName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab} canCashBook={canCashBook}/>} 
+      {tab==='profile' && <DealerProfilePage dealer={dealer}/>}
+      {tab==='password' && <DealerPasswordPage/>}
+      {tab!=='dashboard' && tab!=='profile' && tab!=='password' && <>
         <div className="dealerContentToolbar">
           <div className="dealerPageIntro"><span className="dealerSectionIcon">{nav.find(x=>x[0]===tab)?.[1]}</span><div><strong>{nav.find(x=>x[0]===tab)?.[2]}</strong><small>Dealer-wise records</small></div></div>
           {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
@@ -431,7 +439,7 @@ function DealerBatteryWithdrawal({dealer,onBack}) {
       <Field label="Battery No." value={form.battery_no} onChange={v=>setForm({...form,battery_no:v})} required/>
       <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
       {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
-      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'#eefbf3',color:'#147a42'}}>{message}</div>}
+      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(34,160,90,.16)',color:'var(--ink,#147a42)'}}>{message}</div>}
       <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving}>{saving?'Saving…':'Save Withdrawal'}</button></div>
     </form>
   </BatteryAdjustmentShell>;
@@ -452,28 +460,33 @@ function DealerBatteryAddition({dealer,onBack}) {
       <Field label="Battery Position" type="select" value={String(form.position)} options={[1,2,3,4].map(x=>({value:String(x),label:'Battery No. '+x}))} onChange={v=>setForm({...form,position:Number(v)})}/>
       <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
       {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
-      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'#eefbf3',color:'#147a42'}}>{message}</div>}
+      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(34,160,90,.16)',color:'var(--ink,#147a42)'}}>{message}</div>}
       <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving||!data.batteries.length}>{saving?'Saving…':'Fit Battery'}</button></div>
     </form>
   </BatteryAdjustmentShell>;
 }
 
 function DealerBatterySwap({dealer,onBack}) {
-  const [data,setData]=useState({vehicles:[]}),[form,setForm]=useState({from_id:'',to_id:'',mode:'swap',date:new Date().toISOString().slice(0,10),remarks:''});
+  const [stock,setStock]=useState({new:[],old:[]}),[form,setForm]=useState({from_type:'new',from_id:'',to_type:'new',to_id:'',mode:'swap',date:new Date().toISOString().slice(0,10),remarks:''});
   const [saving,setSaving]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
-  const load=()=>get('/dealer/battery-adjustment').then(setData).catch(e=>setError(e.message||'Could not load vehicles.'));
+  const load=()=>Promise.all([get('/dealer/rickshaw-battery-options?type=new'),get('/dealer/rickshaw-battery-options?type=old')]).then(([n,o])=>setStock({new:n.rickshaws||[],old:o.rickshaws||[]})).catch(e=>setError(e.message||'Could not load rickshaws.'));
   useEffect(()=>{load()},[]);
-  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-swap-vouchers',{...form,from_type:'vehicle',to_type:'vehicle'});setMessage('Battery exchange completed successfully.');setForm({...form,from_id:'',to_id:'',remarks:''});load();}catch(err){setError(err.message||'Could not exchange batteries.')}finally{setSaving(false);}};
-  return <BatteryAdjustmentShell title="Battery Exchange" description="Exchange batteries between two vehicles in your dealer stock." onBack={onBack}>
+  const typeOptions=[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}];
+  const opts=(type,placeholder,skipType,skipId)=>[{value:'',label:placeholder},...(stock[type]||[]).filter(r=>!(type===skipType&&String(r.id)===String(skipId))).map(r=>({value:r.id,label:[r.reg_no||r.chassis_no,r.model_name,r.has_battery?('Battery: '+(r.battery_maker||'—')+' | '+(r.battery_numbers||[]).join(', ')):'NO BATTERY'].filter(Boolean).join(' · ')}))];
+  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-swap-vouchers',{...form,from_id:Number(form.from_id),to_id:Number(form.to_id)});setMessage('Battery exchange completed successfully.');setForm({...form,from_id:'',to_id:'',remarks:''});load();}catch(err){setError(err.message||'Could not exchange batteries.')}finally{setSaving(false);}};
+  const total=stock.new.length+stock.old.length;
+  return <BatteryAdjustmentShell title="Battery Exchange" description="Exchange batteries between rickshaws in your stock: New ⇄ New, Old ⇄ Old, New ⇄ Old or Old ⇄ New." onBack={onBack}>
     <form onSubmit={submit} className="formgrid" style={{padding:16}}>
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Source Vehicle" type="select" value={form.from_id} options={[{value:'',label:'Select Source Vehicle'},...data.vehicles.map(v=>({value:v.id,label:[v.chassis_no,v.model_name].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,from_id:v})} required/>
-      <Field label="Target Vehicle" type="select" value={form.to_id} options={[{value:'',label:'Select Target Vehicle'},...data.vehicles.filter(v=>String(v.id)!==String(form.from_id)).map(v=>({value:v.id,label:[v.chassis_no,v.model_name].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,to_id:v})} required/>
       <Field label="Mode" type="select" value={form.mode} options={[{value:'swap',label:'Exchange / Swap'},{value:'transfer',label:'Transfer'}]} onChange={v=>setForm({...form,mode:v})}/>
+      <Field label="From Rickshaw Type" type="select" value={form.from_type} options={typeOptions} onChange={v=>{setError('');setForm({...form,from_type:v,from_id:''})}}/>
+      <Field label="Source Rickshaw" type="select" value={form.from_id} options={opts(form.from_type,'Select Source Rickshaw')} onChange={v=>{setError('');setForm({...form,from_id:v})}} required/>
+      <Field label="To Rickshaw Type" type="select" value={form.to_type} options={typeOptions} onChange={v=>{setError('');setForm({...form,to_type:v,to_id:''})}}/>
+      <Field label="Target Rickshaw" type="select" value={form.to_id} options={opts(form.to_type,'Select Target Rickshaw',form.from_type,form.from_id)} onChange={v=>{setError('');setForm({...form,to_id:v})}} required/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
       {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
-      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'#eefbf3',color:'#147a42'}}>{message}</div>}
-      <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving||data.vehicles.length<2}>{saving?'Saving…':'Exchange Battery'}</button></div>
+      {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(34,160,90,.16)',color:'var(--ink,#147a42)'}}>{message}</div>}
+      <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving||total<2}>{saving?'Saving…':'Exchange Battery'}</button></div>
     </form>
   </BatteryAdjustmentShell>;
 }

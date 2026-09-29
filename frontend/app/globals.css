@@ -545,3 +545,66 @@
 @media(max-width:560px){.dcGrid.c4,.dcGrid.c5,.dcTiles,.dcVeh{grid-template-columns:1fr}}
 .pvForm .field input,.pvForm .field select,.pvForm .field textarea{width:100%;min-width:0;box-sizing:border-box}
 .pvForm .formgrid>*{min-width:0}
+
+/* ===== Midnight dark: readable text everywhere (portal panels use hard-coded light colours) ===== */
+[data-theme="midnight-dark"] .field label,
+[data-theme="midnight-dark"] .field>span,
+[data-theme="midnight-dark"] .grdFormPage label,
+[data-theme="midnight-dark"] .dealerCreateSaleGrid label,
+[data-theme="midnight-dark"] .dealerBatteryFormGrid label,
+[data-theme="midnight-dark"] .dealerOldSaleFormGrid .field label{color:var(--muted)!important}
+[data-theme="midnight-dark"] .dealerPanel,
+[data-theme="midnight-dark"] .grdFormPage .dealerPanel,
+[data-theme="midnight-dark"] .grdFormPage .card,
+[data-theme="midnight-dark"] .dealerOldSaleCard,
+[data-theme="midnight-dark"] .dealerOldStockCard,
+[data-theme="midnight-dark"] .dealerOldStockStat,
+[data-theme="midnight-dark"] .dealerOldSaleSummary>div,
+[data-theme="midnight-dark"] .dealerOldSaleModalFooter,
+[data-theme="midnight-dark"] .dealerOldSaleClose,
+[data-theme="midnight-dark"] .dealerCreateSalePreview,
+[data-theme="midnight-dark"] .dealerCreateSaleActions,
+[data-theme="midnight-dark"] .dealerPortalHeaderNav,
+[data-theme="midnight-dark"] .dealerDashStat,
+[data-theme="midnight-dark"] .dealerPortalHeaderItem{background:var(--card)!important;border-color:var(--line)!important;color:var(--ink)!important}
+[data-theme="midnight-dark"] .dealerPortalHeaderItem:hover,
+[data-theme="midnight-dark"] .dealerPortalHeaderItem.active{background:var(--line)!important;color:var(--theme-accent)!important}
+[data-theme="midnight-dark"] .grdFormPage .input,
+[data-theme="midnight-dark"] .grdFormPage .btn{background:var(--input-bg)!important;color:var(--ink)!important;border-color:var(--line)!important}
+[data-theme="midnight-dark"] .dealerOldSaleHeader h2,
+[data-theme="midnight-dark"] .dealerOldStockHead h2,
+[data-theme="midnight-dark"] .dealerOldSaleSectionTitle strong,
+[data-theme="midnight-dark"] .dealerOldSaleSummary b,
+[data-theme="midnight-dark"] .dealerOldStockStat b,
+[data-theme="midnight-dark"] .grdFormPage .dealerPanelHead h3,
+[data-theme="midnight-dark"] .dealerPanelHead h3,
+[data-theme="midnight-dark"] .dealerCreateSalePreviewHead,
+[data-theme="midnight-dark"] .dealerCreateSalePreviewGrid b,
+[data-theme="midnight-dark"] .dealerDashStat b,
+[data-theme="midnight-dark"] .dealerPageIntro strong{color:var(--ink)!important}
+[data-theme="midnight-dark"] .dealerPanelHead p,
+[data-theme="midnight-dark"] .dealerDashStat span,
+[data-theme="midnight-dark"] .dealerPageIntro small{color:var(--muted)!important}
+[data-theme="midnight-dark"] .dealerCreateSalePreviewHead span{color:var(--theme-accent)!important}
+[data-theme="midnight-dark"] .dealerOldStockStatus.sold{background:#1e293b!important;color:#cbd5e1!important}
+[data-theme="midnight-dark"] .dealerOldStockStatus.available{background:#052e1a!important;color:#86efac!important}
+[data-theme="midnight-dark"] .dealerOldSaleStatus{background:#3a2c05!important;color:#fcd34d!important}
+[data-theme="midnight-dark"] .grdFormPage .error,
+[data-theme="midnight-dark"] .error{background:#3b0d0d!important;color:#fecaca!important}
+[data-theme="midnight-dark"] .loanStatus.approved,[data-theme="midnight-dark"] .dealerSuccessIcon{background:#052e1a!important;color:#86efac!important}
+[data-theme="midnight-dark"] .loanStatus.rejected{background:#3b0d0d!important;color:#fecaca!important}
+[data-theme="midnight-dark"] .loanStatus.review{background:#3a2c05!important;color:#fcd34d!important}
+[data-theme="midnight-dark"] .loanStatus.submitted,[data-theme="midnight-dark"] .pill.m{background:#0c2340!important;color:#93c5fd!important}
+[data-theme="midnight-dark"] .pill.d,[data-theme="midnight-dark"] .dcStock.out{background:#3a1a05!important;color:#fdba74!important}
+[data-theme="midnight-dark"] .pill.t{background:#052e1a!important;color:#86efac!important}
+[data-theme="midnight-dark"] .navbtn.active,
+[data-theme="midnight-dark"] .navGroupButton.active,
+[data-theme="midnight-dark"] .navbtn.active .navicon{color:#0f172a!important}
+[data-theme="midnight-dark"] input,
+[data-theme="midnight-dark"] select,
+[data-theme="midnight-dark"] textarea{color:var(--ink);background:var(--input-bg);border-color:var(--line)}
+[data-theme="midnight-dark"] input[readonly],
+[data-theme="midnight-dark"] input:disabled{background:#1e293b!important;color:#cbd5e1!important}
+[data-theme="midnight-dark"] input::placeholder,
+[data-theme="midnight-dark"] textarea::placeholder{color:#94a3b8}
+[data-theme="midnight-dark"] option{background:#111827;color:#f8fafc}
