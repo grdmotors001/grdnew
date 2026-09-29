@@ -33,7 +33,16 @@ export function UserPage({ setActive, setOptionUserId }) {
   useEffect(() => {
     load();
     get('/dealers').then((d) => setDealers(Array.isArray(d) ? d : (d.dealers || []))).catch(() => setDealers([]));
-    get('/masters/salesman').then((d) => setSalesmen(Array.isArray(d) ? d : [])).catch(() => setSalesmen([]));
+    get('/masters/salesman').then((d) => {
+      // API { masters: [...] } / { rows: [...] } / plain array — teeno chalenge. Same naam (SHOWROOM/Showroom) ek hi baar.
+      const list = Array.isArray(d) ? d : (d?.masters || d?.rows || d?.data || d?.salesmen || d?.items || []);
+      const seen = new Set();
+      setSalesmen((Array.isArray(list) ? list : []).filter((x) => {
+        const k = String(x?.name || '').trim().toLowerCase();
+        if (!k || seen.has(k)) return false;
+        seen.add(k); return true;
+      }));
+    }).catch(() => setSalesmen([]));
   }, []);
 
   const filteredRows = rows.filter((u) => {
