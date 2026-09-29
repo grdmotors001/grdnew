@@ -51,7 +51,7 @@ const ICONS = {
   'stock-ledger-premises': ClipboardList, 'stock-ledger-dealers': ClipboardList,
   'loan-workflow': ClipboardList, 'loan-application-view': ClipboardList,
   'purchase-register': FileText, 'production-register': FileText, 'delivery-challan-register': FileText,
-  'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText,
+  'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText, 'vehicle-no-register': FileText,
   'payment-receivable-report': Wallet, 'subsidy-report': Gift, ledger: BookOpen,
   'day-book': Calendar, 'ledger-v': BookOpen, password: Key,
   'backup-restore': Database, 'hr-attendance': Users, profile: UserCog,
@@ -145,6 +145,13 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     navGroups[targetGroup] = [...(navGroups[targetGroup] || []), ['loan-application-view', 'Loan Application']];
   }
 
+  if (navGroups['Reports'] && !Object.values(navGroups).flat().some(([key]) => key === 'vehicle-no-register')) {
+    const list = [...navGroups['Reports']];
+    const at = list.findIndex(([key]) => key === 'hypothecation-register');
+    list.splice(at >= 0 ? at + 1 : list.length, 0, ['vehicle-no-register', 'Vehicle No.']);
+    navGroups['Reports'] = list;
+  }
+
   useEffect(() => { setPendingTheme(themeId); }, [themeId]);
 
   const selectMenu = (key) => { setActive(key); setMobileMenu(false); setCollapsed(false); };
@@ -165,7 +172,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   };
 
   const initial = (user?.username || '?').charAt(0).toUpperCase();
-  const activeGroup = customTabs
+  const activeGroup = active === 'vehicle-no-register' ? 'Reports' : customTabs
     ? (Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0] || 'Dashboard')
     : groupForKey(active);
   const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);

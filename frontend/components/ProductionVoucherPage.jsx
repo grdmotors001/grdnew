@@ -67,17 +67,29 @@ export function ProductionVoucherPage() {
     } catch (e) { setError(e.message); }
   };
 
-  const generateCode = () => {
-    if (!form.product_name) { setError('Choose a product first.'); return; }
-    run(async () => {
-      const q = new URLSearchParams({ product: form.product_name, date: form.date || today() });
+  // Model select karte hi (aur Date badalte hi) Chassis / Motor / Controller apne aap generate hote hain.
+  // Motor & Controller = us model ka pichhla number + 1 (backend nikalta hai). Button se dobara bhi kar sakte hain.
+  const generateCode = (productName = form.product_name, dateStr = form.date) => {
+    if (!productName) { setError('Choose a product first.'); return Promise.resolve(); }
+    return run(async () => {
+      const q = new URLSearchParams({ product: productName, date: dateStr || today() });
       const gen = await get(`/production-vouchers/generate-code?${q}`);
-      setForm((f) => ({ ...f, chassis_no: gen.chassis_no, motor_no: gen.motor_no, controller_no: gen.controller_no }));
+      setForm((f) => (f.product_name === productName
+        ? { ...f, chassis_no: gen.chassis_no, motor_no: gen.motor_no, controller_no: gen.controller_no }
+        : f));
       if (gen.missing_item_code) {
         setError('Note: this product has no Chassis Item Code set in Product Master — used a fallback prefix.');
       }
     }).catch(() => {});
   };
+
+  const productByName = (name) => products.find((p) => String(p.name) === String(name));
+  const chassisLenFor = (name) => {
+    const p = productByName(name) || {};
+    return Number(p.chassis_length_digits ?? p.chassis_length ?? p.chassis_no_length ?? 0) || 0;
+  };
+  const chassisLen = chassisLenFor(form.product_name);
+  const chassisNow = String(form.chassis_no || '').trim();
 
   const previewBom = async (productName = form.product_name, formulaName = form.formula_name) => {
     if (!productName) { setError('Choose a product first.'); return; }
@@ -92,8 +104,18 @@ export function ProductionVoucherPage() {
 
   const save = (e) => {
     e.preventDefault();
+    const ch = String(form.chassis_no || '').trim();
+    if (!ch) { setError('Chassis No. zaroori hai.'); return; }
+    if (chassisLen && ch.length !== chassisLen) { setError(`Chassis No. ${chassisLen} character ka hona chahiye (abhi ${ch.length}). Product Master me "Full Chassis No. Length" ${chassisLen} set hai.`); return; }
+    if (!String(form.colour || '').trim()) { setError('Colour select karna zaroori hai.'); return; }
+    if (!String(form.machnic || '').trim()) { setError('Mechanic select karna zaroori hai.'); return; }
     if (formulasForProduct.length > 0 && !form.formula_name) { setError('Formula Name select karein — is model ke formula ke hisaab se raw material stock se kategi.'); return; }
     run(async () => {
+      // Duplicate chassis: same chassis no. pehle se kisi voucher me ho to save nahi hoga.
+      const dq = await get(`/production-vouchers?${new URLSearchParams({ search: ch, page: 1, per_page: 50 })}`);
+      const dup = (dq.vouchers || []).find((v) => String(v.id) !== String(editingId || '')
+        && String(v.chassis_no || '').trim().toLowerCase() === ch.toLowerCase());
+      if (dup) throw new Error(`Chassis No. "${ch}" pehle se Vou. No. ${dup.vou_no || '-'} me bana hua hai. Duplicate chassis nahi ban sakta.`);
       if (editingId) await put(`/production-vouchers/${editingId}`, form);
       else await post('/production-vouchers', form);
       setOpen(false);
@@ -157,18 +179,18 @@ export function ProductionVoucherPage() {
 
       {open && (
         <div className="modal">
-          <form className="modalbox" onSubmit={save} style={{ maxWidth: 1120, padding: 0, overflow: 'hidden' }}>
+          <form className="modalbox" onSubmit={save} style={{ width: 'min(1360px, 100%)', maxWidth: 1360, padding: 0, overflow: 'hidden' }}>
             <div style={{ padding: '18px 24px 12px', borderBottom: '1px solid var(--line)' }}>
               <h2 style={{ margin: 0 }}>{editingId ? 'Edit Production Voucher' : 'New Production Voucher'}</h2>
               <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>Raw material is deducted from stock as per the selected formula.</div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(360px, .95fr)', minHeight: 620 }}>
-              <div style={{ padding: '16px 24px', borderRight: '1px solid var(--line)', overflowY: 'auto', maxHeight: '72vh' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(360px, .85fr)', minHeight: 620 }}>
+              <div className="pvForm" style={{ padding: '16px 24px', borderRight: '1px solid var(--line)', overflowY: 'auto', maxHeight: '72vh' }}>
                 <ErrorBanner message={error} />
 
               <div style={sectionTitle}>Product</div>
-              <div className="formgrid">
+              <div className="formgrid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
                 <Field label="Finished Product" type="select" value={form.product_name}
                        options={finishedProducts.map((p) => p.name)}
                        onChange={(v) => {
@@ -179,13 +201,16 @@ export function ProductionVoucherPage() {
                          setForm({ ...form, product_name: v, formula_name: autoFormula });
                          setBomPreview(null);
                          if (v) previewBom(v, autoFormula);
+                         if (v && !editingId) generateCode(v, form.date);
                        }} required />
                 <Field label="Formula Name" type="select" value={form.formula_name}
                        options={formulasForProduct.map((g) => g.formula_name)}
                        onChange={(v) => { setForm({ ...form, formula_name: v }); previewBom(form.product_name, v); }} />
-                <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
-                <Field label="Vou. No." value={form.vou_no} onChange={(v) => setForm({ ...form, vou_no: v })} />
-                <Field label="Quantity" type="number" value={form.quantity} onChange={(v) => setForm({ ...form, quantity: v })} />
+                <Field label="Date" type="date" value={form.date} onChange={(v) => {
+                  setForm({ ...form, date: v });
+                  // Date badalne par month/year code badal jaata hai -> chassis dobara generate.
+                  if (!editingId && form.product_name && /^\d{4}-\d{2}-\d{2}$/.test(v)) generateCode(form.product_name, v);
+                }} />
               </div>
               {form.product_name && formulasForProduct.length === 0 && (
                 <p className="muted" style={{ margin: '8px 0 0' }}>
@@ -193,29 +218,37 @@ export function ProductionVoucherPage() {
                 </p>
               )}
 
-              <div style={{ ...sectionTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ ...sectionTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span>Vehicle Numbers</span>
-                <button type="button" className="btn" onClick={generateCode} disabled={busy}>Generate Chassis / Motor / Controller No.</button>
+                <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 600, position: 'static', flexShrink: 0 }}
+                        onClick={() => generateCode()} disabled={busy || !form.product_name}>↻ Regenerate Chassis / Motor / Controller No.</button>
               </div>
-              <div className="formgrid">
-                <Field label="Chassis No." value={form.chassis_no} onChange={(v) => setForm({ ...form, chassis_no: v })} required />
+              <div className="formgrid" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                <div>
+                  <Field label="Chassis No." value={form.chassis_no} onChange={(v) => setForm({ ...form, chassis_no: v })} required />
+                  {chassisLen > 0 && (
+                    <div style={{ fontSize: 11, marginTop: 4, color: chassisNow.length === chassisLen ? 'var(--green)' : '#b42318' }}>
+                      Length: {chassisNow.length} / {chassisLen}
+                    </div>
+                  )}
+                </div>
                 <Field label="Motor No." value={form.motor_no} onChange={(v) => setForm({ ...form, motor_no: v })} />
                 <Field label="Controller No." value={form.controller_no} onChange={(v) => setForm({ ...form, controller_no: v })} />
                 <Field label="Differential No." value={form.differential_no} onChange={(v) => setForm({ ...form, differential_no: v })} />
               </div>
 
               <div style={sectionTitle}>Colour, Battery &amp; Mechanic</div>
-              <div className="formgrid">
+              <div className="formgrid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
                 {/* Only the colour NAME is shown; the code is still saved silently. */}
-                <Field label="Colour" type="select" value={form.colour || ''}
+                <Field label="Colour *" type="select" value={form.colour || ''}
                        options={colours.map((p) => ({ value: p.name, label: p.name }))}
                        onChange={(v) => {
                          const x = colours.find((p) => String(p.name) === String(v));
                          setForm({ ...form, colour: v, colour_code: x?.code || (v ? form.colour_code : '') });
-                       }} />
-                <Field label="Mechanic" type="select" value={form.machnic || ''}
+                       }} required />
+                <Field label="Mechanic *" type="select" value={form.machnic || ''}
                        options={mechanics.map((p) => ({ value: p.name, label: p.name }))}
-                       onChange={(v) => setForm({ ...form, machnic: v })} />
+                       onChange={(v) => setForm({ ...form, machnic: v })} required />
                 <Field label="Battery Maker" type="select" value={form.battery_maker || ''}
                        options={batteryMakers.map((p) => ({ value: p.name, label: p.name }))}
                        onChange={(v) => setForm({ ...form, battery_maker: v })} />
@@ -223,7 +256,7 @@ export function ProductionVoucherPage() {
 
               <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--line)', borderRadius: 10, background: 'rgba(180,80,35,.05)' }}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>Battery (Max 5)</div>
-                <div className="formgrid" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+                <div className="formgrid" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 10 }}>
                   {[1, 2, 3, 4, 5].map((n) => (
                     <Field key={n} label={`Battery No. ${n}`} value={form[`battery_no${n}`] || ''}
                            onChange={(v) => setForm({ ...form, [`battery_no${n}`]: v })} />
@@ -239,30 +272,14 @@ export function ProductionVoucherPage() {
 
               <aside style={{ padding: 16, background: 'rgba(180,80,35,.035)', overflowY: 'auto', maxHeight: '72vh' }}>
                 <div style={{ padding: 14, border: '1px solid var(--line)', borderRadius: 12, background: 'var(--modal-bg)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                    <div style={{ width: 38, height: 38, borderRadius: 10, display: 'grid', placeItems: 'center', background: 'rgba(180,80,35,.10)', fontSize: 20 }}>📦</div>
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 800 }}>Raw Material Preview</div>
-                      <div className="muted" style={{ fontSize: 11 }}>Items deducted from stock as per selected formula</div>
-                    </div>
-                  </div>
-
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                     <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
-                      <div className="muted" style={{ fontSize: 10 }}>Formula</div>
-                      <b style={{ fontSize: 12 }}>{form.formula_name || '—'}</b>
-                    </div>
-                    <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
                       <div className="muted" style={{ fontSize: 10 }}>Total Items</div>
-                      <b style={{ fontSize: 12 }}>{bomPreview?.length || 0}</b>
-                    </div>
-                    <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
-                      <div className="muted" style={{ fontSize: 10 }}>Production Qty</div>
-                      <b style={{ fontSize: 12 }}>{form.quantity || 1}</b>
+                      <b style={{ fontSize: 14 }}>{bomPreview?.length || 0}</b>
                     </div>
                     <div style={{ padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
                       <div className="muted" style={{ fontSize: 10 }}>Battery Count</div>
-                      <b style={{ fontSize: 12 }}>{batteryCount} / 5</b>
+                      <b style={{ fontSize: 14 }}>{batteryCount} / 5</b>
                     </div>
                   </div>
 

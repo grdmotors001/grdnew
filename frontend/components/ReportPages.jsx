@@ -1099,3 +1099,60 @@ export function LedgerVPage() {
     </>
   );
 }
+
+export function VehicleNoRegisterPage() {
+  const r = useReport('/vehicle-no-register');
+  const [editId, setEditId] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [saved, setSaved] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (r.error) return <ErrorBanner message={r.error} />;
+  if (!r.data) return <div className="card">Loading…</div>;
+  const rows = r.data.rows || [];
+  const regOf = (i) => (saved[i.id] !== undefined ? saved[i.id] : i.vehicle_reg_no) || '';
+  const startEdit = (i) => { setErr(''); setEditId(i.id); setDraft(regOf(i)); };
+  const save = async (i) => {
+    setBusy(true); setErr('');
+    try {
+      const res = await put(`/vehicle-no-register/${i.id}`, { vehicle_reg_no: draft });
+      setSaved((s) => ({ ...s, [i.id]: res?.row?.vehicle_reg_no || '' }));
+      setEditId(null);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <FilterBar r={r} />
+      <ErrorBanner message={err} />
+      {rows.length === 0 ? <EmptyState /> : (
+        <div className="tablewrap">
+          <table className="table">
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Customer Name</th><th>Chassis No.</th><th>Dealer</th><th>Model</th><th>Vehicle No.</th><th style={{ width: 150 }}>Action</th></tr></thead>
+            <tbody>{rows.map((i) => (
+              <tr key={i.id}>
+                <td>{formatDate(i.date)}</td>
+                <td>{i.bill_no}</td>
+                <td>{i.buyer_name || '—'}</td>
+                <td>{i.chassis_no || '—'}</td>
+                <td>{i.dealer_name || '—'}</td>
+                <td>{i.product_name || '—'}</td>
+                <td>{editId === i.id
+                  ? <input className="input" autoFocus value={draft} placeholder="e.g. DL5ERB0160" style={{ maxWidth: 190 }}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') save(i); if (e.key === 'Escape') setEditId(null); }} />
+                  : (regOf(i) || '—')}</td>
+                <td>{editId === i.id ? (
+                  <>
+                    <button className="btn primary" disabled={busy} onClick={() => save(i)}>{busy ? 'Saving…' : 'Save'}</button>{' '}
+                    <button className="btn" disabled={busy} onClick={() => setEditId(null)}>Cancel</button>
+                  </>
+                ) : <button className="btn" onClick={() => startEdit(i)}>Edit</button>}</td>
+              </tr>
+            ))}</tbody>
+            <tfoot><tr><td colSpan={8}><b>{rows.length}</b> records</td></tr></tfoot>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}

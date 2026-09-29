@@ -225,7 +225,7 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
     }catch(e){setError(e.message||'Could not create Pending Sale')}finally{setSaving(false)}
   };
 
-  const dealerSelect=editing?<Input label="Dealer" value={sale?.dealer_name||('#'+form.dealer_id)} readOnly disabled/>:<label className="field"><span>Dealer</span><select className="input" value={form.dealer_id} onChange={e=>selectDealer(e.target.value)} disabled={dealersLoading} required><option value="">{dealersLoading?'Loading dealers…':'Select Dealer First'}</option>{dealers.map(d=><option key={d.id} value={d.id}>{d.name}{d.code?' · '+d.code:''}</option>)}</select></label>;
+  const dealerSelect=editing?<Input label="Dealer" value={sale?.dealer_name||('#'+form.dealer_id)} readOnly disabled/>:<label className="field"><span>Dealer</span><select className="input" value={form.dealer_id} onChange={e=>selectDealer(e.target.value)} disabled={dealersLoading} required><option value="">{dealersLoading?'Loading dealers…':'Select Dealer First'}</option>{dealers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label>;
   const financerRow=<><FinancerSelect value={form.financer_name} onChange={v=>set('financer_name',v)} financers={financers} canPick={canPickFinancer}/>
       <Input label={'Hypothecation / Loan Amount'+(form.application_id?' (approved loan se)':'')} type="number" min="0" value={form.hypothecation_amount} onChange={e=>set('hypothecation_amount',e.target.value)} readOnly={!!form.application_id}/></>;
   const balanceField=<label className="field"><span>Balance</span><input className="input" value={balance.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})} readOnly/></label>;

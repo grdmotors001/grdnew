@@ -58,7 +58,7 @@ export function IncentiveRegisterPage(){
     <ErrorBanner message={error}/>
     <div className="card">
       <div className="toolbar">
-        <Field label="Dealer" type="select" value={dealerId} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]} onChange={v=>{setDealerId(v);setDealerPromptOpen(false)}}/>
+        <Field label="Dealer" type="select" value={dealerId} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:d.name}))]} onChange={v=>{setDealerId(v);setDealerPromptOpen(false)}}/>
         <div className="actions" style={{alignSelf:'end'}}>
           <button className={'btn '+(status==='all'?'primary':'')} onClick={()=>setStatus('all')}>All</button>
           <button className={'btn '+(status==='paid'?'primary':'')} onClick={()=>setStatus('paid')}>Paid</button>
@@ -72,7 +72,7 @@ export function IncentiveRegisterPage(){
       <h2>Incentive — Select Dealer</h2>
       <p className="muted">Pehle dealer select karein. Uske baad us dealer ki Paid / Unpaid incentive list khulegi.</p>
       <Field label="Dealer" type="select" value={dealerId}
-        options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]}
+        options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:d.name}))]}
         onChange={v=>{setDealerId(v);if(v)setDealerPromptOpen(false)}} required/>
       <div className="actions" style={{justifyContent:'flex-end',marginTop:14}}>
         <button className="btn" onClick={()=>setDealerPromptOpen(false)}>Close</button>

@@ -80,7 +80,7 @@ export function Field({ label, type = 'text', value, onChange, required, options
                  style={readOnly ? { background: '#f2f4f7', color: '#475467' } : undefined} />
           <datalist id={comboId}>
             {(options || []).map((o) => (
-              <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>
+              <option key={o.value ?? o} value={o.value ?? o} />
             ))}
           </datalist>
         </>

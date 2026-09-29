@@ -8,6 +8,7 @@ import { DealerCashBook } from './DealerCashBook';
 import { DealerNewLoanForm } from './DealerNewLoanForm';
 import { DealerPaymentPage } from './DealerPaymentPage';
 import { DealerCashReceiptPage } from './DealerCashReceiptPage';
+import { DealerRepairReceiptPage } from './DealerRepairReceiptPage';
 import { ExpensePaymentVoucherPage } from './ExpensePaymentVoucherPage';
 import { DealerCustomerInvoicePage } from './DealerCustomerInvoicePage';
 import { DealerLedgerPage } from './DealerLedgerPage';
@@ -51,6 +52,7 @@ const nav = [
   ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
   ['incentive', '₹', 'Incentive'],
   ['receipt-create', '🧾', 'Create Receipt'],
+  ['repair-receipt', '🔧', 'Repair Receipt'],
   ['create-sale', '＋', 'Create Sale'],
 ];
 
@@ -92,6 +94,7 @@ export function DealerPortal({ dealer, onLogout }) {
     ? dealer.portal_modules.map((x) => String(x).trim()).filter(Boolean)
     : String(dealer?.portal_modules || '').split(',').map((x) => x.trim()).filter(Boolean);
   const portalModules = new Set(portalModuleList);
+  const canRepairReceipt = portalModules.has('repair-receipt');
   const canBatteryWithdrawal = portalModules.has('battery-withdrawal');
   const canBatterySwap = portalModules.has('battery-swap');
   const canBatteryAddition = portalModules.has('battery-addition');
@@ -102,7 +105,7 @@ export function DealerPortal({ dealer, onLogout }) {
   // and lands on whichever of them is actually enabled for that dealer.
   const canBatteryAdjustment = canBatteryWithdrawal || canBatterySwap || canBatteryAddition;
   const defaultBatteryTab = canBatteryWithdrawal ? 'battery-withdrawal' : canBatterySwap ? 'battery-swap' : 'battery-addition';
-  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'create-sale' || canCreateSale) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
+  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'repair-receipt' || canRepairReceipt) && (key !== 'create-sale' || canCreateSale) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
   if (canBatteryAdjustment) {
     const batteryEntry = ['battery-adjustment', '🔋', 'Battery Adjustment'];
     const insertAt = sidebarEntries.findIndex(([key]) => key === 'old-rickshaw-sales');
@@ -325,6 +328,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='all-expenses' && canCashBook && <DealerAllExpenses/>}
         {tab==='incentive' && canCashBook && <DealerIncentiveRegister dealer={dealer}/>}
         {tab==='receipt-create' && canCashBook && <DealerCashReceiptPage dealer={dealer}/>}
+        {tab==='repair-receipt' && canRepairReceipt && <DealerRepairReceiptPage dealer={dealer}/>}
         {tab==='purchases' && canPurchase && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
@@ -338,7 +342,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='all-customers' && <DealerAllCustomersPage />}
         {tab==='expenses-create' && <DealerExpenseCreatePage />}
         {tab==='handover-create' && <DealerHandoverCreatePage />}
-        {!['cashbook','receipt-create','expenses-create','handover-create','cash-handover','all-receipt','all-customers','purchases','payments','ledger','pending-sales','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
+        {!['cashbook','receipt-create','repair-receipt','expenses-create','handover-create','cash-handover','all-receipt','all-customers','purchases','payments','ledger','pending-sales','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
         {tab==='loan-status' && <DealerLoanStatusTable rows={loans} onRefresh={loadLoanStatus}/>}
         {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
       </>}

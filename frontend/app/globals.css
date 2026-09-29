@@ -526,3 +526,22 @@
 .themeCard.selected{border-color:var(--ink);box-shadow:0 0 0 1px var(--card),0 0 0 2px var(--ink)}
 .themeColorButton{background:var(--accent);color:#fff}
 @media(max-width:700px){.themeChooser{top:38px;left:0;right:auto}.themeChooserCollapsed{left:34px;right:auto;top:32px}}
+
+/* Delivery Challan form */
+.dcModal{width:min(1080px,100%)}
+.dcHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px}
+.dcSec{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+.dcSecTitle{font-weight:800;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.dcGrid{display:grid;gap:12px}.dcGrid.c4{grid-template-columns:repeat(4,minmax(0,1fr))}.dcGrid.c5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.dcVeh{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;background:var(--bg);border-radius:10px;padding:10px 12px;margin-top:12px}
+.dcTiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.dcTile{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer;background:var(--card);font-size:13px}
+.dcTile.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.dcTile input{width:auto;margin:0}
+.dcStock{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap}
+.dcStock.out{color:#c2410c;background:#fff7ed;padding:2px 8px;border-radius:999px;font-weight:700}
+.dcFooter{position:sticky;bottom:-22px;background:var(--modal-bg);padding:12px 0 0;margin-top:12px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--line)}
+@media(max-width:900px){.dcGrid.c4,.dcGrid.c5,.dcTiles,.dcVeh{grid-template-columns:repeat(2,minmax(0,1fr))}.dcGrid>div[style*="span"]{grid-column:1/-1!important}}
+@media(max-width:560px){.dcGrid.c4,.dcGrid.c5,.dcTiles,.dcVeh{grid-template-columns:1fr}}
+.pvForm .field input,.pvForm .field select,.pvForm .field textarea{width:100%;min-width:0;box-sizing:border-box}
+.pvForm .formgrid>*{min-width:0}

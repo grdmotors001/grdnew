@@ -294,7 +294,7 @@ async function ensureDailyRawMaterialChecklistSchema(){
     remarks text,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
-  `);
+  )`);
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS daily_raw_material_checklist_item_key_idx ON daily_raw_material_checklist_item(checklist_id,source_key)");
   await pool.query("CREATE INDEX IF NOT EXISTS daily_raw_material_checklist_date_idx ON daily_raw_material_checklist(date)");
 }
@@ -490,10 +490,66 @@ async function ensureDealerCashSchemaOnce(){
 async function ensureRepairSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_voucher (id bigserial PRIMARY KEY,voucher_no text,date date NOT NULL DEFAULT CURRENT_DATE,vehicle_id integer,vehicle_no text,chassis_no text,customer_name text,customer_mobile text,items jsonb NOT NULL DEFAULT '[]'::jsonb,total_amount numeric NOT NULL DEFAULT 0,paid_amount numeric NOT NULL DEFAULT 0,balance_amount numeric NOT NULL DEFAULT 0,gst_amount numeric NOT NULL DEFAULT 0,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_payment_receipt (id bigserial PRIMARY KEY,receipt_no text,voucher_id integer REFERENCES repair_service_voucher(id) ON DELETE CASCADE,date date NOT NULL DEFAULT CURRENT_DATE,amount numeric NOT NULL DEFAULT 0,payment_mode text,reference_no text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
-  const defs:any={repair_service_voucher:{voucher_no:"text",vehicle_id:"integer",vehicle_no:"text",chassis_no:"text",customer_name:"text",customer_mobile:"text",items:"jsonb NOT NULL DEFAULT '[]'::jsonb",total_amount:"numeric NOT NULL DEFAULT 0",paid_amount:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",gst_amount:"numeric NOT NULL DEFAULT 0",remarks:"text"},repair_service_payment_receipt:{receipt_no:"text",voucher_id:"integer",date:"date",amount:"numeric NOT NULL DEFAULT 0",payment_mode:"text",reference_no:"text",remarks:"text"}};
+  const defs:any={repair_service_voucher:{voucher_no:"text",vehicle_id:"integer",vehicle_no:"text",chassis_no:"text",customer_name:"text",customer_mobile:"text",items:"jsonb NOT NULL DEFAULT '[]'::jsonb",total_amount:"numeric NOT NULL DEFAULT 0",paid_amount:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",gst_amount:"numeric NOT NULL DEFAULT 0",remarks:"text",dealer_id:"integer",dealer_name:"text"},repair_service_payment_receipt:{receipt_no:"text",voucher_id:"integer",date:"date",amount:"numeric NOT NULL DEFAULT 0",payment_mode:"text",reference_no:"text",remarks:"text",dealer_id:"integer",dealer_name:"text",cash_receipt_id:"bigint"}};
   for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table])) await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
+// ---------------- Repair cash receipt: right dealer-wise (portal_modules me "repair-receipt") ----------------
+const REPAIR_RECEIPT_MODULE="repair-receipt";
+const MODS_SQL="string_to_array(regexp_replace(COALESCE(portal_modules::text,''),'[{}\" ]','','g'),',')";
+async function ensureRepairRightLogSchema(){
+  await pool.query("CREATE TABLE IF NOT EXISTS repair_receipt_right_log (id bigserial PRIMARY KEY,dealer_id integer,dealer_name text,action text,changed_by text,changed_at timestamptz NOT NULL DEFAULT now())");
+}
+// JWT 12h chalta hai, isliye right hamesha DB se check hota hai (revoke turant lagu ho).
+async function dealerHasRepairReceiptRight(dealerId:number){
+  const r=await pool.query("SELECT 1 FROM dealer WHERE id=$1 AND COALESCE(blocked,false)=false AND $2 = ANY("+MODS_SQL+")",[dealerId,REPAIR_RECEIPT_MODULE]);
+  return Boolean(r.rowCount);
+}
+// Dealer save par: right kitne bhi dealers ko diya ja sakta hai; sirf grant/revoke ka audit log banta hai.
+async function guardRepairReceiptRight(a:any,method:string,id:number|null,input:any):Promise<Response|null>{
+  if(method==="DELETE"||!input||!Object.prototype.hasOwnProperty.call(input,"portal_modules"))return null;
+  const list=(Array.isArray(input.portal_modules)?input.portal_modules:String(input.portal_modules||"").split(",")).map((x:any)=>String(x).trim());
+  const want=list.includes(REPAIR_RECEIPT_MODULE);
+  let had=false,name:string|null=input.name||null;
+  if(id){const r=await pool.query("SELECT name,$2 = ANY("+MODS_SQL+") AS has FROM dealer WHERE id=$1",[id,REPAIR_RECEIPT_MODULE]);had=Boolean(r.rows[0]?.has);name=r.rows[0]?.name||name;}
+  if(want===had)return null;
+  try{
+    await ensureRepairRightLogSchema();
+    await pool.query("INSERT INTO repair_receipt_right_log (dealer_id,dealer_name,action,changed_by) VALUES ($1,$2,$3,$4)",[id,name,want?"granted":"revoked",String(a?.username||a?.sub||"")]);
+  }catch(e){console.error("[repair right log]",e)}
+  return null;
+}
+// Repair voucher par payment receipt. Cash collector dealer ke cashbook (dealer_cash_receipt) me jata hai, wahi se Head Office handover hota hai.
+async function createRepairReceipt(voucherId:number,b:any,branchId:number){
+  await ensureRepairSchema();await ensureDealerCashSchema();
+  const amount=Number(b.amount||0);if(!voucherId||!(amount>0))throw new Error("Valid voucher and receipt amount are required.");
+  const client=await pool.connect();
+  try{
+    await client.query("BEGIN");
+    const v=await client.query("SELECT * FROM repair_service_voucher WHERE id=$1 FOR UPDATE",[voucherId]);if(!v.rowCount)throw new Error("Repair / Service Voucher not found.");
+    const vr=v.rows[0],total=Number(vr.total_amount||0),paid0=Number(vr.paid_amount||0),outstanding=Math.round((total-paid0)*100)/100;
+    if(outstanding<=0)throw new Error("Is voucher ka payment pehle hi poora ho chuka hai.");
+    if(amount>outstanding+0.005)throw new Error("Receipt amount balance se zyada nahi ho sakta. Outstanding balance: ₹"+outstanding+".");
+    const br=await client.query("SELECT id,name FROM dealer WHERE id=$1",[branchId]);if(!br.rowCount)throw new Error("Dealer not found.");
+    const paid=paid0+amount,balance=Math.max(0,Math.round((total-paid)*100)/100),no="RCP-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5);
+    const mode=String(b.payment_mode||"cash").toLowerCase(),date=b.date||null,custName=String(vr.customer_name||"").trim()||"-";
+    const rcCols=await columns("dealer_cash_receipt"),cin:any={dealer_id:branchId,date,receipt_date:date,receipt_type:"repair_service",payment_mode:mode,receipt_no:no,customer_name:custName,customer_phone:vr.customer_mobile||null,amount,reference_no:b.reference_no||null,remarks:("Repair/Service "+(vr.voucher_no||"")+" · "+(vr.vehicle_no||"")+(b.remarks?" · "+b.remarks:"")).trim()};
+    const ck=Object.keys(cin).filter(k=>rcCols.has(k)&&cin[k]!==undefined);
+    const cr=await client.query('INSERT INTO dealer_cash_receipt ('+ck.map(k=>'"'+k+'"').join(",")+') VALUES ('+ck.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',ck.map(k=>cin[k]));
+    const rpCols=await columns("repair_service_payment_receipt"),rin:any={receipt_no:no,voucher_id:voucherId,date,amount,payment_mode:mode,reference_no:b.reference_no||null,remarks:b.remarks||null,customer_name:custName,customer_mobile:vr.customer_mobile||null,vehicle_no:vr.vehicle_no||null,dealer_id:branchId,dealer_name:br.rows[0].name,cash_receipt_id:cr.rows[0].id};
+    const rk=Object.keys(rin).filter(k=>rpCols.has(k));
+    const rr=await client.query('INSERT INTO repair_service_payment_receipt ('+rk.map(k=>'"'+k+'"').join(",")+') VALUES ('+rk.map((k,i)=>k==="date"?"COALESCE($"+(i+1)+"::date,CURRENT_DATE)":"$"+(i+1)).join(",")+') RETURNING *',rk.map(k=>rin[k]));
+    await client.query("UPDATE repair_service_voucher SET paid_amount=$1,balance_amount=$2 WHERE id=$3",[paid,balance,voucherId]);
+    await client.query("COMMIT");return rr.rows[0];
+  }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+}
 function parseItems(v:any){if(Array.isArray(v))return v;if(typeof v==="string"){try{const x=JSON.parse(v);return Array.isArray(x)?x:[]}catch{return []}}return []}
+let purchaseExtraReady:Promise<void>|null=null;
+async function ensurePurchaseExtraSchema(){
+  if(!purchaseExtraReady)purchaseExtraReady=pool.query("ALTER TABLE purchase_bill ADD COLUMN IF NOT EXISTS extra_charges text").then(()=>{}).catch((e:any)=>{purchaseExtraReady=null;throw e});
+  await purchaseExtraReady;
+}
+function parseExtraCharges(v:any){let x:any=v;if(typeof v==="string"){try{x=JSON.parse(v||"[]")}catch{x=[]}}return Array.isArray(x)?x.map((e:any)=>({account_head:String(e?.account_head||"").trim(),amount:Number(e?.amount)||0,gst_rate:Number(e?.gst_rate)||0})).filter((e:any)=>e.account_head&&e.amount!==0):[]}
+function purchaseExtraTotal(v:any){return parseExtraCharges(v).reduce((s:number,e:any)=>s+e.amount+e.amount*e.gst_rate/100,0)}
 function purchaseLegacyNum(row:any, patterns:RegExp[], exclude:RegExp[]=[]){
   for(const [k,v] of Object.entries(row||{})){
     const key=String(k).toLowerCase();
@@ -510,6 +566,19 @@ function purchaseBatteryItems(items:any[]){return parseItems(items).filter((x:an
 async function syncBatteryPurchaseBill(client:any,bill:any){
   await ensureBatteryRegisterSchema();await client.query("DELETE FROM battery_register_entry WHERE source_type='PURCHASE' AND source_id=$1",[bill.id]);
   for(const item of purchaseBatteryItems(bill.items)) await client.query("INSERT INTO battery_register_entry (date,battery_maker,battery_no,qty,entry_type,source_type,source_id,source_no,party_name,remarks) VALUES (COALESCE($1::date,CURRENT_DATE),$2,NULL,$3,'IN','PURCHASE',$4,$5,$6,$7)",[bill.date||null,item.battery_maker,item.qty,bill.id,bill.bill_no||null,bill.party_name||null,"Battery Purchase"]);
+}
+// Purchase Bill ke Raw/Dispatch items ko journal_stock me IN entry banata hai (Closing Stock Raw + Repair/Production stock check isi se chalte hain).
+async function syncRawPurchaseStock(client:any,bill:any,remove=false){
+  const ref="PB-"+bill.id;
+  await client.query("DELETE FROM journal_stock WHERE reason='Purchase' AND batch_ref=$1",[ref]);
+  if(remove)return;
+  for(const it of parseItems(bill.items)){
+    if(Boolean(it?.is_battery)||String(it?.item_type||"").toLowerCase()==="battery")continue;
+    const name=String(it?.item_name||"").trim(),qty=num(it?.qty);if(!name||qty<=0)continue;
+    const pr=await client.query("SELECT name,product_category,fro FROM product WHERE lower(trim(name))=lower(trim($1)) LIMIT 1",[name]);if(!pr.rowCount)continue;
+    const isDispatch=String(pr.rows[0].product_category||"").toUpperCase()==="DISPATCH";
+    await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,'Purchase',NOW(),'IN',$6)",[String(bill.bill_no||ref),ymd(bill.date)||null,pr.rows[0].name,isDispatch?"DISPATCH":"RAW",qty,ref]);
+  }
 }
 async function toggleBatteryRegisterForDelivery(client:any,dc:any,cancelled:boolean){
   await ensureBatteryRegisterSchema();const vr=dc.vehicle_id?await client.query("SELECT battery_maker,battery_no1,battery_no2,battery_no3,battery_no4 FROM vehicle WHERE id=$1 FOR UPDATE",[dc.vehicle_id]):{rows:[]};
@@ -577,6 +646,7 @@ function canWrite(a:any,p:string){
     if(p==="billing/pending-sales/create")return true;
     if(p==="dealer/submit-loan")return true;
     if(p==="dealer/delivery-challans" || p.startsWith("dealer/delivery-challans/"))return true;
+    if(p==="dealer/repair-receipts")return true;
     if(p.startsWith("dealer/cash-book/"))return true;
     if(p.startsWith("dealer/pending-sales/"))return true;
     if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
@@ -596,6 +666,87 @@ function canWrite(a:any,p:string){
   const key=p.startsWith("masters/") ? p : p.split("/")[0];
   return mods.includes(p) || mods.includes(key);
 }
+// User Master save. Frontend posts /users for BOTH add and edit (edit sends id). The generic writer always INSERTed and dropped
+// "password" (column is password_hash), so editing an existing username hit the unique constraint -> 500.
+async function saveUserRecord(b:any):Promise<Response>{
+  const cols=await columns("user"),t=(v:any)=>String(v??"").trim(),id=idOf(b.id),username=t(b.username);
+  if(!username)return Response.json({error:"Login ID / Username is required."},{status:400});
+  const dup=await pool.query('SELECT id FROM "user" WHERE lower(btrim(username))=lower($1) AND ($2::int IS NULL OR id<>$2::int) LIMIT 1',[username,id]);
+  if(dup.rowCount)return Response.json({error:"Username '"+username+"' already exists."},{status:400});
+  const f:any={username};
+  if(cols.has("department"))f.department=t(b.department)||"Admin";
+  if(cols.has("is_super_user"))f.is_super_user=b.is_super_user===true||b.is_super_user==="true"||b.is_super_user===1;
+  if(cols.has("salesman_name")&&b.salesman_name!==undefined)f.salesman_name=t(b.salesman_name)||null;
+  for(const k of ["mobile","full_name","email","address"]){if(cols.has(k)&&b[k]!==undefined)f[k]=t(b[k])||null;}
+  if(cols.has("date_of_birth")&&b.date_of_birth!==undefined)f.date_of_birth=t(b.date_of_birth).slice(0,10)||null;
+  if(cols.has("allowed_modules")&&b.allowed_modules!==undefined){
+    const mods=(Array.isArray(b.allowed_modules)?b.allowed_modules:String(b.allowed_modules||"").split(",")).map((x:any)=>String(x).trim()).filter(Boolean);
+    const meta=await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='user' AND column_name='allowed_modules'");
+    f.allowed_modules=String(meta.rows[0]?.data_type||"").toLowerCase()==="array"?mods:mods.join(",");
+  }
+  const pw=String(b.password||"");
+  if(pw){
+    const crypto=await import("crypto"),salt=crypto.randomBytes(16).toString("hex");
+    f.password_hash="pbkdf2:sha256:260000$"+salt+"$"+crypto.pbkdf2Sync(pw,salt,260000,32,"sha256").toString("hex");
+  }else if(!id)return Response.json({error:"Password is required for a new user."},{status:400});
+  const keys=Object.keys(f).filter(k=>k==="username"||cols.has(k));
+  if(id){
+    const r=await pool.query('UPDATE "user" SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>f[k]),id]);
+    if(!r.rowCount)return Response.json({error:"User not found."},{status:404});
+    const row={...r.rows[0]};delete row.password_hash;
+    return Response.json({success:true,row,data:row});
+  }
+  const r=await pool.query('INSERT INTO "user" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>f[k]));
+  const row={...r.rows[0]};delete row.password_hash;
+  return Response.json({success:true,row,data:row},{status:201});
+}
+let tiVehNoReady:Promise<void>|null=null;
+function ensureTaxInvoiceVehicleNoColumn():Promise<void>{
+  if(!tiVehNoReady)tiVehNoReady=pool.query("ALTER TABLE tax_invoice ADD COLUMN IF NOT EXISTS vehicle_reg_no text").then(()=>{}).catch(e=>{tiVehNoReady=null;throw e});
+  return tiVehNoReady;
+}
+let chassisReady:Promise<void>|null=null;
+function ensureChassisMasterSchema():Promise<void>{
+  if(!chassisReady)chassisReady=(async()=>{
+    await pool.query(`CREATE TABLE IF NOT EXISTS chassis_month_code (id bigserial PRIMARY KEY,month text NOT NULL,code text NOT NULL)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS chassis_year_code (id bigserial PRIMARY KEY,year integer NOT NULL,code text NOT NULL)`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS chassis_rule (id bigserial PRIMARY KEY,month_position text,year_position text,chassis_height text,engine_motor_example text,chassis_example text)`);
+  })().catch(e=>{chassisReady=null;throw e});
+  return chassisReady;
+}
+async function chassisMasterWrite(path:string[],method:string,b:any):Promise<Response|null>{
+  if(path[0]!=="chassis-master")return null;
+  await ensureChassisMasterSchema();
+  const sub=path[1],id=idOf(path[2]);
+  const t=(v:any)=>String(v??"").trim();
+  if(sub==="rule"&&(method==="PUT"||method==="POST")){
+    const f=[t(b.month_position),t(b.year_position),t(b.chassis_height),t(b.engine_motor_example),t(b.chassis_example)];
+    const ex=await pool.query("SELECT id FROM chassis_rule ORDER BY id DESC LIMIT 1");
+    const r=ex.rowCount
+      ?await pool.query("UPDATE chassis_rule SET month_position=$1,year_position=$2,chassis_height=$3,engine_motor_example=$4,chassis_example=$5 WHERE id=$6 RETURNING *",[...f,ex.rows[0].id])
+      :await pool.query("INSERT INTO chassis_rule(month_position,year_position,chassis_height,engine_motor_example,chassis_example) VALUES($1,$2,$3,$4,$5) RETURNING *",f);
+    return Response.json({success:true,rule:r.rows[0]});
+  }
+  if(sub!=="months"&&sub!=="years")return null;
+  const isM=sub==="months",tbl=isM?"chassis_month_code":"chassis_year_code",col=isM?"month":"year";
+  if(method==="DELETE"){
+    if(!id)return Response.json({error:"Record id required."},{status:400});
+    const r=await pool.query(`DELETE FROM ${tbl} WHERE id=$1 RETURNING *`,[id]);
+    return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
+  }
+  const val=isM?t(b.month):Number(b.year),code=t(b.code);
+  if(!code||(isM?!val:!Number.isInteger(val)))return Response.json({error:(isM?"Month":"Year")+" and Code are required."},{status:400});
+  const dup=await pool.query(`SELECT 1 FROM ${tbl} WHERE ${col}=$1 AND ($2::bigint IS NULL OR id<>$2) LIMIT 1`,[val,id]);
+  if(dup.rowCount)return Response.json({error:(isM?"Month":"Year")+" code already exists."},{status:400});
+  if(method==="POST"){
+    const r=await pool.query(`INSERT INTO ${tbl}(${col},code) VALUES($1,$2) RETURNING *`,[val,code]);
+    return Response.json({success:true,row:r.rows[0]});
+  }
+  if(!id)return Response.json({error:"Record id required."},{status:400});
+  const r=await pool.query(`UPDATE ${tbl} SET ${col}=$1,code=$2 WHERE id=$3 RETURNING *`,[val,code,id]);
+  return Response.json({success:true,row:r.rows[0]||null});
+}
+
 async function genericWrite(req:Request,path:string[],table:string,method:string,parsedBody?:any){
   const cols=await columns(table);
   if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
@@ -605,6 +756,7 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
   }
   if(table==="simple_master" && path[0]==="masters" && path[1] && cols.has("kind"))input.kind=path[1]==="color"?"colour":path[1];
   const id=idOf(path[path.length-1]);
+  if(table==="dealer"){const g=await guardRepairReceiptRight(auth(req),method,method==="POST"?null:id,input);if(g)return g;}
   if(method==="POST"){
     const keys=Object.keys(input);
     if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
@@ -636,6 +788,33 @@ async function chfplBridge(path:string, query:Record<string,string>={}){
   if(!r.ok) throw new Error(d?.error||'CHFPL bridge request failed');
   return d;
 }
+
+// ---- CHFPL loan applications: local cache fed by webhook (no live bridge call on page load) ----
+let chfplLoanCacheReady:Promise<void>|null=null;
+function ensureChfplLoanCache():Promise<void>{
+  if(!chfplLoanCacheReady){
+    chfplLoanCacheReady=(async()=>{
+      await pool.query("CREATE TABLE IF NOT EXISTS chfpl_loan_cache (chfpl_loan_id bigint PRIMARY KEY,grd_dealer_id integer,dealer_code text,application_no text,status text,data jsonb NOT NULL DEFAULT '{}'::jsonb,updated_at timestamptz NOT NULL DEFAULT now())");
+      await pool.query("CREATE INDEX IF NOT EXISTS chfpl_loan_cache_dealer_idx ON chfpl_loan_cache(grd_dealer_id)");
+    })().catch((e:any)=>{chfplLoanCacheReady=null;throw e});
+  }
+  return chfplLoanCacheReady;
+}
+// Full row (ya sirf status wala partial row) cache me daalo; partial update purana data mita nahi deta (jsonb merge).
+async function upsertChfplLoanRows(rows:any[]){
+  await ensureChfplLoanCache();
+  let n=0;
+  for(const row of rows){
+    const cid=idOf(row?.id??row?.chfpl_loan_id);if(!cid)continue;
+    const data={...row,id:cid};delete (data as any).chfpl_loan_id;
+    await pool.query(
+      "INSERT INTO chfpl_loan_cache (chfpl_loan_id,grd_dealer_id,dealer_code,application_no,status,data,updated_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,NOW()) ON CONFLICT (chfpl_loan_id) DO UPDATE SET grd_dealer_id=COALESCE(EXCLUDED.grd_dealer_id,chfpl_loan_cache.grd_dealer_id),dealer_code=COALESCE(NULLIF(EXCLUDED.dealer_code,''),chfpl_loan_cache.dealer_code),application_no=COALESCE(NULLIF(EXCLUDED.application_no,''),chfpl_loan_cache.application_no),status=COALESCE(NULLIF(EXCLUDED.status,''),chfpl_loan_cache.status),data=chfpl_loan_cache.data||EXCLUDED.data,updated_at=NOW()",
+      [cid,idOf(row?.grd_dealer_id)||null,String(row?.dealer_code||"").trim(),String(row?.application_no||"").trim(),String(row?.status||"").trim(),JSON.stringify(data)]);
+    n++;
+  }
+  return n;
+}
+let chfplSeedTried=false;
 
 async function chfplSubmitLoan(body:any){
   const base=String(process.env.CHFPL_API_URL||'').replace(/\/$/,'');
@@ -725,31 +904,23 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const dealerCode=String(dealerIdentity.rows[0]?.code||"").trim();
         if(dealerCode) q.grd_dealer_code=dealerCode;
       }
-      const remote=await chfplBridge("/api/grd-dealer-loans",q);
-      const applications=Array.isArray(remote?.applications)?remote.applications:[];
-      await ensureLoanWorkflowBridgeSchema();
-
-      // Reconcile every live CHFPL row into the local bridge by CHFPL id.
-      // This makes Refresh recover status changes even when a webhook was
-      // delayed/missed. Existing GRD-only pending submissions are preserved.
-      for(const row of applications){
-        const cid=idOf(row.id);
-        if(!cid) continue;
-        const status=String(row.status||"submitted").trim()||"submitted";
-        const applicationNo=String(row.application_no||"").trim();
-
-        // First use the immutable CHFPL id or GRD application number when
-        // already linked.
-        const linked=await pool.query(
-          "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR application_no=$3 RETURNING id",
-          [cid,status,applicationNo]
-        );
-        if(linked.rowCount) continue;
-
-        // Do not auto-match older pending rows using dealer/phone/amount/time.
-        // Those fields are not a unique loan identity. Older rows remain
-        // PENDING_CHFPL_SYNC until an explicit immutable link is available.
+      // Data ab webhook (POST /api/loan-status-webhook) se local cache me aata hai -> CHFPL ko live call nahi jaati.
+      await ensureLoanWorkflowBridgeSchema();await ensureChfplLoanCache();
+      // Pehli baar cache khali ho to ek baar purana data bridge se import kar lo (webhook sirf naye changes bhejta hai).
+      if(!chfplSeedTried){
+        const cnt=await pool.query("SELECT COUNT(*)::int AS n FROM chfpl_loan_cache");
+        if(!Number(cnt.rows[0]?.n||0)){
+          chfplSeedTried=true;
+          try{const seed=await chfplBridge("/api/grd-dealer-loans",{});await upsertChfplLoanRows(Array.isArray(seed?.applications)?seed.applications:[]);}catch(_e){}
+        }else chfplSeedTried=true;
       }
+      const cArgs:any[]=[];let cWhere="1=1";
+      if(a?.scope==="dealer"){
+        cArgs.push(num(a.dealer_id),String(q.grd_dealer_code||""));
+        cWhere="(grd_dealer_id=$1 OR ($2<>'' AND dealer_code=$2))";
+      }
+      const cached=await pool.query("SELECT chfpl_loan_id,status,application_no,data FROM chfpl_loan_cache WHERE "+cWhere+" ORDER BY chfpl_loan_id DESC LIMIT 5000",cArgs);
+      const applications=cached.rows.map((r:any)=>({...(r.data||{}),id:Number(r.chfpl_loan_id),status:r.status||r.data?.status||"submitted",application_no:r.application_no||r.data?.application_no||""}));
 
       const pendingArgs:any[]=[];
       let pendingWhere="status='PENDING_CHFPL_SYNC'";
@@ -926,10 +1097,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({debit_notes:r.rows,rows:r.rows,data:r.rows});
     }
     if(p==="repair-service-masters"){
-      await ensureRepairSchema();const u=new URL(req.url),vehicleNo=String(u.searchParams.get("vehicle_no")||"").trim();
-      const vr=await pool.query(`SELECT v.id AS vehicle_id,COALESCE(to_jsonb(v)->>'vehicle_no',to_jsonb(v)->>'vehicle_reg_no',to_jsonb(v)->>'registration_no','') AS vehicle_no,COALESCE(v.chassis_no,'') AS chassis_no,COALESCE(to_jsonb(ti)->>'buyer_name','') AS customer_name,COALESCE(to_jsonb(ti)->>'buyer_mobile',to_jsonb(ti)->>'customer_mobile','') AS customer_mobile FROM vehicle v LEFT JOIN LATERAL (SELECT * FROM tax_invoice x WHERE x.vehicle_id=v.id AND COALESCE(x.cancelled,false)=false ORDER BY x.date DESC,x.id DESC LIMIT 1) ti ON true WHERE ($1='' OR lower(COALESCE(to_jsonb(v)->>'vehicle_no',to_jsonb(v)->>'vehicle_reg_no',to_jsonb(v)->>'registration_no',''))=lower($1)) ORDER BY v.id DESC LIMIT 100`,[vehicleNo]);
+      await ensureRepairSchema();await ensureTaxInvoiceVehicleNoColumn();const u=new URL(req.url),vehicleNo=String(u.searchParams.get("vehicle_no")||"").trim();
+      // Vehicle No. ko space/hyphen/case hata kar compare karo: DL5ERB0160 = DL 5E RB 0160 = dl-5e-rb-0160.
+      const regNorm=vehicleNo.toUpperCase().replace(/[^A-Z0-9]/g,"");
+      const vr=await pool.query(`SELECT v.id AS vehicle_id,COALESCE(to_jsonb(v)->>'vehicle_no',to_jsonb(v)->>'vehicle_reg_no',to_jsonb(v)->>'registration_no','') AS vehicle_no,COALESCE(v.chassis_no,'') AS chassis_no,COALESCE(to_jsonb(ti)->>'buyer_name','') AS customer_name,COALESCE(to_jsonb(ti)->>'buyer_mobile',to_jsonb(ti)->>'customer_mobile','') AS customer_mobile FROM vehicle v LEFT JOIN LATERAL (SELECT * FROM tax_invoice x WHERE x.vehicle_id=v.id AND COALESCE(x.cancelled,false)=false ORDER BY x.date DESC,x.id DESC LIMIT 1) ti ON true WHERE ($1='' OR regexp_replace(upper(COALESCE(to_jsonb(v)->>'vehicle_no',to_jsonb(v)->>'vehicle_reg_no',to_jsonb(v)->>'registration_no','')),'[^A-Z0-9]','','g')=$1) ORDER BY v.id DESC LIMIT 100`,[regNorm]);
+      // Vehicle No. Tax Invoice (Vehicle No. tab / bill) mein bhi dhoondo; wahi customer + chassis pehle dikhao.
+      let vehicleRows:any[]=vr.rows;
+      if(regNorm){
+        const tr=await pool.query(`SELECT COALESCE(ti.vehicle_id,0) AS vehicle_id,ti.vehicle_reg_no AS vehicle_no,COALESCE(NULLIF(btrim(ti.chassis_no),''),v.chassis_no,'') AS chassis_no,COALESCE(ti.buyer_name,'') AS customer_name,COALESCE(to_jsonb(ti)->>'buyer_mobile',to_jsonb(ti)->>'customer_mobile','') AS customer_mobile FROM tax_invoice ti LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE COALESCE(ti.cancelled,false)=false AND regexp_replace(upper(COALESCE(ti.vehicle_reg_no,'')),'[^A-Z0-9]','','g')=$1 ORDER BY ti.date DESC,ti.id DESC LIMIT 20`,[regNorm]);
+        const seen=new Set<string>();
+        vehicleRows=[...tr.rows,...vr.rows].filter((x:any)=>{const k=String(x.chassis_no||"")||("id"+x.vehicle_id);if(seen.has(k))return false;seen.add(k);return true;});
+      }
       const products=await pool.query(`SELECT p.id,p.name,p.code,p.unit,p.fro,p.product_category,p.show_on_delivery_challan,COALESCE((SELECT SUM(CASE WHEN UPPER(COALESCE(js.work_type,''))='OUT' THEN -ABS(js.qty) WHEN UPPER(COALESCE(js.work_type,''))='IN' THEN ABS(js.qty) ELSE js.qty END) FROM journal_stock js WHERE lower(trim(js.item_name))=lower(trim(p.name))),0) AS stock_qty FROM product p WHERE p.fro='R' OR (UPPER(COALESCE(p.product_category,''))='DISPATCH' AND COALESCE(p.show_on_delivery_challan,false)=true) ORDER BY CASE WHEN UPPER(COALESCE(p.product_category,''))='DISPATCH' THEN 2 ELSE 1 END,p.name`);
-      return Response.json({vehicles:vr.rows,items:products.rows,raw_items:products.rows.filter((x:any)=>x.fro==='R'),dispatch_items:products.rows.filter((x:any)=>String(x.product_category||'').toUpperCase()==='DISPATCH')});
+      return Response.json({vehicles:vehicleRows,items:products.rows,raw_items:products.rows.filter((x:any)=>x.fro==='R'),dispatch_items:products.rows.filter((x:any)=>String(x.product_category||'').toUpperCase()==='DISPATCH')});
     }
     if(p==="repair-service-vouchers"){
       await ensureRepairSchema();const status=String(new URL(req.url).searchParams.get("status")||"").trim().toUpperCase(),args:any[]=[],w:string[]=[];
@@ -940,6 +1120,17 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="repair-service-receipts"){
       await ensureRepairSchema();const r=await pool.query("SELECT r.*,v.voucher_no,v.customer_name,v.vehicle_no FROM repair_service_payment_receipt r LEFT JOIN repair_service_voucher v ON v.id=r.voucher_id ORDER BY r.date DESC,r.id DESC LIMIT 1000");
       return Response.json({receipts:r.rows,rows:r.rows});
+    }
+    if(p==="journal-stock"){
+      // Journal Stock screen ko records + paging chahiye (generic list sirf rows deti thi, isliye page crash hota tha).
+      const u=new URL(req.url),page=Math.max(1,Math.trunc(num(u.searchParams.get("page"))||1)),per=Math.min(200,Math.max(1,Math.trunc(num(u.searchParams.get("per_page"))||50))),search=String(u.searchParams.get("search")||"").trim();
+      const jc=await columns("journal_stock"),args:any[]=[],w:string[]=[];
+      if(jc.has("item_type"))w.push("UPPER(COALESCE(item_type,'R'))='R'");
+      if(search){args.push("%"+search+"%");const n="$"+args.length;w.push("("+["item_name","model_name","vou_no","reason"].filter(c=>jc.has(c)).map(c=>"COALESCE("+c+"::text,'') ILIKE "+n).join(" OR ")+")");}
+      args.push(per+1,(page-1)*per);
+      const r=await pool.query("SELECT * FROM journal_stock"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY date DESC NULLS LAST,id DESC LIMIT $"+(args.length-1)+" OFFSET $"+args.length,args);
+      const has_next=r.rows.length>per,records=r.rows.slice(0,per);
+      return Response.json({records,rows:records,page,per_page:per,has_next,suggested_vou_no:"JS-"+Date.now()});
     }
     if(p==="masters/colour"){
       const r=await pool.query("SELECT * FROM simple_master WHERE lower(kind) IN ('colour','color') ORDER BY id DESC");
@@ -1056,6 +1247,15 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const events=build(dealerId).map((e:any)=>{const {_kind,_id,...rest}=e;return rest;});
       return Response.json({summary:[],dealers,events,rows:events,count:events.length});
     }
+    // Vehicle No. register: one row per live Tax Invoice; only vehicle_reg_no is editable (PUT vehicle-no-register/:id).
+    if(p==="vehicle-no-register"){
+      await ensureTaxInvoiceVehicleNoColumn();
+      const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
+      if(search){args.push("%"+search+"%");const n=args.length;w.push("(COALESCE(ti.bill_no,'') ILIKE $"+n+" OR COALESCE(ti.buyer_name,'') ILIKE $"+n+" OR COALESCE(ti.chassis_no,'') ILIKE $"+n+" OR COALESCE(ti.dealer_name,'') ILIKE $"+n+" OR COALESCE(ti.product_name,'') ILIKE $"+n+" OR COALESCE(ti.vehicle_reg_no,'') ILIKE $"+n+")");}
+      w.push("COALESCE(ti.cancelled,false)=false");
+      const r=await pool.query("SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,ti.chassis_no,ti.dealer_name,ti.product_name,COALESCE(ti.vehicle_reg_no,'') AS vehicle_reg_no FROM tax_invoice ti WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC LIMIT 5000",args);
+      return Response.json({rows:r.rows,invoices:r.rows});
+    }
     if(p==="reports/sale-register"||p==="reports/gst-register"||p==="reports/hypothecation-register"||p==="reports/subsidy"){
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
       if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+")");}
@@ -1158,7 +1358,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         total_qty=total_qty||headerQty;
         total_amt=total_amt||headerTotal||(taxable_amt+cgst_amt+sgst_amt+igst_amt);
         const tax_total=cgst_amt+sgst_amt+igst_amt || headerTax;
-        return {...pb,items,taxable_amt,cgst_amt,sgst_amt,igst_amt,tax_total,total_amt,total_qty,item_count:items.length};
+        const extra_total=purchaseExtraTotal(pb.extra_charges);
+        return {...pb,items,taxable_amt,cgst_amt,sgst_amt,igst_amt,tax_total,total_amt:total_amt+extra_total,extra_total,total_qty,item_count:items.length};
       });
       if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Purchase_Register.csv");
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
@@ -1170,66 +1371,6 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT ti.*,"+TI_CALC+" FROM tax_invoice ti WHERE ti.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
       return Response.json(r.rows[0]);
-    }
-    if(p==="daily-raw-material-checklist"){
-      await ensureDailyRawMaterialChecklistSchema();
-      const date=String(b.date||"").trim();
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return Response.json({error:"Valid date is required."},{status:400});
-      const report=(await pool.query("SELECT * FROM daily_raw_material_checklist WHERE date=$1 FOR UPDATE",[date])).rows[0];
-      if(!report)return Response.json({error:"Checklist not found for this date. Open the checklist first."},{status:404});
-      if(report.status!=="PENDING")return Response.json({error:"Checklist is already verified/locked."},{status:409});
-      const items=Array.isArray(b.items)?b.items:[];
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        for(const item of items){
-          const id=idOf(item.id);if(!id)continue;
-          const issued=Math.max(0,num(item.issued_qty));
-          await client.query("UPDATE daily_raw_material_checklist_item SET issued_qty=$1,difference=$1-required_qty,remarks=$2,verified=$3,updated_at=NOW() WHERE id=$4 AND checklist_id=$5",
-            [issued,String(item.remarks||"").trim()||null,Boolean(item.verified),id,report.id]);
-        }
-        await client.query("UPDATE daily_raw_material_checklist SET updated_at=NOW() WHERE id=$1",[report.id]);
-        await client.query("COMMIT");
-        return Response.json({success:true});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
-    if(p==="daily-raw-material-checklist/verify"){
-      await ensureDailyRawMaterialChecklistSchema();
-      const id=idOf(b.checklist_id);if(!id)return Response.json({error:"Checklist id is required."},{status:400});
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const report=(await client.query("SELECT * FROM daily_raw_material_checklist WHERE id=$1 FOR UPDATE",[id])).rows[0];
-        if(!report)throw new Error("Checklist not found.");
-        if(report.status!=="PENDING")throw new Error("Checklist is already verified/locked.");
-        const rows=await client.query("SELECT * FROM daily_raw_material_checklist_item WHERE checklist_id=$1 ORDER BY id",[id]);
-        if(!rows.rowCount)throw new Error("No raw material lines are available for this date.");
-        for(const item of rows.rows){
-          if(!item.verified)throw new Error("Verify every raw material line before locking: "+item.raw_item_name);
-          if(Math.abs(Number(item.difference||0))>0.0000001 && !String(item.remarks||"").trim())
-            throw new Error("Remark is required for quantity mismatch: "+item.raw_item_name);
-        }
-        const r=await client.query("UPDATE daily_raw_material_checklist SET status='VERIFIED',verified_by=$1,verified_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING *",
-          [String(a.user_id||a.username||a.name||"Store"),id]);
-        await client.query("COMMIT");
-        return Response.json({success:true,checklist:r.rows[0]});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
-    if(p==="daily-raw-material-checklist/formula"){
-      await ensureDailyRawMaterialChecklistSchema();
-      const productName=String(b.product_name||"").trim(),formulaName=String(b.formula_name||"").trim(),
-        rawItem=String(b.raw_item_name||"").trim(),qty=num(b.qty),unit=String(b.unit||"PCS").trim()||"PCS";
-      if(!productName||!formulaName||!rawItem||qty<=0)return Response.json({error:"Product, Formula, Raw Material and positive Qty are required."},{status:400});
-      const raw=await pool.query("SELECT id FROM product WHERE COALESCE(fro,'')='R' AND lower(trim(name))=lower(trim($1)) LIMIT 1",[rawItem]);
-      if(!raw.rowCount)return Response.json({error:"Select a Raw Material from Product Master."},{status:400});
-      const existing=b.id?await pool.query("SELECT id FROM production_formula WHERE id=$1",[idOf(b.id)]):{rowCount:0};
-      let r;
-      if(existing.rowCount){
-        r=await pool.query("UPDATE production_formula SET raw_item_name=$1,qty=$2,unit=$3 WHERE id=$4 RETURNING *",[rawItem,qty,unit,idOf(b.id)]);
-      }else{
-        r=await pool.query("INSERT INTO production_formula (product_name,formula_name,raw_item_name,qty,unit) VALUES($1,$2,$3,$4,$5) RETURNING *",[productName,formulaName,rawItem,qty,unit]);
-      }
-      return Response.json({success:true,row:r.rows[0]},{status:existing.rowCount?200:201});
     }
     if(p==="tax-invoices"){
       const u=new URL(req.url),args:any[]=[],w:string[]=[];
@@ -1325,7 +1466,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(name){args.push("%"+name+"%");w.push("(COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(v.model_name,'') ILIKE $"+args.length+" OR COALESCE(ti.product_name,'') ILIKE $"+args.length+")");}
       if(showroom){args.push("%"+showroom+"%");w.push("(COALESCE(d.name,'') ILIKE $"+args.length+" OR COALESCE(ti.dealer_name,'') ILIKE $"+args.length+")");}
       if(search){args.push("%"+search+"%");w.push("(COALESCE(v.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(v.motor_no,'') ILIKE $"+args.length+" OR COALESCE(to_jsonb(v)->>'umrn','') ILIKE $"+args.length+")");}
-      const r=await pool.query("SELECT ti.id,ti.date,COALESCE(ti.dealer_name,d.name,'') AS dealer_name,COALESCE(ti.buyer_name,'') AS customer_name,COALESCE(v.model_name,ti.product_name,'') AS model_name,v.chassis_no,v.motor_no,COALESCE(to_jsonb(v)->>'umrn','') AS umrn,COALESCE(to_jsonb(v)->>'manufacturing_month','') AS manufacturing_month,COALESCE(COALESCE(to_jsonb(v)->>'colour_code','') AS colour_code,ti.buyer_state_code,'') AS colour_code FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY ti.date DESC,ti.id DESC LIMIT 5000",args);
+      const r=await pool.query("SELECT ti.id,ti.date,COALESCE(ti.dealer_name,d.name,'') AS dealer_name,COALESCE(ti.buyer_name,'') AS customer_name,COALESCE(v.model_name,ti.product_name,'') AS model_name,v.chassis_no,v.motor_no,COALESCE(to_jsonb(v)->>'umrn','') AS umrn,COALESCE(to_jsonb(v)->>'manufacturing_month','') AS manufacturing_month,COALESCE(to_jsonb(v)->>'colour_code','') AS colour_code,COALESCE(to_jsonb(ti)->>'buyer_state_code','') AS buyer_state_code FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY ti.date DESC,ti.id DESC LIMIT 5000",args);
       return Response.json({vehicles:r.rows,rows:r.rows,count:r.rowCount});
     }
     if(p==="dashboard"){
@@ -1404,39 +1545,61 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM production_formula"+(w.length?" WHERE "+w.join(" AND "):"")+" ORDER BY id",args);
       return Response.json({rows:r.rows,items:r.rows,data:r.rows,lines:r.rows});
     }
-    // Next Chassis / Motor / Controller No. for a Production Voucher (was missing -> fell into the generic
-    // table handler and crashed with a 500). Format: <item code><month letter><year letter><running serial>.
-    // Month letters A..M skip "I"; year letters come from chassis_year_code. The running serial continues from
-    // the latest voucher of the same model (motor/controller continue their own trailing number).
+    // Chassis No = <First Fix><Month code><Year code><After Fix><serial>. Serial: 3 digits (len 17) / 4 digits (len 18),
+    // Month/Year codes Chassis Master se. Serial har naye prefix (naya month/year) par 001 se shuru hota hai.
     if(p==="production-vouchers/generate-code"){
       const u=new URL(req.url),product=String(u.searchParams.get("product")||u.searchParams.get("product_name")||"").trim();
       if(!product)return Response.json({error:"Product is required."},{status:400});
       const dt=String(u.searchParams.get("date")||"").slice(0,10),d=/^\d{4}-\d{2}-\d{2}$/.test(dt)?dt:new Date().toISOString().slice(0,10);
-      const monthLetter="ABCDEFGHJKLM"[Number(d.slice(5,7))-1]||"";
+      const MN=["January","February","March","April","May","June","July","August","September","October","November","December"];
+      const mName=MN[Number(d.slice(5,7))-1];
+      const mr=await pool.query("SELECT code FROM chassis_month_code WHERE lower(btrim(month))=lower($1) LIMIT 1",[mName]);
+      const monthCode=String(mr.rows[0]?.code||"").trim();
+      if(!monthCode)return Response.json({error:"Chassis Master mein "+mName+" ka Month Code set nahi hai."},{status:400});
       const yr=await pool.query("SELECT code FROM chassis_year_code WHERE year=$1::int LIMIT 1",[Number(d.slice(0,4))]);
-      const yearLetter=String(yr.rows[0]?.code||"").trim();
-      if(!monthLetter||!yearLetter)return Response.json({error:"No chassis year code set for "+d.slice(0,4)+" in Chassis Master."},{status:400});
-      const pr=await pool.query("SELECT to_jsonb(product)->>'chassis_item_code' AS code FROM product WHERE lower(btrim(name))=lower(btrim($1::text)) ORDER BY (fro='F') DESC,id DESC LIMIT 1",[product]);
-      let itemCode=String(pr.rows[0]?.code||"").trim();
-      const last=await pool.query("SELECT chassis_no,motor_no,controller_no FROM production_voucher WHERE lower(btrim(product_name))=lower(btrim($1::text)) AND COALESCE(chassis_no,'')<>'' ORDER BY date DESC,id DESC LIMIT 1",[product]);
+      const yearCode=String(yr.rows[0]?.code||"").trim();
+      if(!yearCode)return Response.json({error:"Chassis Master mein "+d.slice(0,4)+" ka Year Code set nahi hai."},{status:400});
+
+      const pr=await pool.query("SELECT to_jsonb(product) AS j FROM product WHERE lower(btrim(name))=lower(btrim($1::text)) ORDER BY (fro='F') DESC,id DESC LIMIT 1",[product]);
+      const j:any=pr.rows[0]?.j||{};
+      const pick=(names:string[],re:RegExp)=>{
+        for(const n of names){if(String(j[n]??"").trim()!=="")return String(j[n]).trim();}
+        const k=Object.keys(j).find(k=>re.test(k)&&String(j[k]??"").trim()!=="");
+        return k?String(j[k]).trim():"";
+      };
+      const firstFix=pick(["chassis_item_code","chassis_first_fix","first_fix"],/first.*fix|chassis.*item/i);
+      const afterFix=pick(["chassis_after_code","chassis_after_fix","after_fix","chassis_suffix_code","chassis_suffix"],/chassis.*(after|suffix)|after.*(month|year|fix)/i);
+      const fullLen=Number(pick(["chassis_length","chassis_no_length","full_chassis_length","chassis_len"],/chassis.*len|len.*chassis/i));
+      const seen=Object.keys(j).filter(k=>/chassis|fix|len/i.test(k));
+      if(!firstFix)return Response.json({error:"Product Master mein Chassis First Fix set nahi hai.",product_keys:seen},{status:400});
+      if(!afterFix)return Response.json({error:"Product Master mein After Month & Year Fix set nahi hai.",product_keys:seen},{status:400});
+      if(fullLen!==17&&fullLen!==18)return Response.json({error:"Full Chassis No. Length 17 ya 18 hona chahiye (abhi: "+(fullLen||"blank")+").",product_keys:seen},{status:400});
+
+      const prefix=firstFix+monthCode+yearCode+afterFix,digits=fullLen===17?3:4;
+      if(prefix.length+digits!==fullLen)return Response.json({error:"Length match nahi: prefix "+prefix+" ("+prefix.length+" char) + "+digits+" digit serial = "+(prefix.length+digits)+", lekin Full Length "+fullLen+" hai. Product Master ki fix values check karo."},{status:400});
+
+      const mx=await pool.query("SELECT MAX(substr(c,$2::int+1)::bigint) AS n FROM (SELECT chassis_no AS c FROM vehicle UNION ALL SELECT chassis_no FROM production_voucher) x WHERE left(c,$2::int)=$1::text AND length(c)=$3::int AND substr(c,$2::int+1) ~ '^[0-9]+$'",[prefix,prefix.length,fullLen]);
+      const next=Number(mx.rows[0]?.n||0)+1;
+      if(next>Math.pow(10,digits)-1)return Response.json({error:"Serial limit poori ho gayi ("+"9".repeat(digits)+") for "+prefix},{status:400});
+      const chassis=prefix+String(next).padStart(digits,"0");
+
+      const last=await pool.query("SELECT motor_no,controller_no FROM production_voucher WHERE lower(btrim(product_name))=lower(btrim($1::text)) AND COALESCE(motor_no,'')<>'' ORDER BY date DESC,id DESC LIMIT 1",[product]);
       const L=last.rows[0]||{};
-      const missing=!itemCode;
-      if(missing&&L.chassis_no){const m=String(L.chassis_no).match(/^(.*?)[A-Za-z]{2}\d+$/);if(m)itemCode=m[1];}
-      if(!itemCode)return Response.json({error:"Chassis Item Code is not set for this product in Product Master."},{status:400});
       const bump=(v:any,by:number)=>{const m=String(v||"").match(/^(.*?)(\d+)$/);if(!m)return "";return m[1]+(BigInt(m[2])+BigInt(by)).toString().padStart(m[2].length,"0")};
-      const tail=String(L.chassis_no||"").match(/(\d+)$/);
-      let chassis="",k=1;
-      for(;k<=200;k++){
-        const serial=tail?(BigInt(tail[1])+BigInt(k)).toString().padStart(tail[1].length,"0"):String(k).padStart(4,"0");
-        chassis=itemCode+monthLetter+yearLetter+serial;
-        const dup=await pool.query("SELECT 1 FROM vehicle WHERE chassis_no=$1::text UNION ALL SELECT 1 FROM production_voucher WHERE chassis_no=$1::text LIMIT 1",[chassis]);
-        if(!dup.rowCount)break;
-      }
-      return Response.json({chassis_no:chassis,motor_no:bump(L.motor_no,k),controller_no:bump(L.controller_no,k),missing_item_code:missing});
+      return Response.json({chassis_no:chassis,motor_no:bump(L.motor_no,1),controller_no:bump(L.controller_no,1),missing_item_code:false});
     }
-    if(p==="chassis-master/months"){const r=await pool.query("SELECT * FROM chassis_month_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
-    if(p==="chassis-master/years"){const r=await pool.query("SELECT * FROM chassis_year_code ORDER BY id");return Response.json({rows:r.rows,data:r.rows});}
-    if(p==="chassis-master/rule"){const r=await pool.query("SELECT * FROM chassis_rule ORDER BY id DESC LIMIT 1");return Response.json({rule:r.rows[0]||null});}
+    if(p==="chassis-master"||p==="chassis-master/months"||p==="chassis-master/years"||p==="chassis-master/rule"){
+      await ensureChassisMasterSchema();
+      const [m,y,r]=await Promise.all([
+        pool.query("SELECT * FROM chassis_month_code ORDER BY id"),
+        pool.query("SELECT * FROM chassis_year_code ORDER BY year"),
+        pool.query("SELECT * FROM chassis_rule ORDER BY id DESC LIMIT 1")
+      ]);
+      if(p==="chassis-master/months")return Response.json({rows:m.rows,data:m.rows});
+      if(p==="chassis-master/years")return Response.json({rows:y.rows,data:y.rows});
+      if(p==="chassis-master/rule")return Response.json({rule:r.rows[0]||null});
+      return Response.json({months:m.rows,years:y.rows,rule:r.rows[0]||null});
+    }
     if(p==="dealer/loan-masters"){
       const r=await pool.query("SELECT * FROM simple_master WHERE kind ILIKE '%loan%' ORDER BY id");
       const models=await pool.query("SELECT id,name,code FROM product WHERE COALESCE(fro,'')<>'R' AND COALESCE(name,'')<>'' ORDER BY name,id");
@@ -1535,6 +1698,13 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const handoverTotal=handovers.rows.reduce((s:number,x:any)=>s+num(x.amount),0);
       const closing=opening+cashReceived-expenseTotal-handoverTotal;
       return Response.json({receipts:receipts.rows,expenses:expenses.rows.map((x:any)=>({...x,category_label:x.category_label||x.category||"",folio:x.folio||""})),handovers:handovers.rows,pending_handovers:pendingHandovers.rows,rejected_handovers:rejectedHandovers.rows,summary:{pending_handover:pendingHandovers.rows.reduce((s:number,x:any)=>s+num(x.amount),0),opening_balance:opening,cash_received:cashReceived,expenses:expenseTotal,ho_handover:handoverTotal,net_movement:cashReceived-expenseTotal-handoverTotal,closing_balance:closing}});
+    }
+    if(p==="dealer/repair-receipts"&&a.scope==="dealer"){
+      await ensureRepairSchema();
+      if(!(await dealerHasRepairReceiptRight(num(a.dealer_id))))return Response.json({error:"Repair Receipt ka right aapke paas nahi hai."},{status:403});
+      const v=await pool.query("SELECT id,voucher_no,date,customer_name,customer_mobile,vehicle_no,chassis_no,total_amount,paid_amount,balance_amount,dealer_name FROM repair_service_voucher WHERE total_amount-COALESCE(paid_amount,0)>0 ORDER BY date DESC,id DESC LIMIT 1000");
+      const r=await pool.query("SELECT r.id,r.receipt_no,r.date,r.amount,r.payment_mode,r.reference_no,r.remarks,r.customer_name,r.vehicle_no,v.voucher_no FROM repair_service_payment_receipt r LEFT JOIN repair_service_voucher v ON v.id=r.voucher_id WHERE r.dealer_id=$1 ORDER BY r.date DESC,r.id DESC LIMIT 1000",[num(a.dealer_id)]);
+      return Response.json({vouchers:v.rows,receipts:r.rows});
     }
     if(p==="dealer/cash-book/all-receipts"&&a.scope==="dealer"){
       await ensureDealerCashSchema();
@@ -1770,6 +1940,32 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const totalCount=Number(total.rows[0]?.n||0);
       return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,dispatch_items:dispatch.rows,suggested_challan_no:"DC-"+Date.now()});
     }
+    if(p==="stock/closing-raw"){
+      await ensureDispatchSchema();
+      const u=new URL(req.url),from=u.searchParams.get("from")||null,to=u.searchParams.get("to")||null;
+      const r=await pool.query(`WITH mv AS (SELECT lower(trim(item_name)) AS k,date::date AS d,CASE WHEN UPPER(COALESCE(work_type,''))='OUT' THEN -ABS(qty) WHEN UPPER(COALESCE(work_type,''))='IN' THEN ABS(qty) ELSE qty END AS q FROM journal_stock)
+        SELECT p.id,p.name,p.code,p.unit,COALESCE(to_jsonb(p)->>'hsn_code','') AS hsn,
+          COALESCE(SUM(mv.q) FILTER (WHERE $1::date IS NOT NULL AND mv.d < $1::date),0) AS opening,
+          COALESCE(SUM(mv.q) FILTER (WHERE mv.q>0 AND ($1::date IS NULL OR mv.d>=$1::date) AND ($2::date IS NULL OR mv.d<=$2::date)),0) AS purchased,
+          COALESCE(-SUM(mv.q) FILTER (WHERE mv.q<0 AND ($1::date IS NULL OR mv.d>=$1::date) AND ($2::date IS NULL OR mv.d<=$2::date)),0) AS consumed,
+          COALESCE(SUM(mv.q) FILTER (WHERE $2::date IS NULL OR mv.d<=$2::date),0) AS closing
+        FROM product p LEFT JOIN mv ON mv.k=lower(trim(p.name))
+        WHERE p.fro='R' OR (UPPER(COALESCE(p.product_category,''))='DISPATCH' AND COALESCE(p.show_on_delivery_challan,false)=true)
+        GROUP BY p.id ORDER BY p.name`,[from,to]);
+      const rows=r.rows.map((x:any)=>({...x,opening:Number(x.opening),purchased:Number(x.purchased),consumed:Number(x.consumed),closing:Number(x.closing)}));
+      return Response.json({rows,data:rows,count:rows.length});
+    }
+    if(p==="stock/ledger-raw"){
+      const u=new URL(req.url),name=String(u.searchParams.get("item_name")||"").trim(),from=u.searchParams.get("from")||"",to=u.searchParams.get("to")||"";
+      const r=await pool.query("SELECT id,date,vou_no,reason,model_name,work_type,qty FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1)) ORDER BY date,id",[name]);
+      let bal=0;const events:any[]=[];
+      for(const x of r.rows){
+        const wt=String(x.work_type||"").toUpperCase(),q=Number(x.qty)||0,signed=wt==="OUT"?-Math.abs(q):wt==="IN"?Math.abs(q):q;bal+=signed;
+        const d=ymd(x.date);if((from&&d<from)||(to&&d>to))continue;
+        events.push({id:x.id,date:d,type:signed>=0?"IN":"OUT",doc_no:x.vou_no||"",chassis_no:"",model_name:x.model_name||"",party_name:"",particulars:x.reason||"",qty:Math.abs(q),balance:bal});
+      }
+      return Response.json({events,rows:events,item_name:name,closing:bal});
+    }
     if(p==="purchase-bills"){
       const r=await genericGet(req,path,"purchase_bill"),payload=await r.json();
       const rows=(payload.rows||[]).map((pb:any)=>{
@@ -1794,7 +1990,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const tax=cgst+sgst+igst||firstNum(pb.tax_total,pb.tax_amount,pb.gst_total,pb.gst_amount,pb.total_tax,pb.gst_amount_total,purchaseLegacyNum(pb,[/tax_total|tax_amount|total_tax|gst_total|gst_amount/],[/rate|percent/]));
         const total=items.reduce((s:number,x:any)=>s+num(x.total_amt),0)||firstNum(pb.bill_total,pb.total_amt,pb.total_amount,pb.grand_total,pb.amount,pb.net_total,pb.invoice_total,pb.total,purchaseLegacyNum(pb,[/(grand|bill|invoice|net).*total$/,/total.*(amount|value)/,/^total$/],[/(tax|qty|quantity|rate|percent)/]),taxable+tax);
         const qty=items.reduce((s:number,x:any)=>s+num(x.qty),0)||firstNum(pb.total_qty,pb.qty,pb.quantity,pb.item_qty,pb.units,purchaseLegacyNum(pb,[/^(total_)?qty$/,/quantity/,/^units$/],[/amount|rate|price/]));
-        return {...pb,items,taxable_total:taxable,tax_total:tax,bill_total:total,total_qty:qty};
+        const extra_charges=parseExtraCharges(pb.extra_charges),extra_total=extra_charges.reduce((s:number,e:any)=>s+e.amount+e.amount*e.gst_rate/100,0);
+        return {...pb,items,extra_charges,extra_total,taxable_total:taxable,tax_total:tax,bill_total:total+extra_total,total_qty:qty};
       });
       return Response.json(rows);
     }
@@ -1835,9 +2032,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(/^delivery-challans\/\d+\/print$/.test(p)){
       const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Delivery Challan id required."},{status:400});
-      const r=await pool.query("SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);
+      const r=await pool.query("SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(to_jsonb(d)->>'salesman','') AS dealer_salesman,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
-      const x=r.rows[0],challan={...x,product_name:x.product_name||x.vehicle_model_name,chassis_no:x.chassis_no||x.vehicle_chassis_no,motor_no:x.motor_no||x.vehicle_motor_no,colour:x.colour||x.vehicle_colour};
+      const x=r.rows[0],challan={...x,product_name:x.product_name||x.vehicle_model_name,chassis_no:x.chassis_no||x.vehicle_chassis_no,motor_no:x.motor_no||x.vehicle_motor_no,colour:x.colour||x.vehicle_colour,salesman:x.salesman||x.dealer_salesman||""};
       const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
       {const lg=await productLogo(challan.product_name,x.vehicle_model_name||"");(challan as any).umrn_code=lg.umrn_code||challan.umrn_code||"";(challan as any).logo_keys=lg.logo_keys;}
       return Response.json({challan,company});
@@ -1884,16 +2081,37 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const supplied=String(req.headers.get("x-grd-bridge-secret")||"").trim();
       if(!expected || !supplied || supplied!==expected)
         return Response.json({success:false,error:"Invalid CHFPL bridge secret."},{status:401});
-      const chfplLoanId=idOf(b.chfpl_loan_id),status=String(b.status||"").trim();
-      const grdSubmissionRef=idOf(b.grd_submission_ref);
-      if(!chfplLoanId||!status)return Response.json({success:false,error:"chfpl_loan_id and status are required."},{status:400});
-      await ensureLoanWorkflowBridgeSchema();
-      const r=await pool.query(
-        "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR ($3::bigint IS NOT NULL AND id=$3::bigint) RETURNING id,application_no,status,chfpl_loan_id",
-        [chfplLoanId,status,grdSubmissionRef]
-      );
-      if(!r.rowCount)return Response.json({success:false,error:"GRD loan not found for chfpl_loan_id or grd_submission_ref."},{status:404});
-      return Response.json({success:true,application:r.rows[0]});
+      await ensureLoanWorkflowBridgeSchema();await ensureChfplLoanCache();
+      // Accepted bodies:
+      //  A) {application:{...full row...}}  or  {applications:[{...},{...}]}   (full data, recommended)
+      //  B) {chfpl_loan_id,status,grd_submission_ref?,tvr_status?}              (status-only, old format)
+      //  C) {event:"deleted",chfpl_loan_id}                                     (remove from GRD)
+      const cid0=idOf(b.chfpl_loan_id);
+      if((b.event==="deleted"||b.deleted===true)&&cid0){
+        await pool.query("DELETE FROM chfpl_loan_cache WHERE chfpl_loan_id=$1",[cid0]);
+        return Response.json({success:true,deleted:cid0});
+      }
+      let list:any[]=Array.isArray(b.applications)?b.applications:(b.application&&typeof b.application==="object"?[b.application]:[]);
+      if(!list.length){
+        const status0=String(b.status||"").trim();
+        if(!cid0||!status0)return Response.json({success:false,error:"application(s) ya chfpl_loan_id + status required hai."},{status:400});
+        list=[{id:cid0,status:status0,...(b.tvr_status!==undefined?{tvr_status:b.tvr_status}:{}),grd_submission_ref:b.grd_submission_ref}];
+      }
+      list=list.filter((x:any)=>idOf(x?.id??x?.chfpl_loan_id));
+      if(!list.length)return Response.json({success:false,error:"Har application me id / chfpl_loan_id chahiye."},{status:400});
+      const saved=await upsertChfplLoanRows(list);
+      let linked:any=null;
+      for(const row of list){
+        const cid=idOf(row.id??row.chfpl_loan_id),status=String(row.status||"").trim();
+        if(!status)continue;
+        try{
+          const r=await pool.query(
+            "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR ($3::bigint IS NOT NULL AND id=$3::bigint) OR ($4<>'' AND application_no=$4) RETURNING id,application_no,status,chfpl_loan_id",
+            [cid,status,idOf(row.grd_submission_ref??b.grd_submission_ref)||null,String(row.application_no||"").trim()]);
+          if(r.rows[0]&&!linked)linked=r.rows[0];
+        }catch(_e){/* unique-link conflict: cache already saved, workflow link ko baad me theek kar sakte hain */}
+      }
+      return Response.json({success:true,saved,application:linked});
     }
 
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
@@ -2015,6 +2233,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     }
 
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    { const cm=await chassisMasterWrite(path,"POST",b);if(cm)return cm; }
+    if(p==="users")return saveUserRecord(b);
     // Production Formula: naam ya model (Finished Product) badalna - us formula ki saari lines + pending vouchers ka formula_name/product_name.
     if(p==="production-formulas/rename"){
       await ensureProductionFormulaSchema();
@@ -2158,6 +2378,14 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         await client.query("COMMIT");
         return Response.json({success:true,handover:upd.rows[0],day_book_id:dayBookId});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(a.scope==="dealer" && p==="dealer/repair-receipts"){
+      const did=num(a.dealer_id);
+      if(!(await dealerHasRepairReceiptRight(did)))return Response.json({error:"Repair Receipt ka right aapke paas nahi hai."},{status:403});
+      try{
+        const row=await createRepairReceipt(idOf(b.voucher_id)||0,b,did);
+        return Response.json({success:true,receipt:row,row},{status:201});
+      }catch(e:any){return Response.json({error:e.message||"Could not create receipt."},{status:400});}
     }
     if(a.scope==="dealer" && p==="dealer/cash-book/receipt"){
       await ensureDealerCashSchema();
@@ -2365,15 +2593,78 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         const no="DN-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5),r=await client.query("INSERT INTO debit_note (date,debit_note_no,party_name,party_gst_no,party_state_code,original_bill_no,reason,remarks,taxable_amount,tax_amount,total_amount,items) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",[b.date||null,no,String(b.party_name).trim(),b.party_gst_no||null,b.party_state_code||null,b.original_bill_no||null,b.reason,b.remarks||null,taxable,tax,taxable+tax,JSON.stringify(clean)]);await client.query("COMMIT");return Response.json({success:true,debit_note_no:no,debit_note:r.rows[0],row:r.rows[0]},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
+    if(p==="daily-raw-material-checklist"){
+      await ensureDailyRawMaterialChecklistSchema();
+      const date=String(b.date||"").trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return Response.json({error:"Valid date is required."},{status:400});
+      const report=(await pool.query("SELECT * FROM daily_raw_material_checklist WHERE date=$1 FOR UPDATE",[date])).rows[0];
+      if(!report)return Response.json({error:"Checklist not found for this date. Open the checklist first."},{status:404});
+      if(report.status!=="PENDING")return Response.json({error:"Checklist is already verified/locked."},{status:409});
+      const items=Array.isArray(b.items)?b.items:[];
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        for(const item of items){
+          const id=idOf(item.id);if(!id)continue;
+          const issued=Math.max(0,num(item.issued_qty));
+          await client.query("UPDATE daily_raw_material_checklist_item SET issued_qty=$1,difference=$1-required_qty,remarks=$2,verified=$3,updated_at=NOW() WHERE id=$4 AND checklist_id=$5",
+            [issued,String(item.remarks||"").trim()||null,Boolean(item.verified),id,report.id]);
+        }
+        await client.query("UPDATE daily_raw_material_checklist SET updated_at=NOW() WHERE id=$1",[report.id]);
+        await client.query("COMMIT");
+        return Response.json({success:true});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="daily-raw-material-checklist/verify"){
+      await ensureDailyRawMaterialChecklistSchema();
+      const id=idOf(b.checklist_id);if(!id)return Response.json({error:"Checklist id is required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const report=(await client.query("SELECT * FROM daily_raw_material_checklist WHERE id=$1 FOR UPDATE",[id])).rows[0];
+        if(!report)throw new Error("Checklist not found.");
+        if(report.status!=="PENDING")throw new Error("Checklist is already verified/locked.");
+        const rows=await client.query("SELECT * FROM daily_raw_material_checklist_item WHERE checklist_id=$1 ORDER BY id",[id]);
+        if(!rows.rowCount)throw new Error("No raw material lines are available for this date.");
+        for(const item of rows.rows){
+          if(!item.verified)throw new Error("Verify every raw material line before locking: "+item.raw_item_name);
+          if(Math.abs(Number(item.difference||0))>0.0000001 && !String(item.remarks||"").trim())
+            throw new Error("Remark is required for quantity mismatch: "+item.raw_item_name);
+        }
+        const r=await client.query("UPDATE daily_raw_material_checklist SET status='VERIFIED',verified_by=$1,verified_at=NOW(),updated_at=NOW() WHERE id=$2 RETURNING *",
+          [String(a.user_id||a.username||a.name||"Store"),id]);
+        await client.query("COMMIT");
+        return Response.json({success:true,checklist:r.rows[0]});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="daily-raw-material-checklist/formula"){
+      await ensureDailyRawMaterialChecklistSchema();
+      const productName=String(b.product_name||"").trim(),formulaName=String(b.formula_name||"").trim(),
+        rawItem=String(b.raw_item_name||"").trim(),qty=num(b.qty),unit=String(b.unit||"PCS").trim()||"PCS";
+      if(!productName||!formulaName||!rawItem||qty<=0)return Response.json({error:"Product, Formula, Raw Material and positive Qty are required."},{status:400});
+      const raw=await pool.query("SELECT id FROM product WHERE COALESCE(fro,'')='R' AND lower(trim(name))=lower(trim($1)) LIMIT 1",[rawItem]);
+      if(!raw.rowCount)return Response.json({error:"Select a Raw Material from Product Master."},{status:400});
+      const existing=b.id?await pool.query("SELECT id FROM production_formula WHERE id=$1",[idOf(b.id)]):{rowCount:0};
+      let r;
+      if(existing.rowCount){
+        r=await pool.query("UPDATE production_formula SET raw_item_name=$1,qty=$2,unit=$3 WHERE id=$4 RETURNING *",[rawItem,qty,unit,idOf(b.id)]);
+      }else{
+        r=await pool.query("INSERT INTO production_formula (product_name,formula_name,raw_item_name,qty,unit) VALUES($1,$2,$3,$4,$5) RETURNING *",[productName,formulaName,rawItem,qty,unit]);
+      }
+      return Response.json({success:true,row:r.rows[0]},{status:existing.rowCount?200:201});
+    }
     if(p==="repair-service-vouchers"){
       await ensureRepairSchema();const items=Array.isArray(b.items)?b.items:[];if(!String(b.vehicle_no||"").trim())return Response.json({error:"Vehicle No. is required."},{status:400});if(!items.length)return Response.json({error:"At least one Raw/Dispatch item is required."},{status:400});
+      const branchId=idOf(b.dealer_id);if(!branchId)return Response.json({error:"Showroom / Branch select karein."},{status:400});
+      const branch=(await pool.query("SELECT id,name FROM dealer WHERE id=$1",[branchId])).rows[0];if(!branch)return Response.json({error:"Showroom / Branch not found."},{status:400});
       const client=await pool.connect();try{await client.query("BEGIN");let total=0;const clean:any[]=[];
         for(const it of items){const pid=idOf(it.item_id),qty=Number(it.qty||0),rate=Number(it.rate||0);if(!pid||qty<=0||rate<0)throw new Error("Select a valid Raw Material / Dispatch item, quantity and rate.");const pr=await client.query("SELECT * FROM product WHERE id=$1 FOR UPDATE",[pid]);if(!pr.rowCount)throw new Error("Item not found.");const isRaw=String(pr.rows[0].fro||"").toUpperCase()==="R",isDispatch=String(pr.rows[0].product_category||"").toUpperCase()==="DISPATCH";if(!isRaw&&!isDispatch)throw new Error(pr.rows[0].name+" is not a Raw Material or Dispatch item.");const stock=await client.query("SELECT COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='OUT' THEN -ABS(qty) WHEN UPPER(COALESCE(work_type,''))='IN' THEN ABS(qty) ELSE qty END),0) AS balance FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1))",[pr.rows[0].name]);if(Number(stock.rows[0]?.balance||0)<qty)throw new Error("Insufficient stock for "+pr.rows[0].name+". Available: "+Number(stock.rows[0]?.balance||0));total+=qty*rate;clean.push({item_id:pid,item_code:pr.rows[0].code||"",item_name:pr.rows[0].name,qty,rate,unit:pr.rows[0].unit||"PCS",item_type:isDispatch?"DISPATCH":"R"});await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,'Repair & Service Consumption',NOW(),'OUT',$1)",[String(b.vehicle_no||"RSV"),b.date||null,pr.rows[0].name,isDispatch?"DISPATCH":"RAW",qty]);}
-        const no="RSV-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5),r=await client.query("INSERT INTO repair_service_voucher (voucher_no,date,vehicle_id,vehicle_no,chassis_no,customer_name,customer_mobile,items,total_amount,paid_amount,balance_amount,gst_amount,remarks) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,0,$9,0,$10) RETURNING *",[no,b.date||null,idOf(b.vehicle_id),String(b.vehicle_no).trim(),b.chassis_no||null,b.customer_name||null,b.customer_mobile||null,JSON.stringify(clean),total,b.remarks||null]);await client.query("COMMIT");return Response.json({success:true,voucher:r.rows[0],row:r.rows[0]},{status:201});
+        const no="RSV-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5),r=await client.query("INSERT INTO repair_service_voucher (voucher_no,date,vehicle_id,vehicle_no,chassis_no,customer_name,customer_mobile,items,total_amount,paid_amount,balance_amount,gst_amount,remarks,dealer_id,dealer_name) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8::jsonb,$9::numeric,0,$9::numeric,0,$10,$11,$12) RETURNING *",[no,b.date||null,idOf(b.vehicle_id),String(b.vehicle_no).trim(),b.chassis_no||null,b.customer_name||null,b.customer_mobile||null,JSON.stringify(clean),total,b.remarks||null,branch?.id||null,branch?.name||null]);await client.query("COMMIT");return Response.json({success:true,voucher:r.rows[0],row:r.rows[0]},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("repair-service-vouchers/") && p.endsWith("/receipt")){
-      await ensureRepairSchema();const id=idOf(path[path.length-2]),amount=Number(b.amount||0);if(!id||amount<=0)return Response.json({error:"Valid voucher and receipt amount are required."},{status:400});const client=await pool.connect();try{await client.query("BEGIN");const v=await client.query("SELECT * FROM repair_service_voucher WHERE id=$1 FOR UPDATE",[id]);if(!v.rowCount)throw new Error("Repair / Service Voucher not found.");const paid=Number(v.rows[0].paid_amount||0)+amount,total=Number(v.rows[0].total_amount||0),balance=Math.max(0,total-paid),no="RCP-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(Date.now()).slice(-5);const rr=await client.query("INSERT INTO repair_service_payment_receipt (receipt_no,voucher_id,date,amount,payment_mode,reference_no,remarks) VALUES ($1,$2,COALESCE($3::date,CURRENT_DATE),$4,$5,$6,$7) RETURNING *",[no,id,b.date||null,amount,b.payment_mode||"cash",b.reference_no||null,b.remarks||null]);await client.query("UPDATE repair_service_voucher SET paid_amount=$1,balance_amount=$2 WHERE id=$3",[paid,balance,id]);await client.query("COMMIT");return Response.json({success:true,receipt:rr.rows[0],row:rr.rows[0]},{status:201});}catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+      // Repair payment receipt ab Factory se nahi banti — sirf authorised Dealer/Showroom portal (dealer/repair-receipts) se.
+      return Response.json({error:"Repair Payment Receipt ab sirf authorised Dealer portal se banegi."},{status:403});
     }
     if(p==="journal-stock"){
       const cols=await columns("journal_stock"),itemType=String(b.item_type||"R").toUpperCase();if(itemType!=="R")return Response.json({error:"Journal Stock me sirf Raw Material use/produce ho sakta hai."},{status:400});const input:any={};for(const [k,v] of Object.entries(b||{})){const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;}input.item_type="R";input.work_type=input.work_type||"IN";const keys=Object.keys(input);if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});const r=await pool.query('INSERT INTO "journal_stock" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
@@ -2385,15 +2676,17 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="purchase-bills"){
+      await ensurePurchaseExtraSchema();
       const cols=await columns("purchase_bill"),input:any={};
       for(const [k,v] of Object.entries(b||{})){const col=snake(k);if(cols.has(col)&&col!=="id")input[col]=v;}
       if(Array.isArray(input.items))input.items=JSON.stringify(input.items);
+      if(Array.isArray(input.extra_charges))input.extra_charges=JSON.stringify(parseExtraCharges(input.extra_charges));
       const keys=Object.keys(input);if(!keys.length)return Response.json({error:"No valid purchase fields supplied."},{status:400});
       const client=await pool.connect();
       try{
         await client.query("BEGIN");
         const r=await client.query('INSERT INTO "purchase_bill" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
-        const row={...r.rows[0],items:parseItems(r.rows[0].items)};await syncBatteryPurchaseBill(client,row);
+        const row={...r.rows[0],items:parseItems(r.rows[0].items)};await syncBatteryPurchaseBill(client,row);await syncRawPurchaseStock(client,row);
         await client.query("COMMIT");return Response.json({success:true,row,data:row},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -2421,6 +2714,21 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         }
         const r=await client.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
           [String(b.challan_no||""),b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+        // Accessories (Toolkit/Jack/...) aur Salesman pehle INSERT me save nahi hote the (sirf Edit ke baad aate the) -> ab create par hi save.
+        {
+          const ACC=["toolkit","jack","charger","center_lock","mat","stapney","front_glass","h_lock"];
+          const ti=await client.query("SELECT column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='delivery_challan' AND column_name=ANY($1)",[[...ACC,"salesman"]]);
+          const typ:any={};for(const c of ti.rows)typ[c.column_name]=String(c.data_type);
+          const sets:string[]=[],vals:any[]=[];
+          for(const k of ACC){if(!typ[k])continue;const on=b[k]===true||b[k]==="true"||b[k]===1||b[k]==="1"||b[k]==="YES";
+            vals.push(typ[k]==="boolean"?on:(/int|numeric|double|real/.test(typ[k])?(on?1:0):(on?"YES":null)));sets.push(k+"=$"+vals.length);}
+          if(typ.salesman){
+            let sm=String(b.salesman||"").trim();
+            if(!sm)sm=String((await client.query("SELECT COALESCE(to_jsonb(d)->>'salesman','') AS s FROM dealer d WHERE d.id=$1",[did])).rows[0]?.s||"").trim();
+            vals.push(sm||null);sets.push("salesman=$"+vals.length);
+          }
+          if(sets.length){vals.push(r.rows[0].id);const u=await client.query("UPDATE delivery_challan SET "+sets.join(",")+" WHERE id=$"+vals.length+" RETURNING *",vals);if(u.rows[0])r.rows[0]=u.rows[0];}
+        }
         for(const item of products){await client.query("INSERT INTO delivery_challan_item (delivery_challan_id,product_id,product_name,qty) VALUES ($1,$2,$3,$4)",[r.rows[0].id,item.product_id,item.product_name,item.qty]);await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Delivery Challan Consumption',NOW(),'OUT',$1)",[String(r.rows[0].challan_no),r.rows[0].date,item.product_name,item.qty]);}
         await client.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1),battery_maker=$2,battery_no1=$3,battery_no2=$4,battery_no3=$5,battery_no4=$6 WHERE id=$7",[did,batteryMaker||null,batteryNumbers[0]||null,batteryNumbers[1]||null,batteryNumbers[2]||null,batteryNumbers[3]||null,vehicleId]);
         const dealerName=(await client.query("SELECT name FROM dealer WHERE id=$1",[did])).rows[0]?.name||"";
@@ -2518,9 +2826,16 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         await ensureProductionVoucherSchema();
         const chassis=String(b.chassis_no||"").trim();
         if(chassis){
-          const dup=await client.query("SELECT id FROM vehicle WHERE chassis_no=$1 LIMIT 1",[chassis]);
-          if(dup.rowCount)throw new Error("Chassis No. already exists.");
+          const dup=await client.query("SELECT 1 FROM vehicle WHERE upper(btrim(chassis_no))=upper($1) UNION ALL SELECT 1 FROM production_voucher WHERE upper(btrim(chassis_no))=upper($1) LIMIT 1",[chassis]);
+          if(dup.rowCount)throw new Error("Chassis No. \""+chassis+"\" already exists. Duplicate chassis nahi ban sakta.");
+          // Product Master me jitni Full Chassis No. Length likhi hai, chassis utna hi bada hona chahiye.
+          const pj=(await client.query("SELECT to_jsonb(product) AS j FROM product WHERE lower(btrim(name))=lower(btrim($1::text)) ORDER BY (fro='F') DESC,id DESC LIMIT 1",[String(b.product_name||"")])).rows[0]?.j||{};
+          const lk=Object.keys(pj).find(k=>/chassis.*len|len.*chassis/i.test(k)&&Number(pj[k])>0);
+          const need=lk?Number(pj[lk]):0;
+          if(need&&chassis.length!==need)throw new Error("Chassis No. "+need+" character ka hona chahiye (abhi "+chassis.length+"). Product Master me Full Chassis No. Length "+need+" set hai.");
         }
+        if(!String(b.colour||"").trim())throw new Error("Colour select karna zaroori hai.");
+        if(!String(b.machnic||"").trim())throw new Error("Mechanic select karna zaroori hai.");
         const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
         // Ek model ke 2-3 formula ho sakte hain: formula chune bina sab formulas ka stock ek saath kat jata, isliye zaroori.
         if(!String(b.formula_name||"").trim()){
@@ -2810,6 +3125,16 @@ async function mutation(req:Request,params:any,method:string){
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(path[0]==="chassis-master"){const cm=await chassisMasterWrite(path,method,await json(req));if(cm)return cm;}
+    if(path[0]==="vehicle-no-register"&&(method==="PUT"||method==="PATCH")){
+      const id=idOf(path[1]);if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const b:any=await json(req);
+      const reg=String(b.vehicle_reg_no??"").toUpperCase().replace(/[\s-]+/g,"");
+      await ensureTaxInvoiceVehicleNoColumn();
+      const r=await pool.query("UPDATE tax_invoice SET vehicle_reg_no=$1 WHERE id=$2 RETURNING id,vehicle_reg_no",[reg||null,id]);
+      if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
+      return Response.json({success:true,row:{id:r.rows[0].id,vehicle_reg_no:r.rows[0].vehicle_reg_no||""}});
+    }
 
     // Production Formula: poora formula (ek product + formula name ki saari lines) delete.
     if(method==="DELETE" && p==="production-formulas/by-product"){
@@ -2865,6 +3190,7 @@ async function mutation(req:Request,params:any,method:string){
     }
     if(p.startsWith("purchase-bills/") && (method==="PUT" || method==="PATCH" || method==="DELETE")){
       const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Purchase Bill id required."},{status:400});
+      if(method!=="DELETE")await ensurePurchaseExtraSchema();
       const client=await pool.connect();
       try{
         await client.query("BEGIN");
@@ -2873,17 +3199,20 @@ async function mutation(req:Request,params:any,method:string){
         if(method==="DELETE"){
           await ensureBatteryRegisterSchema();
           await client.query("DELETE FROM battery_register_entry WHERE source_type='PURCHASE' AND source_id=$1",[id]);
+          await syncRawPurchaseStock(client,{id},true);
           const r=await client.query('DELETE FROM "purchase_bill" WHERE id=$1 RETURNING *',[id]);
           await client.query("COMMIT");return Response.json({success:true,row:r.rows[0]||null});
         }
         const body:any=await json(req),cols=await columns("purchase_bill"),input:any={};
         for(const [k,v] of Object.entries(body||{})){const col=snake(k);if(cols.has(col)&&col!=="id")input[col]=v;}
         if(Array.isArray(input.items))input.items=JSON.stringify(input.items);
+        if(Array.isArray(input.extra_charges))input.extra_charges=JSON.stringify(parseExtraCharges(input.extra_charges));
         const keys=Object.keys(input);if(!keys.length)return Response.json({error:"No changes supplied."},{status:400});
         const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
         const r=await client.query('UPDATE "purchase_bill" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
         const row={...r.rows[0],items:parseItems(r.rows[0].items)};
         await syncBatteryPurchaseBill(client,row);
+        await syncRawPurchaseStock(client,row);
         await client.query("COMMIT");return Response.json({success:true,row,data:row});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }

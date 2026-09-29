@@ -11,25 +11,27 @@ export function RepairServiceVoucherPage(){
   const [rawItems,setRawItems]=useState([]); const [dispatchItems,setDispatchItems]=useState([]);
   const [vehicles,setVehicles]=useState([]);
   const [vehicleSearch,setVehicleSearch]=useState('');
-  const [receipts,setReceipts]=useState([]);
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState('');
   const [msg,setMsg]=useState('');
   const [filter,setFilter]=useState('');
+  const [branches,setBranches]=useState([]);
   const [form,setForm]=useState({
-    date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',
+    date:today(),dealer_id:'',customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',
     items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS',item_type:'R'}]
   });
-  const [receipt,setReceipt]=useState({date:today(),voucher_id:'',amount:'',payment_mode:'cash',reference_no:'',remarks:''});
 
   const load=async()=>{
     try{
-      const [v,r,m]=await Promise.all([
+      const [v,m,d]=await Promise.all([
         get('/repair-service-vouchers'+(filter?'?status='+filter:'')),
-        get('/repair-service-receipts'),
-        get('/repair-service-masters')
+        get('/repair-service-masters'),
+        get('/dealers').catch(()=>({dealers:[]}))
       ]);
-      setRows(v.vouchers||[]);setReceipts(r.receipts||[]);
+      const all=Array.isArray(d)?d:(d.dealers||[]);
+      const shows=all.filter(x=>String(x.dealer_category||'').toLowerCase()==='showroom');
+      setBranches(shows.length?shows:all);
+      setRows(v.vouchers||[]);
       setRawItems(m.raw_items||[]);setDispatchItems(m.dispatch_items||[]);setVehicles(m.vehicles||[]);
     }catch(e){setError(e.message||'Could not load repair/service data')}
   };
@@ -61,30 +63,17 @@ export function RepairServiceVoucherPage(){
     e.preventDefault();setSaving(true);setError('');setMsg('');
     try{
       if(!form.vehicle_no.trim())throw new Error('Vehicle No. is required.');
+      if(!form.dealer_id)throw new Error('Showroom / Branch select karein.');
       if(!form.customer_name.trim())throw new Error('Customer Name is required.');
       const clean=form.items.map(x=>({...x,qty:Number(x.qty),rate:Number(x.rate)}));
       if(clean.some(x=>!x.item_name.trim()||x.qty<=0||x.rate<0))throw new Error('Raw Item, Qty and Rate correctly fill karein.');
       const r=await post('/repair-service-vouchers',{...form,items:clean});
       setMsg('Repair / Service Voucher '+r.voucher.voucher_no+' created. GST: ₹0');
-      setForm({date:today(),customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS',item_type:'R'}]});
+      setForm({date:today(),dealer_id:form.dealer_id,customer_name:'',customer_mobile:'',vehicle_no:'',chassis_no:'',vehicle_id:'',remarks:'',items:[{item_id:'',item_code:'',item_name:'',qty:1,rate:'',unit:'PCS',item_type:'R'}]});
       await load();
     }catch(e){setError(e.message||'Could not save voucher')}finally{setSaving(false)}
   }
 
-  async function saveReceipt(e){
-    e.preventDefault();setSaving(true);setError('');setMsg('');
-    try{
-      if(!receipt.voucher_id)throw new Error('Repair / Service Voucher select karein.');
-      if(Number(receipt.amount)<=0)throw new Error('Receipt amount enter karein.');
-      const r=await post('/repair-service-vouchers/'+receipt.voucher_id+'/receipt',receipt);
-      setMsg('Payment Receipt '+r.receipt.receipt_no+' created.');
-      setReceipt({date:today(),voucher_id:'',amount:'',payment_mode:'cash',reference_no:'',remarks:''});
-      await load();
-    }catch(e){setError(e.message||'Could not save receipt')}finally{setSaving(false)}
-  }
-
-  const pending=rows.filter(x=>Number(x.balance_amount)>0);
-  const selectedVoucher=rows.find(x=>String(x.id)===String(receipt.voucher_id));
   return <div className="page">
     <div className="pageHeader">
       <div><h1>Repair &amp; Service Voucher</h1><p className="muted">Factory Repair / Service · GST not applicable</p></div>
@@ -94,7 +83,6 @@ export function RepairServiceVoucherPage(){
 
     <div className="actions" style={{marginBottom:14}}>
       <button className={'btn '+(tab==='voucher'?'primary':'')} onClick={()=>setTab('voucher')}>Repair / Service Voucher</button>
-      <button className={'btn '+(tab==='receipt'?'primary':'')} onClick={()=>setTab('receipt')}>Payment Receipt Voucher</button>
       <button className={'btn '+(tab==='register'?'primary':'')} onClick={()=>setTab('register')}>Register</button>
     </div>
 
@@ -102,6 +90,10 @@ export function RepairServiceVoucherPage(){
       <h2>New Repair / Service Voucher</h2>
       <div className="grid">
         <input className="input" type="date" value={form.date} onChange={e=>set('date',e.target.value)} required/>
+        <select className="input" value={form.dealer_id} onChange={e=>set('dealer_id',e.target.value)} required>
+          <option value="">Select Showroom / Branch *</option>
+          {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
         <div>
           <input className="input" placeholder="Vehicle No. *" value={vehicleSearch||form.vehicle_no} onChange={e=>setVehicleSearch(e.target.value)} onBlur={e=>lookupVehicle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();lookupVehicle(e.currentTarget.value)}}} required/>
           <small className="muted">{form.vehicle_id?'Existing record found — details auto-filled below.':vehicleSearch||form.vehicle_no?'No existing record for this vehicle — fill details below as new.':'Enter Vehicle No. and press Tab/Enter to pull existing details, or fill as new.'}</small>
@@ -144,28 +136,9 @@ export function RepairServiceVoucherPage(){
       <button className="btn primary" disabled={saving} style={{marginTop:14}}>{saving?'Saving…':'Create Voucher'}</button>
     </form>}
 
-    {tab==='receipt'&&<form className="card" onSubmit={saveReceipt}>
-      <h2>Payment Receipt Voucher</h2>
-      <div className="grid">
-        <input className="input" type="date" value={receipt.date} onChange={e=>setReceipt(x=>({...x,date:e.target.value}))} required/>
-        <select className="input" value={receipt.voucher_id} onChange={e=>setReceipt(x=>({...x,voucher_id:e.target.value,amount:''}))} required>
-          <option value="">Select Repair / Service Voucher</option>
-          {pending.map(v=><option key={v.id} value={v.id}>{v.voucher_no} — {v.customer_name} — Balance {money(v.balance_amount)}</option>)}
-        </select>
-        <input className="input" type="number" min="0.01" step="0.01" max={selectedVoucher?.balance_amount||undefined} placeholder="Receipt Amount" value={receipt.amount} onChange={e=>setReceipt(x=>({...x,amount:e.target.value}))} required/>
-        <select className="input" value={receipt.payment_mode} onChange={e=>setReceipt(x=>({...x,payment_mode:e.target.value}))}>
-          <option value="cash">Cash</option><option value="bank">Bank</option><option value="upi">UPI</option><option value="cheque">Cheque</option>
-        </select>
-        <input className="input" placeholder="Reference / Cheque No." value={receipt.reference_no} onChange={e=>setReceipt(x=>({...x,reference_no:e.target.value}))}/>
-        <input className="input" placeholder="Remarks" value={receipt.remarks} onChange={e=>setReceipt(x=>({...x,remarks:e.target.value}))}/>
-      </div>
-      {selectedVoucher&&<div className="card" style={{marginTop:14}}><b>{selectedVoucher.voucher_no}</b> · {selectedVoucher.customer_name} · Outstanding <b>{money(selectedVoucher.balance_amount)}</b></div>}
-      <button className="btn primary" disabled={saving} style={{marginTop:14}}>{saving?'Saving…':'Create Payment Receipt'}</button>
-    </form>}
-
     {tab==='register'&&<div className="card">
       <div className="actions" style={{justifyContent:'space-between',flexWrap:'wrap'}}>
-        <h2 style={{margin:0}}>Repair / Service Register</h2>
+        <div><h2 style={{margin:0}}>Repair / Service Register</h2><small className="muted">Paid / Balance read-only hai — payment receipt authorised Dealer portal (Repair Receipt) se banti hai.</small></div>
         <div className="actions">
           <button className={'btn '+(!filter?'primary':'')} onClick={()=>setFilter('')}>All</button>
           <button className={'btn '+(filter==='unpaid'?'primary':'')} onClick={()=>setFilter('unpaid')}>Unpaid</button>
@@ -176,10 +149,5 @@ export function RepairServiceVoucherPage(){
       <tbody>{rows.map(v=><tr key={v.id}><td><b>{v.voucher_no}</b></td><td>{v.date}</td><td>{v.customer_name}</td><td>{v.customer_mobile||'—'}</td><td>{v.vehicle_no||'—'}</td><td>{v.chassis_no||'—'}</td><td>{v.items.length}</td><td>{money(v.total_amount)}</td><td>{money(v.paid_amount)}</td><td>{money(v.balance_amount)}</td><td>{v.payment_status}</td></tr>)}{!rows.length&&<tr><td colSpan="11" className="muted">No repair/service vouchers found.</td></tr>}</tbody></table></div>
     </div>}
 
-    {tab!=='voucher'&&tab!=='receipt'&&<div className="card" style={{marginTop:14}}>
-      <h3>Payment Receipt Register</h3>
-      <div className="tablewrap"><table className="table"><thead><tr><th>Receipt No.</th><th>Date</th><th>Repair Voucher</th><th>Customer</th><th>Amount</th><th>Mode</th><th>Reference</th></tr></thead>
-      <tbody>{receipts.map(r=><tr key={r.id}><td><b>{r.receipt_no}</b></td><td>{r.date}</td><td>{r.voucher_no||'—'}</td><td>{r.customer_name}</td><td>{money(r.amount)}</td><td>{r.payment_mode}</td><td>{r.reference_no||'—'}</td></tr>)}{!receipts.length&&<tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody></table></div>
-    </div>}
   </div>
 }

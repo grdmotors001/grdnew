@@ -52,7 +52,7 @@ export function CashHandoverApprovalPage() {
     {message && <div className="card" style={{ marginBottom: 12, color: '#176b35' }}>{message}</div>}
     <div className="card" style={{ marginBottom: 14 }}><div className="muted">Pending Acceptance</div><div style={{ fontSize: 26, fontWeight: 800, marginTop: 4 }}><Money value={pendingTotal} /> <small className="muted" style={{ fontSize: 13, fontWeight: 500 }}>({pending.length} handover)</small></div></div>
     <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Handover No.</th><th>Dealer</th><th>Sent To</th><th>Amount</th><th>Remarks</th><th>Action</th></tr></thead><tbody>
-      {pending.map(h => <tr key={h.id}><td>{fmtDate(h.date)}</td><td><b>{h.handover_no}</b></td><td>{h.dealer_code ? h.dealer_code + ' — ' : ''}{h.dealer_name || '—'}</td><td>{h.sent_to || '—'}</td><td><b><Money value={h.amount} /></b></td><td>{h.remarks || '—'}</td>
+      {pending.map(h => <tr key={h.id}><td>{fmtDate(h.date)}</td><td><b>{h.handover_no}</b></td><td>{h.dealer_name || '—'}</td><td>{h.sent_to || '—'}</td><td><b><Money value={h.amount} /></b></td><td>{h.remarks || '—'}</td>
         <td><div className="actions"><button className="btn primary" disabled={busy === h.id} onClick={() => act(h, 'accept')}>{busy === h.id ? '…' : 'Accept'}</button><button className="btn" disabled={busy === h.id} onClick={() => act(h, 'reject')}>Reject</button></div></td></tr>)}
       {!loading && !pending.length && <tr><td colSpan="7" className="muted">Koi pending handover nahi hai.</td></tr>}
     </tbody></table></div>

@@ -11,11 +11,11 @@ export function CashAtDealerPage(){
   return <div>
     <div className="dealerContentToolbar">
       <div className="dealerPageIntro"><span className="dealerSectionIcon">₹</span><div><strong>Cash at Dealer</strong><small>Cash received − dealer expenses − cash handed over to Head Office (accepted)</small></div></div>
-      <div className="actions"><select className="input" value={dealerId} onChange={e=>setDealerId(e.target.value)}><option value="">All Dealers</option>{dealers.map(d=><option key={d.id} value={d.id}>{d.code?d.code+' — ':''}{d.name}</option>)}</select><button className="btn" onClick={load}>↻ Refresh</button></div>
+      <div className="actions"><select className="input" value={dealerId} onChange={e=>setDealerId(e.target.value)}><option value="">All Dealers</option>{dealers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select><button className="btn" onClick={load}>↻ Refresh</button></div>
     </div>
     {error&&<div className="error">{error}</div>}
     <div className="card" style={{marginBottom:14}}><div className="muted">Total Cash at Dealer</div><div style={{fontSize:30,fontWeight:800,marginTop:4}}><Money value={data?.total_cash_at_dealer}/></div></div>
-    <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Dealer</th><th>Cash Received</th><th>Expenses</th><th>HO Handover (Accepted)</th><th>Pending Handover</th><th>Cash at Dealer</th></tr></thead><tbody>{(data?.rows||[]).map(r=><tr key={r.dealer_id}><td><b>{r.dealer_code||''}</b> {r.dealer_name}</td><td><Money value={r.cash_received}/></td><td><Money value={r.expenses}/></td><td><Money value={r.ho_handover}/></td><td><Money value={r.pending_handover}/></td><td><b><Money value={r.cash_at_dealer}/></b></td></tr>)}{!loading&&!data?.rows?.length&&<tr><td colSpan="6" className="dealerEmpty">No dealer cash records found.</td></tr>}</tbody></table></div>
+    <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Dealer</th><th>Cash Received</th><th>Expenses</th><th>HO Handover (Accepted)</th><th>Pending Handover</th><th>Cash at Dealer</th></tr></thead><tbody>{(data?.rows||[]).map(r=><tr key={r.dealer_id}><td><b>{r.dealer_name}</b></td><td><Money value={r.cash_received}/></td><td><Money value={r.expenses}/></td><td><Money value={r.ho_handover}/></td><td><Money value={r.pending_handover}/></td><td><b><Money value={r.cash_at_dealer}/></b></td></tr>)}{!loading&&!data?.rows?.length&&<tr><td colSpan="6" className="dealerEmpty">No dealer cash records found.</td></tr>}</tbody></table></div>
     {loading&&<div className="dealerEmpty">Loading…</div>}
   </div>;
 }

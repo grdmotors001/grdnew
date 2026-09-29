@@ -29,7 +29,7 @@ import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { CashHandoverApprovalPage } from '../components/CashHandoverApprovalPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
 import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage, StockLedgerPremisesPage, StockLedgerDealersPage } from '../components/StockPages';
-import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage, GstRegisterPage, HypothecationRegisterPage, PaymentReceivablePage, SubsidyReportPage, LedgerPage, DayBookPage, LedgerVPage } from '../components/ReportPages';
+import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage, GstRegisterPage, HypothecationRegisterPage, VehicleNoRegisterPage, PaymentReceivablePage, SubsidyReportPage, LedgerPage, DayBookPage, LedgerVPage } from '../components/ReportPages';
 import { CustomerExpenseLedgerReportPage } from '../components/CustomerExpenseLedgerReportPage';
 import { PlaceholderPage } from '../components/PlaceholderPage';
 import { BackupRestorePage } from '../components/BackupRestorePage';
@@ -105,6 +105,7 @@ const CUSTOM_PAGES = {
   'sale-register': () => <SaleRegisterPage />,
   'gst-register': () => <GstRegisterPage />,
   'hypothecation-register': () => <HypothecationRegisterPage />,
+  'vehicle-no-register': () => <VehicleNoRegisterPage />,
   'payment-receivable-report': () => <PaymentReceivablePage />,
   'customer-expense-ledger': () => <CustomerExpenseLedgerReportPage />,
   'incentive-register': () => <IncentiveRegisterPage />,
@@ -127,6 +128,11 @@ function PageRouter({ active, setActive, optionUserId, setOptionUserId, user }) 
   return <PlaceholderPage label={active} />;
 }
 
+// lib/menu (keyForPath/routeForKey) abhi 'vehicle-no-register' nahi jaanta, isliye refresh/click par Dashboard khul jata tha.
+const EXTRA_KEYS = ['vehicle-no-register'];
+const keyFromPath = (path) => { const k = String(path || '').replace(/^\//, ''); return EXTRA_KEYS.includes(k) ? k : keyForPath(path); };
+const pathFromKey = (key) => (EXTRA_KEYS.includes(key) ? '/' + key : routeForKey(key).path);
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [checkedAuth, setCheckedAuth] = useState(false);
@@ -134,14 +140,14 @@ export default function App() {
   const [optionUserId, setOptionUserId] = useState(null);
 
   useEffect(() => {
-    const syncFromUrl = () => setActive(keyForPath(window.location.hash.replace(/^#/, '') || '/dashboard'));
+    const syncFromUrl = () => setActive(keyFromPath(window.location.hash.replace(/^#/, '') || '/dashboard'));
     syncFromUrl();
     window.addEventListener('hashchange', syncFromUrl);
     return () => window.removeEventListener('hashchange', syncFromUrl);
   }, []);
 
   const navigate = (key) => {
-    const path = routeForKey(key).path;
+    const path = pathFromKey(key);
     if (window.location.hash.replace(/^#/, '') === path) setActive(key);
     else window.location.hash = path;
   };

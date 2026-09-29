@@ -26,22 +26,18 @@ const blankAccessories = () => ({
 function VehicleDetails({ vehicle }) {
   if (!vehicle) return null;
   return (
-    <div className="card" style={{ margin: '0 0 12px', padding: 12, background: '#f8fafc' }}>
-      <b style={{ display: 'block', marginBottom: 8 }}>Selected Vehicle Details</b>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 8 }}>
-        {[
-          ['Model Name', vehicle.model_name],
-          ['Colour', vehicle.colour],
-          ['Formula Name', vehicle.formula_name],
-          ['Motor No.', vehicle.motor_no],
-          ['Chassis No.', vehicle.chassis_no],
-        ].map(([label, value]) => (
-          <div key={label}>
-            <div className="muted" style={{ fontSize: 11 }}>{label}</div>
-            <div style={{ fontWeight: 700, marginTop: 2 }}>{value || '—'}</div>
-          </div>
-        ))}
-      </div>
+    <div className="dcVeh">
+      {[
+        ['Model Name', vehicle.model_name],
+        ['Formula Name', vehicle.formula_name],
+        ['Motor No.', vehicle.motor_no],
+        ['Chassis No.', vehicle.chassis_no],
+      ].map(([label, value]) => (
+        <div key={label}>
+          <div className="muted" style={{ fontSize: 11 }}>{label}</div>
+          <div style={{ fontWeight: 700, marginTop: 2, wordBreak: 'break-word' }}>{value || '—'}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -118,6 +114,28 @@ export function DeliveryChallanPage() {
   const runSearch = (e) => { e.preventDefault(); setPage(1); load(1, search); };
 
   const dealerById = (id) => dealers.find((d) => String(d.id) === String(id));
+
+  // Dispatch items ke duplicate naam (jaise JACK 2 baar) ek hi dikhao (jiska stock zyada ho).
+  const normName = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const uniqueDispatch = (() => {
+    const m = new Map();
+    for (const it of dispatchItems) {
+      const k = normName(it.name);
+      const cur = m.get(k);
+      if (!cur || Number(it.stock_qty || 0) > Number(cur.stock_qty || 0)) m.set(k, it);
+    }
+    return [...m.values()];
+  })();
+  // Accessory ka naam agar kisi Dispatch item se match kare to dono ek hi tile me jud jaate hain.
+  const linkedItem = (label) => uniqueDispatch.find((i) => normName(i.name) === normName(label));
+  const otherItems = uniqueDispatch.filter((i) => !ACCESSORIES.some(([, l]) => normName(l) === normName(i.name)));
+  const toggleAccessory = (key, label, on) => {
+    const it = linkedItem(label);
+    setForm({
+      ...form, [key]: on,
+      ...(it ? { dispatch_selected: { ...(form.dispatch_selected || {}), [it.id]: on } } : {}),
+    });
+  };
   const colourMeta = (name) => {
     const rows = Array.isArray(colourMasters) ? colourMasters : [];
     return rows.find((x) =>
@@ -149,7 +167,13 @@ export function DeliveryChallanPage() {
 
   const openNew = () => {
     setEditRow(null);
-    setForm({ date: today(), challan_no: data?.suggested_challan_no || '', dispatch_selected: {}, ...blankAccessories() });
+    const defaults = blankAccessories();
+    const sel = {};
+    ACCESSORIES.forEach(([k, l]) => {
+      const it = linkedItem(l);
+      if (defaults[k] && it) sel[it.id] = true;
+    });
+    setForm({ date: today(), challan_no: data?.suggested_challan_no || '', dispatch_selected: sel, ...defaults });
     setOpen(true);
   };
 
@@ -189,7 +213,7 @@ export function DeliveryChallanPage() {
     run(async () => {
       await post('/delivery-challans', {
         ...form,
-        dispatch_items: dispatchItems
+        dispatch_items: uniqueDispatch
           .filter((item) => !!form.dispatch_selected?.[item.id])
           .map((item) => ({ product_id: Number(item.id), qty: 1 })),
       });
@@ -202,7 +226,7 @@ export function DeliveryChallanPage() {
   const openEdit = (row) => {
     setError('');
     setOpen(false);
-    setEditRow({ ...blankAccessories(), ...row });
+    setEditRow({ ...blankAccessories(), ...row, salesman: row.salesman || dealerById(row.dealer_id)?.salesman || '' });
   };
 
   const saveEdit = (e) => {
@@ -306,83 +330,110 @@ export function DeliveryChallanPage() {
 
       {open && (
         <div className="modal">
-          <form className="modalbox" onSubmit={save} style={{ maxWidth: 760 }}>
-            <h2>New Delivery Challan</h2>
+          <form className="modalbox dcModal" onSubmit={save}>
+            <div className="dcHead">
+              <h2 style={{ margin: 0 }}>New Delivery Challan</h2>
+              <span className="pill m">{form.challan_no || 'New'}</span>
+            </div>
             <ErrorBanner message={error} />
-            <div className="formgrid">
-              <Field label="Challan No." value={form.challan_no} onChange={(v) => setForm({ ...form, challan_no: v })} />
-              <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
 
-              <Field label="Dealer" type="combo" value={form.dealer_name || dealerById(form.dealer_id)?.name || ''}
-                     options={dealers.map((d) => ({ value: d.name, label: d.name }))}
-                     onChange={(v) => setForm(applyDealer(v))} required />
-
-              <Field label="Chassis to Dispatch" type="combo"
-                     value={selectedVehicle?.chassis_no || ''}
-                     options={data.available_vehicles.map((v) => ({ value: v.chassis_no, label: v.chassis_no }))}
-                     onChange={(v) => {
-                       const vehicle = data.available_vehicles.find((x) => String(x.chassis_no).toLowerCase() === String(v).toLowerCase());
-                       if (vehicle) selectVehicle(vehicle.id);
-                       else setForm({ ...form, vehicle_id: '', chassis_no: v });
-                     }} required />
-
-              <Field label="Destination" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} />
-              <Field label="Salesman" value={form.salesman} readOnly />
-              <div className="field"><label>Colour</label><div style={{display:'flex',alignItems:'center',gap:8}}>
-                <div style={{width:42,height:28,borderRadius:6,border:'1px solid var(--border)',background:colourPreview(selectedVehicle?.colour)?.background||'transparent'}} />
-                <input value={selectedVehicle?.colour||form.colour||''} readOnly style={{background:'var(--surface-2)',flex:1}} />
-              </div></div>
-
-              <div style={{ gridColumn: '1 / -1' }}>
-                <VehicleDetails vehicle={selectedVehicle} />
+            <div className="dcSec">
+              <div className="dcSecTitle">Challan &amp; Dealer</div>
+              <div className="dcGrid c4">
+                <Field label="Challan No." value={form.challan_no} onChange={(v) => setForm({ ...form, challan_no: v })} />
+                <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
+                <div style={{ gridColumn: 'span 2' }}>
+                  <Field label="Dealer" type="combo" value={form.dealer_name || dealerById(form.dealer_id)?.name || ''}
+                         options={dealers.map((d) => ({ value: d.name, label: d.name }))}
+                         onChange={(v) => setForm(applyDealer(v))} required />
+                </div>
+                <div style={{ gridColumn: 'span 3' }}>
+                  <Field label="Destination" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} />
+                </div>
+                <Field label="Salesman" value={form.salesman} readOnly />
               </div>
+            </div>
 
-              <Field label="Battery Maker" type="combo" value={form.battery_maker || ''}
-                     options={batteryMakers.map((b) => ({ value: b.name, label: b.name }))}
-                     onChange={(v) => setForm({ ...form, battery_maker: v })} />
-              <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
-              <Field label="Battery No. 2" value={form.battery_no2} onChange={(v) => setForm({ ...form, battery_no2: v })} />
-              <Field label="Battery No. 3" value={form.battery_no3} onChange={(v) => setForm({ ...form, battery_no3: v })} />
-              <Field label="Battery No. 4" value={form.battery_no4} onChange={(v) => setForm({ ...form, battery_no4: v })} />
-
-              <AccessoriesFields
-                value={form}
-                onChange={(next) => setForm({ ...form, ...next })}
-              />
-
-              {dispatchItems.length > 0 && (
-                <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
-                  <b style={{ display: 'block', marginBottom: 8 }}>Dispatch Items</b>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                    {dispatchItems.map((item) => {
-                      const checked = !!form.dispatch_selected?.[item.id];
-                      const stock = Number(item.stock_qty || 0);
-                      return (
-                        <label key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 10px', border: '1px solid #e4e7ec', borderRadius: 8, background: checked ? '#f8fafc' : '#fff' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                            <input type="checkbox" checked={checked && stock > 0} disabled={stock <= 0}
-                              onChange={(e) => setForm({
-                                ...form,
-                                dispatch_selected: { ...(form.dispatch_selected || {}), [item.id]: e.target.checked },
-                              })} />
-                            <span>{item.name}</span>
-                          </span>
-                          <span className={stock > 0 ? 'muted' : 'pill d'} style={{ fontSize: 12 }}>
-                            Stock: {stock}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-                    Checked Dispatch items will be deducted from stock when the challan is saved.
+            <div className="dcSec">
+              <div className="dcSecTitle">Vehicle</div>
+              <div className="dcGrid c4">
+                <div style={{ gridColumn: 'span 2' }}>
+                  <Field label="Chassis to Dispatch" type="combo"
+                         value={selectedVehicle?.chassis_no || ''}
+                         options={data.available_vehicles.map((v) => ({ value: v.chassis_no, label: v.chassis_no }))}
+                         onChange={(v) => {
+                           const vehicle = data.available_vehicles.find((x) => String(x.chassis_no).toLowerCase() === String(v).toLowerCase());
+                           if (vehicle) selectVehicle(vehicle.id);
+                           else setForm({ ...form, vehicle_id: '', chassis_no: v });
+                         }} required />
+                </div>
+                <div className="field" style={{ gridColumn: 'span 2' }}><label>Colour</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 42, height: 32, borderRadius: 6, border: '1px solid var(--line)', background: colourPreview(selectedVehicle?.colour || form.colour)?.background || 'transparent' }} />
+                    <input value={selectedVehicle?.colour || form.colour || ''} readOnly style={{ background: 'var(--bg)', flex: 1 }} />
                   </div>
                 </div>
-              )}
-
-              <Field label="Remarks" value={form.remarks1} onChange={(v) => setForm({ ...form, remarks1: v })} />
+              </div>
+              <VehicleDetails vehicle={selectedVehicle} />
             </div>
-            <div className="actions" style={{ marginTop: 18 }}>
+
+            <div className="dcSec">
+              <div className="dcSecTitle">Battery</div>
+              <div className="dcGrid c5">
+                <Field label="Battery Maker" type="combo" value={form.battery_maker || ''}
+                       options={batteryMakers.map((b) => ({ value: b.name, label: b.name }))}
+                       onChange={(v) => setForm({ ...form, battery_maker: v })} />
+                <Field label="Battery No. 1" value={form.battery_no1} onChange={(v) => setForm({ ...form, battery_no1: v })} />
+                <Field label="Battery No. 2" value={form.battery_no2} onChange={(v) => setForm({ ...form, battery_no2: v })} />
+                <Field label="Battery No. 3" value={form.battery_no3} onChange={(v) => setForm({ ...form, battery_no3: v })} />
+                <Field label="Battery No. 4" value={form.battery_no4} onChange={(v) => setForm({ ...form, battery_no4: v })} />
+              </div>
+            </div>
+
+            <div className="dcSec">
+              <div className="dcSecTitle">Accessories / Fitments</div>
+              <div className="dcTiles">
+                {ACCESSORIES.map(([key, label]) => {
+                  const it = linkedItem(label);
+                  const stock = Number(it?.stock_qty || 0);
+                  return (
+                    <label key={key} className={'dcTile' + (form[key] ? ' on' : '')}>
+                      <input type="checkbox" checked={!!form[key]} onChange={(e) => toggleAccessory(key, label, e.target.checked)} />
+                      <span>{label}</span>
+                      {it && <span className={'dcStock' + (stock > 0 ? '' : ' out')}>Stock: {stock}</span>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+                Tick kiya item challan par print hoga. Jin par Stock dikh raha hai wo save par stock se minus honge; stock 0 ya minus ho tab bhi minus hota rahega.
+              </div>
+            </div>
+
+            {otherItems.length > 0 && (
+              <div className="dcSec">
+                <div className="dcSecTitle">Other Dispatch Items</div>
+                <div className="dcTiles">
+                  {otherItems.map((item) => {
+                    const checked = !!form.dispatch_selected?.[item.id];
+                    const stock = Number(item.stock_qty || 0);
+                    return (
+                      <label key={item.id} className={'dcTile' + (checked ? ' on' : '')}>
+                        <input type="checkbox" checked={checked}
+                          onChange={(e) => setForm({ ...form, dispatch_selected: { ...(form.dispatch_selected || {}), [item.id]: e.target.checked } })} />
+                        <span>{item.name}</span>
+                        <span className={'dcStock' + (stock > 0 ? '' : ' out')}>Stock: {stock}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>Checked items save par stock se minus honge (stock minus me bhi count badhega).</div>
+              </div>
+            )}
+
+            <Field label="Remarks" value={form.remarks1} onChange={(v) => setForm({ ...form, remarks1: v })} />
+
+            <div className="dcFooter">
               <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
               <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
             </div>
@@ -392,7 +443,7 @@ export function DeliveryChallanPage() {
 
       {editRow && (
         <div className="modal">
-          <form className="modalbox" onSubmit={saveEdit} style={{ maxWidth: 760 }}>
+          <form className="modalbox dcModal" onSubmit={saveEdit}>
             <h2>Edit Delivery Challan — {editRow.challan_no}</h2>
             <ErrorBanner message={error} />
             <p className="muted" style={{ marginTop: -6 }}>

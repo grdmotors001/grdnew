@@ -97,6 +97,8 @@ function LogoUploadField({ umrnCode }) {
   );
 }
 
+const modsOf = (d) => Array.isArray(d?.portal_modules) ? d.portal_modules : String(d?.portal_modules || '').split(',').map((x) => x.trim()).filter(Boolean);
+
 export function DealerPage() {
   const [dealers, setDealers] = useState([]);
   const [salesmen, setSalesmen] = useState([]);
@@ -109,7 +111,7 @@ export function DealerPage() {
 
   const load = () => Promise.all([get('/dealers'), get('/masters/salesman')]).then(([d, sm]) => {
     setDealers(d.dealers || []);
-    setSalesmen(sm || []);
+    setSalesmen(Array.isArray(sm) ? sm : (sm?.masters || sm?.rows || sm?.data || sm?.items || []));
     setSuggestedCode(d.suggested_code);
   })
     .catch((e) => setError(e.message));
@@ -183,7 +185,7 @@ export function DealerPage() {
               <Field label="Bank Name" value={form.bank_name} onChange={(v) => setForm({ ...form, bank_name: v })} />
               <Field label="Bank Account No." value={form.bank_account_no} onChange={(v) => setForm({ ...form, bank_account_no: v })} />
               <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
-              <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => ({ value: u.name, label: u.name }))]} />
+              <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => { const n = u.name || u.value || u.label || ''; return { value: n, label: n }; }).filter((o) => o.value)]} />
               <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />
               <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access && form.registration_type !== 'unregistered'} disabled={form.registration_type === 'unregistered'} onChange={(v) => setForm({ ...form, purchase_access: form.registration_type === 'unregistered' ? false : v })} />
               <div className="field" style={{gridColumn:'1/-1'}}>
@@ -197,11 +199,14 @@ export function DealerPage() {
                     ['cashbook','Cash Book'],
                     ['loan-status','Loan Status'],
                     ['old-rickshaw-sales','Old Rickshaw Sale'],
-                  ].map(([key,label])=><label key={key} style={{display:'inline-flex',alignItems:'center',gap:6}}>
-                    <input type="checkbox" checked={(form.portal_modules||[]).includes(key)} onChange={e=>{
-                      const a=new Set(form.portal_modules||[]); e.target.checked?a.add(key):a.delete(key); setForm({...form,portal_modules:[...a]});
-                    }}/> {label}
-                  </label>)}
+                    ['repair-receipt','Repair Payment Receipt'],
+                  ].map(([key,label])=>{
+                    return <label key={key} style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                      <input type="checkbox" checked={modsOf(form).includes(key)} onChange={e=>{
+                        const a=new Set(modsOf(form)); e.target.checked?a.add(key):a.delete(key); setForm({...form,portal_modules:[...a]});
+                      }}/> {label}
+                    </label>;
+                  })}
                 </div>
               </div>
               <Field label="Dealer Login ID" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
@@ -297,6 +302,22 @@ export function ProductPage() {
   const save = (e) => {
     e.preventDefault();
     run(async () => {
+      // Duplicate check: same naam / same code wala product pehle se ho to save nahi hoga.
+      const norm = (v) => String(v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const nm = norm(form.name), cd = norm(form.code);
+      const found = [];
+      for (const q of [form.name, form.code]) {
+        if (!String(q || '').trim()) continue;
+        const r = await get(`/products?${new URLSearchParams({ page: 1, per_page: 100, search: String(q).trim() })}`);
+        found.push(...(r.products || []));
+      }
+      const same = found.find((x) => String(x.id) !== String(editingId || '') &&
+        ((nm && norm(x.name) === nm) || (cd && norm(x.code) === cd)));
+      if (same) {
+        throw new Error(norm(same.name) === nm
+          ? `"${same.name}" naam ka product pehle se bana hua hai (Code: ${same.code || '-'}). Duplicate nahi ban sakta.`
+          : `Code "${same.code}" pehle se "${same.name}" product me use ho raha hai.`);
+      }
       if (editingId) {
         await put(`/products/${editingId}`, { ...form, id: undefined });
       } else {

@@ -55,7 +55,7 @@ export function OldRickshawPage() {
         <Field label="Ledger Date" type="date" value={form.ledger_date} onChange={v=>setForm({...form,ledger_date:v})}/>
         <Field label="Purchase Source" type="select" value={form.source} options={[{value:'manual',label:'Manual Purchase'},{value:'chfpl',label:'CHFPL Available for Sale'}]} onChange={v=>setForm({...form,source:v})}/>
 
-        <Field label="Dealer" type="select" value={form.dealer_id} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))]} onChange={v=>setForm({...form,dealer_id:Number(v)})}/>        <Field label="CHFPL / Purchase Ref No." value={form.chfpl_ref_no||form.purchase_ref_no||''} onChange={v=>setForm({...form,chfpl_ref_no:v,purchase_ref_no:v})}/>
+        <Field label="Dealer" type="select" value={form.dealer_id} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:d.name}))]} onChange={v=>setForm({...form,dealer_id:Number(v)})}/>        <Field label="CHFPL / Purchase Ref No." value={form.chfpl_ref_no||form.purchase_ref_no||''} onChange={v=>setForm({...form,chfpl_ref_no:v,purchase_ref_no:v})}/>
         <Field label="Party Name" value={form.party_name} onChange={v=>setForm({...form,party_name:v})}/>
         <Field label="Vehicle Reg. No." value={form.vehicle_reg_no} onChange={v=>setForm({...form,vehicle_reg_no:v})} required/>
         <Field label="Chassis No." value={form.chassis_no} onChange={v=>setForm({...form,chassis_no:v})}/>
@@ -94,7 +94,7 @@ export function OldRickshawPage() {
       <p className="muted">This sale updates dealer stock. No Tax Invoice is generated.</p>
       <div className="formgrid">
         <Field label="Sale Date" type="date" value={sale.sale_date} onChange={v=>setSale({...sale,sale_date:v})}/>
-        <Field label="Dealer" type="select" value={sale.dealer_id} options={dealers.map(d=>({value:d.id,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>setSale({...sale,dealer_id:Number(v)})} required/>
+        <Field label="Dealer" type="select" value={sale.dealer_id} options={dealers.map(d=>({value:d.id,label:d.name}))} onChange={v=>setSale({...sale,dealer_id:Number(v)})} required/>
         <Field label="Sale Value" type="number" value={sale.sale_amount} onChange={v=>setSale({...sale,sale_amount:v})}/>
         <Field label="Sale Type" type="select" value={sale.sale_type} options={[{value:'cash',label:'Cash'},{value:'finance',label:'Finance'}]} onChange={v=>setSale({...sale,sale_type:v})}/>
         <Field label="Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSale({...sale,loan_amount:v})}/>
@@ -125,7 +125,7 @@ export function BatterySwapVoucherPage() {
   const loadStock=async dealerId=>{if(!dealerId){setRickshaws({new:[],old:[]});return;}try{const [n,o]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=new'),get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=old')]);setRickshaws({new:n.rickshaws||[],old:o.rickshaws||[]});}catch(e){setError(e.message)}};
   useEffect(()=>{load()},[]);
   useEffect(()=>{loadStock(form.dealer_id)},[form.dealer_id]);
-  const dealerOptions=dealers.map(d=>({value:d.name,label:(d.code?d.code+' — ':'')+d.name}));
+  const dealerOptions=dealers.map(d=>({value:d.name,label:d.name}));
   const findDealer=v=>dealers.find(d=>String(d.name||'').trim().toLowerCase()===String(v||'').trim().toLowerCase());
   const setDealer=v=>{const d=findDealer(v);setForm({...form,dealer_name:v,dealer_id:d?Number(d.id):'',from_id:'',to_id:''});};
   const opts=type=>(rickshaws[type]||[]).map(r=>{
@@ -191,7 +191,7 @@ export function BatteryWithdrawalPage() {
   return <div className="page"><div className="card"><h2>Battery Withdrawal</h2><p className="muted">Rickshaw se battery nikaal kar dealer ke battery stock me aa jayegi.</p><ErrorBanner message={error}/>
     <form onSubmit={save}><div className="formgrid">
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Dealer" type="combo" value={form.dealer_name} options={dealers.map(d=>({value:d.name,label:(d.code?d.code+' — ':'')+d.name}))} onChange={v=>{const d=dealers.find(x=>String(x.name).trim().toLowerCase()===String(v).trim().toLowerCase());setForm({...form,dealer_name:v,dealer_id:d?Number(d.id):'',rickshaw_id:'',battery_no:''})}} required/>
+      <Field label="Dealer" type="combo" value={form.dealer_name} options={dealers.map(d=>({value:d.name,label:d.name}))} onChange={v=>{const d=dealers.find(x=>String(x.name).trim().toLowerCase()===String(v).trim().toLowerCase());setForm({...form,dealer_name:v,dealer_id:d?Number(d.id):'',rickshaw_id:'',battery_no:''})}} required/>
       <Field label="Rickshaw Type" type="select" value={form.rickshaw_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,rickshaw_type:v,rickshaw_id:'',battery_no:''})}/>
       <Field label="Rickshaw" type="select" value={form.rickshaw_id} options={rickshaws.map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')}))} onChange={v=>setForm({...form,rickshaw_id:Number(v),battery_no:''})} required/>
       <Field label="Battery No." type="select" value={form.battery_no} options={(current?.battery_numbers||[]).map(n=>({value:n,label:n}))} onChange={v=>setForm({...form,battery_no:v})} required/>
