@@ -187,11 +187,19 @@ export function OptionSettingPage({ userId }) {
   const [selected, setSelected] = useState([]);
   const { busy, error, setError, run } = useAsyncAction();
 
-  useEffect(() => {
+  const load = () => {
     if (!userId) return;
-    get(`/users/${userId}/option-setting`).then((d) => { setData(d); setSelected(d.selected_keys); })
-      .catch((e) => setError(e.message));
-  }, [userId]);
+    get(`/users/${userId}/option-setting`).then((d) => {
+      // Purana/naya dono response chalega: user object na aaye to bhi page crash nahi hoga.
+      const user = d?.user || { id: userId, username: '', is_super_user: false };
+      const keys = Array.isArray(d?.selected_keys) ? d.selected_keys : (Array.isArray(d?.modules) ? d.modules : []);
+      setData({ ...d, user });
+      // Kuch set na ho to us department ke default modules dikhao (Save karne par hi lagu honge).
+      const defaults = DEPARTMENT_DEFAULT_MODULES[user.department] || [];
+      setSelected(keys.length ? keys : defaults);
+    }).catch((e) => setError(e.message));
+  };
+  useEffect(() => { load(); }, [userId]);
 
   if (!userId) return <div className="card">Open this from User Master → "Permissions" for a specific user.</div>;
   if (!data) return (
@@ -247,13 +255,13 @@ export function OptionSettingPage({ userId }) {
       `}</style>
       <div className="permHead">
         <div>
-          <h2>Module Access — {data.user.username}</h2>
+          <h2>Module Access — {data.user?.username || '—'}{data.user?.department ? ` (${data.user.department})` : ''}</h2>
           <p>Choose exactly what this user can open. Changes apply after you save.</p>
         </div>
         <div className="permProgress">{selected.length} / {totalModules} enabled</div>
       </div>
       <ErrorBanner message={error} />
-      {data.user.is_super_user ? (
+      {data.user?.is_super_user ? (
         <p className="muted">This is a Super User — they always have access to every module regardless of this setting.</p>
       ) : (
         <>

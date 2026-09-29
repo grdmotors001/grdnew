@@ -1773,9 +1773,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(p.startsWith("users/") && p.endsWith("/option-setting")){
       const uid=idOf(path[path.length-2]);if(!uid)return Response.json({error:"User id required."},{status:400});
-      const r=await pool.query('SELECT allowed_modules FROM "user" WHERE id=$1',[uid]);if(!r.rowCount)return Response.json({error:"User not found."},{status:404});
+      const r=await pool.query('SELECT u.id,u.username,to_jsonb(u)->>\'department\' AS department,COALESCE((to_jsonb(u)->>\'is_super_user\')::boolean,false) AS is_super_user,u.allowed_modules FROM "user" u WHERE u.id=$1',[uid]);if(!r.rowCount)return Response.json({error:"User not found."},{status:404});
       const v=r.rows[0]?.allowed_modules;const selected=Array.isArray(v)?v.map((x:any)=>String(x)):String(v||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-      return Response.json({selected_keys:selected,modules:selected});
+      const {allowed_modules:_am,...userInfo}=r.rows[0];
+      return Response.json({user:userInfo,selected_keys:selected,modules:selected});
     }
     if(p==="auth/me"){
       const ucols=await columns("user");
