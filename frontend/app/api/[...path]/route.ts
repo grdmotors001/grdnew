@@ -1889,7 +1889,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!chfplLoanId||!status)return Response.json({success:false,error:"chfpl_loan_id and status are required."},{status:400});
       await ensureLoanWorkflowBridgeSchema();
       const r=await pool.query(
-        "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR ($3 IS NOT NULL AND id=$3) RETURNING id,application_no,status,chfpl_loan_id",
+        "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=NOW(),updated_at=NOW() WHERE chfpl_loan_id=$1 OR ($3::bigint IS NOT NULL AND id=$3::bigint) RETURNING id,application_no,status,chfpl_loan_id",
         [chfplLoanId,status,grdSubmissionRef]
       );
       if(!r.rowCount)return Response.json({success:false,error:"GRD loan not found for chfpl_loan_id or grd_submission_ref."},{status:404});
