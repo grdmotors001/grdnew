@@ -714,6 +714,76 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({source:"CHFPL",vehicles,count:vehicles.length});
     }
 
+    if(p==="admin/backfill-loan-status" && method==="POST"){
+      if(!isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
+      await ensureLoanWorkflowBridgeSchema();
+      const body:any=await json(req);
+      const requestedDealerId=idOf(body.dealer_id);
+      const q:any={};
+      if(requestedDealerId)q.grd_dealer_id=String(requestedDealerId);
+      const remote=await chfplBridge("/api/grd-dealer-loans",q);
+      const applications=Array.isArray(remote?.applications)?remote.applications:[];
+      let updated=0,inserted=0,skipped=0;
+      const details:any[]=[];
+      for(const row of applications){
+        const chfplLoanId=idOf(row.id);
+        if(!chfplLoanId){skipped++;continue}
+        const applicationNo=String(row.application_no||"").trim();
+        const status=String(row.status||"submitted").trim()||"submitted";
+        const grdDealerId=idOf(row.grd_dealer_id);
+        let dealerId=grdDealerId;
+        if(!dealerId && String(row.dealer_code||"").trim()){
+          const dr=await pool.query("SELECT id FROM dealer WHERE code=$1 LIMIT 1",[String(row.dealer_code).trim()]);
+          dealerId=idOf(dr.rows[0]?.id);
+        }
+        if(requestedDealerId && dealerId!==requestedDealerId){skipped++;continue}
+        const existing=await pool.query(
+          "SELECT id,customer_id FROM loan_workflow WHERE chfpl_loan_id=$1 OR ($2<>'' AND application_no=$2) ORDER BY CASE WHEN chfpl_loan_id=$1 THEN 0 ELSE 1 END,id LIMIT 1",
+          [chfplLoanId,applicationNo]
+        );
+        let customerId=idOf(existing.rows[0]?.customer_id);
+        const customerName=String(row.customer_name||"").trim();
+        const customerPhone=String(row.customer_phone||"").trim();
+        if(!customerId && dealerId && (customerName||customerPhone)){
+          const cr=await pool.query(
+            "SELECT id FROM customer WHERE dealer_id=$1 AND ((COALESCE(btrim(phone),'')=$2 AND $2<>'') OR (lower(btrim(COALESCE(full_name,'')))=lower($3) AND $3<>'')) ORDER BY id LIMIT 1",
+            [dealerId,customerPhone,customerName]
+          );
+          customerId=idOf(cr.rows[0]?.id);
+        }
+        if(!customerId && dealerId && customerName){
+          const cc=await columns("customer");
+          const input:any={dealer_id:dealerId,full_name:customerName,phone:customerPhone||null};
+          const keys=Object.keys(input).filter(k=>cc.has(k));
+          if(keys.length){
+            const cr=await pool.query(
+              "INSERT INTO customer ("+keys.map(k=>'"'+k+'"').join(",")+") VALUES ("+keys.map((_,i)=>"$"+(i+1)).join(",")+") RETURNING id",
+              keys.map(k=>input[k])
+            );
+            customerId=idOf(cr.rows[0]?.id);
+          }
+        }
+        const loanAmount=num(row.loan_amount_requested);
+        const modelName=String(row.vehicle_model_name||"").trim()||null;
+        const vehicleType="3W";
+        if(existing.rowCount){
+          const u=await pool.query(
+            "UPDATE loan_workflow SET chfpl_loan_id=$1,status=$2,chfpl_status_updated_at=COALESCE($3::timestamptz,NOW()),updated_at=NOW(),dealer_id=COALESCE(dealer_id,$4),customer_id=COALESCE(customer_id,$5),loan_amount=CASE WHEN COALESCE(loan_amount,0)=0 THEN $6 ELSE loan_amount END,loan_model_name=COALESCE(NULLIF(loan_model_name,''),$7),loan_vehicle_type=COALESCE(NULLIF(loan_vehicle_type,''),$8) WHERE id=$9 RETURNING id,application_no,status,chfpl_loan_id",
+            [chfplLoanId,status,row.submitted_at||null,dealerId,customerId,loanAmount,modelName,vehicleType,existing.rows[0].id]
+          );
+          if(u.rowCount)updated++;
+        }else{
+          const localNo=applicationNo||("CHFPL-"+chfplLoanId);
+          const ins=await pool.query(
+            "INSERT INTO loan_workflow (application_no,dealer_id,customer_id,status,loan_amount,loan_model_name,loan_vehicle_type,chfpl_loan_id,chfpl_status_updated_at,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::timestamptz,NOW()),COALESCE($9::timestamptz,NOW()),NOW()) RETURNING id,application_no,status,chfpl_loan_id",
+            [localNo,dealerId,customerId,status,loanAmount,modelName,vehicleType,chfplLoanId,row.submitted_at||null]
+          );
+          if(ins.rowCount)inserted++;
+        }
+      }
+      return Response.json({success:true,total:applications.length,updated,inserted,skipped});
+    }
+
     // Dealer Loan Status must be a live CHFPL read. The local loan_workflow
     // table is only the GRD bridge/cache and can otherwise remain stale when
     // a CHFPL status changes after the loan was submitted.
