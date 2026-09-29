@@ -1898,7 +1898,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
 
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
 
-    if(p==="admin/backfill-loan-status" && method==="POST"){
+    if(p==="admin/backfill-loan-status"){
       if(!isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
       await ensureLoanWorkflowBridgeSchema();
       const body:any=await json(req);
