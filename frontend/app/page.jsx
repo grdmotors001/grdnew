@@ -29,6 +29,7 @@ import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { VahanInventoryPage } from '../components/VahanInventoryPage';
 import { OldRickshawChallanPage } from '../components/OldRickshawChallanPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
+import { ShowroomStockPage } from '../components/ShowroomStockPage';
 import { CashHandoverApprovalPage } from '../components/CashHandoverApprovalPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
 import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage, StockLedgerPremisesPage, StockLedgerDealersPage } from '../components/StockPages';
@@ -42,6 +43,7 @@ import { DailyRawMaterialChecklistPage } from '../components/DailyRawMaterialChe
 import { DebitNotePage } from '../components/DebitNotePage';
 import { ContraVoucherPage } from '../components/ContraVoucherPage';
 import { OldRickshawInventoryPage } from '../components/OldRickshawInventoryPage';
+import { SeizedStockPage } from '../components/SeizedStockPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
 import { NotificationPage } from '../components/NotificationPage';
@@ -61,7 +63,7 @@ const CUSTOM_PAGES = {
   'showroom-new-stock': () => <ClosingStockPremisesPage />,
   'showroom-old-stock': () => <OldRickshawPage />,
   'showroom-battery-stock': () => <ShowroomBatteryStockPage />,
-  'showroom-seized-vehicle': () => <VahanInventoryPage />,
+  'showroom-seized-vehicle': () => <SeizedStockPage scope="dealers" />,
   'showroom-all-customers': () => <ShowroomAllCustomersPage />,
   'showroom-all-receipt': () => <DealerCashReceiptPage />,
   'showroom-expenses-reports': () => <ShowroomExpensesReportsPage />,
@@ -82,6 +84,7 @@ const CUSTOM_PAGES = {
   'billing-pending-sales': () => <BillingPendingSalesPage />,
   'vahan-inventory': () => <VahanInventoryPage />,
   'cash-at-dealer': () => <><CashHandoverApprovalPage /><CashAtDealerPage /></>,
+  'showroom-stock': () => <ShowroomStockPage />,
   'dealer-cash-receipt': () => <DealerCashReceiptPage />,
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
@@ -103,6 +106,7 @@ const CUSTOM_PAGES = {
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
   'old-rickshaw-challan': () => <OldRickshawChallanPage />,
+  'seized-stock': () => <SeizedStockPage scope="factory" />,
   'old-rickshaw-inventory': () => <OldRickshawInventoryPage />,
   'closing-stock-premises': () => <ClosingStockPremisesPage />,
   'closing-stock-dealers': () => <ClosingStockDealersPage />,

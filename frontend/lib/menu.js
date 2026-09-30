@@ -154,7 +154,8 @@ export const NAV_GROUPS = {
   Expenses: [
     ['expense-head', 'Account Head Master'],
     ['expense-payment-voucher', 'Expense Payment Voucher'],
-    ['cash-at-dealer', 'Showroom Branch'],
+    ['cash-at-dealer', 'Showroom Cash'],
+    ['showroom-stock', 'Showroom Stock'],
     ['insurance-rto', 'Insurance Register'], ['rto-expense', 'RTO Expense Register'],
   ],
   Accounts: [
@@ -162,6 +163,7 @@ export const NAV_GROUPS = {
     ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
   ],
   Inventory: [
+    ['seized-stock', 'Seized Stock'],
     ['old-rickshaw-inventory', 'Old Rickshaw Inventory'],
     ['chfpl-repo-vehicles', 'CHFPL Repo Vehicles'],
     ['closing-stock-premises', 'Closing Stock - Premises'], ['closing-stock-dealers', 'Closing Stock - Dealers'],
@@ -191,6 +193,8 @@ export const VOUCHER_SHORTCUTS = {
   F8: 'v-sales', F9: 'v-purchase', F1: 'v-credit-note', F2: 'v-debit-note', F3: 'v-production',
 };
 export const VOUCHER_PAGE_FOR = {
+  // Showroom Stock ka permission Showroom Cash (cash-at-dealer) jaisa hi hai.
+  'showroom-stock': 'cash-at-dealer',
   // v-contra / v-payment / v-receipt render their own page (see CUSTOM_PAGES in app/page.jsx).
   // v-payment & v-receipt use the Bank & Cash book, so they follow its permission ('day-book');
   // v-contra has no entry here on purpose: it is its own module key.

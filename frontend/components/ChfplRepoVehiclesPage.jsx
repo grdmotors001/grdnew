@@ -65,7 +65,7 @@ export function ChfplRepoVehiclesPage() {
         <div>
           <div className="loanApplicationViewKicker">CHFPL / CAPITALHIND</div>
           <h2>Repo Vehicles</h2>
-          <p>Live read-only vehicle register from CHFPL. Seized vehicles remain marked HOLD.</p>
+          <p>Live read-only vehicle register from CHFPL. Seized vehicles remain marked HOLD (GRD Factory only applies to HOLD vehicles).</p>
         </div>
         <button className="btn" onClick={load} disabled={loading}>↻ Refresh</button>
       </div>
@@ -85,6 +85,8 @@ export function ChfplRepoVehiclesPage() {
               <tbody>
                 {filtered.map(r => {
                   const status = String(r.resale_status || 'SEIZED').toUpperCase();
+                  const parkedName = r.dealer_master?.dealer_name || '';
+                  const parkedAtFactory = !parkedName || /^grd\s*factory$/i.test(parkedName.trim());
                   return <tr key={r.id}>
                     <td><b>{r.vehicle_no || '—'}</b></td>
                     <td>{r.model_name || r.loan_applications?.grd_model_name || '—'}</td>
@@ -92,7 +94,7 @@ export function ChfplRepoVehiclesPage() {
                     <td><span className={'chfplRepoStatus' + (status === 'AVAILABLE_FOR_SALE' ? ' sale' : '')}>{STATUS[status] || status}</span></td>
                     <td><b>{r.loan_applications?.loan_account_no || r.loan_applications?.application_no || '—'}</b></td>
                     <td>{r.loan_applications?.customer_profiles?.full_name || '—'}<br/><span className="muted">{r.loan_applications?.customer_profiles?.phone || ''}</span></td>
-                    <td>{r.dealer_master?.dealer_name || 'GRD Factory'}</td>
+                    <td>{status === 'AVAILABLE_FOR_SALE' ? (parkedAtFactory ? '—' : parkedName) : (parkedName || 'GRD Factory')}</td>
                     <td>{r.battery_available ? ('Yes · ' + (r.battery_no || '')) : 'No'}</td>
                     <td>{r.rc_available ? 'Yes' : 'No'}</td>
                     <td>{r.charger_available ? 'Yes' : 'No'}</td>

@@ -92,7 +92,7 @@ function importDate(v:any):string|null{
   return null;
 }
 function importAmount(v:any):number{if(typeof v==='number')return Number.isFinite(v)?v:0;const t=String(v??'').replace(/[₹,\s]/g,'').replace(/\((.*)\)/,'-$1').replace(/(dr|cr)\.?$/i,'');const n=Number(t);return Number.isFinite(n)?n:0;}
-const STOCK_MODULE_ALIAS:any={'closing-dealers':'closing-stock-dealers','ledger-dealers':'stock-ledger-dealers','closing-premises':'closing-stock-premises','ledger-premises':'stock-ledger-premises','closing-raw':'closing-stock-raw','ledger-raw':'closing-stock-raw','payment-receivable':'payment-receivable-report'};
+const STOCK_MODULE_ALIAS:any={'dealer-day-book':'cash-at-dealer','dealer-stock':'cash-at-dealer','showroom-stock':'cash-at-dealer','closing-dealers':'closing-stock-dealers','ledger-dealers':'stock-ledger-dealers','closing-premises':'closing-stock-premises','ledger-premises':'stock-ledger-premises','closing-raw':'closing-stock-raw','ledger-raw':'closing-stock-raw','payment-receivable':'payment-receivable-report'};
 function moduleAlias(x:string){if(STOCK_MODULE_ALIAS[x])return STOCK_MODULE_ALIAS[x];return x==='contra-vouchers'?'v-contra':x==='insurance-register'?'insurance-rto':x==='rto-register'?'rto-expense':x==='hypothecation-receipts'?'hypothecation-register':x;}
 function ymd(v:any):string{
   if(v instanceof Date){if(isNaN(v.getTime()))return "";return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");}
@@ -548,7 +548,8 @@ async function ensureOldRickshawInventorySchema(){
     status:"text NOT NULL DEFAULT 'hold'",available_for_sale:"boolean NOT NULL DEFAULT false",sp_no:"text",challan_no:"text",
     challan_date:"date",old_rickshaw_id:"integer",customer_name:"text",sale_amount:"numeric NOT NULL DEFAULT 0",
     loan_amount:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",file_charge:"numeric NOT NULL DEFAULT 0",
-    do_number:"text",ledger_no:"text",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text"
+    do_number:"text",ledger_no:"text",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text",
+    sale_date:"date",chfpl_sale_synced:"boolean NOT NULL DEFAULT false",chfpl_sale_sync_error:"text"
   };
   for(const [col,type] of Object.entries(defs)) await pool.query('ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
   await pool.query("CREATE INDEX IF NOT EXISTS old_rickshaw_inventory_status_idx ON old_rickshaw_inventory(status)");
@@ -614,6 +615,55 @@ async function resolveRepoDealer(v:any){
   const r=await pool.query("SELECT id,name FROM dealer WHERE lower(trim(name))=lower(trim($1)) ORDER BY id LIMIT 1",[name]);
   if(r.rowCount)return {id:r.rows[0].id,name:r.rows[0].name,matched:true};
   return {id:null,name,matched:false};
+}
+// Shared by the CHFPL webhook (push) and the admin "Sync from CHFPL" (pull), so both apply the same rules.
+async function applyRepoVehicles(list:any[],b:any,opts:any={}):Promise<any[]>{
+      const results:any[]=[];
+      for(const v0 of list){
+        const v:any={...(b&&!Array.isArray(b.vehicles)&&!b.vehicle?{}:{event:b.event}),...v0};
+        const vehicleNo=String(v.vehicle_no||"").trim().toUpperCase();
+        const ref=String(v.source_ref??v.id??v.repo_id??"").trim();
+        if(!vehicleNo&&!ref){results.push({ok:false,error:"vehicle_no ya id chahiye."});continue;}
+        const client=await pool.connect();
+        try{
+          await client.query("BEGIN");
+          let cur=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE source='CHFPL' AND $1<>'' AND source_ref=$1 ORDER BY id LIMIT 1 FOR UPDATE",[ref])).rows[0];
+          if(!cur&&vehicleNo)cur=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE upper(trim(vehicle_no))=$1 AND status<>'sold' ORDER BY id DESC LIMIT 1 FOR UPDATE",[vehicleNo])).rows[0];
+          if(v.event==="deleted"||v.deleted===true){
+            if(cur&&cur.status==="hold")await client.query("DELETE FROM old_rickshaw_inventory WHERE id=$1",[cur.id]);
+            await client.query("COMMIT");results.push({ok:true,source_ref:ref,deleted:Boolean(cur&&cur.status==="hold")});continue;
+          }
+          const st=String(v.resale_status??v.status??"").trim().toUpperCase().replace(/[\s-]+/g,"_");
+          const target=(st==="AVAILABLE_FOR_SALE"||st==="AVAILABLE")?"available":st==="SOLD"?"sold":"hold";
+          if(!cur&&target==="sold"&&opts.skipUnknownSold){await client.query("COMMIT");results.push({ok:true,skipped:true,source_ref:ref});continue;}
+          const dealer=await resolveRepoDealer(v);
+          // Factory par sirf HOLD (seized) gaadi park ho sakti hai. Available for Sale ke liye real dealer/showroom chahiye.
+          if(target==="available"&&!dealer.id){
+            await client.query("ROLLBACK");
+            results.push({ok:false,source_ref:ref,vehicle_no:vehicleNo,error:dealer.matched?"Factory par parked vehicle Available for Sale nahi ho sakti. Pehle dealer/showroom select karein.":"Parked dealer GRD me nahi mila: "+dealer.name});
+            continue;
+          }
+          const model=String(v.model_name??v.grd_model_name??"").trim()||null,colour=String(v.colour??"").trim()||null,toolkit=String(v.toolkit??"").trim()||null;
+          const battery=String(v.battery_maker??"").trim()||null,repoDate=ymd(v.repo_date)||null;
+          let id:number;
+          if(!cur){
+            const ins=await client.query("INSERT INTO old_rickshaw_inventory(vehicle_no,model_name,colour,toolkit,battery_maker,repo_date,dealer_id,dealer_name,status,available_for_sale,source,source_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'hold',false,'CHFPL',$9) RETURNING id",[vehicleNo||ref,model,colour,toolkit,battery,repoDate,dealer.id,dealer.name,ref||null]);
+            id=ins.rows[0].id;
+          }else{
+            id=cur.id;
+            if(cur.status!=="sold")await client.query("UPDATE old_rickshaw_inventory SET vehicle_no=COALESCE(NULLIF($1,''),vehicle_no),model_name=COALESCE($2,model_name),colour=COALESCE($3,colour),toolkit=COALESCE($4,toolkit),battery_maker=COALESCE($5,battery_maker),repo_date=COALESCE($6::date,repo_date),dealer_id=$7,dealer_name=$8,source='CHFPL',source_ref=COALESCE(NULLIF($9,''),source_ref),updated_at=now() WHERE id=$10",[vehicleNo,model,colour,toolkit,battery,repoDate,dealer.id,dealer.name,ref,id]);
+          }
+          const row0=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[id])).rows[0];
+          let out=row0;
+          if(row0.status==="sold"){/* GRD me bik chuki gaadi ko chhedte nahi */}
+          else if(target==="available")out=await releaseRepoInventory(client,id);
+          else if(target==="hold"&&row0.status==="available"){await holdRepoInventory(client,row0);out=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[id])).rows[0];}
+          await client.query("COMMIT");
+          results.push({ok:true,inventory_id:id,source_ref:ref,vehicle_no:out?.vehicle_no,status:out?.status,parked_dealer:dealer.name,dealer_matched:dealer.matched,challan_no:out?.challan_no||null});
+        }catch(e:any){await client.query("ROLLBACK");results.push({ok:false,source_ref:ref,error:e?.message||"failed"});}
+        finally{client.release()}
+      }
+      return results;
 }
 async function ensureCreditDebitSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS credit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,credit_note_no text,tax_invoice_id integer,delivery_challan_id integer,original_bill_no text,dealer_name text,buyer_name text,chassis_no text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,reason text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
@@ -731,6 +781,59 @@ async function ensureDealerCashSchemaOnce(){
   await pool.query("UPDATE dealer_cash_handover SET handover_date=COALESCE(handover_date,date,CURRENT_DATE) WHERE handover_date IS NULL");
 }
 
+// ---- Dealer (showroom/branch) Day Book + daily verification (admin/accounts) ----
+let dayVerifyReady:Promise<void>|null=null;
+function ensureDayVerifySchema():Promise<void>{
+  if(!dayVerifyReady){
+    dayVerifyReady=(async()=>{
+      await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_day_verify (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL,verified_by text,verified_at timestamptz NOT NULL DEFAULT now(),remarks text,snap_receipts numeric NOT NULL DEFAULT 0,snap_expenses numeric NOT NULL DEFAULT 0,snap_handover numeric NOT NULL DEFAULT 0,snap_count integer NOT NULL DEFAULT 0,UNIQUE(dealer_id,date))");
+    })().catch((e:any)=>{dayVerifyReady=null;throw e});
+  }
+  return dayVerifyReady;
+}
+// Ek dealer ka din-wise cash book: entries + opening/closing + verify status. Dono (GET report aur verify POST) yahi use karte hain.
+async function dealerDayBook(did:number,from:string,to:string){
+  await ensureDealerCashSchema();await ensureDayVerifySchema();
+  const rq=(t:string,dc:string,where:string)=>pool.query("SELECT *,"+dc+"::date AS d FROM "+t+" WHERE dealer_id=$1"+(where?" AND "+where:"")+" AND "+dc+">=$2::date AND "+dc+"<=$3::date ORDER BY "+dc+",id",[did,from,to]);
+  const [rc,ex,ho,pr]=await Promise.all([
+    rq("dealer_cash_receipt","COALESCE(date,receipt_date)",""),
+    rq("dealer_cash_expense","COALESCE(date,expense_date)",""),
+    rq("dealer_cash_handover","COALESCE(date,handover_date)",""),
+    pool.query("SELECT (SELECT COALESCE(SUM(amount),0) FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash' AND COALESCE(date,receipt_date)<$2::date) AS rc,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_expense WHERE dealer_id=$1 AND COALESCE(date,expense_date)<$2::date) AS ex,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_handover WHERE dealer_id=$1 AND lower(COALESCE(status,'pending'))='accepted' AND COALESCE(date,handover_date)<$2::date) AS ho",[did,from]),
+  ]);
+  const ver=await pool.query("SELECT * FROM dealer_cash_day_verify WHERE dealer_id=$1 AND date>=$2::date AND date<=$3::date",[did,from,to]);
+  const vmap=new Map<string,any>(ver.rows.map((v:any)=>[ymd(v.date),v]));
+  const days=new Map<string,any>();
+  const day=(d:any)=>{const k=ymd(d);if(!days.has(k))days.set(k,{date:k,entries:[],cash_in:0,expenses:0,ho_out:0});return days.get(k)};
+  for(const x of rc.rows){
+    const cash=String(x.payment_mode||"cash").toLowerCase()==="cash",dd=day(x.d);
+    dd.entries.push({kind:"receipt",id:x.id,no:x.receipt_no||"",party:x.customer_name||"",detail:[x.receipt_type,x.remarks,x.dealer_register_page_no?("Pg "+x.dealer_register_page_no):""].filter(Boolean).join(" · "),mode:String(x.payment_mode||"cash"),status:"",amount:num(x.amount),in_cash:cash});
+    if(cash)dd.cash_in+=num(x.amount);
+  }
+  for(const x of ex.rows){
+    const dd=day(x.d);
+    dd.entries.push({kind:"expense",id:x.id,no:x.expense_no||"",party:x.paid_to||"",detail:[x.category_label||x.category,x.remarks,x.folio?("Folio "+x.folio):""].filter(Boolean).join(" · "),mode:"cash",status:String(x.status||""),amount:num(x.amount),in_cash:true});
+    dd.expenses+=num(x.amount);
+  }
+  for(const x of ho.rows){
+    const st=String(x.status||"pending").toLowerCase(),dd=day(x.d);
+    dd.entries.push({kind:"handover",id:x.id,no:x.handover_no||"",party:x.sent_to||"Head Office",detail:x.remarks||"",mode:"cash",status:st,amount:num(x.amount),in_cash:st==="accepted"});
+    if(st==="accepted")dd.ho_out+=num(x.amount);
+  }
+  const order=[...days.keys()].sort();
+  let bal=num(pr.rows[0]?.rc)-num(pr.rows[0]?.ex)-num(pr.rows[0]?.ho);
+  const out:any[]=[];
+  for(const k of order){
+    const dd=days.get(k);dd.opening=bal;bal=bal+dd.cash_in-dd.expenses-dd.ho_out;dd.closing=bal;dd.count=dd.entries.length;
+    const v=vmap.get(k);
+    if(v){
+      const changed=Math.abs(num(v.snap_receipts)-dd.cash_in)>0.004||Math.abs(num(v.snap_expenses)-dd.expenses)>0.004||Math.abs(num(v.snap_handover)-dd.ho_out)>0.004||Number(v.snap_count)!==dd.count;
+      dd.verified={by:v.verified_by||"",at:v.verified_at,remarks:v.remarks||"",changed};
+    }else dd.verified=null;
+    out.push(dd);
+  }
+  return out.reverse();
+}
 async function ensureRepairSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_voucher (id bigserial PRIMARY KEY,voucher_no text,date date NOT NULL DEFAULT CURRENT_DATE,vehicle_id integer,vehicle_no text,chassis_no text,customer_name text,customer_mobile text,items jsonb NOT NULL DEFAULT '[]'::jsonb,total_amount numeric NOT NULL DEFAULT 0,paid_amount numeric NOT NULL DEFAULT 0,balance_amount numeric NOT NULL DEFAULT 0,gst_amount numeric NOT NULL DEFAULT 0,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
   await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_payment_receipt (id bigserial PRIMARY KEY,receipt_no text,voucher_id integer REFERENCES repair_service_voucher(id) ON DELETE CASCADE,date date NOT NULL DEFAULT CURRENT_DATE,amount numeric NOT NULL DEFAULT 0,payment_mode text,reference_no text,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
@@ -1052,6 +1155,36 @@ async function chfplBridge(path:string, query:Record<string,string>={}){
   const d=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(d?.error||'CHFPL bridge request failed');
   return d;
+}
+
+// Old Rickshaw sale -> CHFPL: customer, sale date, amount, new loan, balance, ledger no (only if loan) and DO no.
+// Best-effort: the GRD sale is already saved; result is stored on the inventory row so it can be retried.
+async function syncSaleToChfpl(inventoryId:number):Promise<{ok:boolean,skipped?:boolean,error?:string}>{
+  const r=await pool.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[inventoryId]);
+  const row=r.rows[0];
+  if(!row||row.status!=="sold")return {ok:false,error:"Sold record not found."};
+  if(String(row.source||"").toUpperCase()!=="CHFPL"||!row.source_ref)return {ok:true,skipped:true};
+  try{
+    const base=String(process.env.CHFPL_API_URL||"").replace(/\/$/,""),secret=String(process.env.CHFPL_GRD_BRIDGE_SECRET||"");
+    if(!base||!secret)throw new Error("CHFPL bridge is not configured. Set CHFPL_API_URL and CHFPL_GRD_BRIDGE_SECRET.");
+    const loan=num(row.loan_amount),saleAmount=num(row.sale_amount);
+    const payload={vehicle:{source_ref:String(row.source_ref),vehicle_no:row.vehicle_no,resale_status:"SOLD",sale:{
+      customer_name:row.customer_name||"",sale_date:ymd(row.sale_date)||ymd(row.updated_at)||new Date().toISOString().slice(0,10),
+      sale_amount:saleAmount,loan_amount:loan,balance_amount:num(row.balance_amount)||Math.max(0,saleAmount-loan),
+      ledger_no:loan>0?(row.ledger_no||""):"",do_number:row.do_number||""}}};
+    const resp=await fetch(base+"/api/grd/repo-status-webhook",{method:"POST",headers:{"x-grd-bridge-secret":secret,"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(payload),cache:"no-store"});
+    const d:any=await resp.json().catch(()=>({}));
+    if(!resp.ok||d.success===false){
+      const bad=Array.isArray(d.results)?d.results.find((x:any)=>x&&x.ok===false):null;
+      throw new Error(d.error||bad?.error||("CHFPL sale sync failed ("+resp.status+")"));
+    }
+    await pool.query("UPDATE old_rickshaw_inventory SET chfpl_sale_synced=true,chfpl_sale_sync_error=NULL WHERE id=$1",[inventoryId]);
+    return {ok:true};
+  }catch(e:any){
+    const msg=String(e?.message||"CHFPL sale sync failed").slice(0,300);
+    await pool.query("UPDATE old_rickshaw_inventory SET chfpl_sale_synced=false,chfpl_sale_sync_error=$2 WHERE id=$1",[inventoryId,msg]).catch(()=>{});
+    return {ok:false,error:msg};
+  }
 }
 
 // ---- CHFPL loan applications: local cache fed by webhook (no live bridge call on page load) ----
@@ -1727,12 +1860,39 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         WHERE ${where.join(" AND ")} ORDER BY dc.date DESC,dc.id DESC LIMIT 500`,args);
       return Response.json({challans:r.rows});
     }
+    // Showroom / Branch stock summary: 2 grouped query (dealer-wise loop nahi) -> fast. Detail row click par reports/dealer-stock se aati hai.
+    if(p==="reports/showroom-stock"&&a.scope==="staff"){
+      await ensureOldRickshawLegacySchema();
+      const r=await pool.query("SELECT d.id,d.code,d.name,COALESCE(n.c,0)::int AS stock_new,COALESCE(o.c,0)::int AS stock_old FROM dealer d LEFT JOIN (SELECT lower(trim(dealer_name)) AS k,COUNT(*) AS c FROM vehicle WHERE stage='Delivery Challan' GROUP BY 1) n ON n.k=lower(trim(d.name)) LEFT JOIN (SELECT dealer_id,COUNT(*) AS c FROM old_rickshaw WHERE status='available' GROUP BY 1) o ON o.dealer_id=d.id WHERE LOWER(COALESCE(d.dealer_category,'')) IN ('showroom','branch') ORDER BY d.name");
+      const rows=r.rows.map((x:any)=>({dealer_id:x.id,dealer_code:x.code,dealer_name:x.name,stock_new:x.stock_new,stock_old:x.stock_old,stock_total:x.stock_new+x.stock_old}));
+      return Response.json({rows,total_stock:rows.reduce((t:number,x:any)=>t+x.stock_total,0)});
+    }
+    if(p==="reports/dealer-stock"&&a.scope==="staff"){
+      const did=idOf(new URL(req.url).searchParams.get("dealer_id"));
+      if(!did)return Response.json({error:"dealer_id required."},{status:400});
+      const dr=await pool.query("SELECT id,code,name FROM dealer WHERE id=$1",[did]);
+      if(!dr.rowCount)return Response.json({error:"Dealer not found."},{status:404});
+      await ensureOldRickshawLegacySchema();
+      const nv=await pool.query("SELECT v.id,COALESCE(dc.date,v.date) AS date,dc.challan_no,v.chassis_no,COALESCE(NULLIF(trim(COALESCE(v.model_name,'')),''),NULLIF(trim(COALESCE(dc.product_name,'')),''),'') AS model_name,v.colour,COALESCE(v.battery_maker,'') AS battery_maker FROM vehicle v LEFT JOIN LATERAL (SELECT * FROM delivery_challan c WHERE c.vehicle_id=v.id AND COALESCE(c.cancelled,false)=false ORDER BY c.id DESC LIMIT 1) dc ON true WHERE v.stage='Delivery Challan' AND lower(trim(COALESCE(v.dealer_name,'')))=lower(trim($1)) ORDER BY COALESCE(dc.date,v.date) DESC,v.id DESC",[dr.rows[0].name]);
+      const ov=await pool.query("SELECT id,date,challan_no,vehicle_reg_no,model_name,colour,COALESCE(battery_maker,'') AS battery_maker,repo_date FROM old_rickshaw WHERE status='available' AND dealer_id=$1 ORDER BY date DESC,id DESC",[did]);
+      return Response.json({dealer:dr.rows[0],new_vehicles:nv.rows,old_rickshaws:ov.rows,counts:{new:nv.rowCount,old:ov.rowCount,total:(nv.rowCount||0)+(ov.rowCount||0)}});
+    }
+    if(p==="reports/dealer-day-book"&&a.scope==="staff"){
+      const u=new URL(req.url),did=idOf(u.searchParams.get("dealer_id"));
+      if(!did)return Response.json({error:"dealer_id required."},{status:400});
+      const today=new Date().toISOString().slice(0,10),back=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+      const from=ymd(u.searchParams.get("from"))||back,to=ymd(u.searchParams.get("to"))||today;
+      const dr=await pool.query("SELECT id,code,name FROM dealer WHERE id=$1",[did]);
+      if(!dr.rowCount)return Response.json({error:"Dealer not found."},{status:404});
+      const days=await dealerDayBook(did,from,to);
+      const verified=days.filter((d:any)=>d.verified&&!d.verified.changed).length;
+      return Response.json({dealer:dr.rows[0],from,to,days,summary:{days:days.length,verified,changed:days.filter((d:any)=>d.verified?.changed).length,unverified:days.filter((d:any)=>!d.verified).length}});
+    }
     if(p==="reports/cash-at-dealer"&&a.scope==="staff"){
       await ensureDealerCashSchema();
       const u=new URL(req.url),only=idOf(u.searchParams.get("dealer_id"));
       const ds=await pool.query("SELECT id,code,name FROM dealer WHERE LOWER(COALESCE(dealer_category,'')) IN ('showroom','branch')"+(only?" AND id=$1":"")+" ORDER BY name",only?[only]:[]);
-      const rows:any[]=[];
-      for(const d of ds.rows){const c=await dealerCashPosition(Number(d.id));rows.push({dealer_id:d.id,dealer_code:d.code,dealer_name:d.name,cash_received:c.cash_received,expenses:c.expenses,ho_handover:c.ho_handover,pending_handover:c.pending_handover,cash_at_dealer:c.cash_at_dealer});}
+      const rows:any[]=await Promise.all(ds.rows.map(async(d:any)=>{const c=await dealerCashPosition(Number(d.id));return {dealer_id:d.id,dealer_code:d.code,dealer_name:d.name,cash_received:c.cash_received,expenses:c.expenses,ho_handover:c.ho_handover,pending_handover:c.pending_handover,cash_at_dealer:c.cash_at_dealer};}));
       return Response.json({rows,total_cash_at_dealer:rows.reduce((s,x)=>s+num(x.cash_at_dealer),0),total_pending_handover:rows.reduce((s,x)=>s+num(x.pending_handover),0)});
     }
     if(p==="admin/cash-handovers"){
@@ -2485,7 +2645,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="factory/old-rickshaw-challans"){
       await ensureOldRickshawInventorySchema();
       const rows=await pool.query("SELECT c.*,d.name AS dealer_name FROM old_rickshaw_challan c LEFT JOIN dealer d ON d.id=c.dealer_id ORDER BY c.date DESC,c.id DESC LIMIT 1000");
-      const available=await pool.query("SELECT * FROM old_rickshaw_inventory WHERE status='available' ORDER BY repo_date DESC NULLS LAST,id DESC LIMIT 500");
+      const available=await pool.query("SELECT i.* FROM old_rickshaw_inventory i WHERE i.status='available' AND NOT EXISTS (SELECT 1 FROM old_rickshaw_challan c WHERE c.challan_no=i.challan_no AND c.status='ACTIVE') ORDER BY i.repo_date DESC NULLS LAST,i.id DESC LIMIT 500");
       return Response.json({challans:rows.rows,rows:rows.rows,available_for_sale:available.rows,suggested_challan_no:"ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now()});
     }
     if(p==="dealer/ledger"&&a.scope==="dealer"){
@@ -3017,6 +3177,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const records=r.rows.map((x:any)=>({...x,dealer_name:x.dealer_name||x.joined_dealer_name||"",has_battery:Boolean(x.battery_maker||x.battery_no1||x.battery_no2||x.battery_no3||x.battery_no4),sold_amount:num(x.sold_amount||x.sale_amount),sale_amount:num(x.sale_amount),loan_amount:num(x.loan_amount),receipt_amount:num(x.receipt_amount),balance_amount:num(x.balance_amount||Math.max(0,num(x.sale_amount)-num(x.loan_amount)))}));
       return Response.json({records,rows:records,count:records.length,suggested_record_no:"OR-"+Date.now(),suggested_vou_no:"ORV-"+Date.now()});
     }
+    // Seized Stock = CHFPL repo vehicles still on HOLD. dealer_id NULL => parked at GRD Factory.
+    // Available for Sale / Sold vehicles never appear here (they live in Old Rickshaw stock).
+    if(p==="inventory/seized-stock"){
+      await ensureOldRickshawInventorySchema();
+      const u=new URL(req.url),loc=String(u.searchParams.get("location")||"all").toLowerCase(),q=String(u.searchParams.get("search")||"").trim();
+      const args:any[]=[],where:string[]=["status='hold'"];
+      if(loc==="factory")where.push("dealer_id IS NULL");
+      else if(loc==="dealers")where.push("dealer_id IS NOT NULL");
+      if(q){args.push("%"+q+"%");where.push("(vehicle_no ILIKE $"+args.length+" OR COALESCE(model_name,'') ILIKE $"+args.length+" OR COALESCE(battery_maker,'') ILIKE $"+args.length+" OR COALESCE(dealer_name,'') ILIKE $"+args.length+")");}
+      const rows=await pool.query("SELECT * FROM old_rickshaw_inventory WHERE "+where.join(" AND ")+" ORDER BY repo_date DESC NULLS LAST,id DESC LIMIT 2000",args);
+      const summary=await pool.query("SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE dealer_id IS NULL)::int AS factory,COUNT(*) FILTER(WHERE dealer_id IS NOT NULL)::int AS dealers FROM old_rickshaw_inventory WHERE status='hold'");
+      return Response.json({rows:rows.rows,summary:summary.rows[0]||{total:0,factory:0,dealers:0}});
+    }
     if(p==="inventory/old-rickshaw"){
       await ensureOldRickshawInventorySchema();
       const u=new URL(req.url),status=String(u.searchParams.get("status")||"all").toLowerCase(),q=String(u.searchParams.get("search")||"").trim();
@@ -3291,44 +3464,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       await pool.query("ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS colour text");
       await pool.query("ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS toolkit text");
       const list:any[]=Array.isArray(b.vehicles)?b.vehicles:(b.vehicle&&typeof b.vehicle==="object"?[b.vehicle]:[b]);
-      const results:any[]=[];
-      for(const v0 of list){
-        const v:any={...(b&&!Array.isArray(b.vehicles)&&!b.vehicle?{}:{event:b.event}),...v0};
-        const vehicleNo=String(v.vehicle_no||"").trim().toUpperCase();
-        const ref=String(v.source_ref??v.id??v.repo_id??"").trim();
-        if(!vehicleNo&&!ref){results.push({ok:false,error:"vehicle_no ya id chahiye."});continue;}
-        const client=await pool.connect();
-        try{
-          await client.query("BEGIN");
-          let cur=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE source='CHFPL' AND $1<>'' AND source_ref=$1 ORDER BY id LIMIT 1 FOR UPDATE",[ref])).rows[0];
-          if(!cur&&vehicleNo)cur=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE upper(trim(vehicle_no))=$1 AND status<>'sold' ORDER BY id DESC LIMIT 1 FOR UPDATE",[vehicleNo])).rows[0];
-          if(v.event==="deleted"||v.deleted===true){
-            if(cur&&cur.status==="hold")await client.query("DELETE FROM old_rickshaw_inventory WHERE id=$1",[cur.id]);
-            await client.query("COMMIT");results.push({ok:true,source_ref:ref,deleted:Boolean(cur&&cur.status==="hold")});continue;
-          }
-          const st=String(v.resale_status??v.status??"").trim().toUpperCase().replace(/[\s-]+/g,"_");
-          const target=(st==="AVAILABLE_FOR_SALE"||st==="AVAILABLE")?"available":st==="SOLD"?"sold":"hold";
-          const dealer=await resolveRepoDealer(v);
-          const model=String(v.model_name??v.grd_model_name??"").trim()||null,colour=String(v.colour??"").trim()||null,toolkit=String(v.toolkit??"").trim()||null;
-          const battery=String(v.battery_maker??"").trim()||null,repoDate=ymd(v.repo_date)||null;
-          let id:number;
-          if(!cur){
-            const ins=await client.query("INSERT INTO old_rickshaw_inventory(vehicle_no,model_name,colour,toolkit,battery_maker,repo_date,dealer_id,dealer_name,status,available_for_sale,source,source_ref) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'hold',false,'CHFPL',$9) RETURNING id",[vehicleNo||ref,model,colour,toolkit,battery,repoDate,dealer.id,dealer.name,ref||null]);
-            id=ins.rows[0].id;
-          }else{
-            id=cur.id;
-            if(cur.status!=="sold")await client.query("UPDATE old_rickshaw_inventory SET vehicle_no=COALESCE(NULLIF($1,''),vehicle_no),model_name=COALESCE($2,model_name),colour=COALESCE($3,colour),toolkit=COALESCE($4,toolkit),battery_maker=COALESCE($5,battery_maker),repo_date=COALESCE($6::date,repo_date),dealer_id=$7,dealer_name=$8,source='CHFPL',source_ref=COALESCE(NULLIF($9,''),source_ref),updated_at=now() WHERE id=$10",[vehicleNo,model,colour,toolkit,battery,repoDate,dealer.id,dealer.name,ref,id]);
-          }
-          const row0=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[id])).rows[0];
-          let out=row0;
-          if(row0.status==="sold"){/* GRD me bik chuki gaadi ko chhedte nahi */}
-          else if(target==="available")out=await releaseRepoInventory(client,id);
-          else if(target==="hold"&&row0.status==="available"){await holdRepoInventory(client,row0);out=(await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[id])).rows[0];}
-          await client.query("COMMIT");
-          results.push({ok:true,inventory_id:id,source_ref:ref,vehicle_no:out?.vehicle_no,status:out?.status,parked_dealer:dealer.name,dealer_matched:dealer.matched,challan_no:out?.challan_no||null});
-        }catch(e:any){await client.query("ROLLBACK");results.push({ok:false,source_ref:ref,error:e?.message||"failed"});}
-        finally{client.release()}
-      }
+      const results=await applyRepoVehicles(list,b);
       const failed=results.filter(x=>!x.ok).length;
       return Response.json({success:failed===0,results},{status:failed===list.length&&failed>0?400:200});
     }
@@ -3753,6 +3889,31 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const userKey=String(a?.id??a?.user_id??a?.username??"").trim();
       const r=await pool.query("UPDATE app_notification SET is_read=true WHERE id=$1 AND (user_id=$2 OR user_id IS NULL OR dealer_id=$3) RETURNING id",[id,userKey,num(a?.dealer_id)||0]);
       return Response.json({success:r.rowCount>0});
+    }
+    // Day Book verify: {dealer_id, dates:["2026-09-28",...] (ya date), unverify?:true, remarks?}
+    if(p==="dealer-day-book/verify"){
+      if(a?.scope!=="staff")return Response.json({error:"Staff rights required."},{status:403});
+      const did=idOf(b.dealer_id);if(!did)return Response.json({error:"dealer_id required."},{status:400});
+      const dates=[...new Set((Array.isArray(b.dates)?b.dates:[b.date]).map((x:any)=>ymd(x)).filter(Boolean))] as string[];
+      if(!dates.length)return Response.json({error:"date required."},{status:400});
+      if(dates.length>93)return Response.json({error:"Ek baar me maximum 93 din verify ho sakte hain."},{status:400});
+      await ensureDayVerifySchema();
+      if(b.unverify){
+        await pool.query("DELETE FROM dealer_cash_day_verify WHERE dealer_id=$1 AND date=ANY($2::date[])",[did,dates]);
+        await audit(a,"dealer-day-book","unverify",did,{dates},null,did,dates.join(","));
+        return Response.json({success:true,unverified:dates.length});
+      }
+      const sorted=[...dates].sort(),days=await dealerDayBook(did,sorted[0],sorted[sorted.length-1]);
+      const byDate=new Map<string,any>(days.map((d:any)=>[d.date,d]));
+      const who=String(a?.username||a?.full_name||"").trim()||"staff",remarks=String(b.remarks||"").trim()||null;
+      let n=0;
+      for(const d of dates){
+        const dd=byDate.get(d);if(!dd)continue;
+        await pool.query("INSERT INTO dealer_cash_day_verify(dealer_id,date,verified_by,verified_at,remarks,snap_receipts,snap_expenses,snap_handover,snap_count) VALUES($1,$2::date,$3,now(),$4,$5,$6,$7,$8) ON CONFLICT (dealer_id,date) DO UPDATE SET verified_by=EXCLUDED.verified_by,verified_at=now(),remarks=EXCLUDED.remarks,snap_receipts=EXCLUDED.snap_receipts,snap_expenses=EXCLUDED.snap_expenses,snap_handover=EXCLUDED.snap_handover,snap_count=EXCLUDED.snap_count",[did,d,who,remarks,dd.cash_in,dd.expenses,dd.ho_out,dd.count]);
+        n++;
+      }
+      await audit(a,"dealer-day-book","verify",did,null,{dates},did,dates.join(","));
+      return Response.json({success:true,verified:n});
     }
     if(p==="notifications/cash-limit"){
       if(a?.scope!=="staff" || !isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
@@ -4459,6 +4620,36 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const r=await pool.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+ph.join(",")+') RETURNING *',keys.map(k=>input[k]));
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
     }
+    if(/^dealer\/old-rickshaws\/\d+\/sale$/.test(p)){
+      if(a?.scope!=="dealer")return Response.json({error:"Dealer login required."},{status:403});
+      await ensureOldRickshawLegacySchema();await ensureOldRickshawInventorySchema();
+      const did=num(a.dealer_id),id=idOf(path[path.length-2]);
+      if(!did||!id)return Response.json({error:"Dealer / Old Rickshaw id required."},{status:400});
+      const customer=String(b.customer_name||"").trim(),saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount);
+      if(!customer)return Response.json({error:"Customer Name is required."},{status:400});
+      if(saleAmount<=0)return Response.json({error:"Sale Amount is required."},{status:400});
+      if(loanAmount>saleAmount)return Response.json({error:"Loan Amount cannot be greater than Sale Amount."},{status:400});
+      if(loanAmount>0&&!String(b.ledger_no||"").trim())return Response.json({error:"Loan hai to Ledger No. zaroori hai."},{status:400});
+      const balance=Math.max(0,saleAmount-loanAmount),saleDate=String(b.sale_date||"").slice(0,10)||new Date().toISOString().slice(0,10);
+      const fileCharge=num(b.file_charge),doNo=String(b.do_number||"").trim()||null,ledgerNo=loanAmount>0?(String(b.ledger_no||"").trim()||null):null;
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const cur=await client.query("SELECT * FROM old_rickshaw WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[id,did]);
+        if(!cur.rowCount)throw new Error("Old Rickshaw not found in your stock.");
+        if(String(cur.rows[0].status||"").toLowerCase()!=="available")throw new Error("Only Available (unsold) Old Rickshaw can be sold.");
+        const oc=await columns("old_rickshaw");
+        const vals:any={status:"sold",customer_name:customer,out_name:customer,sale_amount:saleAmount,sold_amount:saleAmount,loan_amount:loanAmount,balance_amount:balance,file_charge:fileCharge,do_number:doNo,ledger:ledgerNo,ledger_no:ledgerNo,sale_date:saleDate,updated_at:new Date()};
+        const keys=Object.keys(vals).filter(k=>oc.has(k));
+        const up=await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>vals[k]),id]);
+        const invRes=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=$6,ledger_no=$7,sale_date=$9::date,chfpl_sale_synced=false,chfpl_sale_sync_error=NULL,updated_at=now() WHERE old_rickshaw_id=$8 RETURNING id",[customer,saleAmount,loanAmount,balance,fileCharge,doNo,ledgerNo,id,saleDate]);
+        await client.query("COMMIT");
+        const chfpl_sync=invRes.rowCount?await syncSaleToChfpl(Number(invRes.rows[0].id)):{ok:true,skipped:true};
+        await audit(a,"dealer/old-rickshaws","sale",id,{status:"available"},{status:"sold",customer_name:customer,sale_amount:saleAmount},did,up.rows[0]?.vehicle_reg_no||null);
+        return Response.json({success:true,row:up.rows[0],chfpl_sync});
+      }catch(e:any){await client.query("ROLLBACK").catch(()=>{});return Response.json({error:e?.message||"Could not create Old Rickshaw sale."},{status:400});}
+      finally{client.release()}
+    }
     if(p==="old-rickshaws/sale"){
       await ensureOldRickshawLegacySchema();
       const b:any=await json(req),id=idOf(b.id);
@@ -4468,7 +4659,10 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const cols=await columns("old_rickshaw"),keys=Object.keys(vals).filter(k=>cols.has(k)),sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
       const r=await pool.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>vals[k]),id]);
       if(!r.rowCount)return Response.json({error:"Old Rickshaw record not found."},{status:404});
-      return Response.json({success:true,row:r.rows[0],data:r.rows[0]});
+      await ensureOldRickshawInventorySchema();
+      const legacyInv=await pool.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=COALESCE(NULLIF($1,''),customer_name),sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=COALESCE($6,do_number),ledger_no=CASE WHEN $2::numeric>0 AND $3::numeric>0 THEN COALESCE(NULLIF($8,''),ledger_no) ELSE NULL END,sale_date=COALESCE($9::date,CURRENT_DATE),chfpl_sale_synced=false,chfpl_sale_sync_error=NULL,updated_at=now() WHERE old_rickshaw_id=$7 RETURNING id",[String(b.out_name||"").trim(),saleAmount,loanAmount,balance,num(b.file_charge),String(b.do_number||"").trim()||null,id,String(b.ledger||"").trim(),b.sale_date||null]);
+      const chfpl_sync=legacyInv.rowCount?await syncSaleToChfpl(Number(legacyInv.rows[0].id)):{ok:true,skipped:true};
+      return Response.json({success:true,row:r.rows[0],data:r.rows[0],chfpl_sync});
     }
 
     if(p==='sub-groups'){
@@ -4709,6 +4903,9 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,inserted,mapped,duplicates,skipped_payments:skippedPayments,rejected:rejected.slice(0,100),rejected_count:rejected.length});
     }
 
+    // Old Rickshaw inventory release / sale handlers live in mutation(); POST() must hand these over,
+    // otherwise they are unreachable and the sale form returns "route not implemented".
+    if(p.startsWith("inventory/old-rickshaw/")&&(path[path.length-1]==="available"||path[path.length-1]==="sale"||path[path.length-1]==="resync-sale"||path[path.length-1]==="sync-chfpl"))return mutation(req,params,"POST");
     const table=tableFor(path);
     if(table)return genericWrite(req,path,table,"POST",b);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
@@ -4989,6 +5186,7 @@ async function mutation(req:Request,params:any,method:string){
         if(!inv.rowCount)throw new Error("Old Rickshaw inventory record not found.");
         const row=inv.rows[0];
         if(row.status==="sold")throw new Error("Sold vehicle cannot be released again.");
+        if(row.status!=="available"&&!row.dealer_id)throw new Error("Factory par parked vehicle Available for Sale nahi ho sakti. Pehle CHFPL me dealer/showroom select karein.");
         if(row.status!=="available"){
           const sp=row.sp_no||("SP-"+String(row.id).padStart(6,"0"));
           const challan=row.challan_no||("ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(row.id).padStart(4,"0"));
@@ -5016,6 +5214,26 @@ async function mutation(req:Request,params:any,method:string){
         await client.query("COMMIT");return Response.json({success:true,row:out.rows[0]});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
+    // Pull CHFPL repo status into GRD (CHFPL is the source of truth for HOLD / Available for Sale).
+    // Safety net for when the CHFPL -> GRD webhook did not arrive (wrong URL, localhost, downtime).
+    if(p==="inventory/old-rickshaw/sync-chfpl" && method==="POST"){
+      await ensureOldRickshawLegacySchema();await ensureOldRickshawInventorySchema();
+      await pool.query("ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS colour text");
+      await pool.query("ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS toolkit text");
+      let remote:any;
+      try{remote=await chfplBridge("/api/grd/repossessed",{status:"ALL"});}
+      catch(e:any){return Response.json({success:false,error:e?.message||"CHFPL se connect nahi ho paya."},{status:502});}
+      const list:any[]=Array.isArray(remote?.vehicles)?remote.vehicles:[];
+      const results=await applyRepoVehicles(list,{},{skipUnknownSold:true});
+      const changed=results.filter((x:any)=>x.ok&&!x.skipped).length,failed=results.filter((x:any)=>!x.ok);
+      return Response.json({success:true,total:list.length,synced:changed,failed:failed.length,errors:failed.slice(0,10)});
+    }
+    if(p.startsWith("inventory/old-rickshaw/") && path[path.length-1]==="resync-sale" && method==="POST"){
+      await ensureOldRickshawInventorySchema();
+      const invId=idOf(path[path.length-2]);if(!invId)return Response.json({error:"Inventory id required."},{status:400});
+      const chfpl_sync=await syncSaleToChfpl(invId);
+      return Response.json({success:chfpl_sync.ok,chfpl_sync},{status:chfpl_sync.ok?200:502});
+    }
     if(p.startsWith("inventory/old-rickshaw/") && path[path.length-1]==="sale" && method==="POST"){
       await ensureOldRickshawInventorySchema();
       const inventoryId=idOf(path[path.length-2]),b:any=await json(req);
@@ -5029,6 +5247,7 @@ async function mutation(req:Request,params:any,method:string){
         const saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount);
         if(!String(b.customer_name||"").trim())throw new Error("Customer Name is required.");
         if(loanAmount>saleAmount)throw new Error("Loan Amount cannot be greater than Sale Amount.");
+        if(loanAmount>0&&!String(b.ledger_no||"").trim())throw new Error("Loan hai to Ledger No. zaroori hai.");
         const balance=Math.max(0,saleAmount-loanAmount);
         const oldId=idOf(row.old_rickshaw_id);
         if(oldId){
@@ -5036,8 +5255,10 @@ async function mutation(req:Request,params:any,method:string){
           const keys=Object.keys(vals).filter(k=>oc.has(k)),sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
           if(keys.length)await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>vals[k]),oldId]);
         }
-        const u=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=$6,ledger_no=$7,updated_at=now() WHERE id=$8 RETURNING *",[String(b.customer_name).trim(),saleAmount,loanAmount,balance,num(b.file_charge),String(b.do_number||"").trim()||null,String(b.ledger_no||"").trim()||null,inventoryId]);
-        await client.query("COMMIT");return Response.json({success:true,row:u.rows[0]});
+        const u=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=$6,ledger_no=$7,sale_date=$9::date,chfpl_sale_synced=false,chfpl_sale_sync_error=NULL,updated_at=now() WHERE id=$8 RETURNING *",[String(b.customer_name).trim(),saleAmount,loanAmount,balance,num(b.file_charge),String(b.do_number||"").trim()||null,loanAmount>0?(String(b.ledger_no||"").trim()||null):null,inventoryId,String(b.sale_date||"").slice(0,10)||new Date().toISOString().slice(0,10)]);
+        await client.query("COMMIT");
+        const chfpl_sync=await syncSaleToChfpl(inventoryId);
+        return Response.json({success:true,row:u.rows[0],chfpl_sync});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("delivery-challans/") && method==="DELETE"){

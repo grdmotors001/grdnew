@@ -171,7 +171,7 @@ export function DealerPortal({ dealer, onLogout }) {
     (tab === 'battery-withdrawal' && canBatteryWithdrawal) ? <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-swap' && canBatterySwap) ? <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-addition' && canBatteryAddition) ? <DealerBatteryAddition dealer={dealer} onBack={() => setTab('dashboard')} /> :
-    (tab === 'old-rickshaw-sales' && canOldRickshawSales) ? <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} /> :
+    (tab === 'old-rickshaw-sales' && canOldRickshawSales) ? <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} onSold={() => get('/dealer/old-rickshaws').then(setOldStock).catch(() => {})} /> :
     (tab === 'customer-invoice' && canPurchase) ? <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} /> :
     null;
 
@@ -493,8 +493,119 @@ function DealerBatterySwap({dealer,onBack}) {
     </form>
   </BatteryAdjustmentShell>;
 }
-function DealerOldRickshawSales({dealer,onBack}) {
-  return <DealerDealerModulePlaceholder title="Old Rickshaw Sale" description="Old Rickshaw sale module is enabled for this dealer." onBack={onBack} />;
+function DealerOldRickshawSales({dealer,onBack,onSold}) {
+  // Dealer ke apne Available Old Rickshaw stock se sale banata hai. Sale ke baad gaadi Sold ho jaati hai
+  // aur admin ke Old Rickshaw Inventory me bhi Sold dikhti hai.
+  const todayStr=()=>new Date().toISOString().slice(0,10);
+  const [rows,setRows]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [notice,setNotice]=useState('');
+  const [row,setRow]=useState(null);
+  const [form,setForm]=useState({});
+  const [busy,setBusy]=useState(false);
+  const [search,setSearch]=useState('');
+
+  const load=async()=>{
+    try{
+      setError('');
+      const r=await get('/dealer/old-rickshaws',{noClientCache:true});
+      setRows(r.rickshaws||[]);
+    }catch(e){setError(e.message||'Could not load Old Rickshaw stock.')}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{load()},[]);
+
+  const setF=(k,v)=>setForm(x=>({...x,[k]:v}));
+  const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0));
+  const openSale=(r)=>{
+    setNotice('');setError('');setRow(r);
+    setForm({sale_date:todayStr(),customer_name:'',sale_amount:'',loan_amount:'0',file_charge:'',do_number:'',ledger_no:''});
+  };
+  const save=async(e)=>{
+    e.preventDefault();setBusy(true);setError('');
+    try{
+      const r=await post('/dealer/old-rickshaws/'+row.id+'/sale',form);
+      const cs=r?.chfpl_sync;
+      setNotice('Sale saved: '+(row.vehicle_reg_no||'Old Rickshaw')+' → '+form.customer_name+(cs&&!cs.ok?' (CHFPL sync pending — factory admin retry karega)':''));
+      setRow(null);
+      await load();
+      if(onSold)onSold();
+    }catch(err){setError(err.message||'Could not create Old Rickshaw sale.')}
+    finally{setBusy(false)}
+  };
+
+  const q=search.trim().toLowerCase();
+  const list=rows.filter(v=>!q||[v.vehicle_reg_no,v.model_name,v.challan_no,v.sp_no,v.customer_name].join(' ').toLowerCase().includes(q));
+  const available=list.filter(v=>String(v.status||'').toLowerCase()==='available');
+  const sold=list.filter(v=>String(v.status||'').toLowerCase()==='sold');
+
+  return <div className="dealerPage">
+    <div className="dealerPanel" style={{marginBottom:14}}>
+      <div className="dealerPanelHead">
+        <div><h3>Old Rickshaw Sale</h3><p>Apne Old Rickshaw stock me se gaadi select karke sale banayein.</p></div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <input className="input" style={{maxWidth:220}} placeholder="Search vehicle / model…" value={search} onChange={e=>setSearch(e.target.value)} />
+          <button type="button" className="btn" onClick={load}>↻ Refresh</button>
+          <button type="button" className="btn" onClick={onBack}>Back</button>
+        </div>
+      </div>
+      {!row&&error&&<ErrorBanner message={error}/>}
+      {notice&&<div className="muted" style={{margin:'0 0 10px',color:'#15803d',fontWeight:700}}>{notice}</div>}
+      {loading?<div className="dealerEmpty">Loading…</div>:!available.length?<div className="dealerEmpty">Sale ke liye koi Available Old Rickshaw nahi hai.</div>:
+      <div className="tablewrap dealerTable"><table className="table">
+        <thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Colour</th><th>Challan No.</th><th>SP No.</th><th>Action</th></tr></thead>
+        <tbody>{available.map(v=><tr key={v.id}>
+          <td>{formatDate(v.date||v.challan_date)}</td>
+          <td><b>{v.vehicle_reg_no||'—'}</b></td>
+          <td>{v.model_name||'—'}</td>
+          <td>{v.colour||'—'}</td>
+          <td>{v.challan_no||'—'}</td>
+          <td>{v.sp_no||'—'}</td>
+          <td><button type="button" className="btn primary" onClick={()=>openSale(v)}>Create Sale</button></td>
+        </tr>)}</tbody>
+      </table></div>}
+    </div>
+
+    {sold.length>0&&<div className="dealerPanel">
+      <div className="dealerPanelHead"><div><h3>Sold Old Rickshaw</h3><p>Aapke dwara becchi gayi gaadiyan.</p></div><span className="pill t">{sold.length} Sold</span></div>
+      <div className="tablewrap dealerTable"><table className="table">
+        <thead><tr><th>Sale Date</th><th>Vehicle No.</th><th>Model</th><th>Customer</th><th>Sale Amt.</th><th>Loan</th><th>Balance</th></tr></thead>
+        <tbody>{sold.map(v=><tr key={v.id}>
+          <td>{formatDate(v.sale_date||v.date)}</td>
+          <td><b>{v.vehicle_reg_no||'—'}</b></td>
+          <td>{v.model_name||'—'}</td>
+          <td>{v.customer_name||v.out_name||v.owner_name||'—'}</td>
+          <td>{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td>
+          <td>{v.loan_amount?'₹ '+Number(v.loan_amount).toLocaleString('en-IN'):'—'}</td>
+          <td>{v.balance_amount?'₹ '+Number(v.balance_amount).toLocaleString('en-IN'):'—'}</td>
+        </tr>)}</tbody>
+      </table></div>
+    </div>}
+
+    {row&&<div className="modal"><form className="modalbox" onSubmit={save}>
+      <h2>Create Old Rickshaw Sale</h2>
+      {error&&<ErrorBanner message={error}/>}
+      <div className="formgrid">
+        <Field label="Vehicle No." value={row.vehicle_reg_no||'—'} readOnly/>
+        <Field label="Model" value={row.model_name||'—'} readOnly/>
+        <Field label="Challan No." value={row.challan_no||'—'} readOnly/>
+        <Field label="SP No." value={row.sp_no||'—'} readOnly/>
+        <Field label="Date of Sale" type="date" value={form.sale_date} onChange={v=>setF('sale_date',v)} required/>
+        <Field label="New Customer Name" value={form.customer_name} onChange={v=>setF('customer_name',v)} required/>
+        <Field label="Sale Amount" type="number" value={form.sale_amount} onChange={v=>setF('sale_amount',v)} required/>
+        <Field label="New Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF('loan_amount',v)}/>
+        <Field label="Balance" type="number" value={balance} readOnly/>
+        <Field label="File Charge" type="number" value={form.file_charge} onChange={v=>setF('file_charge',v)}/>
+        <Field label="DO No." value={form.do_number} onChange={v=>setF('do_number',v)}/>
+        {Number(form.loan_amount||0)>0&&<Field label="Ledger No. (loan)" value={form.ledger_no} onChange={v=>setF('ledger_no',v)} required/>}
+      </div>
+      <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
+        <button type="button" className="btn" onClick={()=>setRow(null)}>Cancel</button>
+        <button className="btn primary" disabled={busy||!String(form.customer_name||'').trim()||!(Number(form.sale_amount||0)>0)||(Number(form.loan_amount||0)>0&&!String(form.ledger_no||'').trim())||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Create Sale'}</button>
+      </div>
+    </form></div>}
+  </div>;
 }
 function DealerDealerModulePlaceholder({title,description,onBack}) {
   return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{title}</h3><p>{description}</p></div><button type="button" className="btn" onClick={onBack}>Back</button></div><div className="dealerEmpty">Module screen is ready.</div></div></div>;
