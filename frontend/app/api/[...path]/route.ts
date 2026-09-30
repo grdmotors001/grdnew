@@ -220,9 +220,12 @@ async function ensureBillingSalesSchemaOnce(){
     buyer_relation:"text",buyer_father_name:"text",buyer_gst_no:"text",buyer_pan:"text",buyer_aadhar:"text",buyer_dob:"date",buyer_state_code:"text",
     state_type:"text",mode_term:"text",bank_name:"text",bank_account_no:"text",bank_ifsc:"text",rto_name:"text",despatch_through:"text",eway_bill_no:"text",license_no:"text",cvr_no:"text",cancelled_cheque_no:"text",remarks:"text",
     amount_received:"numeric NOT NULL DEFAULT 0",financer_name:"text",hypothecation_amount:"numeric NOT NULL DEFAULT 0",vehicle_reg_no:"text",ledger_no:"text",chassis_record_no:"text",voucher_no:"text",subsidy_amount:"numeric NOT NULL DEFAULT 0",
-    gst_sale_amount:"numeric NOT NULL DEFAULT 0",gst_rate:"numeric NOT NULL DEFAULT 5",insurance_amount:"numeric NOT NULL DEFAULT 0",registration_amount:"numeric NOT NULL DEFAULT 0",discount:"numeric NOT NULL DEFAULT 0",dealer_cash_customer_id:"bigint"
+    gst_sale_amount:"numeric NOT NULL DEFAULT 0",gst_rate:"numeric NOT NULL DEFAULT 5",insurance_amount:"numeric NOT NULL DEFAULT 0",registration_amount:"numeric NOT NULL DEFAULT 0",discount:"numeric NOT NULL DEFAULT 0",dealer_cash_customer_id:"bigint",
+    old_rickshaw_id:"bigint",sp_no:"text",sale_date:"date"
   };
   for(const [col,type] of Object.entries(extra)) await pool.query('ALTER TABLE grd_billing_sale ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  // Ek Old Rickshaw par ek hi Pending/Approved sale ho sakti hai.
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS grd_billing_sale_old_rickshaw_unique ON grd_billing_sale(old_rickshaw_id) WHERE old_rickshaw_id IS NOT NULL AND status IN ('PENDING','APPROVED')");
 }
 let grdAssetSchemaReady:Promise<void>|null=null;
 function ensureGrdAssetSchema():Promise<void>{
@@ -493,7 +496,14 @@ async function ensureDailyRawMaterialChecklistSchema(){
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS daily_raw_material_checklist_item_key_idx ON daily_raw_material_checklist_item(checklist_id,source_key)");
   await pool.query("CREATE INDEX IF NOT EXISTS daily_raw_material_checklist_date_idx ON daily_raw_material_checklist(date)");
 }
-async function ensureOldRickshawLegacySchema(){
+let oldRickshawLegacySchemaReady:Promise<void>|null=null;
+function ensureOldRickshawLegacySchema():Promise<void>{
+  if(!oldRickshawLegacySchemaReady){
+    oldRickshawLegacySchemaReady=ensureOldRickshawLegacySchemaOnce().catch((e:any)=>{oldRickshawLegacySchemaReady=null;throw e});
+  }
+  return oldRickshawLegacySchemaReady;
+}
+async function ensureOldRickshawLegacySchemaOnce(){
   await pool.query(`CREATE TABLE IF NOT EXISTS old_rickshaw (
     id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,source text NOT NULL DEFAULT 'manual',
     record_no text,vou_no text,chfpl_ref_no text,party_name text,purchase_ref_no text,vehicle_reg_no text NOT NULL,
@@ -516,7 +526,14 @@ async function ensureOldRickshawLegacySchema(){
     receipt_amount:"numeric NOT NULL DEFAULT 0",receipt_no:"text",ledger:"text",resale_date:"date",resale_ledger:"text",repo_date:"date"};
   for(const [col,type] of Object.entries(defs)) await pool.query('ALTER TABLE old_rickshaw ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
 }
-async function ensureOldRickshawInventorySchema(){
+let oldRickshawInventorySchemaReady:Promise<void>|null=null;
+function ensureOldRickshawInventorySchema():Promise<void>{
+  if(!oldRickshawInventorySchemaReady){
+    oldRickshawInventorySchemaReady=ensureOldRickshawInventorySchemaOnce().catch((e:any)=>{oldRickshawInventorySchemaReady=null;throw e});
+  }
+  return oldRickshawInventorySchemaReady;
+}
+async function ensureOldRickshawInventorySchemaOnce(){
   await pool.query(`CREATE TABLE IF NOT EXISTS old_rickshaw_inventory (
     id bigserial PRIMARY KEY,
     vehicle_no text NOT NULL,
@@ -558,7 +575,9 @@ async function ensureOldRickshawInventorySchema(){
     id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,challan_no text UNIQUE,model_name text,vehicle_no text,colour text,toolkit text,
     dealer_id integer,source text NOT NULL DEFAULT 'CHFPL',source_ref text,status text NOT NULL DEFAULT 'ACTIVE',created_at timestamptz NOT NULL DEFAULT now()
   )`);
-  const cdefs:any={date:"date",challan_no:"text",model_name:"text",vehicle_no:"text",colour:"text",toolkit:"text",dealer_id:"integer",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text",status:"text NOT NULL DEFAULT 'ACTIVE'"};
+  const cdefs:any={date:"date",challan_no:"text",model_name:"text",vehicle_no:"text",colour:"text",toolkit:"text",dealer_id:"integer",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text",status:"text NOT NULL DEFAULT 'ACTIVE'",
+    inventory_id:"integer",old_rickshaw_id:"integer",salesman:"text",ledger_date:"date",chassis_no:"text",battery_name:"text",charger:"text",
+    mat_yn:"text",jack_yn:"text",centre_lock_yn:"text",big_mirror_yn:"text",colour_yn:"text",toolkit_yn:"text",stepney_yn:"text"};
   for(const [col,type] of Object.entries(cdefs)) await pool.query('ALTER TABLE old_rickshaw_challan ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
   const odefs:any={
     dealer_id:"integer",dealer_name:"text",challan_no:"text",sp_no:"text",challan_date:"date",customer_name:"text",
@@ -576,17 +595,18 @@ async function releaseRepoInventory(client:any,inventoryId:number){
   if(!row||row.status==="sold")return row||null;
   const today=new Date().toISOString().slice(0,10);
   const sp=row.sp_no||("SP-"+String(row.id).padStart(6,"0"));
-  const challan=row.challan_no||("ORC-"+today.replace(/-/g,"")+"-"+String(row.id).padStart(4,"0"));
-  const cdate=ymd(row.challan_date)||today;
-  const dealerId=row.dealer_id||null;
-  const ex=await client.query("SELECT id FROM old_rickshaw_challan WHERE challan_no=$1",[challan]);
-  if(ex.rowCount){
-    await client.query("UPDATE old_rickshaw_challan SET model_name=$1,vehicle_no=$2,colour=$3,toolkit=$4,dealer_id=$5,status='ACTIVE' WHERE id=$6",[row.model_name||null,row.vehicle_no,row.colour||null,row.toolkit||null,dealerId,ex.rows[0].id]);
-  }else{
-    await client.query("INSERT INTO old_rickshaw_challan(date,challan_no,model_name,vehicle_no,colour,toolkit,dealer_id,source,source_ref,status) VALUES($1,$2,$3,$4,$5,$6,$7,'CHFPL',$8,'ACTIVE')",[cdate,challan,row.model_name||null,row.vehicle_no,row.colour||null,row.toolkit||null,dealerId,row.source_ref||String(row.id)]);
+  // Voucher pehle se ACTIVE hai (dobara sync aaya) -> kuch nahi chhedna, dealer stock jaisa hai waisa rahe.
+  if(row.status==="available"&&row.challan_no){
+    const ac=await client.query("SELECT 1 FROM old_rickshaw_challan WHERE challan_no=$1 AND status='ACTIVE'",[row.challan_no]);
+    if(ac.rowCount){
+      if(!row.sp_no)await client.query("UPDATE old_rickshaw_inventory SET sp_no=$1,updated_at=now() WHERE id=$2",[sp,inventoryId]);
+      return (await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[inventoryId])).rows[0];
+    }
   }
+  // Available for Sale = sirf GRD Old Rickshaw Inventory me aati hai. Dealer stock me tab dikhegi jab
+  // Factory Old Rickshaw Challan Voucher (dealer ke naam) ban jaye -> isliye yahan dealer_id/challan set nahi hota.
   const oldCols=await columns("old_rickshaw");
-  const old:any={date:cdate,source:"chfpl",record_no:"OR-"+row.id,vou_no:challan,chfpl_ref_no:row.source_ref||"",vehicle_reg_no:row.vehicle_no,model_name:row.model_name||"",colour:row.colour||"",toolkit:row.toolkit||"",battery_maker:row.battery_maker||"",dealer_id:dealerId,dealer_name:row.dealer_name||"",challan_no:challan,sp_no:sp,status:"available",repo_date:row.repo_date||null};
+  const old:any={date:today,source:"chfpl",record_no:"OR-"+row.id,chfpl_ref_no:row.source_ref||"",vehicle_reg_no:row.vehicle_no,model_name:row.model_name||"",colour:row.colour||"",toolkit:row.toolkit||"",battery_maker:row.battery_maker||"",dealer_id:null,dealer_name:"",challan_no:null,vou_no:null,sp_no:sp,status:"available",repo_date:row.repo_date||null};
   const keys=Object.keys(old).filter(k=>oldCols.has(k));
   let oldId=row.old_rickshaw_id;
   if(oldId){
@@ -595,14 +615,20 @@ async function releaseRepoInventory(client:any,inventoryId:number){
     const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>old[k]));
     oldId=ins.rows[0].id;
   }
-  await client.query("UPDATE old_rickshaw_inventory SET status='available',available_for_sale=true,sp_no=$1,challan_no=$2,challan_date=$3,old_rickshaw_id=$4,updated_at=now() WHERE id=$5",[sp,challan,cdate,oldId,inventoryId]);
+  await client.query("UPDATE old_rickshaw_inventory SET status='available',available_for_sale=true,sp_no=$1,challan_no=NULL,challan_date=NULL,old_rickshaw_id=$2,updated_at=now() WHERE id=$3",[sp,oldId,inventoryId]);
   return (await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[inventoryId])).rows[0];
 }
 // CHFPL me "available for sale" wapas hata diya gaya (bika nahi) -> GRD me dobara HOLD, temporary challan cancel.
 async function holdRepoInventory(client:any,row:any){
-  await client.query("UPDATE old_rickshaw_inventory SET status='hold',available_for_sale=false,updated_at=now() WHERE id=$1",[row.id]);
+  // Pending / Approved sale chal rahi ho to gaadi wapas HOLD nahi ho sakti.
+  if(row.old_rickshaw_id){
+    await ensureBillingSalesSchema();
+    const ps=await client.query("SELECT id FROM grd_billing_sale WHERE old_rickshaw_id=$1 AND status IN ('PENDING','APPROVED') LIMIT 1",[row.old_rickshaw_id]);
+    if(ps.rowCount)throw new Error("Is gaadi par Pending Sale chal rahi hai. Pehle Pending Sale delete karein, phir HOLD karein.");
+  }
+  await client.query("UPDATE old_rickshaw_inventory SET status='hold',available_for_sale=false,challan_no=NULL,challan_date=NULL,updated_at=now() WHERE id=$1",[row.id]);
   if(row.challan_no)await client.query("UPDATE old_rickshaw_challan SET status='CANCELLED' WHERE challan_no=$1",[row.challan_no]);
-  if(row.old_rickshaw_id)await client.query("UPDATE old_rickshaw SET status='hold' WHERE id=$1",[row.old_rickshaw_id]);
+  if(row.old_rickshaw_id)await client.query("UPDATE old_rickshaw SET status='hold',dealer_id=NULL,dealer_name='',challan_no=NULL,vou_no=NULL WHERE id=$1",[row.old_rickshaw_id]);
 }
 async function resolveRepoDealer(v:any){
   const dm=(v&&typeof v.dealer_master==="object"&&v.dealer_master)||{};
@@ -1157,6 +1183,35 @@ async function chfplBridge(path:string, query:Record<string,string>={}){
   return d;
 }
 
+// Pending Old Rickshaw sale approve hote hi: gaadi SOLD (old_rickshaw + inventory) aur sale data CHFPL ko.
+async function finalizeOldRickshawSale(sale:any):Promise<{ok:boolean,skipped?:boolean,error?:string}>{
+  const oldId=idOf(sale.old_rickshaw_id);
+  if(!oldId)return {ok:true,skipped:true};
+  const saleAmount=num(sale.sale_amount),loan=num(sale.hypothecation_amount),balance=Math.max(0,saleAmount-loan);
+  const ledgerNo=loan>0?(String(sale.ledger_no||"").trim()||null):null;
+  const doNo=String(sale.do_no||"").trim()||null,customer=String(sale.customer_name||"").trim();
+  const saleDate=ymd(sale.sale_date)||new Date().toISOString().slice(0,10);
+  const client=await pool.connect();
+  let invId:number|null=null;
+  try{
+    await client.query("BEGIN");
+    const cur=await client.query("SELECT status FROM old_rickshaw WHERE id=$1 FOR UPDATE",[oldId]);
+    if(!cur.rowCount)throw new Error("Old Rickshaw record not found.");
+    if(String(cur.rows[0].status||"").toLowerCase()!=="available")throw new Error("Gaadi Available nahi hai (already sold / hold).");
+    const oc=await columns("old_rickshaw");
+    const vals:any={status:"sold",customer_name:customer,out_name:customer,sale_amount:saleAmount,sold_amount:saleAmount,loan_amount:loan,balance_amount:balance,do_number:doNo,ledger:ledgerNo,ledger_no:ledgerNo,sale_date:saleDate,updated_at:new Date()};
+    const keys=Object.keys(vals).filter(k=>oc.has(k));
+    await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>vals[k]),oldId]);
+    const inv=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,do_number=$5,ledger_no=$6,sale_date=$7::date,chfpl_sale_synced=false,chfpl_sale_sync_error=NULL,updated_at=now() WHERE old_rickshaw_id=$8 RETURNING id",[customer,saleAmount,loan,balance,doNo,ledgerNo,saleDate,oldId]);
+    invId=inv.rowCount?Number(inv.rows[0].id):null;
+    await client.query("COMMIT");
+  }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e}
+  finally{client.release()}
+  // CHFPL ko sale data webhook se, background me: approve turant ho jaye, CHFPL slow ho to bhi wait nahi.
+  // Fail hone par inventory row par error save hota hai aur "Retry CHFPL Sync" button se dobara jata hai.
+  if(invId)void syncSaleToChfpl(invId).catch(()=>{});
+  return {ok:true,queued:true} as any;
+}
 // Old Rickshaw sale -> CHFPL: customer, sale date, amount, new loan, balance, ledger no (only if loan) and DO no.
 // Best-effort: the GRD sale is already saved; result is stored on the inventory row so it can be retried.
 async function syncSaleToChfpl(inventoryId:number):Promise<{ok:boolean,skipped?:boolean,error?:string}>{
@@ -2646,7 +2701,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       await ensureOldRickshawInventorySchema();
       const rows=await pool.query("SELECT c.*,d.name AS dealer_name FROM old_rickshaw_challan c LEFT JOIN dealer d ON d.id=c.dealer_id ORDER BY c.date DESC,c.id DESC LIMIT 1000");
       const available=await pool.query("SELECT i.* FROM old_rickshaw_inventory i WHERE i.status='available' AND NOT EXISTS (SELECT 1 FROM old_rickshaw_challan c WHERE c.challan_no=i.challan_no AND c.status='ACTIVE') ORDER BY i.repo_date DESC NULLS LAST,i.id DESC LIMIT 500");
-      return Response.json({challans:rows.rows,rows:rows.rows,available_for_sale:available.rows,suggested_challan_no:"ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now()});
+      const dealers=await pool.query("SELECT d.id,d.name,d.code,COALESCE(to_jsonb(d)->>'salesman','') AS salesman FROM dealer d ORDER BY d.name");
+      return Response.json({challans:rows.rows,rows:rows.rows,available_for_sale:available.rows,dealers:dealers.rows,suggested_challan_no:"ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now()});
     }
     if(p==="dealer/ledger"&&a.scope==="dealer"){
       const did=num(a.dealer_id),u=new URL(req.url),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
@@ -2755,7 +2811,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({rickshaws:nr.rows.map((r:any)=>({id:r.id,reg_no:null,chassis_no:r.chassis_no,model_name:r.model_name,battery_maker:r.battery_maker,battery_numbers:nums(r),has_battery:nums(r).length>0}))});
     }
     if(p==="dealer/old-rickshaws"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT * FROM old_rickshaw WHERE dealer_id=$1 AND status IN ('available','sold') ORDER BY CASE WHEN status='available' THEN 0 ELSE 1 END,date DESC,id DESC",[num(a.dealer_id)]);
+      await ensureBillingSalesSchema();
+      const r=await pool.query("SELECT o.*,(SELECT s.id FROM grd_billing_sale s WHERE s.old_rickshaw_id=o.id AND s.status IN ('PENDING','APPROVED') LIMIT 1) AS pending_sale_id FROM old_rickshaw o WHERE o.dealer_id=$1 AND o.status IN ('available','sold') ORDER BY CASE WHEN o.status='available' THEN 0 ELSE 1 END,o.date DESC,o.id DESC",[num(a.dealer_id)]);
       return Response.json({rickshaws:r.rows,count:r.rowCount});
     }
     if(p==="dealer/cash-book"&&a.scope==="dealer"){
@@ -3199,7 +3256,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       else if(status==="available")where.push("status='available'");
       else if(status==="sold")where.push("status='sold'");
       if(q){args.push("%"+q+"%");where.push("(vehicle_no ILIKE $"+args.length+" OR COALESCE(battery_maker,'') ILIKE $"+args.length+" OR COALESCE(dealer_name,'') ILIKE $"+args.length+")");}
-      const rows=await pool.query("SELECT * FROM old_rickshaw_inventory"+(where.length?" WHERE "+where.join(" AND "):"")+" ORDER BY CASE status WHEN 'available' THEN 1 WHEN 'hold' THEN 2 ELSE 3 END,repo_date DESC NULLS LAST,id DESC LIMIT 2000",args);
+      await ensureBillingSalesSchema();
+      const rows=await pool.query("SELECT *,(SELECT s.id FROM grd_billing_sale s WHERE s.old_rickshaw_id=old_rickshaw_inventory.old_rickshaw_id AND s.status IN ('PENDING','APPROVED') LIMIT 1) AS pending_sale_id FROM old_rickshaw_inventory"+(where.length?" WHERE "+where.join(" AND "):"")+" ORDER BY CASE status WHEN 'available' THEN 1 WHEN 'hold' THEN 2 ELSE 3 END,repo_date DESC NULLS LAST,id DESC LIMIT 2000",args);
       const summary=await pool.query("SELECT COUNT(*)::int AS all,COUNT(*) FILTER(WHERE status='hold')::int AS hold,COUNT(*) FILTER(WHERE status='available')::int AS available,COUNT(*) FILTER(WHERE status='sold')::int AS sold FROM old_rickshaw_inventory");
       const dealers=await pool.query("SELECT id,name,code FROM dealer ORDER BY name");
       return Response.json({rows:rows.rows,summary:summary.rows[0]||{all:0,hold:0,available:0,sold:0},dealers:dealers.rows});
@@ -3988,11 +4046,29 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         const dup=await pool.query("SELECT id FROM grd_billing_sale WHERE application_id=$1",[applicationId]);
         if(dup.rowCount)return Response.json({error:"This Loan Application is already in the sales workflow."},{status:409});
       }
-      const effectiveDealer=dealerId||Number(a?.dealer_id||0);
+      // Old Rickshaw sale (dealer ya admin): gaadi dealer ke stock me honi chahiye (Challan Voucher ban chuka ho), aur ek gaadi par ek hi Pending/Approved sale.
+      const oldRickId=idOf(b.old_rickshaw_id);
+      let oldRow:any=null;
+      if(oldRickId){
+        await ensureOldRickshawLegacySchema();await ensureOldRickshawInventorySchema();
+        const orq=await pool.query("SELECT * FROM old_rickshaw WHERE id=$1",[oldRickId]);
+        if(!orq.rowCount)return Response.json({error:"Old Rickshaw not found."},{status:404});
+        oldRow=orq.rows[0];
+        if(String(oldRow.status||"").toLowerCase()!=="available")return Response.json({error:"Sirf Available (unsold) Old Rickshaw ki sale ban sakti hai."},{status:409});
+        if(!oldRow.dealer_id)return Response.json({error:"Is gaadi ka Old Rickshaw Challan Voucher (dealer ke naam) abhi nahi bana. Pehle voucher banao."},{status:409});
+        const oi=await pool.query("SELECT status,challan_no FROM old_rickshaw_inventory WHERE old_rickshaw_id=$1 ORDER BY id DESC LIMIT 1",[oldRickId]);
+        if(oi.rowCount&&(oi.rows[0].status!=="available"||!oi.rows[0].challan_no))return Response.json({error:"Gaadi Available for Sale + Challan Voucher ke baad hi bik sakti hai."},{status:409});
+        const pd=await pool.query("SELECT id FROM grd_billing_sale WHERE old_rickshaw_id=$1 AND status IN ('PENDING','APPROVED') LIMIT 1",[oldRickId]);
+        if(pd.rowCount)return Response.json({error:"Is Old Rickshaw par Pending Sale pehle se hai."},{status:409});
+        if(!(saleAmount>0))return Response.json({error:"Sale Amount is required."},{status:400});
+        if(loanAmount>0&&!String(b.ledger_no||"").trim())return Response.json({error:"Loan hai to Ledger No. zaroori hai."},{status:400});
+        if(!String(b.customer_name||b.buyer_name||"").trim())return Response.json({error:"Customer Name is required."},{status:400});
+      }
+      const effectiveDealer=(oldRow?Number(oldRow.dealer_id):0)||dealerId||Number(a?.dealer_id||0);
       if(a?.scope==="dealer"&&effectiveDealer!==Number(a.dealer_id||0))return Response.json({error:"Invalid dealer selected."},{status:403});
       if(!effectiveDealer)return Response.json({error:"Dealer is required."},{status:400});
       // Dealers can create their own Pending Sale only if they are a Showroom / Branch.
-      if(a?.scope==="dealer"){
+      if(a?.scope==="dealer"&&!oldRow){
         const dc=await pool.query("SELECT LOWER(COALESCE(dealer_category,'')) AS cat FROM dealer WHERE id=$1",[effectiveDealer]);
         if(!["showroom","branch"].includes(String(dc.rows[0]?.cat||"")))return Response.json({error:"Create Sale sirf Showroom / Branch dealer ke liye hai."},{status:403});
       }
@@ -4028,6 +4104,13 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         amount_received:num(b.amount_received),financer_name:b.financer_name||null,hypothecation_amount:num(b.hypothecation_amount||b.loan_amount),vehicle_reg_no:b.vehicle_reg_no||null,ledger_no:b.ledger_no||null,chassis_record_no:b.chassis_record_no||null,voucher_no:b.voucher_no||null,subsidy_amount:num(b.subsidy_amount),
         gst_sale_amount:num(b.gst_sale_amount||b.sale_amount||vehicle?.sale_value),gst_rate:num(b.gst_rate||5),insurance_amount:num(b.insurance_amount),registration_amount:num(b.registration_amount),discount:num(b.discount)
       };
+      if(oldRow){
+        const ol=num(b.loan_amount||b.hypothecation_amount);
+        Object.assign(values,{old_rickshaw_id:oldRickId,sp_no:oldRow.sp_no||String(b.sp_no||"").trim()||null,sale_date:String(b.sale_date||"").slice(0,10)||new Date().toISOString().slice(0,10),
+          sale_type:"OLD RICKSHAW",vehicle_reg_no:oldRow.vehicle_reg_no||null,chassis_no:oldRow.chassis_no||null,hypothecation_amount:ol,
+          ledger_no:ol>0?(String(b.ledger_no||"").trim()||null):null,
+          description:"Old Rickshaw · "+[oldRow.vehicle_reg_no,oldRow.model_name].filter(Boolean).join(" · ")});
+      }
       const cols=await columns("grd_billing_sale"),keys=Object.keys(values).filter(k=>cols.has(k)),ph=keys.map((_,i)=>"$"+(i+1));
       const r=await pool.query('INSERT INTO grd_billing_sale ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+ph.join(",")+') RETURNING *',keys.map(k=>values[k]));
       return Response.json({success:true,sale:r.rows[0]},{status:201});
@@ -4046,6 +4129,15 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Sale id is required."},{status:400});
       const r=await pool.query("UPDATE grd_billing_sale SET status='APPROVED',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 AND status='PENDING' RETURNING *",[String(a.username||a.sub||"Admin"),id]);
       if(!r.rowCount)return Response.json({error:"Only Pending Sales can be approved."},{status:409});
+      if(String(r.rows[0].sale_type||"").toUpperCase()==="OLD RICKSHAW"&&idOf(r.rows[0].old_rickshaw_id)){
+        try{
+          const chfpl_sync=await finalizeOldRickshawSale(r.rows[0]);
+          return Response.json({success:true,sale:r.rows[0],chfpl_sync});
+        }catch(e:any){
+          await pool.query("UPDATE grd_billing_sale SET status='PENDING',approved_by=NULL,approved_at=NULL,updated_at=NOW() WHERE id=$1",[id]);
+          return Response.json({error:"Approve nahi ho payi: "+(e?.message||"Old Rickshaw sold mark nahi ho saki.")},{status:409});
+        }
+      }
       return Response.json({success:true,sale:r.rows[0]});
     }
     if(p.startsWith("billing/pending-sales/") && p.endsWith("/save-invoice")){
@@ -4326,12 +4418,57 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
     }
     if(p==="factory/old-rickshaw-challans"){
-      await ensureOldRickshawInventorySchema();
-      const challan=String(b.challan_no||"").trim()||("ORC-"+Date.now()),date=b.date||null,model=String(b.model_name||"").trim(),vehicle=String(b.vehicle_no||"").trim();
-      if(!model||!vehicle)return Response.json({error:"Model and Vehicle No. are required."},{status:400});
-      const r=await pool.query("INSERT INTO old_rickshaw_challan (date,challan_no,model_name,vehicle_no,colour,toolkit,dealer_id,source,source_ref,status) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE') RETURNING *",
-        [date,challan,model,vehicle,String(b.colour||"").trim()||null,String(b.toolkit||"").trim()||null,idOf(b.dealer_id)||null,String(b.source||"manual"),String(b.source_ref||"").trim()||null]);
-      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
+      // Old Rickshaw Challan Voucher: GRD Old Rickshaw Inventory ki Available-for-Sale gaadi se, Dealer ke naam.
+      // Voucher banne ke baad hi gaadi dealer ke Old Rickshaw stock me dikhti hai. Stock lena-dena (ledger) baad me.
+      await ensureOldRickshawLegacySchema();await ensureOldRickshawInventorySchema();
+      const inventoryId=idOf(b.inventory_id),dealerId=idOf(b.dealer_id);
+      if(!inventoryId)return Response.json({error:"Available for Sale gaadi select karein."},{status:400});
+      if(!dealerId)return Response.json({error:"Dealer select karein."},{status:400});
+      const yn=(v:any)=>String(v||"").trim().toUpperCase()==="YES"?"YES":"NO";
+      const txt=(v:any)=>String(v??"").trim()||null;
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const inv=await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1 FOR UPDATE",[inventoryId]);
+        if(!inv.rowCount)throw new Error("Old Rickshaw inventory record not found.");
+        const row=inv.rows[0];
+        if(row.status!=="available")throw new Error("Sirf Available for Sale gaadi ka voucher ban sakta hai.");
+        if(row.challan_no){
+          const ac=await client.query("SELECT 1 FROM old_rickshaw_challan WHERE challan_no=$1 AND status='ACTIVE'",[row.challan_no]);
+          if(ac.rowCount)throw new Error("Is gaadi ka Challan Voucher pehle se bana hua hai ("+row.challan_no+").");
+        }
+        const dr=await client.query("SELECT id,name FROM dealer WHERE id=$1",[dealerId]);
+        if(!dr.rowCount)throw new Error("Dealer not found.");
+        const today=new Date().toISOString().slice(0,10);
+        const date=String(b.date||"").slice(0,10)||today;
+        const challan=String(b.challan_no||"").trim()||("ORC-"+date.replace(/-/g,"")+"-"+String(row.id).padStart(4,"0"));
+        const dup=await client.query("SELECT 1 FROM old_rickshaw_challan WHERE challan_no=$1",[challan]);
+        if(dup.rowCount)throw new Error("Challan No. \""+challan+"\" pehle se maujood hai.");
+        const ledgerDate=String(b.ledger_date||"").slice(0,10)||null;
+        const f={salesman:txt(b.salesman),chassis:txt(b.chassis_no),battery:txt(b.battery_name),charger:txt(b.charger),
+          mat:yn(b.mat),jack:yn(b.jack),cl:yn(b.centre_lock),bm:yn(b.big_mirror),col:yn(b.colour),tk:yn(b.toolkit),st:yn(b.stepney)};
+        const cr=await client.query("INSERT INTO old_rickshaw_challan(date,challan_no,model_name,vehicle_no,colour,toolkit,dealer_id,source,source_ref,status,inventory_id,old_rickshaw_id,salesman,ledger_date,chassis_no,battery_name,charger,mat_yn,jack_yn,centre_lock_yn,big_mirror_yn,colour_yn,toolkit_yn,stepney_yn) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'ACTIVE',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *",
+          [date,challan,row.model_name||null,row.vehicle_no,row.colour||null,row.toolkit||null,dealerId,row.source||"CHFPL",row.source_ref||String(row.id),inventoryId,row.old_rickshaw_id||null,f.salesman,ledgerDate,f.chassis,f.battery,f.charger,f.mat,f.jack,f.cl,f.bm,f.col,f.tk,f.st]);
+        const oldCols=await columns("old_rickshaw");
+        const old:any={date,challan_date:date,ledger_date:ledgerDate,dealer_id:dealerId,dealer_name:dr.rows[0].name,challan_no:challan,vou_no:challan,salesman:f.salesman,
+          chassis_no:f.chassis,charger:f.charger,mat:f.mat,jack:f.jack,centre_lock:f.cl,big_mirror:f.bm,stepney:f.st,status:"available"};
+        if(f.battery)old.battery_maker=f.battery;
+        let oldId=idOf(row.old_rickshaw_id);
+        if(oldId){
+          const keys=Object.keys(old).filter(k=>oldCols.has(k));
+          await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>old[k]),oldId]);
+        }else{
+          const full:any={...old,source:"chfpl",record_no:"OR-"+row.id,chfpl_ref_no:row.source_ref||"",vehicle_reg_no:row.vehicle_no,model_name:row.model_name||"",colour:row.colour||"",toolkit:row.toolkit||"",sp_no:row.sp_no||null,repo_date:row.repo_date||null};
+          const keys=Object.keys(full).filter(k=>oldCols.has(k));
+          const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>full[k]));
+          oldId=ins.rows[0].id;
+          await client.query("UPDATE old_rickshaw_challan SET old_rickshaw_id=$1 WHERE id=$2",[oldId,cr.rows[0].id]);
+        }
+        await client.query("UPDATE old_rickshaw_inventory SET challan_no=$1,challan_date=$2,dealer_id=$3,dealer_name=$4,old_rickshaw_id=$5,updated_at=now() WHERE id=$6",[challan,date,dealerId,dr.rows[0].name,oldId,inventoryId]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:cr.rows[0],data:cr.rows[0]},{status:201});
+      }catch(e:any){await client.query("ROLLBACK").catch(()=>{});return Response.json({error:e?.message||"Could not create Old Rickshaw Challan Voucher."},{status:400});}
+      finally{client.release()}
     }
     if(p==="production-vouchers"){
       const client=await pool.connect();
@@ -4621,48 +4758,10 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
     }
     if(/^dealer\/old-rickshaws\/\d+\/sale$/.test(p)){
-      if(a?.scope!=="dealer")return Response.json({error:"Dealer login required."},{status:403});
-      await ensureOldRickshawLegacySchema();await ensureOldRickshawInventorySchema();
-      const did=num(a.dealer_id),id=idOf(path[path.length-2]);
-      if(!did||!id)return Response.json({error:"Dealer / Old Rickshaw id required."},{status:400});
-      const customer=String(b.customer_name||"").trim(),saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount);
-      if(!customer)return Response.json({error:"Customer Name is required."},{status:400});
-      if(saleAmount<=0)return Response.json({error:"Sale Amount is required."},{status:400});
-      if(loanAmount>saleAmount)return Response.json({error:"Loan Amount cannot be greater than Sale Amount."},{status:400});
-      if(loanAmount>0&&!String(b.ledger_no||"").trim())return Response.json({error:"Loan hai to Ledger No. zaroori hai."},{status:400});
-      const balance=Math.max(0,saleAmount-loanAmount),saleDate=String(b.sale_date||"").slice(0,10)||new Date().toISOString().slice(0,10);
-      const fileCharge=num(b.file_charge),doNo=String(b.do_number||"").trim()||null,ledgerNo=loanAmount>0?(String(b.ledger_no||"").trim()||null):null;
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const cur=await client.query("SELECT * FROM old_rickshaw WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[id,did]);
-        if(!cur.rowCount)throw new Error("Old Rickshaw not found in your stock.");
-        if(String(cur.rows[0].status||"").toLowerCase()!=="available")throw new Error("Only Available (unsold) Old Rickshaw can be sold.");
-        const oc=await columns("old_rickshaw");
-        const vals:any={status:"sold",customer_name:customer,out_name:customer,sale_amount:saleAmount,sold_amount:saleAmount,loan_amount:loanAmount,balance_amount:balance,file_charge:fileCharge,do_number:doNo,ledger:ledgerNo,ledger_no:ledgerNo,sale_date:saleDate,updated_at:new Date()};
-        const keys=Object.keys(vals).filter(k=>oc.has(k));
-        const up=await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>vals[k]),id]);
-        const invRes=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=$6,ledger_no=$7,sale_date=$9::date,chfpl_sale_synced=false,chfpl_sale_sync_error=NULL,updated_at=now() WHERE old_rickshaw_id=$8 RETURNING id",[customer,saleAmount,loanAmount,balance,fileCharge,doNo,ledgerNo,id,saleDate]);
-        await client.query("COMMIT");
-        const chfpl_sync=invRes.rowCount?await syncSaleToChfpl(Number(invRes.rows[0].id)):{ok:true,skipped:true};
-        await audit(a,"dealer/old-rickshaws","sale",id,{status:"available"},{status:"sold",customer_name:customer,sale_amount:saleAmount},did,up.rows[0]?.vehicle_reg_no||null);
-        return Response.json({success:true,row:up.rows[0],chfpl_sync});
-      }catch(e:any){await client.query("ROLLBACK").catch(()=>{});return Response.json({error:e?.message||"Could not create Old Rickshaw sale."},{status:400});}
-      finally{client.release()}
+      return Response.json({error:"Old Rickshaw sale ab seedhi nahi hoti. Sale pehle Pending Sales me jaati hai aur Billing approval ke baad Sold hoti hai."},{status:409});
     }
     if(p==="old-rickshaws/sale"){
-      await ensureOldRickshawLegacySchema();
-      const b:any=await json(req),id=idOf(b.id);
-      if(!id)return Response.json({error:"Old Rickshaw id is required."},{status:400});
-      const saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount),balance=Math.max(0,saleAmount-loanAmount);
-      const vals:any={status:"sold",dealer_id:idOf(b.dealer_id),sale_date:b.sale_date||null,sale_amount:saleAmount,sold_amount:saleAmount,loan_amount:loanAmount,down_payment:num(b.down_payment),balance_amount:balance,file_charge:num(b.file_charge),dealer_page_no:String(b.dealer_page_no||"").trim()||null,sp_no:String(b.sp_no||"").trim()||null,sale_ref_no:String(b.sale_ref_no||"").trim()||null,sale_type:String(b.sale_type||"").trim()||null,do_number:String(b.do_number||"").trim()||null,out_name:String(b.out_name||"").trim()||null,receipt_amount:num(b.receipt_amount),receipt_no:String(b.receipt_no||"").trim()||null,ledger:String(b.ledger||"").trim()||null,resale_date:b.resale_date||null,resale_ledger:String(b.resale_ledger||"").trim()||null,customer_name:String(b.out_name||"").trim()||null,updated_at:new Date()};
-      const cols=await columns("old_rickshaw"),keys=Object.keys(vals).filter(k=>cols.has(k)),sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-      const r=await pool.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>vals[k]),id]);
-      if(!r.rowCount)return Response.json({error:"Old Rickshaw record not found."},{status:404});
-      await ensureOldRickshawInventorySchema();
-      const legacyInv=await pool.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=COALESCE(NULLIF($1,''),customer_name),sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=COALESCE($6,do_number),ledger_no=CASE WHEN $2::numeric>0 AND $3::numeric>0 THEN COALESCE(NULLIF($8,''),ledger_no) ELSE NULL END,sale_date=COALESCE($9::date,CURRENT_DATE),chfpl_sale_synced=false,chfpl_sale_sync_error=NULL,updated_at=now() WHERE old_rickshaw_id=$7 RETURNING id",[String(b.out_name||"").trim(),saleAmount,loanAmount,balance,num(b.file_charge),String(b.do_number||"").trim()||null,id,String(b.ledger||"").trim(),b.sale_date||null]);
-      const chfpl_sync=legacyInv.rowCount?await syncSaleToChfpl(Number(legacyInv.rows[0].id)):{ok:true,skipped:true};
-      return Response.json({success:true,row:r.rows[0],data:r.rows[0],chfpl_sync});
+      return Response.json({error:"Old Rickshaw sale ab seedhi nahi hoti. Sale pehle Pending Sales me jaati hai aur Billing approval ke baad Sold hoti hai."},{status:409});
     }
 
     if(p==='sub-groups'){
@@ -5187,29 +5286,7 @@ async function mutation(req:Request,params:any,method:string){
         const row=inv.rows[0];
         if(row.status==="sold")throw new Error("Sold vehicle cannot be released again.");
         if(row.status!=="available"&&!row.dealer_id)throw new Error("Factory par parked vehicle Available for Sale nahi ho sakti. Pehle CHFPL me dealer/showroom select karein.");
-        if(row.status!=="available"){
-          const sp=row.sp_no||("SP-"+String(row.id).padStart(6,"0"));
-          const challan=row.challan_no||("ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(row.id).padStart(4,"0"));
-          const cdate=new Date().toISOString().slice(0,10);
-          const existing=await client.query("SELECT id FROM old_rickshaw_challan WHERE challan_no=$1",[challan]);
-          let challanId=existing.rows[0]?.id;
-          if(!challanId){
-            const cr=await client.query("INSERT INTO old_rickshaw_challan(date,challan_no,model_name,vehicle_no,dealer_id,source,source_ref,status) VALUES($1,$2,$3,$4,$5,'CHFPL',$6,'ACTIVE') RETURNING id",[cdate,challan,row.model_name,row.vehicle_no,row.dealer_id,row.source_ref||String(row.id)]);
-            challanId=cr.rows[0].id;
-          }
-          const oldCols=await columns("old_rickshaw");
-          const old:any={date:cdate,source:"chfpl",record_no:"OR-"+row.id,vou_no:challan,chfpl_ref_no:row.source_ref||"",vehicle_reg_no:row.vehicle_no,model_name:row.model_name||"",battery_maker:row.battery_maker||"",dealer_id:row.dealer_id||null,dealer_name:row.dealer_name||"",challan_no:challan,sp_no:sp,status:"available",repo_date:row.repo_date||null};
-          const keys=Object.keys(old).filter(k=>oldCols.has(k)),vals=keys.map((_,i)=>"$"+(i+1));
-          let oldId=row.old_rickshaw_id;
-          if(oldId){
-            const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-            await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>old[k]),oldId]);
-          }else{
-            const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+vals.join(",")+') RETURNING id',keys.map(k=>old[k]));
-            oldId=ins.rows[0].id;
-          }
-          await client.query("UPDATE old_rickshaw_inventory SET status='available',available_for_sale=true,sp_no=$1,challan_no=$2,challan_date=$3,old_rickshaw_id=$4,updated_at=now() WHERE id=$5",[sp,challan,cdate,oldId,inventoryId]);
-        }
+        if(row.status!=="available")await releaseRepoInventory(client,inventoryId);
         const out=await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1",[inventoryId]);
         await client.query("COMMIT");return Response.json({success:true,row:out.rows[0]});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
@@ -5235,31 +5312,7 @@ async function mutation(req:Request,params:any,method:string){
       return Response.json({success:chfpl_sync.ok,chfpl_sync},{status:chfpl_sync.ok?200:502});
     }
     if(p.startsWith("inventory/old-rickshaw/") && path[path.length-1]==="sale" && method==="POST"){
-      await ensureOldRickshawInventorySchema();
-      const inventoryId=idOf(path[path.length-2]),b:any=await json(req);
-      if(!inventoryId)return Response.json({error:"Inventory id required."},{status:400});
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const inv=await client.query("SELECT * FROM old_rickshaw_inventory WHERE id=$1 FOR UPDATE",[inventoryId]);
-        if(!inv.rowCount)throw new Error("Old Rickshaw inventory record not found.");
-        const row=inv.rows[0];if(row.status!=="available")throw new Error("Only Available for Sale vehicles can be sold.");
-        const saleAmount=num(b.sale_amount),loanAmount=num(b.loan_amount);
-        if(!String(b.customer_name||"").trim())throw new Error("Customer Name is required.");
-        if(loanAmount>saleAmount)throw new Error("Loan Amount cannot be greater than Sale Amount.");
-        if(loanAmount>0&&!String(b.ledger_no||"").trim())throw new Error("Loan hai to Ledger No. zaroori hai.");
-        const balance=Math.max(0,saleAmount-loanAmount);
-        const oldId=idOf(row.old_rickshaw_id);
-        if(oldId){
-          const oc=await columns("old_rickshaw"),vals:any={status:"sold",customer_name:String(b.customer_name).trim(),sale_amount:saleAmount,loan_amount:loanAmount,balance_amount:balance,file_charge:num(b.file_charge),do_number:String(b.do_number||"").trim()||null,ledger_no:String(b.ledger_no||"").trim()||null,sale_date:b.sale_date||new Date().toISOString().slice(0,10)};
-          const keys=Object.keys(vals).filter(k=>oc.has(k)),sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
-          if(keys.length)await client.query('UPDATE old_rickshaw SET '+sets.join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>vals[k]),oldId]);
-        }
-        const u=await client.query("UPDATE old_rickshaw_inventory SET status='sold',customer_name=$1,sale_amount=$2,loan_amount=$3,balance_amount=$4,file_charge=$5,do_number=$6,ledger_no=$7,sale_date=$9::date,chfpl_sale_synced=false,chfpl_sale_sync_error=NULL,updated_at=now() WHERE id=$8 RETURNING *",[String(b.customer_name).trim(),saleAmount,loanAmount,balance,num(b.file_charge),String(b.do_number||"").trim()||null,loanAmount>0?(String(b.ledger_no||"").trim()||null):null,inventoryId,String(b.sale_date||"").slice(0,10)||new Date().toISOString().slice(0,10)]);
-        await client.query("COMMIT");
-        const chfpl_sync=await syncSaleToChfpl(inventoryId);
-        return Response.json({success:true,row:u.rows[0],chfpl_sync});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+      return Response.json({error:"Old Rickshaw sale ab seedhi nahi hoti. Sale pehle Pending Sales me jaati hai aur Billing approval ke baad Sold hoti hai."},{status:409});
     }
     if(p.startsWith("delivery-challans/") && method==="DELETE"){
       const id=idOf(path[path.length-1]); if(!id)return Response.json({error:"Record id required."},{status:400});

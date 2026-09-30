@@ -345,7 +345,7 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='ledger' && <DealerLedgerPage/>}
         {tab==='pending-sales' && <DealerPendingSalesPage/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
-{tab==='old-stock' && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div><div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Total</span><b>{filteredOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='available').length}</b></div><div className="dealerOldStockStat"><span>Sold</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='sold').length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody>{filteredOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{String(v.status||'available').toUpperCase()}</span></td></tr>)}{!filteredOldStock.length&&<tr><td colSpan="6"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div></div>}
+{tab==='old-stock' && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div><div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Total</span><b>{filteredOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='available').length}</b></div><div className="dealerOldStockStat"><span>Sold</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='sold').length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody>{filteredOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{v.pending_sale_id?'PENDING SALE':String(v.status||'available').toUpperCase()}</span></td></tr>)}{!filteredOldStock.length&&<tr><td colSpan="6"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div></div>}
         {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
@@ -494,8 +494,8 @@ function DealerBatterySwap({dealer,onBack}) {
   </BatteryAdjustmentShell>;
 }
 function DealerOldRickshawSales({dealer,onBack,onSold}) {
-  // Dealer ke apne Available Old Rickshaw stock se sale banata hai. Sale ke baad gaadi Sold ho jaati hai
-  // aur admin ke Old Rickshaw Inventory me bhi Sold dikhti hai.
+  // Dealer ke apne Old Rickshaw stock se sale banata hai. Sale pehle Pending Sales me jaati hai;
+  // Billing approval ke baad gaadi Sold hoti hai aur sale data CHFPL ko jata hai.
   const todayStr=()=>new Date().toISOString().slice(0,10);
   const [rows,setRows]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -520,14 +520,17 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
   const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0));
   const openSale=(r)=>{
     setNotice('');setError('');setRow(r);
-    setForm({sale_date:todayStr(),customer_name:'',sale_amount:'',loan_amount:'0',file_charge:'',do_number:'',ledger_no:''});
+    setForm({sale_date:todayStr(),customer_name:'',sale_amount:'',loan_amount:'0',do_number:'',ledger_no:''});
   };
   const save=async(e)=>{
     e.preventDefault();setBusy(true);setError('');
     try{
-      const r=await post('/dealer/old-rickshaws/'+row.id+'/sale',form);
-      const cs=r?.chfpl_sync;
-      setNotice('Sale saved: '+(row.vehicle_reg_no||'Old Rickshaw')+' → '+form.customer_name+(cs&&!cs.ok?' (CHFPL sync pending — factory admin retry karega)':''));
+      await post('/billing/pending-sales/create',{
+        sale_category:'OLD',old_rickshaw_id:row.id,sp_no:row.sp_no||'',sale_date:form.sale_date,
+        customer_name:form.customer_name,sale_amount:Number(form.sale_amount||0),loan_amount:Number(form.loan_amount||0),
+        do_no:form.do_number||'',ledger_no:form.ledger_no||''
+      });
+      setNotice('Sale Pending Sales me bhej di gayi: '+(row.vehicle_reg_no||'Old Rickshaw')+' → '+form.customer_name+'. Approval ke baad Sold hogi.');
       setRow(null);
       await load();
       if(onSold)onSold();
@@ -537,7 +540,8 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
 
   const q=search.trim().toLowerCase();
   const list=rows.filter(v=>!q||[v.vehicle_reg_no,v.model_name,v.challan_no,v.sp_no,v.customer_name].join(' ').toLowerCase().includes(q));
-  const available=list.filter(v=>String(v.status||'').toLowerCase()==='available');
+  const available=list.filter(v=>String(v.status||'').toLowerCase()==='available'&&!v.pending_sale_id);
+  const pendingList=list.filter(v=>String(v.status||'').toLowerCase()==='available'&&v.pending_sale_id);
   const sold=list.filter(v=>String(v.status||'').toLowerCase()==='sold');
 
   return <div className="dealerPage">
@@ -565,6 +569,7 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
           <td><button type="button" className="btn primary" onClick={()=>openSale(v)}>Create Sale</button></td>
         </tr>)}</tbody>
       </table></div>}
+      {pendingList.length>0&&<div className="muted" style={{marginTop:12}}><b>Pending Sale (approval baaki):</b> {pendingList.map(v=>v.vehicle_reg_no||v.sp_no).filter(Boolean).join(', ')}</div>}
     </div>
 
     {sold.length>0&&<div className="dealerPanel">
@@ -586,23 +591,22 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
     {row&&<div className="modal"><form className="modalbox" onSubmit={save}>
       <h2>Create Old Rickshaw Sale</h2>
       {error&&<ErrorBanner message={error}/>}
+      <div className="muted" style={{marginBottom:8}}>Sale pehle Pending Sales me jayegi. Approval ke baad hi Sold hogi.</div>
       <div className="formgrid">
+        <Field label="SP No." value={row.sp_no||'—'} readOnly/>
+        <Field label="Sale Date" type="date" value={form.sale_date} onChange={v=>setF('sale_date',v)} required/>
+        <Field label="Customer Name" value={form.customer_name} onChange={v=>setF('customer_name',v)} required/>
+        <Field label="Sale Amount" type="number" value={form.sale_amount} onChange={v=>setF('sale_amount',v)} required/>
+        <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF('loan_amount',v)}/>
+        <Field label="Balance" type="number" value={balance} readOnly/>
+        <Field label="DO No." value={form.do_number} onChange={v=>setF('do_number',v)}/>
+        <Field label={Number(form.loan_amount||0)>0?'Ledger No. (loan) *':'Ledger No.'} value={form.ledger_no} onChange={v=>setF('ledger_no',v)} required={Number(form.loan_amount||0)>0}/>
         <Field label="Vehicle No." value={row.vehicle_reg_no||'—'} readOnly/>
         <Field label="Model" value={row.model_name||'—'} readOnly/>
-        <Field label="Challan No." value={row.challan_no||'—'} readOnly/>
-        <Field label="SP No." value={row.sp_no||'—'} readOnly/>
-        <Field label="Date of Sale" type="date" value={form.sale_date} onChange={v=>setF('sale_date',v)} required/>
-        <Field label="New Customer Name" value={form.customer_name} onChange={v=>setF('customer_name',v)} required/>
-        <Field label="Sale Amount" type="number" value={form.sale_amount} onChange={v=>setF('sale_amount',v)} required/>
-        <Field label="New Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF('loan_amount',v)}/>
-        <Field label="Balance" type="number" value={balance} readOnly/>
-        <Field label="File Charge" type="number" value={form.file_charge} onChange={v=>setF('file_charge',v)}/>
-        <Field label="DO No." value={form.do_number} onChange={v=>setF('do_number',v)}/>
-        {Number(form.loan_amount||0)>0&&<Field label="Ledger No. (loan)" value={form.ledger_no} onChange={v=>setF('ledger_no',v)} required/>}
       </div>
       <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
         <button type="button" className="btn" onClick={()=>setRow(null)}>Cancel</button>
-        <button className="btn primary" disabled={busy||!String(form.customer_name||'').trim()||!(Number(form.sale_amount||0)>0)||(Number(form.loan_amount||0)>0&&!String(form.ledger_no||'').trim())||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Create Sale'}</button>
+        <button className="btn primary" disabled={busy||!String(form.customer_name||'').trim()||!(Number(form.sale_amount||0)>0)||(Number(form.loan_amount||0)>0&&!String(form.ledger_no||'').trim())||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
       </div>
     </form></div>}
   </div>;
@@ -624,6 +628,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
   const [saleAmount,setSaleAmount]=useState('');
   const [loanAmount,setLoanAmount]=useState('0');
   const [doNo,setDoNo]=useState('');
+  const [ledgerNo,setLedgerNo]=useState('');
   const [remarks,setRemarks]=useState('');
   const [loading,setLoading]=useState(true);
   const [saving,setSaving]=useState(false);
@@ -653,7 +658,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
   const options=type==='new'
     ? vehicles.map(v=>({value:String(v.challan_id),label:[v.chassis_no,v.model_name||v.product_name,v.colour].filter(Boolean).join(' · ')||'New Rickshaw',raw:v}))
     : type==='old'
-    ? (oldStock?.rickshaws||[]).map(v=>({value:String(v.id),label:[v.model_name,v.battery_name,v.vehicle_reg_no].filter(Boolean).join(' · ')||'Old Rickshaw',raw:v}))
+    ? (oldStock?.rickshaws||[]).filter(v=>String(v.status||'').toLowerCase()==='available'&&!v.pending_sale_id).map(v=>({value:String(v.id),label:[v.model_name,v.battery_maker,v.vehicle_reg_no].filter(Boolean).join(' · ')||'Old Rickshaw',raw:v}))
     : [];
   const selected=options.find(o=>o.value===String(item))?.raw;
 
@@ -695,13 +700,14 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
     try{
       if(!(Number(saleAmount)>0))throw new Error('Booking me Sale Amount nahi hai. Pehle customer booking me Sale Amount bharo.');
       if(Number(loanAmount||0)>Number(saleAmount||0))throw new Error('Loan Amount Sale Amount se zyada nahi ho sakta.');
+      if(type==='old'&&Number(loanAmount||0)>0&&!ledgerNo.trim())throw new Error('Loan hai to Ledger No. zaroori hai.');
       let description,extra={};
       if(type==='new'){
         extra={vehicle_id:Number(selected.challan_id),delivery_challan_id:Number(selected.challan_id)};
         description='Internal Sale';
       }else if(type==='old'){
         description='Old Rickshaw · '+[selected.vehicle_reg_no,selected.model_name].filter(Boolean).join(' · ');
-        extra={vehicle_id:null,delivery_challan_id:null,vehicle_reg_no:selected.vehicle_reg_no||''};
+        extra={vehicle_id:null,delivery_challan_id:null,vehicle_reg_no:selected.vehicle_reg_no||'',old_rickshaw_id:Number(selected.id),sp_no:selected.sp_no||'',sale_date:new Date().toISOString().slice(0,10)};
       }else{
         const makers=[...new Set(pickedBatteries.map(b=>String(b.battery_maker||'').trim()).filter(Boolean))].join(' / ');
         description='Battery · '+[makers,'Qty '+qtyNum,pickedBatteries.map(b=>String(b.battery_no).trim()).join(', ')].filter(Boolean).join(' · ');
@@ -714,7 +720,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
         buyer_mobile:selectedCustomer.phone||'',customer_phone:selectedCustomer.phone||'',
         dealer_page_no:selectedCustomer.page_no||'',
         sale_amount:Number(saleAmount),loan_amount:Number(loanAmount||0),hypothecation_amount:Number(loanAmount||0),
-        amount_received:paid,do_no:doNo.trim()||'',
+        amount_received:paid,do_no:doNo.trim()||'',ledger_no:type==='old'?ledgerNo.trim():'',
         description,internal_sale_details:[description,remarks.trim()].filter(Boolean).join(' | '),
         ...extra
       });
@@ -793,6 +799,10 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
         <label>DO No. (Optional)
           <input className="input" value={doNo} onChange={e=>setDoNo(e.target.value)} placeholder="Enter DO No. (optional)" />
         </label>
+
+        {type==='old'&&<label>Ledger No.{Number(loanAmount||0)>0?' (loan ke liye zaroori)':' (Optional)'}
+          <input className="input" value={ledgerNo} onChange={e=>setLedgerNo(e.target.value)} placeholder="Enter Ledger No." disabled={!selectedCustomer} />
+        </label>}
 
         <label>Remarks (Optional)
           <input className="input" value={remarks} onChange={e=>setRemarks(e.target.value)} />

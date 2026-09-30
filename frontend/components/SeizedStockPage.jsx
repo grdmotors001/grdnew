@@ -29,7 +29,7 @@ export function SeizedStockPage({ scope = 'factory' }) {
   };
 
   // CHFPL is the source of truth: pull its latest HOLD / Available for Sale status first.
-  useEffect(() => { post('/inventory/old-rickshaw/sync-chfpl', {}).catch(() => {}).finally(load); }, [scope]);
+  useEffect(() => { load(); }, [scope]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [search]);
 
   const rows = data.rows || [];

@@ -27,7 +27,7 @@ import { RtoExpenseRegisterPage } from '../components/RtoExpenseRegisterPage';
 import { BankLedgerPage } from '../components/BankLedgerPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { VahanInventoryPage } from '../components/VahanInventoryPage';
-import { OldRickshawChallanPage } from '../components/OldRickshawChallanPage';
+import { OldRickshawChallanVoucherPage } from '../components/OldRickshawChallanVoucherPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { ShowroomStockPage } from '../components/ShowroomStockPage';
 import { CashHandoverApprovalPage } from '../components/CashHandoverApprovalPage';
@@ -105,7 +105,7 @@ const CUSTOM_PAGES = {
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
-  'old-rickshaw-challan': () => <OldRickshawChallanPage />,
+  'old-rickshaw-challan': () => <OldRickshawChallanVoucherPage />,
   'seized-stock': () => <SeizedStockPage scope="factory" />,
   'old-rickshaw-inventory': () => <OldRickshawInventoryPage />,
   'closing-stock-premises': () => <ClosingStockPremisesPage />,

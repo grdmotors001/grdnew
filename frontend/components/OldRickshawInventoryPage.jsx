@@ -27,12 +27,12 @@ export function OldRickshawInventoryPage(){
       await load();
     }catch(e){setError(e.message||'CHFPL sync failed.')}
   };
-  useEffect(()=>{syncChfpl(false)},[]);
+  // Page kholte par live CHFPL sync nahi hota (slow tha). Data webhook se aata hai; "Sync from CHFPL" button sirf manual backup hai.
   useEffect(()=>{load()},[filter]);
   useEffect(()=>{const t=setTimeout(load,250);return()=>clearTimeout(t)},[search]);
 
   const makeAvailable=async(id)=>{
-    if(!confirm('Vehicle ko Available for Sale karna hai? Iske baad Old Rickshaw Challan automatically generate hoga.'))return;
+    if(!confirm('Vehicle ko Available for Sale karna hai? Yeh sirf GRD Old Rickshaw Inventory me aayegi. Dealer stock me tab dikhegi jab Factory > Old Rickshaw Challan Voucher (dealer ke naam) ban jayega.'))return;
     setBusy(true);setError('');
     try{await post('/inventory/old-rickshaw/'+id+'/available',{});await load()}catch(e){setError(e.message||'Could not release vehicle.') }finally{setBusy(false)}
   };
@@ -40,11 +40,10 @@ export function OldRickshawInventoryPage(){
   const openSale=(r)=>{
     setSaleRow(r);
     setSale({
-      sale_date:r.date||today(),dealer_id:r.dealer_id||'',dealer_name:r.dealer_name||'',
-      sp_no:r.sp_no||'',challan_no:r.challan_no||'',customer_name:r.customer_name||'',
-      sale_amount:r.sale_amount||'',loan_amount:r.loan_amount||'0',
-      balance_amount:r.balance_amount||'',file_charge:r.file_charge||'',
-      do_number:r.do_number||'',ledger_no:r.ledger_no||''
+      sale_date:today(),dealer_id:r.dealer_id||'',dealer_name:r.dealer_name||'',
+      sp_no:r.sp_no||'',customer_name:'',
+      sale_amount:'',loan_amount:'0',balance_amount:'',
+      do_number:'',ledger_no:''
     });
   };
   const setSaleField=(k,v)=>setSale(x=>({...x,[k]:v}));
@@ -55,7 +54,15 @@ export function OldRickshawInventoryPage(){
 
   const saveSale=async(e)=>{
     e.preventDefault();setBusy(true);setError('');
-    try{const r=await post('/inventory/old-rickshaw/'+saleRow.id+'/sale',sale);setSaleRow(null);setNotice(r?.chfpl_sync&&!r.chfpl_sync.ok?'Sale save ho gayi, lekin CHFPL ko data nahi gaya: '+r.chfpl_sync.error+' (Sold row par Retry CHFPL Sync dabayein)':'Sale save ho gayi aur CHFPL ko data bhej diya gaya.');await load()}catch(e){setError(e.message||'Could not create Old Rickshaw sale.')}finally{setBusy(false)}
+    try{
+      await post('/billing/pending-sales/create',{
+        sale_category:'OLD',old_rickshaw_id:saleRow.old_rickshaw_id,dealer_id:saleRow.dealer_id||undefined,
+        sp_no:sale.sp_no,sale_date:sale.sale_date,customer_name:sale.customer_name,
+        sale_amount:Number(sale.sale_amount||0),loan_amount:Number(sale.loan_amount||0),
+        do_no:sale.do_number||'',ledger_no:sale.ledger_no||''
+      });
+      setSaleRow(null);setNotice('Sale Pending Sales me chali gayi. Billing approval ke baad gaadi Sold hogi aur sale data CHFPL ko jayega.');await load();
+    }catch(e){setError(e.message||'Could not create Old Rickshaw sale.')}finally{setBusy(false)}
   };
 
   const resync=async(id)=>{setBusy(true);setError('');setNotice('');try{await post('/inventory/old-rickshaw/'+id+'/resync-sale',{});setNotice('CHFPL ko sale data bhej diya gaya.');await load()}catch(e){setError(e.message||'CHFPL sync failed.')}finally{setBusy(false)}};
@@ -92,7 +99,9 @@ export function OldRickshawInventoryPage(){
           {r.status==='hold' && (String(r.source||'').toUpperCase()==='CHFPL'
             ? <span className="muted">CHFPL me Available for Sale karne par yahan apne aap aayegi</span>
             : <button className="btn primary" disabled={busy||!r.dealer_id} onClick={()=>makeAvailable(r.id)}>Available for Sale</button>)}
-          {r.status==='available' && <button className="btn primary" disabled={busy} onClick={()=>openSale(r)}>Create Sale</button>}
+          {r.status==='available' && !r.challan_no && <span className="muted">Challan Voucher baaki (Factory &gt; Old Rickshaw Challan Voucher)</span>}
+          {r.status==='available' && r.challan_no && r.pending_sale_id && <span className="muted"><b>PENDING SALE</b> · Billing approval baaki</span>}
+          {r.status==='available' && r.challan_no && !r.pending_sale_id && <button className="btn primary" disabled={busy} onClick={()=>openSale(r)}>Create Sale</button>}
           {r.status==='sold' && <span className="muted">{r.customer_name||'Sold'}{r.source==='CHFPL'&&(r.chfpl_sale_synced?' · CHFPL ✓':'')}</span>}
           {r.status==='sold' && r.source==='CHFPL' && !r.chfpl_sale_synced && <div><button className="btn" disabled={busy} title={r.chfpl_sale_sync_error||''} onClick={()=>resync(r.id)}>Retry CHFPL Sync</button></div>}
         </td>
@@ -101,24 +110,22 @@ export function OldRickshawInventoryPage(){
 
     {saleRow&&<div className="modal"><form className="modalbox" onSubmit={saveSale}>
       <h2>Create Old Rickshaw Sale</h2><ErrorBanner message={error}/>
+      <div className="muted" style={{marginBottom:8}}>Sale pehle Pending Sales me jayegi. Approval ke baad hi Sold hogi.</div>
       <div className="formgrid">
         <Field label="SP No." value={sale.sp_no||'—'} readOnly/>
-        <Field label="Challan No." value={sale.challan_no||'—'} readOnly/>
-        <Field label="Date of Sale" type="date" value={sale.sale_date} onChange={v=>setSaleField('sale_date',v)} required/>
-        <Field label="Dealer" value={sale.dealer_name||'—'} readOnly/>
-        <Field label="Vehicle No." value={saleRow.vehicle_no||saleRow.vehicle_reg_no||'—'} readOnly/>
-        <Field label="Battery Make" value={saleRow.battery_maker||'—'} readOnly/>
-        <Field label="New Customer Name" value={sale.customer_name} onChange={v=>setSaleField('customer_name',v)} required/>
+        <Field label="Sale Date" type="date" value={sale.sale_date} onChange={v=>setSaleField('sale_date',v)} required/>
+        <Field label="Customer Name" value={sale.customer_name} onChange={v=>setSaleField('customer_name',v)} required/>
         <Field label="Sale Amount" type="number" value={sale.sale_amount} onChange={v=>setSaleField('sale_amount',v)} required/>
-        <Field label="New Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSaleField('loan_amount',v)}/>
+        <Field label="Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSaleField('loan_amount',v)}/>
         <Field label="Balance" type="number" value={sale.balance_amount} readOnly/>
-        <Field label="File Charge" type="number" value={sale.file_charge} onChange={v=>setSaleField('file_charge',v)}/>
         <Field label="DO No." value={sale.do_number} onChange={v=>setSaleField('do_number',v)}/>
-        {Number(sale.loan_amount||0)>0&&<Field label="Ledger No. (loan)" value={sale.ledger_no} onChange={v=>setSaleField('ledger_no',v)} required/>}
+        <Field label={Number(sale.loan_amount||0)>0?'Ledger No. (loan) *':'Ledger No.'} value={sale.ledger_no} onChange={v=>setSaleField('ledger_no',v)} required={Number(sale.loan_amount||0)>0}/>
+        <Field label="Vehicle No." value={saleRow.vehicle_no||saleRow.vehicle_reg_no||'—'} readOnly/>
+        <Field label="Dealer" value={sale.dealer_name||'—'} readOnly/>
       </div>
       <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
         <button type="button" className="btn" onClick={()=>setSaleRow(null)}>Cancel</button>
-        <button className="btn primary" disabled={busy||!sale.customer_name||(Number(sale.loan_amount||0)>0&&!String(sale.ledger_no||'').trim())||Number(sale.loan_amount||0)>Number(sale.sale_amount||0)}>{busy?'Saving…':'Create Sale'}</button>
+        <button className="btn primary" disabled={busy||!sale.customer_name||!(Number(sale.sale_amount||0)>0)||(Number(sale.loan_amount||0)>0&&!String(sale.ledger_no||'').trim())||Number(sale.loan_amount||0)>Number(sale.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
       </div>
     </form></div>}
   </div>;
