@@ -198,7 +198,7 @@ export function OptionSettingPage({ userId }) {
       const user = d?.user || { id: userId, username: '', is_super_user: false };
       const keys = Array.isArray(d?.selected_keys) ? d.selected_keys : (Array.isArray(d?.modules) ? d.modules : []);
       setData({ ...d, user });
-      get(`/users/${userId}/action-permissions`).then(x => { const map={}; (x.permissions||x.rows||[]).forEach(r=>{map[r.module_key]={view:!!r.can_view,create:!!r.can_create,edit:!!r.can_edit,delete:!!r.can_delete,approve:!!r.can_approve};}); setActionPerms(map); }).catch(()=>{});
+      get(`/users/${userId}/action-permissions`).then(x => { const map={}; (x.permissions||x.rows||[]).forEach(r=>{map[r.module_key]={view:!!r.can_view,create:!!r.can_create,edit:!!r.can_edit,delete:!!r.can_delete,approve:!!r.can_approve,download:!!r.can_download,backup:!!r.can_backup};}); setActionPerms(map); }).catch(()=>{});
       // Kuch set na ho to us department ke default modules dikhao (Save karne par hi lagu honge).
       const defaults = DEPARTMENT_DEFAULT_MODULES[user.department] || [];
       setSelected(keys.length ? keys : defaults);
@@ -230,7 +230,7 @@ export function OptionSettingPage({ userId }) {
     setSelected((s) => allOn ? s.filter((k) => !keys.includes(k)) : Array.from(new Set([...s, ...keys])));
   };
 
-  const save = () => run(async () => { await post(`/users/${userId}/option-setting`, { modules: selected }); await post(`/users/${userId}/action-permissions`, { permissions: Object.entries(actionPerms).map(([module_key,v]) => ({module_key,can_view:!!v.view,can_create:!!v.create,can_edit:!!v.edit,can_delete:!!v.delete,can_approve:!!v.approve})) }); });
+  const save = () => run(async () => { await post(`/users/${userId}/option-setting`, { modules: selected }); await post(`/users/${userId}/action-permissions`, { permissions: Object.entries(actionPerms).map(([module_key,v]) => ({module_key,can_view:!!v.view,can_create:!!v.create,can_edit:!!v.edit,can_delete:!!v.delete,can_approve:!!v.approve,can_download:!!v.download,can_backup:!!v.backup})) }); });
 
   const totalModules = Object.values(MENU).reduce((n, items) => n + items.length, 0);
 
@@ -298,10 +298,10 @@ export function OptionSettingPage({ userId }) {
             );
           })}
           <div className="permGroup">
-            <div className="permGroupHead"><h4>Action Rights</h4><div className="permGroupMeta"><span>View / Create / Edit / Delete / Approve</span></div></div>
+            <div className="permGroupHead"><h4>Action Rights</h4><div className="permGroupMeta"><span>View / Create / Edit / Delete / Approve / Download / Backup</span></div></div>
             <div className="tablewrap">
-              <table className="table"><thead><tr><th>Module</th><th>View</th><th>Create</th><th>Edit</th><th>Delete</th><th>Approve</th></tr></thead><tbody>
-                {Object.entries(MENU).flatMap(([group,items])=>items.map(([key,label])=>{ const v=actionPerms[key]||{}; const set=(a,val)=>setActionPerms(m=>({...m,[key]:{...(m[key]||{}),[a]:val}})); return <tr key={key}><td>{label}</td>{['view','create','edit','delete','approve'].map(a=><td key={a}><input type="checkbox" checked={!!v[a]} onChange={e=>set(a,e.target.checked)}/></td>)}</tr>; }))}
+              <table className="table"><thead><tr><th>Module</th><th>View</th><th>Create</th><th>Edit</th><th>Delete</th><th>Approve</th><th>Download</th><th>Backup</th></tr></thead><tbody>
+                {Object.entries(MENU).flatMap(([group,items])=>items.map(([key,label])=>{ const v=actionPerms[key]||{}; const set=(a,val)=>setActionPerms(m=>({...m,[key]:{...(m[key]||{}),[a]:val}})); return <tr key={key}><td>{label}</td>{['view','create','edit','delete','approve','download'].map(a=><td key={a}><input type="checkbox" checked={!!v[a]} onChange={e=>set(a,e.target.checked)}/></td>)}<td>{key==='backup-restore'?<input type="checkbox" checked={!!v.backup} onChange={e=>set('backup',e.target.checked)}/>:<span className="muted">—</span>}</td></tr>; }))}
               </tbody></table>
             </div>
           </div>

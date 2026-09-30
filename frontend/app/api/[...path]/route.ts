@@ -292,6 +292,13 @@ function ensureSecuritySchema():Promise<void>{
       can_edit boolean NOT NULL DEFAULT false, can_delete boolean NOT NULL DEFAULT false, can_approve boolean NOT NULL DEFAULT false,
       UNIQUE(user_id,module_key)
     )`);
+    await pool.query(`DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='user_action_permission' AND column_name='can_download') THEN
+        ALTER TABLE user_action_permission ADD COLUMN can_download boolean NOT NULL DEFAULT false;
+        UPDATE user_action_permission SET can_download=can_view;
+      END IF;
+    END $$`);
+    await pool.query("ALTER TABLE user_action_permission ADD COLUMN IF NOT EXISTS can_backup boolean NOT NULL DEFAULT false");
     await pool.query(`CREATE TABLE IF NOT EXISTS audit_log (
       id bigserial PRIMARY KEY, user_id bigint, username text, department text, module_key text, action text NOT NULL,
       record_id text, record_ref text, old_value jsonb, new_value jsonb, dealer_id bigint, created_at timestamptz NOT NULL DEFAULT now()
@@ -351,7 +358,7 @@ async function actionAllowed(a:any,moduleKey:string,action:string){
   await ensureSecuritySchema();
   const segs=String(moduleKey||'').split('/').filter(Boolean),clean=segs.filter(x=>!/^\d+$/.test(x));
   const keys=[...new Set([moduleKey,clean.join('/'),clean.slice(0,2).join('/'),clean[0],moduleAlias(String(clean[0]||''))].filter(Boolean))];
-  const r=await pool.query('SELECT module_key,can_view,can_create,can_edit,can_delete,can_approve FROM user_action_permission WHERE user_id=$1 AND module_key=ANY($2::text[])',[idOf(a?.sub),keys]);
+  const r=await pool.query('SELECT module_key,can_view,can_create,can_edit,can_delete,can_approve,can_download,can_backup FROM user_action_permission WHERE user_id=$1 AND module_key=ANY($2::text[])',[idOf(a?.sub),keys]);
   if(r.rowCount){const row=keys.map(k=>r.rows.find((x:any)=>x.module_key===k)).find(Boolean); return Boolean(row['can_'+action]);}
   const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||'').split(',').map((x:string)=>x.trim()).filter(Boolean);
   const parts=String(moduleKey||'').split('/').filter(Boolean); const candidates=[moduleKey,...parts,...parts.map(moduleAlias),parts.at(-1),String(parts.at(-1)||'').replace(/s$/,'')].filter(Boolean);
@@ -1836,6 +1843,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="auth/me");
     if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     if(!baselineRead&&!(await actionAllowed(a,p,"view")))return Response.json({error:"Forbidden."},{status:403});
+    // Download right: CSV exports and *export / *download endpoints need can_download on that module.
+    if(String(new URL(req.url).searchParams.get("export")||"").toLowerCase()==="csv"||p.endsWith("/export")||p.includes("/download")){
+      if(!(await actionAllowed(a,p,"download")))return Response.json({error:"Download permission required."},{status:403});
+    }
     if(p==="expense-payment-voucher"||p.startsWith("expense-payment-voucher/")){const evr=await expenseVoucherGet(req,path,a);if(evr)return evr;}
     if(p==="audit-report"){
       if(!isAdmin(a)) return Response.json({error:"Admin access required."},{status:403});
@@ -4769,6 +4780,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       },{status:201});
     }
     if(p==="billing/vehicle-inventory/download-txt"){
+      if(!(await actionAllowed(a,p,"download")))return Response.json({error:"Download permission required."},{status:403});
       const ids=Array.isArray(b.invoice_ids)?b.invoice_ids.map((x:any)=>idOf(x)).filter(Boolean):[];
       if(!ids.length)return new Response("No invoices selected.",{status:400,headers:{"Content-Type":"text/plain;charset=utf-8"}});
       const r=await pool.query("SELECT ti.date,ti.buyer_name,COALESCE(v.model_name,ti.product_name,'') AS model_name,v.chassis_no,v.motor_no,COALESCE(to_jsonb(v)->>'umrn','') AS umrn,COALESCE(to_jsonb(v)->>'manufacturing_month','') AS manufacturing_month,COALESCE(COALESCE(to_jsonb(v)->>'colour_code','') AS colour_code,'') AS colour_code FROM tax_invoice ti LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=ANY($1::int[]) ORDER BY ti.date,ti.id",[ids]);
@@ -4803,7 +4815,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     }
     if(p.startsWith('users/') && p.endsWith('/action-permissions')){
       const uid=idOf(path[path.length-2]); if(!uid)return Response.json({error:'User id required.'},{status:400});
-      const permissions=Array.isArray(b.permissions)?b.permissions:[]; const oldPerm=(await pool.query('SELECT module_key,can_view,can_create,can_edit,can_delete,can_approve FROM user_action_permission WHERE user_id=$1 ORDER BY module_key',[uid])).rows; for(const x of permissions){const m=String(x.module_key||'').trim();if(!m)continue;await pool.query(`INSERT INTO user_action_permission(user_id,module_key,can_view,can_create,can_edit,can_delete,can_approve) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(user_id,module_key) DO UPDATE SET can_view=EXCLUDED.can_view,can_create=EXCLUDED.can_create,can_edit=EXCLUDED.can_edit,can_delete=EXCLUDED.can_delete,can_approve=EXCLUDED.can_approve`,[uid,m,!!x.can_view,!!x.can_create,!!x.can_edit,!!x.can_delete,!!x.can_approve]);} await audit(a,'user-permissions','edit',uid,oldPerm,permissions,null,'user #'+uid); return Response.json({success:true});
+      const permissions=Array.isArray(b.permissions)?b.permissions:[]; const oldPerm=(await pool.query('SELECT module_key,can_view,can_create,can_edit,can_delete,can_approve,can_download,can_backup FROM user_action_permission WHERE user_id=$1 ORDER BY module_key',[uid])).rows; for(const x of permissions){const m=String(x.module_key||'').trim();if(!m)continue;await pool.query(`INSERT INTO user_action_permission(user_id,module_key,can_view,can_create,can_edit,can_delete,can_approve,can_download,can_backup) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(user_id,module_key) DO UPDATE SET can_view=EXCLUDED.can_view,can_create=EXCLUDED.can_create,can_edit=EXCLUDED.can_edit,can_delete=EXCLUDED.can_delete,can_approve=EXCLUDED.can_approve,can_download=EXCLUDED.can_download,can_backup=EXCLUDED.can_backup`,[uid,m,!!x.can_view,!!x.can_create,!!x.can_edit,!!x.can_delete,!!x.can_approve,!!x.can_download,!!x.can_backup]);} await audit(a,'user-permissions','edit',uid,oldPerm,permissions,null,'user #'+uid); return Response.json({success:true});
     }
     // User Master: reset password + save Module Access (Permissions). Must live in POST (was mistakenly inside GET -> fell to genericWrite -> "No valid fields supplied.").
     if(p.startsWith("users/") && p.endsWith("/password")){

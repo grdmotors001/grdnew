@@ -14,7 +14,7 @@ export function BackupRestorePage({ user }) {
     setBusy(true);
     setMessage(null);
     try {
-      const filename = `grd-backup-\${new Date().toISOString().slice(0, 10)}.json`;
+      const filename = `grd-backup-${new Date().toISOString().slice(0, 10)}.json`;
       await downloadText('/backup', filename);
       setMessage({ type: 'ok', text: 'Backup downloaded: ' + filename });
     } catch (e) {
@@ -53,7 +53,7 @@ export function BackupRestorePage({ user }) {
     }
   };
 
-  if (!isAdmin) {
+  if (false) {
     return (
       <div className="panel">
         <h3>Backup / Restore</h3>
@@ -74,9 +74,11 @@ export function BackupRestorePage({ user }) {
         <button className="btn primary" disabled={busy} onClick={runBackup}>
           {busy ? 'Working…' : 'Download Backup'}
         </button>
-        <button className="btn" disabled={busy} onClick={pickFile}>
-          {busy ? 'Working…' : 'Restore from Backup File'}
-        </button>
+        {isAdmin && (
+          <button className="btn" disabled={busy} onClick={pickFile}>
+            {busy ? 'Working…' : 'Restore from Backup File'}
+          </button>
+        )}
         <input
           ref={fileRef}
           type="file"
