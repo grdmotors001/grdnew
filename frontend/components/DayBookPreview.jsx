@@ -1,10 +1,34 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatDate } from '../lib/date';
 
 const money = v => Number(v || 0).toLocaleString('en-IN',{maximumFractionDigits:2});
 const isoToday = () => new Date().toISOString().slice(0,10);
+
+export function Pagination({page,pageSize,total,onPage,onPageSize,sizes=[25,50,100,200]}){
+  const pages=Math.max(1,Math.ceil(total/pageSize));
+  const cur=Math.min(page,pages);
+  const from=total?(cur-1)*pageSize+1:0;
+  const to=Math.min(total,cur*pageSize);
+  const btn={height:32,minWidth:32,border:'1px solid #d7e0ec',borderRadius:8,background:'#fff',color:'#12305d',fontWeight:700,cursor:'pointer',padding:'0 10px'};
+  const dis={...btn,opacity:.45,cursor:'not-allowed'};
+  return <div className="grdPager" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap',padding:'10px 14px',fontSize:12,color:'#4a5d78'}}>
+    <span>Showing <b>{from}–{to}</b> of <b>{total}</b> entries</span>
+    <span style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+      <label>Rows&nbsp;
+        <select value={pageSize} onChange={e=>onPageSize(Number(e.target.value))} style={{height:32,border:'1px solid #d7e0ec',borderRadius:8,padding:'0 6px'}}>
+          {sizes.map(n=><option key={n} value={n}>{n}</option>)}
+        </select>
+      </label>
+      <button type="button" style={cur<=1?dis:btn} disabled={cur<=1} onClick={()=>onPage(1)}>«</button>
+      <button type="button" style={cur<=1?dis:btn} disabled={cur<=1} onClick={()=>onPage(cur-1)}>‹ Prev</button>
+      <span>Page <b>{cur}</b> / {pages}</span>
+      <button type="button" style={cur>=pages?dis:btn} disabled={cur>=pages} onClick={()=>onPage(cur+1)}>Next ›</button>
+      <button type="button" style={cur>=pages?dis:btn} disabled={cur>=pages} onClick={()=>onPage(pages)}>»</button>
+    </span>
+  </div>;
+}
 
 export function DayBookPreview({
   date=isoToday(),
@@ -16,10 +40,14 @@ export function DayBookPreview({
   onDateChange,
   onPrev,
   onNext,
+  onShowAll,
   onPrint,
   onExport,
 }) {
   const [search,setSearch]=useState('');
+  const [page,setPage]=useState(1);
+  const [pageSize,setPageSize]=useState(50);
+  const allMode=!date;
   const q=search.trim().toLowerCase();
   const match=x=>!q || [x.no,x.particulars,x.folio].join(' ').toLowerCase().includes(q);
   const rs=useMemo(()=>receipts.filter(match),[receipts,q]);
@@ -31,7 +59,7 @@ export function DayBookPreview({
     const combined=[
       ...rs.map(x=>({...x,type:'DEBIT',debit:Number(x.amount||0),credit:0})),
       ...ps.map(x=>({...x,type:'CREDIT',debit:0,credit:Number(x.amount||0)})),
-    ].sort((a,b)=>String(a.date||date).localeCompare(String(b.date||date)) || String(a.no||'').localeCompare(String(b.no||'')));
+    ].sort((a,b)=>String(a.date||date).localeCompare(String(b.date||date)) || String(a.no||'').localeCompare(String(b.no||''),undefined,{numeric:true}));
     let running=Number(openingBalance||0);
     return combined.map(x=>{
       const rowOpening=running;
@@ -40,7 +68,9 @@ export function DayBookPreview({
     });
   },[rs,ps,openingBalance,date]);
 
-  const dateLabel=formatDate(date);
+  useEffect(()=>{setPage(1)},[q,date,pageSize,receipts.length,payments.length]);
+  const pageRows=useMemo(()=>rows.slice((page-1)*pageSize,page*pageSize),[rows,page,pageSize]);
+  const dateLabel=allMode?'All Dates':formatDate(date);
   const dayShift=d=>{const x=new Date((d||isoToday())+'T00:00:00');x.setDate(x.getDate()+1);return x.toISOString().slice(0,10)};
   const dayBack=d=>{const x=new Date((d||isoToday())+'T00:00:00');x.setDate(x.getDate()-1);return x.toISOString().slice(0,10)};
 
@@ -74,13 +104,14 @@ export function DayBookPreview({
         .grdCashSummary{grid-template-columns:1fr 1fr;gap:7px}.grdCashSummaryCard{padding:10px}.grdCashSummaryCard strong{font-size:17px}
         .grdCashLedgerTable{min-width:700px}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:8px 6px;font-size:10px}
       }
-      @media print{.grdDayBook{box-shadow:none;border:0;padding:0}.grdDayBookActions{display:none}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:6px;font-size:9px}}
+      @media print{.grdPager{display:none!important}.grdDayBook{box-shadow:none;border:0;padding:0}.grdDayBookActions{display:none}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:6px;font-size:9px}}
     `}</style>
 
     <div className="grdDayBookTop">
       <div className="grdDayBookTitle"><div className="grdDayBookIcon">📖</div><div><h2>Cash / Day Book</h2><p>G.R.D. MOTORS · {dealerLabel}</p></div></div>
       <div className="grdDayBookActions">
         <div className="grdDayBookDate">📅 <input aria-label="Select date" type="date" value={date} onChange={e=>onDateChange?onDateChange(e.target.value):null}/></div>
+        {onShowAll&&<button className={'grdDayBookBtn'+(allMode?' primary':'')} onClick={onShowAll}>All Entries</button>}
         <button className="grdDayBookBtn" onClick={()=>onPrev?onPrev():onDateChange?.(dayBack(date))}>‹ Previous Day</button>
         <button className="grdDayBookBtn" onClick={()=>onNext?onNext():onDateChange?.(dayShift(date))}>Next Day ›</button>
         <input className="grdDayBookSearch" placeholder="Search" value={search} onChange={e=>setSearch(e.target.value)}/>
@@ -107,25 +138,26 @@ export function DayBookPreview({
           <th>Running Balance</th>
         </tr></thead>
         <tbody>
-          <tr>
+          {page===1&&<tr>
             <td>{dateLabel}</td>
             <td><b>Opening Balance</b></td>
             <td>{money(openingBalance)}</td>
             <td>—</td>
             <td>—</td>
             <td className="running">{money(openingBalance)}</td>
-          </tr>
-          {rows.map((row,i)=><tr key={row.id||row.no||i}>
-            <td>{formatDate(row.date||date)}</td>
+          </tr>}
+          {pageRows.map((row,i)=><tr key={row.id||row.no||i}>
+            <td>{formatDate(row.date||date||'')}</td>
             <td>{row.particulars||'—'}{row.no && <div style={{fontSize:10,color:'#728096',marginTop:2}}>{row.type==='DEBIT'?'Receipt':'Voucher'}: {row.no}{row.folio ? ' · Page '+row.folio : ''}</div>}</td>
             <td>{money(row.rowOpening)}</td>
             <td className="debit">{row.debit ? money(row.debit) : '—'}</td>
             <td className="credit">{row.credit ? money(row.credit) : '—'}</td>
             <td className="running">{money(row.running)}</td>
           </tr>)}
-          {!rows.length && <tr className="grdCashLedgerEmpty"><td colSpan="6">No cash transactions for this date.</td></tr>}
+          {!rows.length && <tr className="grdCashLedgerEmpty"><td colSpan="6">{allMode?'No cash transactions found.':'No cash transactions for this date.'}</td></tr>}
         </tbody>
       </table>
+      <Pagination page={page} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={setPageSize}/>
       <div className="grdCashLedgerFooter">
         <span>Debit ₹{money(totalReceipts)}</span>
         <span>Credit ₹{money(totalPayments)}</span>

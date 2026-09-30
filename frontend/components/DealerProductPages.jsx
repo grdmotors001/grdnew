@@ -107,6 +107,8 @@ export function DealerPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({});
+  const [subGroups, setSubGroups] = useState([{ name: 'Primary' }]);
+  const [newSubGroup, setNewSubGroup] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => Promise.all([get('/dealers'), get('/masters/salesman')]).then(([d, sm]) => {
@@ -116,6 +118,11 @@ export function DealerPage() {
   })
     .catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    get('/sub-groups')
+      .then((d) => setSubGroups(d.sub_groups || d.rows || [{ name: 'Primary' }]))
+      .catch(() => {});
+  }, []);
 
   const filteredDealers = dealers.filter((d) => {
  const q = search.trim().toLowerCase();
@@ -123,7 +130,7 @@ export function DealerPage() {
  return [d.code, d.name, d.mobile, d.gst_no, d.login_id].join(' ').toLowerCase().includes(q);
  });
 
- const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07', registration_type: 'registered' }); setOpen(true); };
+ const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07', registration_type: 'registered', sub_group_name: 'Primary' }); setOpen(true); };
   const openEdit = (d) => { setEditingId(d.id); setForm({ ...d }); setOpen(true); };
 
   const save = (e) => {
@@ -173,7 +180,7 @@ export function DealerPage() {
             <div className="formgrid">
               <Field label="Dealer Code" value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
               <Field label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
-              <Field label="Sub Group" type="select" value={form.sub_group_name || 'Primary'} onChange={(v) => setForm({ ...form, sub_group_name: v })} options={subGroups.map(g => ({value:g.name,label:g.name}))} />
+              <Field label="Sub Group" type="select" value={form.sub_group_name || 'Primary'} onChange={(v) => setForm({ ...form, sub_group_name: v })} options={[{ value: 'Primary', label: 'Primary' }, ...subGroups.filter((g) => g.name !== 'Primary').map((g) => ({ value: g.name, label: g.name }))]} />
               <div style={{gridColumn:'1 / -1',display:'flex',gap:8,alignItems:'center'}}>
                 <input className="input" placeholder="New Sub Group" value={newSubGroup} onChange={e=>setNewSubGroup(e.target.value)} style={{maxWidth:220}} />
                 <button type="button" className="btn" onClick={async()=>{const n=newSubGroup.trim();if(!n)return;await post('/sub-groups',{name:n});setNewSubGroup('');const d=await get('/sub-groups');setSubGroups(d.sub_groups||d.rows||[]);setForm(f=>({...f,sub_group_name:n}));}}>+ Add Sub Group</button>
@@ -287,10 +294,15 @@ export function ProductPage() {
     if (search.trim()) params.set('search', search.trim());
     get(`/products?${params}`).then((d) => { setRows(d.products || []); setMeta(d); }).catch((e) => setError(e.message));
   };
-  useEffect(() => { get('/sub-groups').then(d => setSubGroups(d.sub_groups || d.rows || [{name:'Primary'}])).catch(()=>{});
+  useEffect(() => {
+    get('/sub-groups').then((d) => setSubGroups(d.sub_groups || d.rows || [{ name: 'Primary' }])).catch(() => {});
+  }, []);
+  useEffect(() => {
     const t = setTimeout(() => { setPage(1); load(1); }, 250);
     return () => clearTimeout(t);
   }, [typeFilter, search]);
+
+  const goPage = (p) => { setPage(p); load(p); };
 
   const filtered = rows;
 
@@ -362,12 +374,12 @@ export function ProductPage() {
               {filtered.map((p) => (
                 <tr key={p.id}>
                   <td>{p.code}</td>
-                  <td>{p.sub_group_name || 'Primary'}</td>
                   <td>
                     <a onClick={() => openEdit(p)} style={{ color: 'var(--accent)', cursor: 'pointer' }}>
                       {p.name}
                     </a>
                   </td>
+                  <td>{p.sub_group_name || 'Primary'}</td>
                   <td>{String(p.category || p.product_category || '').toUpperCase() === 'DISPATCH' ? 'Dispatch' : String(p.category || p.product_category || '').toUpperCase() === 'FINISHED' ? 'Finished' : 'Raw Material'}</td>
                   <td>{p.unit}</td><td>{p.gst_rate}</td><td>{p.hsn_code}</td><td>{p.chassis_item_code}</td>
                   <td><LogoStatusCell umrnCode={p.umrn_code} fro={p.fro} /></td>
@@ -375,6 +387,13 @@ export function ProductPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {meta && (meta.total_pages || 1) > 1 && (
+        <div className="actions" style={{ marginTop: 12, alignItems: 'center' }}>
+          <button className="btn" disabled={page <= 1} onClick={() => goPage(page - 1)}>← Prev</button>
+          <span className="muted">Page {page} of {meta.total_pages} ({meta.total} products)</span>
+          <button className="btn" disabled={page >= meta.total_pages} onClick={() => goPage(page + 1)}>Next →</button>
         </div>
       )}
       {open && (

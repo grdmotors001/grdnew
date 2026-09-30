@@ -59,7 +59,7 @@ export async function GET(req:Request){
       "LEFT JOIN delivery_challan dc ON dc.id=ti.delivery_challan_id "+
       "LEFT JOIN vehicle v ON v.id=ti.vehicle_id "+
       "LEFT JOIN dealer d ON d.id=ti.dealer_id "+
-      "LEFT JOIN LATERAL (SELECT * FROM loan_workflow z WHERE lower(trim(COALESCE(z.customer_name,'')))=lower(trim(COALESCE(ti.buyer_name,''))) AND (ti.dealer_id IS NULL OR z.dealer_id=ti.dealer_id) ORDER BY z.id DESC LIMIT 1) lw ON true "+
+      "LEFT JOIN LATERAL (SELECT z.* FROM loan_workflow z LEFT JOIN customer zc ON zc.id=z.customer_id WHERE (CASE WHEN COALESCE(to_jsonb(ti)->>'customer_id','') ~ '^[0-9]+$' THEN z.customer_id=(to_jsonb(ti)->>'customer_id')::bigint ELSE lower(trim(COALESCE(zc.full_name,'')))=lower(trim(COALESCE(ti.buyer_name,''))) END) AND (ti.dealer_id IS NULL OR z.dealer_id=ti.dealer_id) ORDER BY z.id DESC LIMIT 1) lw ON true "+
       "LEFT JOIN LATERAL (SELECT * FROM customer z WHERE z.id=CASE WHEN COALESCE(to_jsonb(ti)->>'customer_id','') ~ '^[0-9]+$' THEN (to_jsonb(ti)->>'customer_id')::bigint ELSE NULL END LIMIT 1) c ON true "+
       "WHERE "+where.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC";
 

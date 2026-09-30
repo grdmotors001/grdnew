@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post, put, del, downloadExcel } from '../lib/api';
-import { EmptyState, ErrorBanner, Field, Money } from './ui';
+import { EmptyState, ErrorBanner, Field, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { DeliveryChallanPrintView } from './PrintDocs';
-import { DayBookPreview } from './DayBookPreview';
+import { DayBookPreview, Pagination } from './DayBookPreview';
 
 function useReport(path, extraParams = {}) {
   const [from, setFrom] = useState('');
@@ -26,7 +26,7 @@ function useReport(path, extraParams = {}) {
 
 // Export Excel ke liye current filters ka query string (backend export=csv me pagination ignore karta hai).
 const qs = (r) => {
-  const { page, per_page, ...rest } = r.extra || {};
+  const { page, per_page, _r, ...rest } = r.extra || {};
   return '?' + new URLSearchParams({
     ...(r.from ? { from: r.from } : {}), ...(r.to ? { to: r.to } : {}), ...(r.search ? { search: r.search } : {}), ...rest,
   });
@@ -511,22 +511,176 @@ export function GstRegisterPage() {
   );
 }
 
+const localToday = () => {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+const emptyReceipt = () => ({ receipt_date: localToday(), financer_name: '', amount: '', cheque_no: '', chassis_no: '', vehicle_no: '', received_in: '' });
+
 export function HypothecationRegisterPage() {
   const r = useReport('/reports/hypothecation-register');
+  const [receipts, setReceipts] = useState([]);
+  const [rcSearch, setRcSearch] = useState('');
+  const [rcError, setRcError] = useState('');
+  const [financers, setFinancers] = useState([]);
+  const [banks, setBanks] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(emptyReceipt());
+  const [found, setFound] = useState(null);
+  const [lookupMsg, setLookupMsg] = useState('');
+  const [notice, setNotice] = useState([]);
+  const { busy, error, setError, run } = useAsyncAction();
+
+  const loadReceipts = () => get(`/hypothecation-receipts?${new URLSearchParams(rcSearch ? { search: rcSearch } : {})}`)
+    .then((d) => { setReceipts(d.receipts || d.rows || []); setRcError(''); })
+    .catch((e) => setRcError(e.message));
+  useEffect(() => { loadReceipts(); }, [rcSearch]);
+  useEffect(() => {
+    get('/masters/financer').then((d) => {
+      const list = Array.isArray(d) ? d : (d?.masters || d?.rows || d?.data || d?.items || []);
+      setFinancers(list.map((x) => x.name || x.value || x.label || '').filter(Boolean));
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    get('/masters/bank').then((d) => {
+      const list = Array.isArray(d) ? d : (d?.masters || d?.rows || d?.data || d?.items || []);
+      setBanks(list.map((x) => ({ name: x.name || x.value || x.label || '', acc: x.account_no || '' })).filter((x) => x.name));
+    }).catch(() => {});
+  }, []);
+
+  const refresh = () => { loadReceipts(); r.setExtra({ ...r.extra, _r: Date.now() }); };
+
+  // Chassis No. (ya Vehicle No.) se bill dhundhta hai; vehicle no. / financer khud bhar deta hai.
+  const lookup = async (by, value) => {
+    const v = String(value || '').trim();
+    if (!v) { setFound(null); setLookupMsg(''); return; }
+    try {
+      const d = await get(`/hypothecation-receipts/lookup?${new URLSearchParams({ [by]: v })}`);
+      if (!d.found) { setFound(null); setLookupMsg('Is Chassis / Vehicle No. ka koi bill nahi mila.'); return; }
+      const inv = d.invoice;
+      if (!inv.has_loan) { setFound(null); setLookupMsg('Is bill par loan (hypothecation) nahi hai.'); return; }
+      setFound(inv);
+      setLookupMsg('');
+      setForm((f) => ({ ...f, chassis_no: inv.chassis_no || f.chassis_no, vehicle_no: inv.vehicle_no || f.vehicle_no, financer_name: f.financer_name || inv.financer_name || '' }));
+    } catch (e) { setFound(null); setLookupMsg(e.message); }
+  };
+
+  const openNew = (inv) => {
+    setError(''); setLookupMsg(''); setFound(null);
+    setForm({ ...emptyReceipt(), ...(inv ? { chassis_no: inv.chassis_no || '', financer_name: inv.financer_name || '', vehicle_no: inv.vehicle_no || '' } : {}) });
+    setOpen(true);
+    if (inv && inv.chassis_no) lookup('chassis_no', inv.chassis_no);
+  };
+
+  const save = (e) => {
+    e.preventDefault();
+    run(async () => {
+      const isCash = form.received_in === 'CASH';
+      const d = await post('/hypothecation-receipts', { ...form, pay_mode: isCash ? 'cash' : 'bank', bank_name: isCash ? '' : form.received_in });
+      setNotice(d.warnings || []);
+      setOpen(false); setFound(null); setForm(emptyReceipt());
+      refresh();
+    }).catch(() => {});
+  };
+
+  const removeReceipt = (id) => {
+    if (!confirm('Ye receipt delete karni hai?')) return;
+    del(`/hypothecation-receipts/${id}`).then(refresh).catch((e) => setRcError(e.message));
+  };
+
   if (r.error) return <ErrorBanner message={r.error} />;
   if (!r.data) return <div className="card">Loading…</div>;
+  const chassisOptions = r.data.invoices.filter((i) => i.chassis_no && Number(i.balance_amount) > 0).map((i) => i.chassis_no);
+
   return (
     <>
       <FilterBar r={r}>
+        <button className="btn primary" style={{ alignSelf: 'flex-end' }} onClick={() => openNew()}>+ Add Financer Receipt</button>
         <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/hypothecation-register' + qs(r), 'Hypothecation_Register.xlsx')}>Export Excel</button>
       </FilterBar>
+      {notice.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, background: '#fffaeb', border: '1px solid #fedf89' }}>
+          <b>Receipt save ho gayi, par dhyan dein:</b>
+          <ul style={{ margin: '6px 0 8px 18px' }}>{notice.map((n, i) => <li key={i}>{n}</li>)}</ul>
+          <button className="btn" onClick={() => setNotice([])}>OK</button>
+        </div>
+      )}
       {r.data.invoices.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Bill No.</th><th>Dealer</th><th>Buyer</th><th>Chassis No.</th><th>Financer</th><th>Loan / Hyp.</th><th>Received</th><th>Balance</th></tr></thead>
-            <tbody>{r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.dealer_name||'—'}</td><td>{i.buyer_name||'—'}</td><td>{i.chassis_no||'—'}</td><td>{i.financer_name||'—'}</td><td><Money value={i.hypothecation_amount} /></td><td><Money value={i.amount_received} /></td><td><b><Money value={i.balance_amount} /></b></td></tr>)}</tbody>
-            <tfoot><tr><td colSpan={6}><b>Total Hypothecation</b></td><td><Money value={r.data.total_hyp} /></td><td colSpan={2}></td></tr></tfoot>
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Dealer</th><th>Buyer</th><th>Chassis No.</th><th>Vehicle No.</th><th>Financer</th><th>Loan / Hyp.</th><th>Received (Financer)</th><th>Balance</th><th></th></tr></thead>
+            <tbody>{r.data.invoices.map((i) => (
+              <tr key={i.id}>
+                <td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.dealer_name || '—'}</td><td>{i.buyer_name || '—'}</td><td>{i.chassis_no || '—'}</td><td>{i.vehicle_no || '—'}</td><td>{i.financer_name || '—'}</td>
+                <td><Money value={i.hypothecation_amount} /></td><td><Money value={i.fin_received} /></td><td><b><Money value={i.balance_amount} /></b></td>
+                <td>{i.chassis_no && Number(i.balance_amount) > 0 ? <button className="btn" onClick={() => openNew(i)}>+ Receipt</button> : null}</td>
+              </tr>
+            ))}</tbody>
+            <tfoot><tr><td colSpan={7}><b>Total</b></td><td><Money value={r.data.total_hyp} /></td><td><Money value={r.data.total_received} /></td><td><b><Money value={r.data.total_balance} /></b></td><td></td></tr></tfoot>
           </table>
+        </div>
+      )}
+
+      <div className="card" style={{ marginTop: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+          <b>Financer Receipts (bank me aaye)</b>
+          <input className="input" placeholder="Search financer, cheque/ref, chassis, vehicle…" value={rcSearch} onChange={(e) => setRcSearch(e.target.value)} style={{ maxWidth: 320 }} />
+        </div>
+        <ErrorBanner message={rcError} />
+        {receipts.length === 0 ? <EmptyState text="Abhi koi financer receipt nahi hai." /> : (
+          <div className="tablewrap">
+            <table className="table">
+              <thead><tr><th>Date</th><th>Financer</th><th>Amount</th><th>Received In</th><th>Cheque / Ref No.</th><th>Chassis No.</th><th>Vehicle No.</th><th>Bill No.</th><th>Buyer</th><th></th></tr></thead>
+              <tbody>{receipts.map((x) => (
+                <tr key={x.id}>
+                  <td>{formatDate(x.receipt_date)}</td><td>{x.financer_name}</td><td><Money value={x.amount} /></td><td>{x.pay_mode === 'BANK' ? (x.bank_name || 'Bank') : 'Cash'}</td><td>{x.cheque_no}</td>
+                  <td>{x.chassis_no || '—'}</td><td>{x.vehicle_no || '—'}</td><td>{x.bill_no || '—'}</td><td>{x.buyer_name || '—'}</td>
+                  <td><button className="btn danger" onClick={() => removeReceipt(x.id)}>Delete</button></td>
+                </tr>
+              ))}</tbody>
+              <tfoot><tr><td colSpan={2}><b>Total</b></td><td><Money value={receipts.reduce((t, x) => t + Number(x.amount || 0), 0)} /></td><td colSpan={7}></td></tr></tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {open && (
+        <div className="modal">
+          <form className="modalbox" onSubmit={save}>
+            <h2>Add Financer Receipt</h2>
+            <ErrorBanner message={error} />
+            <div className="formgrid">
+              <Field label="Date" type="date" value={form.receipt_date} onChange={(v) => setForm({ ...form, receipt_date: v })} required />
+              <Field label="Financer Name" type="combo" options={financers} value={form.financer_name} onChange={(v) => setForm({ ...form, financer_name: v })} required />
+              <Field label="Amount" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} required />
+              <Field label="Received In (Cash / Bank)" type="select" required value={form.received_in}
+                     options={[{ value: 'CASH', label: 'Cash' }, ...banks.map((b) => ({ value: b.name, label: b.name + (b.acc ? ' — ' + b.acc : '') }))]}
+                     onChange={(v) => setForm({ ...form, received_in: v })} />
+              <Field label="Cheque No. / Ref No." value={form.cheque_no} onChange={(v) => setForm({ ...form, cheque_no: v })} required />
+              <div onBlur={() => lookup('chassis_no', form.chassis_no)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); lookup('chassis_no', form.chassis_no); } }}>
+                <Field label="Chassis No." type="combo" options={chassisOptions} value={form.chassis_no}
+                       onChange={(v) => { setForm((f) => ({ ...f, chassis_no: v, ...(found ? { vehicle_no: '' } : {}) })); setFound(null); }} />
+              </div>
+              <div onBlur={() => { if (!form.chassis_no.trim()) lookup('vehicle_no', form.vehicle_no); }}>
+                <Field label="Vehicle No." value={form.vehicle_no} readOnly={!!found?.vehicle_no}
+                       onChange={(v) => setForm({ ...form, vehicle_no: v.toUpperCase() })} />
+              </div>
+            </div>
+            {lookupMsg && <div className="error" style={{ marginTop: 10 }}>{lookupMsg}</div>}
+            {found && (
+              <div className="card" style={{ marginTop: 12, background: '#f6fef9', border: '1px solid #abefc6' }}>
+                <div><b>Bill {found.bill_no}</b> · {formatDate(found.date)} · {found.buyer_name || '—'} · {found.dealer_name || '—'}</div>
+                <div className="muted" style={{ marginTop: 4 }}>{found.product_name || ''} {found.financer_name ? `· Financer: ${found.financer_name}` : ''}</div>
+                <div style={{ marginTop: 6 }}>Loan <Money value={found.hypothecation_amount} /> · Mila <Money value={found.fin_received} /> · <b>Baaki <Money value={found.balance} /></b></div>
+                {!found.vehicle_no && form.vehicle_no && <div className="muted" style={{ marginTop: 4 }}>Vehicle no. bill me bhi update ho jayega.</div>}
+              </div>
+            )}
+            <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" className="btn" onClick={() => setOpen(false)}>Cancel</button>
+              <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save Receipt'}</button>
+            </div>
+          </form>
         </div>
       )}
     </>
@@ -918,7 +1072,9 @@ export function LedgerPage() {
 
 export function DayBookPage() {
   const [data,setData]=useState(null);
-  const [selectedDate,setSelectedDate]=useState(new Date().toISOString().slice(0,10));
+  const [selectedDate,setSelectedDate]=useState(''); // '' = ALL entries (default)
+  const [ePage,setEPage]=useState(1);
+  const [ePageSize,setEPageSize]=useState(50);
   const [dealers,setDealers]=useState([]);
   const [banks,setBanks]=useState([]);
   const [open,setOpen]=useState(false);
@@ -928,11 +1084,15 @@ export function DayBookPage() {
   const [matching,setMatching]=useState(false);
 
   const load=()=>get('/day-book').then(setData).catch(e=>setError(e.message));
-  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});get('/masters/bank').then(d=>setBanks(d||[])).catch(()=>{});},[]);
+  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});get('/masters/bank').then(d=>setBanks(Array.isArray(d)?d:(d?.masters||d?.rows||d?.data||d?.items||[]))).catch(()=>{});},[]);
 
-  const entries=data?.entries||[];
-  const dayEntries=entries.filter(r=>String(r.date||'').slice(0,10)===selectedDate);
-  const priorEntries=entries.filter(r=>String(r.date||'').slice(0,10)<selectedDate);
+  const entries=data?.entries||data?.rows||data?.data||data?.items||(Array.isArray(data)?data:[]);
+  const allMode=!selectedDate;
+  const byDateNo=(a,b)=>String(a.date||'').slice(0,10).localeCompare(String(b.date||'').slice(0,10))||String(a.vr_no||'').localeCompare(String(b.vr_no||''),undefined,{numeric:true});
+  const dayEntries=(allMode?[...entries]:entries.filter(r=>String(r.date||'').slice(0,10)===selectedDate)).sort(byDateNo);
+  const priorEntries=allMode?[]:entries.filter(r=>String(r.date||'').slice(0,10)<selectedDate);
+  useEffect(()=>{setEPage(1)},[selectedDate,ePageSize,entries.length]);
+  const pagedEntries=dayEntries.slice((ePage-1)*ePageSize,ePage*ePageSize);
   const receipts=dayEntries.filter(r=>Number(r.credit_received||0)>0).map(r=>({
     id:r.id,no:r.vr_no,date:r.date,particulars:[r.dealer_name,r.narration].filter(Boolean).join(' - ')||'Receipt',
     folio:r.folio||r.page_no||'',amount:r.credit_received
@@ -947,9 +1107,9 @@ export function DayBookPage() {
   const closing=opening+totalReceipts-totalPayments;
 
   const moveDay=(delta)=>{
-    const x=new Date(selectedDate+'T00:00:00');x.setDate(x.getDate()+delta);setSelectedDate(x.toISOString().slice(0,10));
+    const x=new Date((selectedDate||new Date().toISOString().slice(0,10))+'T00:00:00');x.setDate(x.getDate()+delta);setSelectedDate(x.toISOString().slice(0,10));
   };
-  const openNew=()=>{setForm({date:selectedDate,vr_no:data?.next_vr_no});setOpen(true)};
+  const openNew=()=>{setForm({date:selectedDate||new Date().toISOString().slice(0,10),vr_no:data?.next_vr_no});setOpen(true)};
   const openEdit=r=>{setForm({...r});setOpen(true)};
   const save=async e=>{e.preventDefault();try{await post('/day-book',form);setOpen(false);load()}catch(e){setError(e.message)}};
   const remove=async()=>{if(!form.id)return;if(!window.confirm('Delete this entry?'))return;try{await del('/day-book/'+form.id);setOpen(false);load()}catch(e){setError(e.message)}};
@@ -988,19 +1148,21 @@ export function DayBookPage() {
       onDateChange={setSelectedDate}
       onPrev={()=>moveDay(-1)}
       onNext={()=>moveDay(1)}
+      onShowAll={()=>setSelectedDate('')}
       onPrint={()=>window.print()}
       onExport={()=>downloadExcel('/day-book','Day_Book.xlsx')}
     />
     <div className="card" style={{marginTop:14}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-        <div><h3 style={{margin:0}}>Day Book Entries</h3><div className="muted">Admin entry register · {selectedDate}</div></div>
+        <div><h3 style={{margin:0}}>Day Book Entries</h3><div className="muted">Admin entry register · {allMode?'All dates':selectedDate}</div></div>
         <button className="btn" onClick={load}>Refresh</button>
       </div>
       <div className="tablewrap" style={{marginTop:10}}>
         <table className="table"><thead><tr><th>Date</th><th>Vr. No.</th><th>Dealer</th><th>Credit</th><th>Debit</th><th>Narration</th></tr></thead>
-          <tbody>{dayEntries.map(r=><tr key={r.id} onClick={()=>openEdit(r)} style={{cursor:'pointer'}}><td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td><td><Money value={r.credit_received}/></td><td><Money value={r.debit_paid}/></td><td>{r.narration||'—'}</td></tr>)}{!dayEntries.length&&<tr><td colSpan={6} className="muted">No entries for this date.</td></tr>}</tbody>
+          <tbody>{pagedEntries.map(r=><tr key={r.id} onClick={()=>openEdit(r)} style={{cursor:'pointer'}}><td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td><td><Money value={r.credit_received}/></td><td><Money value={r.debit_paid}/></td><td>{r.narration||'—'}</td></tr>)}{!dayEntries.length&&<tr><td colSpan={6} className="muted">No entries for this date.</td></tr>}</tbody>
         </table>
       </div>
+      <Pagination page={ePage} pageSize={ePageSize} total={dayEntries.length} onPage={setEPage} onPageSize={setEPageSize}/>
     </div>
     {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
       <h2>{form.id?'Edit Day Book Entry':'New Day Book Entry'}</h2><ErrorBanner message={error}/>
