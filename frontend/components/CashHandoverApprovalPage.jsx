@@ -14,6 +14,7 @@ export function CashHandoverApprovalPage() {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [search, setSearch] = useState('');
 
   const load = async () => {
     setLoading(true); setError('');
@@ -39,9 +40,11 @@ export function CashHandoverApprovalPage() {
     finally { setBusy(null); }
   };
 
-  const pending = rows.filter(r => String(r.status || 'pending').toLowerCase() === 'pending');
-  const done = rows.filter(r => String(r.status || 'pending').toLowerCase() !== 'pending').slice(0, 50);
-  const pendingTotal = pending.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const q = search.trim().toLowerCase();
+  const matches = r => !q || [r.handover_no, r.dealer_name, r.sent_to, r.remarks, r.amount, r.reject_reason].join(' ').toLowerCase().includes(q);
+  const pending = rows.filter(r => String(r.status || 'pending').toLowerCase() === 'pending' && matches(r));
+  const done = rows.filter(r => String(r.status || 'pending').toLowerCase() !== 'pending' && matches(r)).slice(0, 50);
+  const pendingTotal = rows.filter(r => String(r.status || 'pending').toLowerCase() === 'pending').reduce((s, r) => s + Number(r.amount || 0), 0);
 
   return <div style={{ marginBottom: 18 }}>
     <div className="dealerContentToolbar">
@@ -51,6 +54,7 @@ export function CashHandoverApprovalPage() {
     <ErrorBanner message={error} />
     {message && <div className="card" style={{ marginBottom: 12, color: '#176b35' }}>{message}</div>}
     <div className="card" style={{ marginBottom: 14 }}><div className="muted">Pending Acceptance</div><div style={{ fontSize: 26, fontWeight: 800, marginTop: 4 }}><Money value={pendingTotal} /> <small className="muted" style={{ fontSize: 13, fontWeight: 500 }}>({pending.length} handover)</small></div></div>
+    <input className="input" style={{width:'100%',maxWidth:480,margin:'0 0 12px'}} placeholder="Search handover no., dealer, sent to, remarks…" value={search} onChange={e=>setSearch(e.target.value)} />
     <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Handover No.</th><th>Dealer</th><th>Sent To</th><th>Amount</th><th>Remarks</th><th>Action</th></tr></thead><tbody>
       {pending.map(h => <tr key={h.id}><td>{fmtDate(h.date)}</td><td><b>{h.handover_no}</b></td><td>{h.dealer_name || '—'}</td><td>{h.sent_to || '—'}</td><td><b><Money value={h.amount} /></b></td><td>{h.remarks || '—'}</td>
         <td><div className="actions"><button className="btn primary" disabled={busy === h.id} onClick={() => act(h, 'accept')}>{busy === h.id ? '…' : 'Accept'}</button><button className="btn" disabled={busy === h.id} onClick={() => act(h, 'reject')}>Reject</button></div></td></tr>)}

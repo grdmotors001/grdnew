@@ -14,14 +14,17 @@ import { UserPage, OptionSettingPage, PasswordPage } from '../components/UserPag
 import { NavTabsSettings } from '../components/NavTabsSettings';
 import { ProductionVoucherPage } from '../components/ProductionVoucherPage';
 import { DeliveryChallanPage } from '../components/DeliveryChallanPage';
+import { ChallanShiftPage } from '../components/ChallanShiftPage';
 import { TaxInvoicePage } from '../components/TaxInvoicePage';
 import { CreditNotePage } from '../components/CreditNotePage';
 import { PurchaseBillPage } from '../components/PurchaseBillPage';
-import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, BatteryDeliveryChallanPage, BatteryAdditionPage, JournalStockPage } from '../components/MinorVoucherPages';
+import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, BatteryDeliveryChallanPage, BatteryAdditionPage, BatteryFitPage, JournalStockPage } from '../components/MinorVoucherPages';
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
 import { RepairServiceVoucherPage } from '../components/RepairServiceVoucherPage';
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import { InsuranceRtoRegisterPage } from '../components/InsuranceRtoRegisterPage';
+import { RtoExpenseRegisterPage } from '../components/RtoExpenseRegisterPage';
+import { BankLedgerPage } from '../components/BankLedgerPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { VahanInventoryPage } from '../components/VahanInventoryPage';
 import { OldRickshawChallanPage } from '../components/OldRickshawChallanPage';
@@ -40,8 +43,10 @@ import { DebitNotePage } from '../components/DebitNotePage';
 import { OldRickshawInventoryPage } from '../components/OldRickshawInventoryPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
+import { NotificationPage } from '../components/NotificationPage';
+import { ShowroomBatteryStockPage, ShowroomAllCustomersPage, ShowroomExpensesReportsPage } from '../components/ShowroomReportsPages';
 import { ProfilePage } from '../components/ProfilePage';
-import { BalanceSheetPage, ProfitLossPage } from '../components/FinancialReportsPage';
+import { BalanceSheetPage, ProfitLossPage, AuditReportPage } from '../components/FinancialReportsPage';
 import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { LoanApplicationViewPage } from '../components/LoanApplicationViewPage';
 import { ChfplRepoVehiclesPage } from '../components/ChfplRepoVehiclesPage';
@@ -50,11 +55,11 @@ import { SIMPLE_MASTERS, keyForPath, routeForKey } from '../lib/menu';
 const CUSTOM_PAGES = {
   'showroom-new-stock': () => <ClosingStockPremisesPage />,
   'showroom-old-stock': () => <OldRickshawPage />,
-  'showroom-battery-stock': () => <PlaceholderPage label="Battery Stock" />,
+  'showroom-battery-stock': () => <ShowroomBatteryStockPage />,
   'showroom-seized-vehicle': () => <VahanInventoryPage />,
-  'showroom-all-customers': () => <PlaceholderPage label="All Customers" />,
+  'showroom-all-customers': () => <ShowroomAllCustomersPage />,
   'showroom-all-receipt': () => <DealerCashReceiptPage />,
-  'showroom-expenses-reports': () => <PlaceholderPage label="Expenses Reports" />,
+  'showroom-expenses-reports': () => <ShowroomExpensesReportsPage />,
   'showroom-cashbook': () => <DayBookPage />,
   'showroom-cash-handover': () => <><CashHandoverApprovalPage /><CashAtDealerPage /></>,
   'showroom-online-payment': () => <PlaceholderPage label="Online Payment" />,
@@ -75,6 +80,7 @@ const CUSTOM_PAGES = {
   'dealer-cash-receipt': () => <DealerCashReceiptPage />,
   'production-voucher': () => <ProductionVoucherPage />,
   'delivery-challan': () => <DeliveryChallanPage />,
+  'challan-shift': () => <ChallanShiftPage />,
   'tax-invoice': () => <TaxInvoicePage />,
   'credit-note': () => <CreditNotePage />,
   'debit-note': () => <DebitNotePage />,
@@ -83,6 +89,8 @@ const CUSTOM_PAGES = {
   'battery-withdrawal': () => <BatteryWithdrawalPage />,
   'battery-delivery-challan': () => <BatteryDeliveryChallanPage />,
   'battery-addition': () => <BatteryAdditionPage />,
+  'battery-fit': () => <BatteryFitPage />, 
+  notifications: () => <NotificationPage />,
   'battery-register': () => <BatteryRegisterPage />,
   'factory-check-report': () => <FactoryCheckReportPage />,
   'daily-raw-material-checklist': () => <DailyRawMaterialChecklistPage />,
@@ -110,9 +118,12 @@ const CUSTOM_PAGES = {
   'customer-expense-ledger': () => <CustomerExpenseLedgerReportPage />,
   'incentive-register': () => <IncentiveRegisterPage />,
   'insurance-rto': () => <InsuranceRtoRegisterPage />,
+  'rto-expense': () => <RtoExpenseRegisterPage />,
+  'bank-ledger': () => <BankLedgerPage />,
   'subsidy-report': () => <SubsidyReportPage />,
   'balance-sheet': () => <BalanceSheetPage />,
   'profit-loss': () => <ProfitLossPage />,
+  'audit-report': () => <AuditReportPage />,
   ledger: () => <LedgerPage />,
   'day-book': () => <DayBookPage />,
   'ledger-v': () => <LedgerVPage />,

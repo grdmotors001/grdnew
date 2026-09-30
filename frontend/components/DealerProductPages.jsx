@@ -173,6 +173,11 @@ export function DealerPage() {
             <div className="formgrid">
               <Field label="Dealer Code" value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
               <Field label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
+              <Field label="Sub Group" type="select" value={form.sub_group_name || 'Primary'} onChange={(v) => setForm({ ...form, sub_group_name: v })} options={subGroups.map(g => ({value:g.name,label:g.name}))} />
+              <div style={{gridColumn:'1 / -1',display:'flex',gap:8,alignItems:'center'}}>
+                <input className="input" placeholder="New Sub Group" value={newSubGroup} onChange={e=>setNewSubGroup(e.target.value)} style={{maxWidth:220}} />
+                <button type="button" className="btn" onClick={async()=>{const n=newSubGroup.trim();if(!n)return;await post('/sub-groups',{name:n});setNewSubGroup('');const d=await get('/sub-groups');setSubGroups(d.sub_groups||d.rows||[]);setForm(f=>({...f,sub_group_name:n}));}}>+ Add Sub Group</button>
+              </div>
               <Field label="Address Line 1" value={form.address1} onChange={(v) => setForm({ ...form, address1: v })} />
               <Field label="Address Line 2" value={form.address2} onChange={(v) => setForm({ ...form, address2: v })} />
               <Field label="Mobile" value={form.mobile} onChange={(v) => setForm({ ...form, mobile: v })} />
@@ -269,7 +274,9 @@ export function ProductPage() {
   const [meta, setMeta] = useState(null);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ unit: 'PCS', fro: 'F', fuel_type: 'Battery/Electric', gst_rate: 5 });
+  const [form, setForm] = useState({ unit: 'PCS', fro: 'F', fuel_type: 'Battery/Electric', gst_rate: 5, sub_group_name: 'Primary' });
+  const [subGroups, setSubGroups] = useState([{name:'Primary'}]);
+  const [newSubGroup, setNewSubGroup] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = (p = page) => {
@@ -280,7 +287,7 @@ export function ProductPage() {
     if (search.trim()) params.set('search', search.trim());
     get(`/products?${params}`).then((d) => { setRows(d.products || []); setMeta(d); }).catch((e) => setError(e.message));
   };
-  useEffect(() => {
+  useEffect(() => { get('/sub-groups').then(d => setSubGroups(d.sub_groups || d.rows || [{name:'Primary'}])).catch(()=>{});
     const t = setTimeout(() => { setPage(1); load(1); }, 250);
     return () => clearTimeout(t);
   }, [typeFilter, search]);
@@ -289,7 +296,7 @@ export function ProductPage() {
 
   const openNew = () => {
     setEditingId(null);
-    setForm({ unit: 'PCS', fro: 'F', product_category: 'FINISHED', show_on_delivery_challan: false, fuel_type: 'Battery/Electric', gst_rate: 5 });
+    setForm({ unit: 'PCS', fro: 'F', product_category: 'FINISHED', show_on_delivery_challan: false, fuel_type: 'Battery/Electric', gst_rate: 5, sub_group_name: 'Primary' });
     setOpen(true);
   };
 
@@ -350,11 +357,12 @@ export function ProductPage() {
       {filtered.length === 0 ? <EmptyState text={search ? 'No products match your search.' : undefined} /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Unit</th><th>GST %</th><th>HSN</th><th>Chassis Item Code</th><th>Logo</th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Sub Group</th><th>Type</th><th>Unit</th><th>GST %</th><th>HSN</th><th>Chassis Item Code</th><th>Logo</th></tr></thead>
             <tbody>
               {filtered.map((p) => (
                 <tr key={p.id}>
                   <td>{p.code}</td>
+                  <td>{p.sub_group_name || 'Primary'}</td>
                   <td>
                     <a onClick={() => openEdit(p)} style={{ color: 'var(--accent)', cursor: 'pointer' }}>
                       {p.name}

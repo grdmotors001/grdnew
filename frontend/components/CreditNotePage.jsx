@@ -13,6 +13,8 @@ export function CreditNotePage(){
   const [invoices,setInvoices]=useState([]);
   const [form,setForm]=useState({date:today(),reason:'',remarks:''});
   const [error,setError]=useState('');
+  const [cnSearch,setCnSearch]=useState('');
+  const [legacySearch,setLegacySearch]=useState('');
   const [saving,setSaving]=useState(false);
 
   const load=async()=>{
@@ -29,6 +31,11 @@ export function CreditNotePage(){
     }catch(e){setError(e.message)}
   };
   useEffect(()=>{load()},[]);
+
+  const q1=cnSearch.trim().toLowerCase();
+  const q2=legacySearch.trim().toLowerCase();
+  const creditRows=(data||[]).filter(r=>!q1||[r.credit_note_no,r.original_bill_no,r.dealer_name,r.buyer_name,r.chassis_no,r.total_amount].join(' ').toLowerCase().includes(q1));
+  const legacyRows=legacy.filter(r=>!q2||[r.bill_no,r.chassis_no,r.dealer_name,r.bill_total,r.formal_credit_note_no].join(' ').toLowerCase().includes(q2));
 
   const selected=invoices.find(x=>String(x.id)===String(form.invoice_id));
   const issue=async(e)=>{
@@ -76,10 +83,11 @@ export function CreditNotePage(){
         </div>
         <button className="btn primary" onClick={()=>{setForm({date:today(),reason:'',remarks:''});setOpen(true)}}>+ New Credit Note</button>
       </div>
+      <input className="input" style={{width:'100%',maxWidth:480,margin:'0 0 12px'}} placeholder="Search CN no., bill, dealer, customer, chassis…" value={cnSearch} onChange={e=>setCnSearch(e.target.value)} />
       <div className="tablewrap"><table className="table"><thead><tr>
         <th>Date</th><th>CN No.</th><th>Original Bill</th><th>Dealer</th><th>Customer</th><th>Chassis</th><th>Amount</th><th>Action</th>
       </tr></thead>
-      <tbody>{data.map(cn=><tr key={cn.id}>
+      <tbody>{creditRows.map(cn=><tr key={cn.id}>
         <td>{formatDate(cn.date)}</td><td><b>{cn.credit_note_no}</b></td><td>{cn.original_bill_no||'—'}</td>
         <td>{cn.dealer_name||'—'}</td><td>{cn.buyer_name||'—'}</td><td><b>{cn.chassis_no||'—'}</b></td>
         <td><Money value={cn.total_amount}/></td>
@@ -91,10 +99,11 @@ export function CreditNotePage(){
     <div className="card">
       <h3 style={{marginTop:0}}>Imported Old CN Records — Repair</h3>
       <p className="muted">Ye section sirf purane imported records ko identify karta hai. Original bill/chassis text change nahi hota; repair karne par formal Legacy Credit Note banega aur safe vehicle ko Manufacturing me return kiya jayega.</p>
+      <input className="input" style={{width:'100%',maxWidth:480,margin:'0 0 12px'}} placeholder="Search old bill, chassis, dealer, status…" value={legacySearch} onChange={e=>setLegacySearch(e.target.value)} />
       <div className="tablewrap"><table className="table"><thead><tr>
         <th>Bill</th><th>Date</th><th>Chassis</th><th>Dealer</th><th>Total</th><th>Status</th><th>Action</th>
       </tr></thead>
-      <tbody>{legacy.map(r=><tr key={r.id}>
+      <tbody>{legacyRows.map(r=><tr key={r.id}>
         <td>{r.bill_no||'—'}</td><td>{formatDate(r.date)}</td><td><b>{r.chassis_no||'—'}</b></td>
         <td>{r.dealer_name||'—'}</td><td><Money value={r.bill_total}/></td>
         <td>{r.formal_credit_note_no||'Not repaired'}</td>

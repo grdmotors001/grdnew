@@ -21,8 +21,11 @@ export function DealerAllReceiptsPage({ dealer } = {}) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
   const load = () => { get('/dealer/cash-book/customers').then((d) => setCusts(d.customers || [])).catch(() => {}); return get('/dealer/cash-book/all-receipts').then((d) => setRows(d.receipts || [])).catch((e) => setError(e.message || 'Could not load receipts')); };
   useEffect(() => { load(); }, []);
+  const rq = search.trim().toLowerCase();
+  const filteredRows = rows.filter((r) => !rq || [r.receipt_no, r.customer_name, r.customer_phone, r.dealer_register_page_no, r.amount, r.loan_amount, r.date].join(' ').toLowerCase().includes(rq));
   // Receipt ke baad customer ka balance = abhi ka balance + is receipt ke baad aayi receipts ka total.
   const printRow = (r) => {
     const c = custs.find((x) => String(x.id) === String(r.customer_id));
@@ -46,13 +49,14 @@ export function DealerAllReceiptsPage({ dealer } = {}) {
     <div className="card">
       <div className="pageHeader"><div><h2>All Receipts</h2><p className="muted">Receipt correction: only Page No. and Loan Amount can be edited.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
       {error && <div className="error">{error}</div>}
+      <input className="input" style={{width:'100%',maxWidth:420,margin:'0 0 12px'}} placeholder="Search receipt no., name, mobile, page no…" value={search} onChange={(e) => setSearch(e.target.value)} />
       <div className="tablewrap dealerTable"><table className="table">
         <thead><tr><th>Date</th><th>Receipt No.</th><th>Name</th><th>Amount</th><th>Loan Amount</th><th>Page No.</th><th></th></tr></thead>
-        <tbody>{rows.map((r) => <tr key={r.id}>
+        <tbody>{filteredRows.map((r) => <tr key={r.id}>
           <td>{r.date}</td><td><b>{r.receipt_no}</b></td><td>{r.customer_name}<div className="muted">{r.customer_phone || ''}</div></td>
           <td>{money(r.amount)}</td><td>{money(r.loan_amount)}</td><td>{r.dealer_register_page_no || '—'}</td>
           <td><div className="actions"><button className="btn" title="58mm thermal receipt print" onClick={() => printRow(r)}>🖨 Print</button><button className="btn" onClick={() => setEditing({...r})}>Edit</button></div></td>
-        </tr>)}{!rows.length && <tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody>
+        </tr>)}{!filteredRows.length && <tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody>
       </table></div>
       {editing && <div className="modal" style={{zIndex:10000}} onMouseDown={(e)=>{if(e.target===e.currentTarget)setEditing(null)}}>
         <div className="modalbox" style={{maxWidth:520}}>

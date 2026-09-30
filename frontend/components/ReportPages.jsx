@@ -24,6 +24,14 @@ function useReport(path, extraParams = {}) {
   return { from, setFrom, to, setTo, search, setSearch, data, error, extra, setExtra };
 }
 
+// Export Excel ke liye current filters ka query string (backend export=csv me pagination ignore karta hai).
+const qs = (r) => {
+  const { page, per_page, ...rest } = r.extra || {};
+  return '?' + new URLSearchParams({
+    ...(r.from ? { from: r.from } : {}), ...(r.to ? { to: r.to } : {}), ...(r.search ? { search: r.search } : {}), ...rest,
+  });
+};
+
 function FilterBar({ r, showSearch = true, children }) {
   return (
     <div className="toolbar">
@@ -251,6 +259,17 @@ export function DeliveryChallanRegisterPage() {
     setFilterOpen(false);
   };
   const goPage = (page) => r.setExtra({ ...r.extra, page });
+  const setE = (key) => (v) => setEditRow((x) => ({ ...x, [key]: v }));
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    setSaving(true); setEditError('');
+    try {
+      await put(`/delivery-challans/${editRow.id}`, editRow);
+      setEditRow(null);
+      r.setExtra({ ...r.extra, _r: Date.now() }); // register reload
+    } catch (err) { setEditError(err.message || 'Could not save challan'); }
+    finally { setSaving(false); }
+  };
 
   return (
     <>

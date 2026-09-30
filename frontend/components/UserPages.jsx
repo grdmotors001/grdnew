@@ -19,6 +19,7 @@ export function UserPage({ setActive, setOptionUserId }) {
   const [rows, setRows] = useState([]);
   const [dealers, setDealers] = useState([]);
   const [salesmen, setSalesmen] = useState([]);
+  const [assignedDealerIds, setAssignedDealerIds] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -54,7 +55,7 @@ export function UserPage({ setActive, setOptionUserId }) {
   const save = (e) => {
     e.preventDefault();
     run(async () => {
-      const payload = { ...form, id: editingId || undefined };
+      const payload = { ...form, id: editingId || undefined, assigned_dealer_ids: form.department === 'Salesman' ? assignedDealerIds : [] };
       if ((payload.department || '').toLowerCase() === 'salesman') {
         if (!payload.username) throw new Error('Salesman select karke Login ID set karein.');
       }
@@ -107,7 +108,7 @@ export function UserPage({ setActive, setOptionUserId }) {
   return (
     <>
       <div className="actions" style={{ marginBottom: 14 }}>
-        <button className="btn primary" onClick={() => { setEditingId(null); setForm({ department: 'Admin', allowed_modules: DEPARTMENT_DEFAULT_MODULES.Admin }); setOpen(true); }}>+ Add User</button>
+        <button className="btn primary" onClick={() => { setEditingId(null); setForm({ department: 'Admin', allowed_modules: DEPARTMENT_DEFAULT_MODULES.Admin }); setAssignedDealerIds([]); setOpen(true); }}>+ Add User</button>
         <button className="btn" onClick={createAllSalesmanLogins}>Create All Salesman Logins</button>
         {rows.length > 0 && <><input className="input" placeholder="Search username…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 280 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}</>}
       </div>
@@ -122,7 +123,7 @@ export function UserPage({ setActive, setOptionUserId }) {
                   <td>{u.username}</td><td>{u.department || 'Admin'}</td><td>{u.is_super_user ? 'All' : (u.assigned_dealer_ids?.length || 0)}</td><td>{u.is_super_user ? 'Yes' : 'No'}</td>
                   <td>{(u.is_super_user ? 'All' : ((Array.isArray(u.allowed_modules) ? u.allowed_modules : (u.allowed_modules ? String(u.allowed_modules).split(',').map((x) => x.trim()).filter(Boolean) : [])).length ? ((Array.isArray(u.allowed_modules) ? u.allowed_modules : String(u.allowed_modules).split(',').map((x) => x.trim()).filter(Boolean)).length + ' modules') : 'None set'))}</td>
                   <td style={{ display: 'flex', gap: 8 }}>
-                    <button className="btn" onClick={() => { setEditingId(u.id); setForm({ ...u, password: '' }); setOpen(true); }}>Edit</button>
+                    <button className="btn" onClick={() => { setEditingId(u.id); setForm({ ...u, password: '' }); setAssignedDealerIds(Array.isArray(u.assigned_dealer_ids) ? u.assigned_dealer_ids.map(Number) : []); setOpen(true); }}>Edit</button>
                     <button className="btn" onClick={() => { setOptionUserId(u.id); setActive('option-setting'); }}>Permissions</button>
                     <button className="btn danger" onClick={() => remove(u.id)}>Delete</button>
                   </td>
@@ -165,8 +166,10 @@ export function UserPage({ setActive, setOptionUserId }) {
                 <div className="card" style={{ gridColumn: '1 / -1', padding: 12 }}>
                   <b>Salesman Dealer Assignment</b>
                   <div className="muted" style={{ marginTop: 6 }}>
-                    Dealers are assigned automatically from Dealer Master → Salesman. You do not need to select dealers here.
-                    When a new dealer is created with this salesman, it is automatically included in this login.
+                    Select the dealers this Salesman is allowed to access. Backend/API also enforces this restriction.
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:8,marginTop:12,maxHeight:220,overflow:'auto'}}>
+                    {dealers.map(d => { const on=assignedDealerIds.includes(Number(d.id)); return <label key={d.id} className="card" style={{padding:9,display:'flex',gap:8,alignItems:'center',cursor:'pointer'}}><input type="checkbox" checked={on} onChange={()=>setAssignedDealerIds(v=>on?v.filter(x=>x!==Number(d.id)):[...v,Number(d.id)])}/><span>{d.name} {d.code ? `(${d.code})` : ''}</span></label>; })}
                   </div>
                 </div>
               ) : null}
@@ -185,6 +188,7 @@ export function UserPage({ setActive, setOptionUserId }) {
 export function OptionSettingPage({ userId }) {
   const [data, setData] = useState(null);
   const [selected, setSelected] = useState([]);
+  const [actionPerms, setActionPerms] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
   const load = () => {
@@ -194,6 +198,7 @@ export function OptionSettingPage({ userId }) {
       const user = d?.user || { id: userId, username: '', is_super_user: false };
       const keys = Array.isArray(d?.selected_keys) ? d.selected_keys : (Array.isArray(d?.modules) ? d.modules : []);
       setData({ ...d, user });
+      get(`/users/${userId}/action-permissions`).then(x => { const map={}; (x.permissions||x.rows||[]).forEach(r=>{map[r.module_key]={view:!!r.can_view,create:!!r.can_create,edit:!!r.can_edit,delete:!!r.can_delete,approve:!!r.can_approve};}); setActionPerms(map); }).catch(()=>{});
       // Kuch set na ho to us department ke default modules dikhao (Save karne par hi lagu honge).
       const defaults = DEPARTMENT_DEFAULT_MODULES[user.department] || [];
       setSelected(keys.length ? keys : defaults);
@@ -225,7 +230,7 @@ export function OptionSettingPage({ userId }) {
     setSelected((s) => allOn ? s.filter((k) => !keys.includes(k)) : Array.from(new Set([...s, ...keys])));
   };
 
-  const save = () => run(async () => { await post(`/users/${userId}/option-setting`, { modules: selected }); });
+  const save = () => run(async () => { await post(`/users/${userId}/option-setting`, { modules: selected }); await post(`/users/${userId}/action-permissions`, { permissions: Object.entries(actionPerms).map(([module_key,v]) => ({module_key,can_view:!!v.view,can_create:!!v.create,can_edit:!!v.edit,can_delete:!!v.delete,can_approve:!!v.approve})) }); });
 
   const totalModules = Object.values(MENU).reduce((n, items) => n + items.length, 0);
 
@@ -292,6 +297,14 @@ export function OptionSettingPage({ userId }) {
               </div>
             );
           })}
+          <div className="permGroup">
+            <div className="permGroupHead"><h4>Action Rights</h4><div className="permGroupMeta"><span>View / Create / Edit / Delete / Approve</span></div></div>
+            <div className="tablewrap">
+              <table className="table"><thead><tr><th>Module</th><th>View</th><th>Create</th><th>Edit</th><th>Delete</th><th>Approve</th></tr></thead><tbody>
+                {Object.entries(MENU).flatMap(([group,items])=>items.map(([key,label])=>{ const v=actionPerms[key]||{}; const set=(a,val)=>setActionPerms(m=>({...m,[key]:{...(m[key]||{}),[a]:val}})); return <tr key={key}><td>{label}</td>{['view','create','edit','delete','approve'].map(a=><td key={a}><input type="checkbox" checked={!!v[a]} onChange={e=>set(a,e.target.checked)}/></td>)}</tr>; }))}
+              </tbody></table>
+            </div>
+          </div>
           <div className="permFooter">
             <button className="btn primary" onClick={save} disabled={busy}>
               {busy ? 'Saving…' : 'Save Permissions'}

@@ -45,52 +45,14 @@ export function ProfitLossPage() {
   const [from,setFrom]=useState(new Date(new Date().getFullYear(),0,1).toISOString().slice(0,10));
   const [to,setTo]=useState(today());
   const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
-
-  const load=async()=>{setLoading(true);setError('');try{setData(await loadAccounts(from,to));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
+  const load=async()=>{setLoading(true);setError('');try{setData(await get(`/reports/profit-loss?from=${from}&to=${to}`));}catch(e){setError(e.message||'Could not load accounting data')}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
-
-  const p=useMemo(()=>{
-    if(!data)return null;
-    const sales=num(data.invoices.reduce((s,x)=>s+num(x.taxable_value ?? x.taxable_amt),0));
-    const oldSales=num(data.oldRows.filter(x=>x.status==='sold' && inRange(x.sale_date||x.date,from,to)).reduce((s,x)=>s+num(x.sold_amount||x.sale_amount),0));
-    const purchases=num(data.purchaseRows.reduce((s,x)=>s+num(x.taxable_amt),0));
-    const expenses=num(data.expenseRows.filter(x=>x.status!=='rejected' && inRange(x.date,from,to)).reduce((s,x)=>s+num(x.amount),0));
-    const revenue=sales+oldSales;
-    const gross=revenue-purchases;
-    return {sales,oldSales,revenue,purchases,gross,expenses,net:gross-expenses};
-  },[data,from,to]);
-
   if(error)return <div className="page"><div className="error">{error}</div></div>;
-  if(!p)return <div className="page"><ReportHeader title="Profit & Loss Account" subtitle="Loading accounting data…" from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/></div>;
-
-  return <div className="page">
-    <ReportHeader title="Profit & Loss Account" subtitle="T-format view. Account heads can be mapped later." from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/>
-    <div className="card" style={{padding:0,overflow:'hidden'}}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',borderBottom:'1px solid var(--border)'}}>
-        <div style={{padding:14,textAlign:'center',fontWeight:800,borderRight:'1px solid var(--border)'}}>Particulars</div>
-        <div style={{padding:14,textAlign:'center',fontWeight:800}}>Particulars</div>
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr'}}>
-        <div style={{padding:18,borderRight:'1px solid var(--border)'}}>
-          <Line label="Opening / Cost Side (to be mapped)" value={0}/>
-          <Line label="Raw Material Purchases" value={p.purchases}/>
-          <Line label="Direct / Operating Expenses" value={p.expenses}/>
-          <Line label="Gross Profit c/o" value={Math.max(0,p.gross)} bold/>
-          <Line label="Total" value={p.purchases+p.expenses+Math.max(0,p.gross)} bold/>
-        </div>
-        <div style={{padding:18}}>
-          <Line label="Sales Accounts" value={p.revenue}/>
-          <Line label="Closing Stock / Other Income (to be mapped)" value={0}/>
-          <Line label="Gross Loss c/o" value={Math.max(0,-p.gross)} bold/>
-          <Line label="Total" value={p.revenue+Math.max(0,-p.gross)} bold/>
-        </div>
-      </div>
-      <div style={{borderTop:'2px solid var(--border)',display:'grid',gridTemplateColumns:'1fr 1fr'}}>
-        <div style={{padding:18,borderRight:'1px solid var(--border)'}}><Line label="Indirect Expenses" value={p.expenses}/><Line label="Net Profit / (Loss)" value={p.net} bold/></div>
-        <div style={{padding:18}}><Line label="Gross Profit b/f" value={Math.max(0,p.gross)}/><Line label="Indirect Income (to be mapped)" value={0}/></div>
-      </div>
-    </div>
-    <div className="muted" style={{marginTop:10}}>Actual ledger heads are intentionally left unmapped for now; we can decide later where each head appears.</div>
+  if(!data)return <div className="page"><ReportHeader title="Profit & Loss Account" subtitle="Loading accounting data…" from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/></div>;
+  const rows=[['Opening Stock',data.opening_stock],['Purchases',data.purchases],['Cost of Goods Sold',data.cost_of_goods_sold],['Direct / Operating Expenses',data.expenses],['Gross Profit',Math.max(0,Number(data.gross_profit||0))],['Net Profit / (Loss)',data.net_profit]];
+  return <div className="page"><ReportHeader title="Profit & Loss Account" subtitle="Opening Stock + Purchases − Closing Stock = Cost of Goods Sold; Sales linked from billing." from={from} setFrom={setFrom} to={to} setTo={setTo} refresh={load} loading={loading}/>
+    <div className="card" style={{padding:0,overflow:'hidden'}}><div style={{display:'grid',gridTemplateColumns:'1fr 1fr'}}><div style={{padding:18,borderRight:'1px solid var(--border)'}}><h3>Debit / Cost Side</h3><Line label="Opening Stock" value={data.opening_stock}/><Line label="Purchases" value={data.purchases}/><Line label="Closing Stock (Less)" value={-Number(data.closing_stock||0)}/><Line label="Cost of Goods Sold" value={data.cost_of_goods_sold} bold/><Line label="Expenses" value={data.expenses}/><Line label="Net Profit / (Loss)" value={data.net_profit} bold/></div><div style={{padding:18}}><h3>Credit / Income Side</h3><Line label="Sales / Billing" value={data.sales}/><Line label="Closing Stock" value={data.closing_stock}/><Line label="Gross Profit" value={Math.max(0,Number(data.gross_profit||0))} bold/></div></div></div>
+    <div className="card" style={{marginTop:14}}><h3>Stock Summary</h3><div className="tablewrap"><table className="table"><thead><tr><th>Product</th><th>Sub Group</th><th>Opening Qty</th><th>Closing Qty</th><th>Rate</th><th>Closing Value</th></tr></thead><tbody>{(data.rows||[]).map(r=><tr key={r.id}><td>{r.name}</td><td>{r.sub_group_name||'Primary'}</td><td>{num(r.opening_qty)}</td><td>{num(r.closing_qty)}</td><td>{money(r.rate)}</td><td>{money(num(r.closing_qty)*num(r.rate))}</td></tr>)}</tbody></table></div></div>
   </div>;
 }
 export function BalanceSheetPage() {
@@ -132,3 +94,12 @@ export function BalanceSheetPage() {
   </div>;
 }
 
+
+export function AuditReportPage(){
+  const [rows,setRows]=useState([]),[filters,setFilters]=useState({user:'',module:'',action:'',record:'',from:'',to:''}),[error,setError]=useState('');
+  const load=async()=>{try{const q=new URLSearchParams(Object.entries(filters).filter(([,v])=>v));const d=await get('/audit-report?'+q.toString());setRows(d.rows||[]);setError('')}catch(e){setError(e.message)}};
+  useEffect(()=>{load()},[]);
+  return <div className="page"><div className="pageHeader"><div><h1>Audit / User Activity</h1><p className="muted">Kis user ne kya create, edit, delete ya approve kiya — old value aur new value ke saath.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
+    <div className="card"><div className="formgrid">{[['user','User'],['module','Module'],['action','Action'],['record','Record/Reference']].map(([k,l])=><div className="field" key={k}><label>{l}</label><input value={filters[k]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/></div>)}<div className="field"><label>From</label><input type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/></div><div className="field"><label>To</label><input type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/></div></div><button className="btn primary" onClick={load}>Apply Filters</button></div>
+    {error&&<div className="error">{error}</div>}<div className="tablewrap"><table className="table"><thead><tr><th>Date/Time</th><th>User</th><th>Module</th><th>Action</th><th>Record</th><th>Old Value</th><th>New Value</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{new Date(r.created_at).toLocaleString('en-IN')}</td><td>{r.username||'-'}</td><td>{r.module_key}</td><td>{r.action}</td><td>{r.record_ref||r.record_id||'-'}</td><td><pre style={{maxWidth:260,whiteSpace:'pre-wrap'}}>{r.old_value?JSON.stringify(r.old_value):'-'}</pre></td><td><pre style={{maxWidth:260,whiteSpace:'pre-wrap'}}>{r.new_value?JSON.stringify(r.new_value):'-'}</pre></td></tr>)}</tbody></table></div></div>
+}

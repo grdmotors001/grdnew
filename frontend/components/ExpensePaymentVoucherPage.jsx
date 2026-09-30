@@ -94,9 +94,9 @@ export function ExpensePaymentVoucherPage(){
         payload={...form,vehicle_ids:selected};
       }else if(form.expense_type==='insurance'||form.expense_type==='rto_expense'){
         if(!form.pay_to_name.trim())throw new Error(form.expense_type==='insurance'?'Enter Insurance Provider.':'Enter RTO Passing Person / Provider.');
-        if(!selected.length)throw new Error('Select at least one rickshaw.');
-        if(Number(form.amount)<=0)throw new Error('Enter amount per rickshaw.');
-        payload={...form,pay_to_type:'other',vehicle_ids:selected};
+        // No rickshaw selected = ON-ACCOUNT payment to the party (Insurance / RTO registers show the balance).
+        if(Number(form.amount)<=0)throw new Error(selected.length?'Enter amount per rickshaw.':'Enter on-account payment amount.');
+        payload={...form,pay_to_type:'other',...(selected.length?{vehicle_ids:selected}:{on_account:true})};
       }
       const r=await post('/expense-payment-voucher',payload);
       const added=r.vouchers||[r.voucher]; setRows(x=>[...added,...x]);
@@ -175,7 +175,7 @@ export function ExpensePaymentVoucherPage(){
         <div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div>
       </div>}
 
-      {(et==='insurance'||et==='rto_expense')&&<div className="muted" style={{marginTop:10}}>Select rickshaws for this {et==='insurance'?'Insurance':'RTO'} expense.</div>}
+      {(et==='insurance'||et==='rto_expense')&&<div className="muted" style={{marginTop:10}}>Select rickshaws for a per-rickshaw voucher, or select none to save an ON-ACCOUNT payment (amount = total paid).</div>}
       {(et==='insurance'||et==='rto_expense')&&<div className="card" style={{marginTop:10}}><div className="actions" style={{justifyContent:'space-between'}}><b>Eligible Rickshaws ({partyRickshaws.length})</b><button type="button" className="btn" onClick={()=>setSelected(selected.length===partyRickshaws.length?[]:partyRickshaws.map(r=>r.vehicle_id))}>{selected.length===partyRickshaws.length?'Unselect All':'Select All'}</button></div><div className="tablewrap"><table className="table"><thead><tr><th></th><th>Date</th><th>Chassis</th><th>Model</th><th>Dealer</th></tr></thead><tbody>{partyRickshaws.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}><td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td><td>{r.date}</td><td><b>{r.chassis_no}</b></td><td>{r.model_name||'—'}</td><td>{r.dealer_name||'—'}</td></tr>)}{!partyRickshaws.length&&<tr><td colSpan="5" className="muted">Enter provider/person name to load eligible rickshaws.</td></tr>}</tbody></table></div><div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div></div>}
       {et==='passing_exp'&&<div className="muted" style={{marginTop:10}}>Select one rickshaw below for Passing Expense.</div>}
       {et==='passing_exp'&&<select className="input" style={{marginTop:8}} value={form.vehicle_id} onChange={e=>set('vehicle_id',e.target.value)} required><option value="">Select Rickshaw</option>{rickshaws.map(r=><option key={r.vehicle_id} value={r.vehicle_id}>{r.chassis_no} — {r.model_name}</option>)}</select>}

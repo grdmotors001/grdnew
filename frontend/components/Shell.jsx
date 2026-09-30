@@ -4,6 +4,7 @@ import { get, post, setToken } from '../lib/api';
 import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups } from '../lib/menu';
 import { THEMES, useTheme } from '../lib/theme';
 import { ChatWidget } from './ChatWidget';
+import { Field } from './ui';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
@@ -98,7 +99,6 @@ export function Login({ onLogin }) {
       </form> : <form onSubmit={verify}>
         {error&&<div className="error">{error}</div>}
         <div className="field"><label>OTP</label><input inputMode="numeric" maxLength={4} value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,'').slice(0,4))} autoFocus required placeholder="Enter 4 digit OTP"/></div>
-        <p className="muted" style={{fontSize:12,marginTop:10}}>Temporary OTP for testing: <b>1234</b></p>
         <button className="btn primary" style={{width:'100%',marginTop:14}} disabled={busy}>{busy?'Verifying…':'Verify & Login'}</button>
         <button type="button" className="btn" style={{width:'100%',marginTop:8}} onClick={()=>{setOtpToken('');setOtp('');setError('')}}>← Back</button>
       </form>}
@@ -133,8 +133,18 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   // layout from lib/menu.js until an admin actually creates one.
   const [customTabs, setCustomTabs] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   useEffect(() => {
     get('/nav-config').then((d) => setCustomTabs(d?.custom ? d.tabs : null)).catch(() => setCustomTabs(null));
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const loadNotifications = () => get('/notifications', { noClientCache: true })
+      .then((d) => { if (!cancelled) setNotificationCount(Array.isArray(d?.notifications) ? d.notifications.filter(x => !x.is_read).length : 0); })
+      .catch(() => { if (!cancelled) setNotificationCount(0); });
+    loadNotifications();
+    const timer = window.setInterval(loadNotifications, 30000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
   const builtNav = buildNavGroups(customTabs);
   const navGroups = { ...builtNav.groups };
@@ -335,7 +345,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           ) : null}
           <div className="grdHeaderActions">
             <button type="button" className="grdHeaderIcon" title="Office Chat" onClick={() => { if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen((v) => !v); }}><MessageCircle size={18} /></button>
-            <button type="button" className="grdHeaderIcon" title="Notifications">🔔<span>3</span></button>
+            <button type="button" className="grdHeaderIcon" title={notificationCount > 0 ? String(notificationCount) + ' unread notifications' : 'Notifications'} onClick={() => selectMenu('notifications')}>
+              <span aria-hidden="true">🔔</span>{notificationCount > 0 && <span>{notificationCount > 99 ? '99+' : notificationCount}</span>}
+            </button>
             <div className="grdHeaderUser"><div className="grdHeaderAvatar">{initial}</div><strong>{user?.username || 'admin'}</strong><span>⌄</span></div>
           </div>
         </div>

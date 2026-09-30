@@ -25,17 +25,17 @@ export const MENU = {
     ['production-voucher', 'Production Voucher'],
     ['factory-check-report', 'Factory Check Report'],
     ['daily-raw-material-checklist', 'Daily Raw Material Issue'],
-    ['delivery-challan', 'E-Rickshaw Delivery Challan'],
+    ['delivery-challan', 'E-Rickshaw Delivery Challan'], ['challan-shift', 'Challan Shift'],
     ['tax-invoice', 'Tax Invoice'], ['credit-note', 'Credit Note'],
     ['old-rickshaw', 'Old Rickshaw'],
     ['battery-swap', 'Battery Swap / Exchange Voucher'],
     ['battery-withdrawal', 'Battery Withdrawal'],
-    ['battery-addition', 'Battery Fit to Rickshaw'],
+    ['battery-addition', 'Battery Fit to Rickshaw'], ['battery-fit', 'Factory → Dealer Battery Fit'],
     ['battery-delivery-challan', 'Battery Delivery Challan'],
     ['repair-service-voucher', 'Repair & Service Voucher'],
   ],
   Expenses: [
-    ['insurance-rto', 'Insurance / RTO Expense'],
+    ['insurance-rto', 'Insurance Register'], ['rto-expense', 'RTO Expense Register'],
   ],
   Stock: [
     ['closing-stock-premises', 'Closing Stock - Premises'],
@@ -52,7 +52,7 @@ export const MENU = {
     ['gst-register', 'GST Register'],
     ['hypothecation-register', 'Hypothecation Register'],
     ['payment-receivable-report', "Payment Rec'able Report"],
-    ['incentive-register', 'Incentive Register'], ['insurance-rto', 'Insurance / RTO Expense'],
+    ['incentive-register', 'Incentive Register'], ['insurance-rto', 'Insurance Register'], ['rto-expense', 'RTO Expense Register'],
     ['subsidy-report', 'Subsidy Report'],
     ['ledger', 'Ledger'],
     ['day-book', 'Day Book Entry'],
@@ -60,6 +60,7 @@ export const MENU = {
     ['password', 'Password'],
   ],
   Utilities: [
+    ['notifications', 'Notifications'],
     ['backup-restore', 'Backup / Restore'],
     ['hr-attendance', 'HR • Attendance & Salary'],
   ],
@@ -121,7 +122,7 @@ export const NAV_GROUPS = {
   Factory: [
     ['debit-note', 'Debit Note'],
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
-    ['production-voucher', 'Production Voucher'], ['daily-raw-material-checklist', 'Daily Raw Material Issue'], ['delivery-challan', 'Delivery Challan'],
+    ['production-voucher', 'Production Voucher'], ['daily-raw-material-checklist', 'Daily Raw Material Issue'], ['delivery-challan', 'Delivery Challan'], ['challan-shift', 'Challan Shift'],
   ],
   Battery: [
     ['battery-maker', 'Battery Maker'], ['battery-register', 'Battery Register'],
@@ -139,11 +140,11 @@ export const NAV_GROUPS = {
     ['expense-head', 'Account Head Master'],
     ['expense-payment-voucher', 'Expense Payment Voucher'],
     ['cash-at-dealer', 'Showroom Branch'],
-    ['insurance-rto', 'Insurance / RTO Expense'],
+    ['insurance-rto', 'Insurance Register'], ['rto-expense', 'RTO Expense Register'],
   ],
   Accounts: [
     ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'], ['day-book', 'Day Book'],
-    ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
+    ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'], ['bank-ledger', 'Bank Ledger'],
   ],
   Inventory: [
     ['old-rickshaw-inventory', 'Old Rickshaw Inventory'],
@@ -160,7 +161,7 @@ export const NAV_GROUPS = {
 ['purchase-register', 'Purchase Register'],
     ['delivery-challan-register', 'Delivery Challan Register'], ['sale-register', 'Sale Register'],
     ['payment-receivable-report', 'Payment Receivable'], ['customer-expense-ledger', 'Customer Expense / Complete Ledger'], ['hypothecation-register', 'Hypothecation Register'],
-    ['subsidy-report', 'Subsidy Report'], ['incentive-register', 'Incentive Register'],
+    ['subsidy-report', 'Subsidy Report'], ['audit-report', 'User Activity / Audit Report'], ['incentive-register', 'Incentive Register'],
   ],
   System: [
     ['profile', 'My Profile'], ['password', 'Password'],

@@ -8,7 +8,7 @@ import { Field, ErrorBanner, Money } from './ui';
 const isNonGst=t=>['OLD RICKSHAW','BATTERY'].includes(String(t||'').toUpperCase());
 
 export function BillingPendingSalesPage(){
-  const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
+  const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[search,setSearch]=useState('');
   const [createOpen,setCreateOpen]=useState(false);
   const [invoiceSale,setInvoiceSale]=useState(null),[view,setView]=useState('PENDING'),[canApprove,setCanApprove]=useState(false);
   const [sheet,setSheet]=useState(null); // {mode:'view'|'edit', sale}
@@ -38,7 +38,8 @@ export function BillingPendingSalesPage(){
     try{const r=await get('/billing/pending-sales/invoice?id='+id);setInvoiceSale({...r,id})}
     catch(e){setError(e.message||'Could not open Tax Invoice')}
   };
-  const shown=rows.filter(r=>r.status===view);
+  const q=search.trim().toLowerCase();
+  const shown=rows.filter(r=>r.status===view && (!q||[r.application_no,r.application_id,r.dealer_name,r.customer_name,r.chassis_no,r.vehicle_reg_no,r.description,r.sale_type,r.status].join(' ').toLowerCase().includes(q)));
 
   return <div className="page">
     <div className="pageHeader">
@@ -51,6 +52,7 @@ export function BillingPendingSalesPage(){
         <button className={'btn '+(view==='PENDING'?'primary':'')} onClick={()=>setView('PENDING')}>Pending Sales</button>
         <button className={'btn '+(view==='APPROVED'?'primary':'')} onClick={()=>setView('APPROVED')}>Approved Sales</button>
       </div>
+      <input className="input" style={{width:'100%',maxWidth:480,margin:'0 0 12px'}} placeholder="Search application, dealer, customer, chassis…" value={search} onChange={e=>setSearch(e.target.value)} />
       <div className="tablewrap"><table className="table"><thead><tr>
         <th>Application</th><th>Dealer</th><th>Customer</th><th>Chassis / Reg. No.</th><th>Description</th><th>Sale Amount</th><th>Status</th><th>Action</th>
       </tr></thead><tbody>

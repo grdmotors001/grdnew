@@ -337,7 +337,10 @@ export function DealerPortal({ dealer, onLogout }) {
         {tab==='incentive' && canCashBook && <DealerIncentiveRegister dealer={dealer}/>}
         {tab==='receipt-create' && canCashBook && <DealerCashReceiptPage dealer={dealer}/>}
         {tab==='repair-receipt' && canRepairReceipt && <DealerRepairReceiptPage dealer={dealer}/>}
-        {tab==='purchases' && canPurchase && <DealerPurchases onInvoice={(x)=>{setSelectedPurchase(x);setTab('customer-invoice')}}/>}
+        {tab==='purchases' && canPurchase && <DealerTable headers={['Date','Challan No.','Product','Chassis No.','Action']} rows={filteredChallans} row={v=>{
+          const invoiced=invoices.some(i=>i.chassis_no&&i.chassis_no===v.chassis_no);
+          return <><td>{formatDate(v.date)}</td><td><b>{v.challan_no}</b></td><td>{v.product_name||'—'}</td><td>{v.chassis_no||'—'}</td>
+            <td>{invoiced?<span className="muted">Invoiced</span>:<button className="btn primary" onClick={()=>{setSelectedPurchase(v);setTab('customer-invoice')}}>Create Invoice</button>}</td></>}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='ledger' && <DealerLedgerPage/>}
         {tab==='pending-sales' && <DealerPendingSalesPage/>}

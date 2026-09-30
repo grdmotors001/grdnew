@@ -23,6 +23,8 @@ const COPY_TYPES = [
 // Matches the "Print / View Document" side-viewer pattern: dimmed backdrop
 // on the left, document panel sliding in from the right, header with quick
 // actions, footer with copy-type selector + share/print actions.
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
+
 function Overlay({ onClose, children, extraActions, title = 'Print / View Document' }) {
   const [copyType, setCopyType] = useState('original');
   const [copied, setCopied] = useState(false);
@@ -466,6 +468,7 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
             <table>
               <tbody>
                 <tr><th colSpan="2">{c.battery_maker || '—'}</th></tr>
+                <tr><td colSpan="2" style={{fontWeight:700}}>Battery Fit Date: {c.battery_fit_date ? fmtDate(c.battery_fit_date) : 'Not Fitted'}</td></tr>
                 <tr><td className="center">1</td><td>{c.battery_no1 || '0'}</td></tr>
                 <tr><td className="center">2</td><td>{c.battery_no2 || '0'}</td></tr>
                 <tr><td className="center">3</td><td>{c.battery_no3 || '0'}</td></tr>

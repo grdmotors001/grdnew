@@ -252,6 +252,49 @@ export function BatteryAdditionPage() {
   </div></div>;
 }
 
+export function BatteryFitPage() {
+  const [challans,setChallans]=useState([]),[makers,setMakers]=useState([]),[form,setForm]=useState({challan_id:'',battery_maker:'',battery_no1:'',battery_no2:'',battery_no3:'',battery_no4:'',fit_date:today(),reference_no:'',remarks:''});
+  const [error,setError]=useState(''),[busy,setBusy]=useState(false);
+  const load=async()=>{
+    try{
+      const [c,m]=await Promise.all([get('/battery-fit'),get('/masters/battery-maker')]);
+      setChallans(c.challans||[]);
+      const rows=Array.isArray(m)?m:(m?.masters||m?.rows||m?.data||[]);
+      setMakers(rows);
+    }catch(e){setError(e.message)}
+  };
+  useEffect(()=>{load()},[]);
+  const selected=challans.find(x=>String(x.id)===String(form.challan_id));
+  const save=async e=>{
+    e.preventDefault();setBusy(true);setError('');
+    try{
+      await post('/battery-fit',form);
+      setForm({challan_id:'',battery_maker:'',battery_no1:'',battery_no2:'',battery_no3:'',battery_no4:'',fit_date:today(),reference_no:'',remarks:''});
+      await load();
+    }catch(e){setError(e.message)}finally{setBusy(false)}
+  };
+  return <div className="page">
+    <div className="card"><h2>Factory → Dealer Battery Fit</h2>
+      <p className="muted">Factory se battery direct dealer ke Delivery Challan par fit hogi. Dealer battery stock me issue/addition ki zarurat nahi.</p>
+      <ErrorBanner message={error}/>
+      <form onSubmit={save}><div className="formgrid">
+        <Field label="Delivery Challan" type="select" value={form.challan_id} options={[{value:'',label:'Select Challan'},...challans.map(x=>({value:x.id,label:(x.challan_no||'—')+' — '+(x.dealer_name||'')+' — '+(x.chassis_no||'')}))]} onChange={v=>{const x=challans.find(z=>String(z.id)===String(v));setForm(f=>({...f,challan_id:Number(v),battery_maker:x?.battery_maker||'',battery_no1:x?.battery_no1||'',battery_no2:x?.battery_no2||'',battery_no3:x?.battery_no3||'',battery_no4:x?.battery_no4||''}))}} required/>
+        <Field label="Fit Date" type="date" value={form.fit_date} onChange={v=>setForm({...form,fit_date:v})} required/>
+        <Field label="Dealer" value={selected?.dealer_name||''} readOnly/>
+        <Field label="Chassis No." value={selected?.chassis_no||''} readOnly/>
+        <Field label="Battery Maker" type="select" value={form.battery_maker} options={[{value:'',label:'Select Battery Maker'},...makers.map(x=>({value:x.name,label:x.name}))]} onChange={v=>setForm({...form,battery_maker:v})} required/>
+        <Field label="Battery No. 1" value={form.battery_no1} onChange={v=>setForm({...form,battery_no1:v})} required/>
+        <Field label="Battery No. 2" value={form.battery_no2} onChange={v=>setForm({...form,battery_no2:v})}/>
+        <Field label="Battery No. 3" value={form.battery_no3} onChange={v=>setForm({...form,battery_no3:v})}/>
+        <Field label="Battery No. 4" value={form.battery_no4} onChange={v=>setForm({...form,battery_no4:v})}/>
+        <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
+        <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
+      </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Fit Battery'}</button></div></form>
+    </div>
+    <div className="card"><h2>Battery Fit History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Fit Date</th><th>Challan</th><th>Dealer</th><th>Chassis</th><th>Battery</th><th>Old Battery</th></tr></thead><tbody>{challans.filter(x=>x.battery_fit_date).map(x=><tr key={x.id}><td>{formatDate(x.battery_fit_date)}</td><td>{x.challan_no}</td><td>{x.dealer_name}</td><td>{x.chassis_no}</td><td>{x.battery_maker||'—'} {x.battery_no1||''}</td><td>{x.old_battery_maker||'—'}</td></tr>)}</tbody></table></div></div>
+  </div>;
+}
+
 export function BatteryDeliveryChallanPage() {
   const [data,setData]=useState(null),[dealers,setDealers]=useState([]),[makers,setMakers]=useState([]),[open,setOpen]=useState(false);
   const [form,setForm]=useState({date:today(),qty:1,battery_numbers:['']});

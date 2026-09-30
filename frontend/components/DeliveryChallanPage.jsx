@@ -292,7 +292,7 @@ export function DeliveryChallanPage() {
       {data.challans.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Colour</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Colour</th><th>Battery Fit Date</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {data.challans.map((c) => (
                 <tr key={c.id}>
@@ -464,13 +464,9 @@ export function DeliveryChallanPage() {
               </div></div>
               <Field label="Motor No." value={editRow.motor_no} readOnly />
               <Field label="Formula Name" value={formVehicle?.formula_name} readOnly />
-              <Field label="Battery Maker" type="select" value={editRow.battery_maker}
-                     options={batteryMakers.map((b) => ({ value: b.name, label: b.name }))}
-                     onChange={(v) => setEditRow({ ...editRow, battery_maker: v })} />
-              <Field label="Battery No. 1" value={editRow.battery_no1} onChange={(v) => setEditRow({ ...editRow, battery_no1: v })} />
-              <Field label="Battery No. 2" value={editRow.battery_no2} onChange={(v) => setEditRow({ ...editRow, battery_no2: v })} />
-              <Field label="Battery No. 3" value={editRow.battery_no3} onChange={(v) => setEditRow({ ...editRow, battery_no3: v })} />
-              <Field label="Battery No. 4" value={editRow.battery_no4} onChange={(v) => setEditRow({ ...editRow, battery_no4: v })} />
+               <div style={{ gridColumn: '1 / -1' }} className="muted">
+                 Battery details are locked after Challan creation. Battery changes will be recorded only through Battery Withdrawal / Swap / Fit.
+               </div>
               <AccessoriesFields value={editRow} onChange={(next) => setEditRow({ ...editRow, ...next })} />
               <Field label="Remarks" value={editRow.remarks1} onChange={(v) => setEditRow({ ...editRow, remarks1: v })} />
             </div>

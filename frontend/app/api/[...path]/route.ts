@@ -13,7 +13,9 @@ function auth(req:Request){
   if(!t)return null;
   try{return jwt.verify(t,secret) as any}catch{return null}
 }
-const json=async(req:Request)=>await req.json().catch(()=>({}));
+const _bodyCache=new WeakMap<Request,Promise<any>>();
+// Body cache: mutation() reads the body for permission/dealer checks and handlers read it again; an uncached req.json() returned {} the 2nd time.
+const json=(req:Request):Promise<any>=>{let p=_bodyCache.get(req);if(!p){p=req.json().catch(()=>({}));_bodyCache.set(req,p);}return p;};
 const num=(v:any)=>Number.isFinite(Number(v))?Number(v):0;
 // tax_invoice has no stored taxable/GST/total columns (legacy model computes them). Screens, print and the dealer portal read
 // taxable_value / cgst_amount / sgst_amount / igst_amount / tax_amount / bill_total, so every tax_invoice read that feeds them adds this (alias: ti).
@@ -74,6 +76,23 @@ function tableFor(path:string[]){
   return TABLES[full]||TABLES[path[0]]||null;
 }
 // pg returns DATE columns as JS Date objects; String(Date).slice(0,10) gives "Mon Sep 28" (invalid for ::date). Always use ymd().
+function todayDate(){return new Date().toISOString().slice(0,10);}
+// ---- Import helpers (Excel/CSV) ----
+function normKey(k:any){return String(k??'').toLowerCase().replace(/[^a-z0-9]/g,'');}
+// Header-insensitive getter: "Chassis No.", "chassis_no", "CHASSIS NO" all match.
+function rowGetter(o:any){const m:any={};for(const [k,v] of Object.entries(o||{}))m[normKey(k)]=v;return (keys:string[])=>{for(const k of keys){const v=m[normKey(k)];if(v!==undefined&&v!==null&&String(v).trim()!=='')return v;}return '';};}
+// Excel gives serial numbers (45930) or dd/mm/yyyy text; passing those straight to ::date either errors (whole import fails) or swaps day/month.
+function importDate(v:any):string|null{
+  if(v===''||v==null)return null;
+  const ok=(y:number,m:number,d:number)=>{const t=new Date(Date.UTC(y,m-1,d));return t.getUTCFullYear()===y&&t.getUTCMonth()===m-1&&t.getUTCDate()===d?y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'):null;};
+  if(v instanceof Date)return isNaN(v.getTime())?null:v.toISOString().slice(0,10);
+  if(typeof v==='number'||/^\d{5}(\.\d+)?$/.test(String(v).trim())){const n=Number(v);if(n<20000||n>80000)return null;return new Date(Date.UTC(1899,11,30)+Math.floor(n)*86400000).toISOString().slice(0,10);}
+  const t=String(v).trim();let m=t.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);if(m)return ok(+m[1],+m[2],+m[3]);
+  m=t.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})/);if(m){const y=m[3].length===2?2000+ +m[3]:+m[3];return ok(y,+m[2],+m[1]);}
+  return null;
+}
+function importAmount(v:any):number{if(typeof v==='number')return Number.isFinite(v)?v:0;const t=String(v??'').replace(/[₹,\s]/g,'').replace(/\((.*)\)/,'-$1').replace(/(dr|cr)\.?$/i,'');const n=Number(t);return Number.isFinite(n)?n:0;}
+function moduleAlias(x:string){return x==='insurance-register'?'insurance-rto':x==='rto-register'?'rto-expense':x;}
 function ymd(v:any):string{
   if(v instanceof Date){if(isNaN(v.getTime()))return "";return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");}
   return String(v||"").slice(0,10);
@@ -81,6 +100,37 @@ function ymd(v:any):string{
 async function columns(table:string){
   const r=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1",[table]);
   return new Set(r.rows.map((x:any)=>x.column_name));
+}
+let challanShiftSchemaReady:Promise<void>|null=null;
+function ensureChallanShiftSchema():Promise<void>{
+  if(!challanShiftSchemaReady){
+    challanShiftSchemaReady=(async()=>{
+      await pool.query(`CREATE TABLE IF NOT EXISTS delivery_challan_shift (
+        id bigserial PRIMARY KEY,
+        shift_ref text UNIQUE,
+        challan_id bigint NOT NULL,
+        challan_no text,
+        chassis_no text,
+        model_name text,
+        battery_maker text,
+        battery_no1 text,
+        battery_no2 text,
+        battery_no3 text,
+        battery_no4 text,
+        shift_from_dealer_id integer,
+        shift_from_dealer_name text,
+        shift_to_dealer_id integer,
+        shift_to_dealer_name text,
+        shift_date date NOT NULL DEFAULT CURRENT_DATE,
+        remark text,
+        shifted_by text,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await pool.query("CREATE INDEX IF NOT EXISTS delivery_challan_shift_challan_idx ON delivery_challan_shift(challan_id)");
+      await pool.query("CREATE INDEX IF NOT EXISTS delivery_challan_shift_date_idx ON delivery_challan_shift(shift_date)");
+    })().catch(e=>{challanShiftSchemaReady=null;throw e});
+  }
+  return challanShiftSchemaReady;
 }
 // Billing customer master (per dealer). Upserts by dealer + name + mobile and returns the id.
 async function upsertBillingCustomer(b:any):Promise<number|null>{
@@ -223,6 +273,80 @@ async function ensureGrdAssetSchemaOnce(){
       dealer_id=EXCLUDED.dealer_id,customer_id=EXCLUDED.customer_id,asset_status='AVAILABLE',updated_at=NOW()
   `);
 }
+
+let securitySchemaReady:Promise<void>|null=null;
+function ensureSecuritySchema():Promise<void>{
+  if(!securitySchemaReady) securitySchemaReady=(async()=>{
+    await pool.query(`CREATE TABLE IF NOT EXISTS user_action_permission (
+      id bigserial PRIMARY KEY, user_id bigint NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      module_key text NOT NULL, can_view boolean NOT NULL DEFAULT false, can_create boolean NOT NULL DEFAULT false,
+      can_edit boolean NOT NULL DEFAULT false, can_delete boolean NOT NULL DEFAULT false, can_approve boolean NOT NULL DEFAULT false,
+      UNIQUE(user_id,module_key)
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS audit_log (
+      id bigserial PRIMARY KEY, user_id bigint, username text, department text, module_key text, action text NOT NULL,
+      record_id text, record_ref text, old_value jsonb, new_value jsonb, dealer_id bigint, created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await pool.query("CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log(created_at DESC)");
+    await pool.query("CREATE INDEX IF NOT EXISTS audit_log_user_idx ON audit_log(user_id,created_at DESC)");
+    await pool.query("CREATE INDEX IF NOT EXISTS audit_log_module_idx ON audit_log(module_key,created_at DESC)");
+    await pool.query("ALTER TABLE \"user\" ADD COLUMN IF NOT EXISTS assigned_dealer_ids jsonb NOT NULL DEFAULT '[]'::jsonb");
+    await pool.query("CREATE TABLE IF NOT EXISTS product_sub_group (id bigserial PRIMARY KEY, name text NOT NULL UNIQUE, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())");
+    await pool.query("INSERT INTO product_sub_group(name) VALUES('Primary') ON CONFLICT(name) DO NOTHING");
+    await pool.query("ALTER TABLE product ADD COLUMN IF NOT EXISTS sub_group_id bigint");
+    await pool.query("ALTER TABLE product ADD COLUMN IF NOT EXISTS sub_group_name text");
+    await pool.query("UPDATE product SET sub_group_name='Primary' WHERE COALESCE(BTRIM(sub_group_name),'')=''");
+  })().catch(e=>{securitySchemaReady=null;throw e});
+  return securitySchemaReady;
+}
+function actionFor(method:string){ return method==='GET'?'view':method==='POST'?'create':method==='DELETE'?'delete':'edit'; }
+async function audit(a:any,moduleKey:string,action:string,recordId:any,oldValue:any,newValue:any,dealerId:any=null,recordRef:any=null){
+  try{ await ensureSecuritySchema(); await pool.query(`INSERT INTO audit_log(user_id,username,department,module_key,action,record_id,record_ref,old_value,new_value,dealer_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10)`,[idOf(a?.sub),a?.username||null,a?.department||a?.role||null,moduleKey,action,recordId==null?null:String(recordId),recordRef==null?null:String(recordRef),JSON.stringify(oldValue??null),JSON.stringify(newValue??null),idOf(dealerId)]); }catch(e){ console.error('[audit-log]',e); }
+}
+function assignedDealerIds(a:any){
+  if(a?.is_super_user || String(a?.department||'').toLowerCase()==='admin') return null;
+  const raw=a?.assigned_dealer_ids;
+  if(Array.isArray(raw)) return raw.map(idOf).filter(Boolean);
+  try{return Array.isArray(JSON.parse(String(raw||'[]')))?JSON.parse(String(raw||'[]')).map(idOf).filter(Boolean):[];}catch{return []}
+}
+function isSalesman(a:any){return a?.scope==='staff' && String(a?.department||'').trim().toLowerCase()==='salesman' && !a?.is_super_user;}
+function dealerScopeWhere(a:any,alias:string,args:any[]){ if(!isSalesman(a)) return ''; const ids=assignedDealerIds(a)||[]; if(!ids.length){args.push(-1);return `${alias}.id=$${args.length}`;} args.push(ids); return `${alias}.id=ANY($${args.length}::bigint[])`; }
+async function enforceDealerScope(a:any, table:string, id:any=null, body:any=null){
+  if(!isSalesman(a)) return null;
+  const ids=assignedDealerIds(a)||[]; if(!ids.length) return Response.json({error:'No dealers assigned to this salesman.'},{status:403});
+  const dealerTables=new Set(['dealer','delivery_challan','tax_invoice','billing_customer','customer','vehicle','loan_workflow','old_rickshaw','old_rickshaw_challan','dealer_payment','day_book','purchase_bill','journal_stock']);
+  if(!dealerTables.has(table)) return null;
+  if(id && table==='dealer' && !ids.includes(Number(id))) return Response.json({error:'Dealer access denied.'},{status:403});
+  if(id){
+    const cols=await columns(table); if(!cols.has('dealer_id')) return null;
+    const r=await pool.query(`SELECT dealer_id FROM "${table}" WHERE id=$1 LIMIT 1`,[id]);
+    if(r.rowCount && !ids.includes(Number(r.rows[0].dealer_id))) return Response.json({error:'Dealer access denied.'},{status:403});
+  }
+  if(body?.dealer_id && !ids.includes(Number(body.dealer_id))) return Response.json({error:'Dealer access denied.'},{status:403});
+  if(!id && table!=='dealer' && !body?.dealer_id && (await columns(table)).has('dealer_id')) return Response.json({error:'dealer_id is required for salesman.'},{status:403});
+  return null;
+}
+const DEALER_SCOPED_TABLES=new Set(['dealer','delivery_challan','tax_invoice','billing_customer','customer','vehicle','loan_workflow','old_rickshaw','old_rickshaw_challan','dealer_payment','day_book','purchase_bill','journal_stock','battery_register_entry','credit_note','cash_handover','dealer_cash_receipt']);
+// Read-side dealer restriction (salesman): returns {sql,arg} fragment for generic GET so API cannot be used to read other dealers' rows.
+async function dealerReadFilter(a:any,table:string,argsLen:number){
+  if(!isSalesman(a)||!DEALER_SCOPED_TABLES.has(table)) return null;
+  const ids=assignedDealerIds(a)||[]; const cols=await columns(table);
+  const col=table==='dealer'?'id':cols.has('dealer_id')?'dealer_id':null; if(!col) return null;
+  return {sql:'"'+col+'"=ANY($'+(argsLen+1)+'::bigint[])',arg:ids.length?ids:[-1]};
+}
+async function actionAllowed(a:any,moduleKey:string,action:string){
+  if(a?.scope==='dealer') return true;
+  if(a?.is_super_user || String(a?.department||'').toLowerCase()==='admin') return true;
+  await ensureSecuritySchema();
+  const segs=String(moduleKey||'').split('/').filter(Boolean),clean=segs.filter(x=>!/^\d+$/.test(x));
+  const keys=[...new Set([moduleKey,clean.join('/'),clean.slice(0,2).join('/'),clean[0],moduleAlias(String(clean[0]||''))].filter(Boolean))];
+  const r=await pool.query('SELECT module_key,can_view,can_create,can_edit,can_delete,can_approve FROM user_action_permission WHERE user_id=$1 AND module_key=ANY($2::text[])',[idOf(a?.sub),keys]);
+  if(r.rowCount){const row=keys.map(k=>r.rows.find((x:any)=>x.module_key===k)).find(Boolean); return Boolean(row['can_'+action]);}
+  const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||'').split(',').map((x:string)=>x.trim()).filter(Boolean);
+  const parts=String(moduleKey||'').split('/').filter(Boolean); const candidates=[moduleKey,...parts,...parts.map(moduleAlias),parts.at(-1),String(parts.at(-1)||'').replace(/s$/,'')].filter(Boolean);
+  return candidates.some((x:any)=>mods.includes(x));
+}
+
 function billingStaff(a:any){
   return a?.scope==="staff" && (Boolean(a?.is_super_user) ||
     ["admin","billing","accounts","head office","head-office"].includes(String(a?.department||"").trim().toLowerCase()));
@@ -238,6 +362,60 @@ async function ensureBatteryRegisterSchema(){
   await pool.query("CREATE INDEX IF NOT EXISTS battery_register_entry_maker_idx ON battery_register_entry (battery_maker)");
   await pool.query("CREATE INDEX IF NOT EXISTS battery_register_entry_no_idx ON battery_register_entry (battery_no)");
   await pool.query("CREATE INDEX IF NOT EXISTS battery_register_entry_source_idx ON battery_register_entry (source_type,source_id)");
+}
+async function ensureNotificationSchema(){
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_notification (
+    id bigserial PRIMARY KEY,
+    notification_type text NOT NULL,
+    title text NOT NULL,
+    message text NOT NULL,
+    dealer_id integer,
+    user_id text,
+    reference_type text,
+    reference_id bigint,
+    dedupe_key text UNIQUE,
+    is_read boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS app_notification_unread_idx ON app_notification(is_read,created_at DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS app_notification_dealer_idx ON app_notification(dealer_id,created_at DESC)");
+  await pool.query(`CREATE TABLE IF NOT EXISTS dealer_cash_limit (
+    dealer_id integer PRIMARY KEY,
+    cash_limit numeric NOT NULL DEFAULT 100000,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`);
+}
+async function ensureBatteryFitSchema(){
+  await ensureBatteryRegisterSchema();
+  await pool.query("ALTER TABLE delivery_challan ADD COLUMN IF NOT EXISTS battery_fit_date date");
+  await pool.query("ALTER TABLE vehicle ADD COLUMN IF NOT EXISTS battery_fit_date date");
+  await pool.query(`CREATE TABLE IF NOT EXISTS battery_fit_log (
+    id bigserial PRIMARY KEY,
+    fit_date date NOT NULL DEFAULT CURRENT_DATE,
+    challan_id bigint NOT NULL,
+    challan_no text,
+    dealer_id integer,
+    dealer_name text,
+    vehicle_id bigint,
+    chassis_no text,
+    model_name text,
+    battery_maker text,
+    battery_no1 text,
+    battery_no2 text,
+    battery_no3 text,
+    battery_no4 text,
+    old_battery_maker text,
+    old_battery_no1 text,
+    old_battery_no2 text,
+    old_battery_no3 text,
+    old_battery_no4 text,
+    reference_no text,
+    remarks text,
+    fitted_by text,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`);
+  await pool.query("CREATE INDEX IF NOT EXISTS battery_fit_log_challan_idx ON battery_fit_log(challan_id)");
+  await pool.query("CREATE INDEX IF NOT EXISTS battery_fit_log_date_idx ON battery_fit_log(fit_date)");
 }
 async function ensureProductionVoucherSchema(){
   await pool.query("ALTER TABLE production_voucher ADD COLUMN IF NOT EXISTS formula_name text");
@@ -589,8 +767,8 @@ async function toggleBatteryRegisterForDelivery(client:any,dc:any,cancelled:bool
 async function assertBatterySerialsAvailable(client:any,maker:string,numbers:string[]){
   const clean=numbers.map(x=>String(x||"").trim()).filter(Boolean);if(!clean.length)return;if(new Set(clean.map(x=>x.toUpperCase())).size!==clean.length)throw new Error("Duplicate battery number entered in the same Delivery Challan.");
   await ensureBatteryRegisterSchema();const stock=await client.query("SELECT COALESCE(SUM(CASE WHEN entry_type='IN' THEN qty ELSE -qty END),0) AS balance FROM battery_register_entry WHERE upper(trim(battery_maker))=upper(trim($1))",[maker]);
-  if(Number(stock.rows[0]?.balance||0)<clean.length)throw new Error("Battery stock is insufficient for "+maker+". Available: "+Number(stock.rows[0]?.balance||0)+", required: "+clean.length);
-  for(const no of clean){const used=await client.query("SELECT COALESCE(SUM(CASE WHEN entry_type='IN' THEN qty ELSE -qty END),0) AS balance FROM battery_register_entry WHERE upper(trim(battery_maker))=upper(trim($1)) AND upper(trim(COALESCE(battery_no,'')))=upper(trim($2))",[maker,no]);if(Number(used.rows[0]?.balance||0)>0)throw new Error("Battery No. "+no+" is already in use.");}
+  // Battery minus allowed (purchase qty may be entered later than challan) - no stock-insufficient block here.
+  for(const no of clean){const used=await client.query("SELECT COALESCE(SUM(CASE WHEN entry_type='IN' THEN qty ELSE -qty END),0) AS balance FROM battery_register_entry WHERE upper(trim(battery_maker))=upper(trim($1)) AND upper(trim(COALESCE(battery_no,'')))=upper(trim($2))",[maker,no]);if(Number(used.rows[0]?.balance||0)<0)throw new Error("Battery No. "+no+" is already in use.");}
 }
 
 async function ensureHRSchemas(){
@@ -603,15 +781,18 @@ async function genericGet(req:Request,path:string[],table:string){
   if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
   const id=idOf(path[path.length-1]);
   let sql='SELECT * FROM "'+table+'"',args:any[]=[];
-  if(table==="simple_master" && path[0]==="masters" && path[1]){args.push(path[1]);sql+=' WHERE kind=$1';}
-  else if(id&&/^\d+$/.test(path[path.length-1]||"")){sql+=" WHERE id=$1";args=[id]}
+  const whereAll:string[]=[];
+  if(table==="simple_master" && path[0]==="masters" && path[1]){args.push(path[1]);whereAll.push('kind=$1');}
+  else if(id&&/^\d+$/.test(path[path.length-1]||"")){whereAll.push("id=$1");args=[id]}
   else{
-    const u=new URL(req.url),where:string[]=[];
+    const u=new URL(req.url);
     for(const [k,v] of u.searchParams.entries()){
       const c=snake(k);
-      if(cols.has(c)&&c!=="id"){args.push(v);where.push('"'+c+'"=$'+args.length);}
+      if(cols.has(c)&&c!=="id"){args.push(v);whereAll.push('"'+c+'"=$'+args.length);}
     }
   }
+  const drf=await dealerReadFilter(auth(req),table,args.length); if(drf){args.push(drf.arg);whereAll.push(drf.sql);}
+  if(whereAll.length)sql+=" WHERE "+whereAll.join(" AND ");
 
   sql+=" ORDER BY id DESC LIMIT 1000";
   const r=await pool.query(sql,args);
@@ -629,7 +810,10 @@ function isAdmin(a:any){
 }
 function canRead(a:any,p:string){
   // Dealers may only read their explicitly scoped portal endpoints.
-  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me" || p==="billing/pending-sales/options";
+  if(a?.scope==="dealer") return p.startsWith("dealer/") || p==="auth/me" || p==="billing/pending-sales/options" || p==="notifications";
+  if(p==="notifications") {
+    return a?.scope==="staff" && (Boolean(a?.is_super_user) || ["admin","accounts","finance"].includes(String(a?.department||"").trim().toLowerCase()));
+  }
   return true;
 }
 // Dealer battery portal writes are explicitly gated by the module flags
@@ -664,7 +848,10 @@ function canWrite(a:any,p:string){
   // Non-admin staff can mutate only modules explicitly granted in allowed_modules.
   const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
   const key=p.startsWith("masters/") ? p : p.split("/")[0];
-  return mods.includes(p) || mods.includes(key);
+  if(p==="challan-shift")return mods.includes("challan-shift") || mods.includes("delivery-challan");
+  if(p==="battery-fit")return mods.includes("battery-fit") || mods.includes("battery-addition") || mods.includes("delivery-challan");
+  if(p==="notifications/read" || p==="notifications/cash-limit")return true;
+  return mods.includes(p) || mods.includes(key) || mods.includes(moduleAlias(key));
 }
 // User Master save. Frontend posts /users for BOTH add and edit (edit sends id). The generic writer always INSERTed and dropped
 // "password" (column is password_hash), so editing an existing username hit the unique constraint -> 500.
@@ -677,6 +864,7 @@ async function saveUserRecord(b:any):Promise<Response>{
   if(cols.has("department"))f.department=t(b.department)||"Admin";
   if(cols.has("is_super_user"))f.is_super_user=b.is_super_user===true||b.is_super_user==="true"||b.is_super_user===1;
   if(cols.has("salesman_name")&&b.salesman_name!==undefined)f.salesman_name=t(b.salesman_name)||null;
+  if(cols.has("assigned_dealer_ids")&&b.assigned_dealer_ids!==undefined)f.assigned_dealer_ids=JSON.stringify(Array.isArray(b.assigned_dealer_ids)?b.assigned_dealer_ids.map(idOf).filter(Boolean):[]);
   for(const k of ["mobile","full_name","email","address"]){if(cols.has(k)&&b[k]!==undefined)f[k]=t(b[k])||null;}
   if(cols.has("date_of_birth")&&b.date_of_birth!==undefined)f.date_of_birth=t(b.date_of_birth).slice(0,10)||null;
   if(cols.has("allowed_modules")&&b.allowed_modules!==undefined){
@@ -757,23 +945,29 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
   if(table==="simple_master" && path[0]==="masters" && path[1] && cols.has("kind"))input.kind=path[1]==="color"?"colour":path[1];
   const id=idOf(path[path.length-1]);
   if(table==="dealer"){const g=await guardRepairReceiptRight(auth(req),method,method==="POST"?null:id,input);if(g)return g;}
+  const scopeGuard=await enforceDealerScope(auth(req),table,id,input); if(scopeGuard)return scopeGuard;
   if(method==="POST"){
     const keys=Object.keys(input);
     if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
     const vals=keys.map((_,i)=>"$"+(i+1));
     const sql='INSERT INTO "'+table+'" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+vals.join(",")+') RETURNING *';
     const r=await pool.query(sql,keys.map(k=>input[k]));
+    await audit(auth(req),path.join("/"),"create",r.rows[0]?.id,null,r.rows[0],r.rows[0]?.dealer_id,r.rows[0]?.bill_no||r.rows[0]?.challan_no||r.rows[0]?.code);
     return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
   }
   if(!id)return Response.json({error:"Record id required."},{status:400});
   if(method==="DELETE"){
+    const oldr=await pool.query('SELECT * FROM "'+table+'" WHERE id=$1',[id]);
     const r=await pool.query('DELETE FROM "'+table+'" WHERE id=$1 RETURNING *',[id]);
+    await audit(auth(req),path.join("/"),"delete",id,oldr.rows[0]||null,null,oldr.rows[0]?.dealer_id,oldr.rows[0]?.bill_no||oldr.rows[0]?.challan_no||oldr.rows[0]?.code);
     return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
   }
   const keys=Object.keys(input);
   if(!keys.length)return Response.json({error:"No valid fields supplied."},{status:400});
+  const oldr=await pool.query('SELECT * FROM "'+table+'" WHERE id=$1',[id]);
   const sets=keys.map((k,i)=>'"'+k+'"=$'+(i+1));
   const r=await pool.query('UPDATE "'+table+'" SET '+sets.join(",")+' WHERE id=$'+(keys.length+1)+' RETURNING *',[...keys.map(k=>input[k]),id]);
+  await audit(auth(req),path.join("/"),"edit",id,oldr.rows[0]||null,r.rows[0]||null,r.rows[0]?.dealer_id||oldr.rows[0]?.dealer_id,r.rows[0]?.bill_no||r.rows[0]?.challan_no||r.rows[0]?.code);
   return Response.json({success:r.rowCount>0,row:r.rows[0]||null,data:r.rows[0]||null});
 }
 
@@ -865,11 +1059,162 @@ function pwMakeHash(crypto:any,password:string){
   return "pbkdf2:sha256:260000$"+salt+"$"+crypto.pbkdf2Sync(password,salt,260000,32,"sha256").toString("hex");
 }
 
+
+let insuranceRegisterSchemaReady:Promise<void>|null=null;
+function ensureInsuranceRegisterSchema():Promise<void>{
+  if(!insuranceRegisterSchemaReady){
+    insuranceRegisterSchemaReady=(async()=>{
+      await pool.query(`CREATE TABLE IF NOT EXISTS insurance_register (
+        id bigserial PRIMARY KEY, insurance_type text NOT NULL, date date NOT NULL DEFAULT CURRENT_DATE,
+        customer_name text NOT NULL DEFAULT '', total_premium numeric(14,2) NOT NULL DEFAULT 0,
+        net_premium numeric(14,2) NOT NULL DEFAULT 0, discount_rate numeric(8,4) NOT NULL DEFAULT 0,
+        payable_amount numeric(14,2) NOT NULL DEFAULT 0, insurer text NOT NULL DEFAULT '',
+        chassis_no text, bill_no text, sp_no text, vehicle text, dealer_id bigint, remarks text,
+        created_by text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await pool.query("CREATE INDEX IF NOT EXISTS insurance_register_type_idx ON insurance_register(insurance_type)");
+      await pool.query("CREATE INDEX IF NOT EXISTS insurance_register_chassis_idx ON insurance_register(lower(btrim(chassis_no)))");
+      await pool.query("CREATE INDEX IF NOT EXISTS insurance_register_bill_idx ON insurance_register(lower(btrim(bill_no)))");
+      await pool.query("CREATE INDEX IF NOT EXISTS insurance_register_sp_idx ON insurance_register(lower(btrim(sp_no)))");
+    })().catch(e=>{insuranceRegisterSchemaReady=null;throw e});
+  }
+  return insuranceRegisterSchemaReady;
+}
+// Shared validation for Insurance Register create/edit/import. NEW: unique by Chassis No. OLD: unique by SP No. (else Vehicle).
+async function insuranceValidate(b:any,editId:any,client:any=pool,seen:Set<string>|null=null,fromImport=false):Promise<{error?:string,status?:number,f?:any}>{
+  const type=String(b.insurance_type||"NEW").toUpperCase(); if(!["NEW","OLD"].includes(type))return {error:"insurance_type must be NEW or OLD."};
+  const chassis=String(b.chassis_no||"").trim(),sp=String(b.sp_no||"").trim(),vehicle=String(b.vehicle||"").trim(),customer=String(b.customer_name||"").trim(),insurer=String(b.insurer||"").trim();
+  const date=b.date&&b.date!=="INVALID"?importDate(b.date):(b.date==="INVALID"?null:todayDate());
+  if(!date)return {error:"Invalid date."};
+  if(!customer)return {error:"Customer Name required."}; if(!insurer)return {error:"Insurer required."};
+  if(type==="NEW"&&!chassis)return {error:"New Insurance me Chassis No. required hai."};
+  if(type==="OLD"&&!sp&&!vehicle)return {error:"Old Insurance me SP No. ya Vehicle required hai."};
+  const total=fromImport?Number(b.total_premium||0):num(b.total_premium),disc=fromImport?Number(b.discount_rate||0):num(b.discount_rate);
+  if(total<0||disc<0||disc>100)return {error:"Invalid premium / discount."};
+  const net=b.net_premium!==undefined&&b.net_premium!==""?num(b.net_premium):Math.round(total*(1-disc/100)*100)/100;
+  const payable=b.payable_amount!==undefined&&b.payable_amount!==""?num(b.payable_amount):net;
+  const dupCol=type==="NEW"?"chassis_no":(sp?"sp_no":"vehicle"),dupVal=type==="NEW"?chassis:(sp||vehicle);
+  const k=type+"|"+dupCol+"|"+dupVal.toLowerCase();
+  if(seen){if(seen.has(k))return {error:"Duplicate in file: "+dupVal,status:409};seen.add(k);}
+  const d=await client.query(`SELECT id FROM insurance_register WHERE insurance_type=$1 AND lower(btrim(${dupCol}))=lower(btrim($2)) AND ($3::bigint IS NULL OR id<>$3::bigint) LIMIT 1`,[type,dupVal,idOf(editId)]);
+  if(d.rows.length)return {error:(type==="NEW"?"This Chassis No. is already registered in Insurance: ":"This "+(sp?"SP No.":"Vehicle")+" is already registered in Old Insurance: ")+dupVal,status:409};
+  return {f:{type,date,customer,insurer,total,disc,net,payable,chassis,sp,vehicle,bill:String(b.bill_no||"").trim()}};
+}
+// ---- RTO Expense Register (outside expense - never printed on invoice; Registration Fee on invoice is separate) ----
+let rtoRegisterSchemaReady:Promise<void>|null=null;
+function ensureRtoRegisterSchema():Promise<void>{
+  if(!rtoRegisterSchemaReady){
+    rtoRegisterSchemaReady=(async()=>{
+      await pool.query(`CREATE TABLE IF NOT EXISTS rto_expense_register (
+        id bigserial PRIMARY KEY, rto_type text NOT NULL, date date NOT NULL DEFAULT CURRENT_DATE,
+        customer_name text NOT NULL DEFAULT '', amount numeric(14,2) NOT NULL DEFAULT 0, work_type text,
+        rto_agent text NOT NULL DEFAULT '', chassis_no text, bill_no text, sp_no text, vehicle text, dealer_id bigint, remarks text,
+        created_by text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await pool.query("CREATE INDEX IF NOT EXISTS rto_register_type_idx ON rto_expense_register(rto_type)");
+      await pool.query("CREATE INDEX IF NOT EXISTS rto_register_chassis_idx ON rto_expense_register(lower(btrim(chassis_no)))");
+      await pool.query("CREATE INDEX IF NOT EXISTS rto_register_sp_idx ON rto_expense_register(lower(btrim(sp_no)))");
+      await pool.query("CREATE INDEX IF NOT EXISTS rto_register_agent_idx ON rto_expense_register(lower(btrim(rto_agent)))");
+    })().catch(e=>{rtoRegisterSchemaReady=null;throw e});
+  }
+  return rtoRegisterSchemaReady;
+}
+// One RTO work per chassis / SP is the normal case, but a vehicle can have several works (transfer, HP, fitness). Duplicate = same
+// chassis (or SP/vehicle) + same work_type + same amount + same date, so re-importing a file never doubles the data.
+async function rtoValidate(b:any,editId:any,client:any=pool,seen:Set<string>|null=null,fromImport=false):Promise<{error?:string,status?:number,f?:any}>{
+  const type=String(b.rto_type||"NEW").toUpperCase(); if(!["NEW","OLD"].includes(type))return {error:"rto_type must be NEW or OLD."};
+  const chassis=String(b.chassis_no||"").trim(),sp=String(b.sp_no||"").trim(),vehicle=String(b.vehicle||"").trim(),customer=String(b.customer_name||"").trim(),agent=String(b.rto_agent||"").trim(),work=String(b.work_type||"").trim();
+  const date=b.date==="INVALID"?null:(b.date?importDate(b.date):todayDate()); if(!date)return {error:"Invalid date."};
+  if(!customer)return {error:"Customer Name required."}; if(!agent)return {error:"RTO Agent / Passing Person required."};
+  if(type==="NEW"&&!chassis)return {error:"New RTO Expense me Chassis No. required hai."};
+  if(type==="OLD"&&!sp&&!vehicle)return {error:"Old RTO Expense me SP No. ya Vehicle required hai."};
+  const amount=fromImport?Number(b.amount||0):num(b.amount); if(!(amount>0))return {error:"RTO Expense amount must be greater than 0."};
+  const col=type==="NEW"?"chassis_no":(sp?"sp_no":"vehicle"),val=type==="NEW"?chassis:(sp||vehicle);
+  const k=[type,col,val.toLowerCase(),work.toLowerCase(),amount,date].join("|");
+  if(seen){if(seen.has(k))return {error:"Duplicate in file: "+val,status:409};seen.add(k);}
+  const d=await client.query(`SELECT id FROM rto_expense_register WHERE rto_type=$1 AND lower(btrim(${col}))=lower(btrim($2)) AND lower(btrim(COALESCE(work_type,'')))=lower($3) AND amount=$4 AND date=$5::date AND ($6::bigint IS NULL OR id<>$6::bigint) LIMIT 1`,[type,val,work.toLowerCase(),amount,date,idOf(editId)]);
+  if(d.rows.length)return {error:"RTO expense already registered for "+val+" ("+(work||"same work")+", same date & amount).",status:409};
+  return {f:{type,date,customer,agent,amount,work,chassis,sp,vehicle,bill:String(b.bill_no||"").trim()}};
+}
+let bankLedgerSchemaReady:Promise<void>|null=null;
+function ensureBankLedgerSchema():Promise<void>{
+  if(!bankLedgerSchemaReady){
+    bankLedgerSchemaReady=(async()=>{
+      await pool.query(`CREATE TABLE IF NOT EXISTS bank_ledger_entry (
+        id bigserial PRIMARY KEY, entry_date date NOT NULL DEFAULT CURRENT_DATE, amount numeric(14,2) NOT NULL DEFAULT 0,
+        bank_name text NOT NULL DEFAULT '', cheque_no text, upi_ref text, narration text, party_name text,
+        entry_type text NOT NULL DEFAULT 'SUSPENSE', status text NOT NULL DEFAULT 'SUSPENSE', source text DEFAULT 'EXCEL', source_ref text,
+        created_by text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+      )`);
+      await pool.query("CREATE INDEX IF NOT EXISTS bank_ledger_date_idx ON bank_ledger_entry(entry_date DESC)");
+      await pool.query("CREATE INDEX IF NOT EXISTS bank_ledger_bank_idx ON bank_ledger_entry(lower(btrim(bank_name)))");
+      await pool.query("CREATE INDEX IF NOT EXISTS bank_ledger_status_idx ON bank_ledger_entry(status)");
+    })().catch(e=>{bankLedgerSchemaReady=null;throw e});
+  }
+  return bankLedgerSchemaReady;
+}
 export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>}){
   try{
     const {path=[]}=await params,p=path.join("/");
     const b:any=await json(req);
+    const a=auth(req);
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
+    if(!a)return Response.json({error:"Authentication required."},{status:401});
+    await ensureSecuritySchema();
+    if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(!(await actionAllowed(a,p,"view")))return Response.json({error:"Forbidden."},{status:403});
+    if(p==="audit-report"){
+      if(!isAdmin(a)) return Response.json({error:"Admin access required."},{status:403});
+      const u=new URL(req.url),args:any[]=[],w:string[]=['1=1'];
+      for(const [param,col] of [['user','username'],['module','module_key'],['action','action'],['record','record_ref']]){const v=u.searchParams.get(param);if(v){args.push('%'+v+'%');w.push(`COALESCE(${col},'') ILIKE $${args.length}`)}}
+      const from=u.searchParams.get('from'),to=u.searchParams.get('to'); if(from){args.push(from);w.push(`created_at >= $${args.length}::date`)} if(to){args.push(to);w.push(`created_at < ($${args.length}::date + interval '1 day')`)}
+      const r=await pool.query(`SELECT * FROM audit_log WHERE ${w.join(' AND ')} ORDER BY created_at DESC LIMIT 5000`,args); return Response.json({rows:r.rows,count:r.rowCount});
+    }
+    if(p==="sub-groups"){
+      const r=await pool.query("SELECT * FROM product_sub_group WHERE active=true ORDER BY name"); return Response.json({rows:r.rows,sub_groups:r.rows});
+    }
+    if(p.startsWith('users/') && p.endsWith('/action-permissions')){
+      const uid=idOf(path[path.length-2]); if(!uid)return Response.json({error:'User id required.'},{status:400});
+      const r=await pool.query('SELECT * FROM user_action_permission WHERE user_id=$1 ORDER BY module_key',[uid]); return Response.json({rows:r.rows,permissions:r.rows});
+    }
+    if(p==='reports/profit-loss'){
+      const u=new URL(req.url),ymd=(d:Date)=>d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
+      const from=u.searchParams.get('from')||ymd(new Date(Date.UTC(new Date().getUTCFullYear(),0,1))),to=u.searchParams.get('to')||ymd(new Date());
+      const prevDay=ymd(new Date(new Date(from+'T00:00:00Z').getTime()-86400000));
+      // Sales = taxable value (GST excluded, same basis as GST register) of non-cancelled tax invoices.
+      const sales=await pool.query(`SELECT COALESCE(SUM(GREATEST(COALESCE(gst_sale_amount,sale_amount,0)-COALESCE(discount,0),0)),0) sales FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND date BETWEEN $1::date AND $2::date`,[from,to]);
+      // Purchases = taxable value from bill items (GST is input credit, not cost).
+      const pb=await pool.query(`SELECT * FROM purchase_bill WHERE date BETWEEN $1::date AND $2::date`,[from,to]);
+      const purchase=pb.rows.reduce((t:number,x:any)=>{const v=purchaseBillTotals(x).taxable;return t+(v||num(x.taxable_amt)||num(x.total_amt));},0);
+      const expenses=await pool.query(`SELECT COALESCE(SUM(COALESCE(amount,0)),0) expenses FROM expense_payment_voucher WHERE COALESCE(status,'') NOT IN ('rejected','cancelled') AND date BETWEEN $1::date AND $2::date`,[from,to]);
+      // Stock is valued at cost (purchase price first), never at selling price, otherwise profit is overstated.
+      const products=await pool.query(`SELECT p.id,p.name,p.code,p.unit,COALESCE(NULLIF(p.purchase_price,0),NULLIF(p.sale_price,0),NULLIF(p.ex_showroom_price,0),0) rate,COALESCE((SELECT SUM(CASE WHEN UPPER(COALESCE(js.work_type,''))='OUT' THEN -ABS(js.qty) WHEN UPPER(COALESCE(js.work_type,''))='IN' THEN ABS(js.qty) ELSE js.qty END) FROM journal_stock js WHERE lower(trim(js.item_name))=lower(trim(p.name)) AND js.date <= $1::date),0) opening_qty,COALESCE((SELECT SUM(CASE WHEN UPPER(COALESCE(js.work_type,''))='OUT' THEN -ABS(js.qty) WHEN UPPER(COALESCE(js.work_type,''))='IN' THEN ABS(js.qty) ELSE js.qty END) FROM journal_stock js WHERE lower(trim(js.item_name))=lower(trim(p.name)) AND js.date <= $2::date),0) closing_qty,COALESCE(p.sub_group_name,'Primary') sub_group_name FROM product p ORDER BY p.name`,[prevDay,to]);
+      const rows=products.rows.map((x:any)=>({...x,opening_value:Number(x.opening_qty||0)*Number(x.rate||0),closing_value:Number(x.closing_qty||0)*Number(x.rate||0)}));
+      const opening=rows.reduce((t:number,x:any)=>t+x.opening_value,0),closing=rows.reduce((t:number,x:any)=>t+x.closing_value,0),sale=Number(sales.rows[0]?.sales||0),expense=Number(expenses.rows[0]?.expenses||0),cogs=opening+purchase-closing,gross=sale-cogs,net=gross-expense;
+      return Response.json({from,to,opening_stock:opening,purchases:purchase,sales:sale,closing_stock:closing,cost_of_goods_sold:cogs,gross_profit:gross,expenses:expense,net_profit:net,rows});
+    }
+    if(p.startsWith('customer-complete-report')){
+      const u=new URL(req.url),customerId=idOf(u.searchParams.get('customer_id')),mobile=String(u.searchParams.get('mobile')||'').trim(),name=String(u.searchParams.get('name')||'').trim();
+      if(!customerId&&!mobile&&!name)return Response.json({error:'customer_id, mobile or name is required.'},{status:400});
+      const args:any[]=[]; const w:string[]=[]; if(customerId){args.push(customerId);w.push(`(c.id=$${args.length} OR ti.billing_customer_id=$${args.length})`)} else {args.push('%'+(mobile||name)+'%');w.push(`(COALESCE(c.mobile,'') ILIKE $${args.length} OR COALESCE(c.name,'') ILIKE $${args.length} OR COALESCE(ti.buyer_mobile,'') ILIKE $${args.length} OR COALESCE(ti.buyer_name,'') ILIKE $${args.length})`)}
+      // Salesman: only invoices of assigned dealers (API-level restriction).
+      if(isSalesman(a)){const ids=assignedDealerIds(a)||[];args.push(ids.length?ids:[-1]);w.push(`ti.dealer_id=ANY($${args.length}::bigint[])`);}
+      const sales=await pool.query(`SELECT ti.*,${TI_TAXABLE} AS taxable_value FROM tax_invoice ti LEFT JOIN customer c ON c.id=ti.customer_id WHERE COALESCE(ti.cancelled,false)=false AND ${w.join(' AND ')} ORDER BY ti.date DESC,ti.id DESC`,args).catch(()=>({rows:[]}));
+      // Expenses/payments must be matched on the customer's actual name/mobile; with only customer_id the old query used '%%' and returned EVERY customer's rows.
+      const nm=name||String(sales.rows[0]?.buyer_name||'').trim(),mb=mobile||String(sales.rows[0]?.buyer_mobile||'').trim();
+      const noParty=!nm&&!mb;
+      const exp=noParty?{rows:[]}:await pool.query(`SELECT * FROM expense_payment_voucher WHERE (($1<>'' AND (COALESCE(party_name,'') ILIKE '%'||$1||'%' OR COALESCE(customer_name,'') ILIKE '%'||$1||'%')) OR ($2<>'' AND COALESCE(customer_mobile,'') = $2)) ORDER BY date DESC,id DESC`,[nm,mb]).catch(()=>pool.query(`SELECT * FROM expense_payment_voucher WHERE $1<>'' AND (COALESCE(party_name,'') ILIKE '%'||$1||'%' OR COALESCE(customer_name,'') ILIKE '%'||$1||'%') ORDER BY date DESC,id DESC`,[nm]).catch(()=>({rows:[]})));
+      const pay=noParty||!nm?{rows:[]}:await pool.query(`SELECT * FROM day_book WHERE COALESCE(party_name,'') ILIKE '%'||$1||'%' ORDER BY date DESC,id DESC`,[nm]).catch(()=>({rows:[]}));
+      const n=(v:any)=>Number(v||0);
+      const totalGst=sales.rows.reduce((t:number,x:any)=>t+n(x.cgst_amount)+n(x.sgst_amount)+n(x.igst_amount)+ (n(x.cgst_amount)+n(x.sgst_amount)+n(x.igst_amount)?0:n(x.tax_amount)),0);
+      const totalExpenses=exp.rows.reduce((t:number,x:any)=>t+n(x.amount),0);
+      const breakup:any={}; for(const x of exp.rows){const k=String(x.category||x.expense_head||x.expense_type||'Other');breakup[k]=(breakup[k]||0)+n(x.amount);}
+      return Response.json({sales:sales.rows,expenses:exp.rows,payments:pay.rows,
+        loan_details:sales.rows.map((x:any)=>({loan_amount:x.hypothecation_amount,financer:x.financer_name,date:x.date,bill_no:x.bill_no})),
+        total_gst:totalGst,total_expenses:totalExpenses,expense_breakup:Object.entries(breakup).map(([category,amount])=>({category,amount})),
+        outstanding:sales.rows.reduce((t:number,x:any)=>t+Math.max(0,n(x.sale_amount)-n(x.hypothecation_amount)-n(x.amount_received)),0)});
+    }
+
     // Server-to-server master bridge for CHFPL. This endpoint intentionally
     // does not use the browser JWT because CHFPL authenticates with the
     // dedicated bridge secret.
@@ -883,8 +1228,46 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const models=await pool.query("SELECT id,name,code FROM product WHERE COALESCE(fro,'')<>'R' AND COALESCE(name,'')<>'' ORDER BY name,id");
       return Response.json({success:true,dealers:dealers.rows,models:models.rows});
     }
-    const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
-    if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(p==="notifications"){
+      await ensureNotificationSchema(); await ensureBatteryFitSchema(); await ensureDealerCashSchema();
+      const u=new URL(req.url),limit=Math.min(100,Math.max(1,num(u.searchParams.get("limit"))||50));
+      const userKey=String(a?.id??a?.user_id??a?.username??"").trim();
+      const args:any[]=[userKey||"__none__",num(a?.dealer_id)||0,limit];
+      const r=await pool.query(`SELECT * FROM app_notification
+        WHERE is_read=false AND (user_id=$1 OR user_id IS NULL OR (dealer_id IS NOT NULL AND dealer_id=$2))
+        ORDER BY created_at DESC LIMIT $3`,args);
+      const ds=await pool.query("SELECT id,name,code FROM dealer WHERE LOWER(COALESCE(dealer_category,''))='branch'"+(a?.scope==="dealer"?" AND id=$1":"")+" ORDER BY name",a?.scope==="dealer"?[num(a.dealer_id)]:[]);
+      const cash:any[]=[];
+      for(const d of ds.rows){
+        const lim=await pool.query("SELECT cash_limit FROM dealer_cash_limit WHERE dealer_id=$1",[Number(d.id)]);
+        const cap=Number(lim.rows[0]?.cash_limit??15000);
+        const pos=await dealerCashPosition(Number(d.id));
+        if(cap>0 && Number(pos.cash_at_dealer)>cap) cash.push({
+          id:"cash-limit-"+d.id, notification_type:"cash_limit", title:"Branch Cash Limit Exceeded",
+          message:`${d.name}: cash at branch ₹${Number(pos.cash_at_dealer).toLocaleString("en-IN")} is above limit ₹${cap.toLocaleString("en-IN")}.`,
+          dealer_id:Number(d.id), is_read:false, virtual:true, created_at:new Date().toISOString(), cash_at_dealer:pos.cash_at_dealer, cash_limit:cap
+        });
+      }
+      const limits=await pool.query("SELECT dealer_id,cash_limit FROM dealer_cash_limit WHERE dealer_id=ANY($1::int[])",[ds.rows.map(d=>Number(d.id))]);
+      const lm=new Map<number,number>(limits.rows.map((x:any)=>[Number(x.dealer_id),Number(x.cash_limit)]));
+      for(const x of cash){x.cash_limit=lm.get(Number(x.dealer_id))??15000;}
+      return Response.json({notifications:[...cash,...r.rows],count:cash.length+r.rowCount,branch_cash_limits:ds.rows.map(d=>({dealer_id:d.id,dealer_name:d.name,limit:lm.get(Number(d.id))??15000}))});
+    }
+    if(p==="battery-fit"){
+      await ensureBatteryFitSchema();
+      const u=new URL(req.url),q=String(u.searchParams.get("search")||"").trim();
+      const args:any[]=[]; const where=["COALESCE(dc.cancelled,false)=false"];
+      where.push("NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)");
+      where.push("dc.vehicle_id IS NOT NULL");
+      if(a?.scope==="dealer"){args.push(num(a.dealer_id));where.push("dc.dealer_id=$"+args.length);}
+      if(q){args.push("%"+q+"%");where.push("(dc.challan_no ILIKE $"+args.length+" OR dc.chassis_no ILIKE $"+args.length+" OR COALESCE(d.name,'') ILIKE $"+args.length+")");}
+      const r=await pool.query(`SELECT dc.id,dc.challan_no,dc.date,dc.dealer_id,d.name AS dealer_name,dc.vehicle_id,
+        dc.chassis_no,dc.product_name,v.model_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,
+        dc.battery_fit_date
+        FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id
+        WHERE ${where.join(" AND ")} ORDER BY dc.date DESC,dc.id DESC LIMIT 500`,args);
+      return Response.json({challans:r.rows});
+    }
     if(p==="reports/cash-at-dealer"&&a.scope==="staff"){
       await ensureDealerCashSchema();
       const u=new URL(req.url),only=idOf(u.searchParams.get("dealer_id"));
@@ -1960,6 +2343,81 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Delivery_Challan_Register.csv");
       return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),filters:{product:products,dealer:dealers,salesman:salesmen,battery:batteries}});
     }
+    if(p==="challan-shift"){
+      await ensureChallanShiftSchema();
+      const u=new URL(req.url),search=String(u.searchParams.get("search")||"").trim();
+      const args:any[]=[];const w:string[]=["COALESCE(dc.cancelled,false)=false"];
+      w.push("NOT EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false)");
+      if(search){
+        args.push("%"+search+"%");
+        w.push("(COALESCE(dc.challan_no,'') ILIKE $1 OR COALESCE(dc.chassis_no,'') ILIKE $1 OR COALESCE(dc.product_name,'') ILIKE $1 OR COALESCE(d.name,'') ILIKE $1)");
+      }
+      const eligible=await pool.query(`SELECT dc.id,dc.date,dc.challan_no,dc.dealer_id,d.name AS dealer_name,
+        dc.product_name,dc.chassis_no,dc.battery_maker,dc.battery_no1,dc.battery_no2,dc.battery_no3,dc.battery_no4
+        FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
+        WHERE ${w.join(" AND ")}
+        ORDER BY dc.date DESC,dc.id DESC LIMIT 2000`,args);
+      const dealers=await pool.query("SELECT id,code,name FROM dealer WHERE COALESCE(blocked,false)=false ORDER BY name,id");
+      const shifts=await pool.query(`SELECT s.*,sf.name AS shift_from_dealer_name,st.name AS shift_to_dealer_name
+        FROM delivery_challan_shift s
+        LEFT JOIN dealer sf ON sf.id=s.shift_from_dealer_id
+        LEFT JOIN dealer st ON st.id=s.shift_to_dealer_id
+        ORDER BY s.shift_date DESC,s.id DESC LIMIT 2000`);
+      return Response.json({challans:eligible.rows,dealers:dealers.rows,shifts:shifts.rows,count:eligible.rowCount});
+    }
+    if(p==="challan-shift"){
+      await ensureChallanShiftSchema();
+      const challanId=idOf(b.challan_id),toDealerId=idOf(b.to_dealer_id);
+      const shiftDate=String(b.shift_date||"").slice(0,10)||new Date().toISOString().slice(0,10);
+      const remark=String(b.remark||"").trim();
+      if(!challanId)return Response.json({error:"Delivery Challan is required."},{status:400});
+      if(!toDealerId)return Response.json({error:"Shift To Dealer is required."},{status:400});
+      if(!remark)return Response.json({error:"Shift Remark is required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query(`SELECT dc.*,d.name AS dealer_name,
+          EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) AS invoiced
+          FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
+          WHERE dc.id=$1 FOR UPDATE`,[challanId]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        const row=dc.rows[0];
+        if(Boolean(row.cancelled))throw new Error("Cancelled Delivery Challan cannot be shifted.");
+        if(Boolean(row.invoiced))throw new Error("Bill already generated. Dealer shift is locked.");
+        if(Number(row.dealer_id||0)===toDealerId)throw new Error("New dealer is same as current dealer.");
+        const td=await client.query("SELECT id,name FROM dealer WHERE id=$1 AND COALESCE(blocked,false)=false",[toDealerId]);
+        if(!td.rowCount)throw new Error("Shift To Dealer not found.");
+        const toName=String(td.rows[0].name||"").trim();
+        const fromName=String(row.dealer_name||"").trim();
+        const ins=await client.query(`INSERT INTO delivery_challan_shift
+          (challan_id,challan_no,chassis_no,model_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,
+           shift_from_dealer_id,shift_from_dealer_name,shift_to_dealer_id,shift_to_dealer_name,shift_date,remark,shifted_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::date,$15,$16) RETURNING id`,
+          [challanId,row.challan_no||"",row.chassis_no||"",row.product_name||"",row.battery_maker||null,row.battery_no1||null,row.battery_no2||null,row.battery_no3||null,row.battery_no4||null,
+           idOf(row.dealer_id),fromName,toDealerId,toName,shiftDate,remark,String(a.username||a.full_name||a.user_id||"Admin")]);
+        const ref="DCS-"+shiftDate.replace(/-/g,"")+"-"+String(ins.rows[0].id).padStart(5,"0");
+        await client.query("UPDATE delivery_challan_shift SET shift_ref=$1 WHERE id=$2",[ref,ins.rows[0].id]);
+
+        const dcCols=await columns("delivery_challan");
+        const sets:string[]=["dealer_id=$1"],vals:any[]=[toDealerId];
+        if(dcCols.has("dealer_name")){sets.push("dealer_name=$2");vals.push(toName);}
+        vals.push(challanId);
+        await client.query("UPDATE delivery_challan SET "+sets.join(",")+" WHERE id=$"+vals.length,vals);
+
+        const vcols=await columns("vehicle");
+        if(row.vehicle_id&&vcols.has("dealer_name"))await client.query("UPDATE vehicle SET dealer_name=$1 WHERE id=$2",[toName,row.vehicle_id]);
+
+        const log=`Dealer Shift: ${fromName||"—"} → ${toName} | Shift Date: ${shiftDate} | Ref: ${ref} | Remark: ${remark}`;
+        const target=dcCols.has("remarks2")?"remarks2":(dcCols.has("remarks1")?"remarks1":null);
+        if(target){
+          const old=String(row[target]||"").trim();
+          const next=old?[old,log].join("\n"):log;
+          await client.query("UPDATE delivery_challan SET \""+target+"\"=$1 WHERE id=$2",[next,challanId]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,shift_ref:ref,shift_id:Number(ins.rows[0].id),dealer_id:toDealerId,dealer_name:toName});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       await ensureDispatchSchema();
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
@@ -2106,6 +2564,166 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(type==="delivery_challan"){const r=await pool.query("SELECT dc.*,d.name AS dealer_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,v.model_name,v.chassis_no,v.motor_no,v.colour FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);if(!r.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});return Response.json({type:"delivery_challan",challan:r.rows[0]});}
       return Response.json({error:"Unknown preview type."},{status:400});
     }
+    if(p==="battery-history"){
+      await ensureBatteryFitSchema();
+      const u=new URL(req.url),q=String(u.searchParams.get("search")||"").trim().toLowerCase(),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim();
+      const events:any[]=[];
+      // Ek source (table) fail ho jaye to poori history 500 na de.
+      const safe=async(label:string,fn:()=>Promise<any[]>)=>{try{return await fn()}catch(e){console.error("[battery-history:"+label+"]",e);return []}};
+      const push=(rows:any[],type:string)=>rows.forEach((r:any)=>events.push({...r,history_type:type}));
+      // Purchase IN / Delivery OUT / Withdrawal-Addition register entries
+      push(await safe("register",async()=>(await pool.query(`SELECT bre.*,d.name AS dealer_name,v.chassis_no,v.model_name
+        FROM battery_register_entry bre
+        LEFT JOIN dealer d ON d.id=bre.dealer_id
+        LEFT JOIN vehicle v ON v.id=bre.vehicle_id
+        ORDER BY bre.date DESC NULLS LAST,bre.id DESC LIMIT 10000`)).rows),"REGISTER");
+      push(await safe("fit",async()=>(await pool.query(`SELECT bfl.*,d.name AS dealer_name
+        FROM battery_fit_log bfl LEFT JOIN dealer d ON d.id=bfl.dealer_id
+        ORDER BY bfl.fit_date DESC,bfl.id DESC LIMIT 5000`)).rows),"FIT");
+      // Dealer withdrawal / addition / delivery movements
+      push(await safe("movement",async()=>{
+        if(!(await columns("battery_stock_movement")).size)return [];
+        return (await pool.query(`SELECT bsm.*,d.name AS dealer_name
+          FROM battery_stock_movement bsm LEFT JOIN dealer d ON d.id=bsm.dealer_id
+          ORDER BY bsm.date DESC NULLS LAST,bsm.id DESC LIMIT 10000`)).rows;
+      }),"DEALER_MOVEMENT");
+      push(await safe("factory",async()=>(await pool.query(`SELECT bdc.*,d.name AS dealer_name
+        FROM battery_delivery_challan bdc LEFT JOIN dealer d ON d.id=bdc.dealer_id
+        ORDER BY bdc.date DESC NULLS LAST,bdc.id DESC LIMIT 5000`)).rows),"FACTORY_CHALLAN");
+      // Battery Swap / Transfer vouchers (pehle history me tha hi nahi)
+      push(await safe("swap",async()=>{
+        if(!(await columns("battery_swap_voucher")).size)return [];
+        const ref=(side:string)=>`CASE WHEN lower(COALESCE(bsv.${side}_type,'')) LIKE '%old%'
+          THEN (SELECT to_jsonb(o)->>'vehicle_no' FROM old_rickshaw o WHERE o.id=bsv.${side}_id)
+          ELSE (SELECT vv.chassis_no FROM vehicle vv WHERE vv.id=bsv.${side}_id) END`;
+        const r=(await pool.query(`SELECT bsv.*,d.name AS dealer_name,${ref("from")} AS from_ref,${ref("to")} AS to_ref
+          FROM battery_swap_voucher bsv LEFT JOIN dealer d ON d.id=bsv.dealer_id
+          ORDER BY bsv.date DESC NULLS LAST,bsv.id DESC LIMIT 5000`)).rows;
+        return r.map((x:any)=>({...x,movement_type:String(x.mode||"swap").toLowerCase(),reference_no:x.voucher_no,
+          chassis_no:[x.from_ref||("#"+x.from_id),x.to_ref||("#"+x.to_id)].join(" → ")}));
+      }),"SWAP");
+      const dateOf=(r:any)=>ymd(r.fit_date||r.date||r.created_at);
+      const inRange=(r:any)=>{const d=dateOf(r);return (!from||(d&&d>=from))&&(!to||(d&&d<=to))};
+      const textOf=(r:any)=>[r.battery_maker,r.battery_no,r.battery_no1,r.battery_no2,r.battery_no3,r.battery_no4,r.challan_no,r.source_no,r.source_type,r.entry_type,r.movement_type,r.reference_no,r.voucher_no,r.party_name,r.dealer_name,r.chassis_no,r.model_name,r.remarks].filter(Boolean).join(" ").toLowerCase();
+      const rows=events.filter(r=>inRange(r)&&(!q||textOf(r).includes(q))).sort((x,y)=>String(dateOf(y)).localeCompare(String(dateOf(x)))||Number(y.id||0)-Number(x.id||0));
+      const counts:any={};for(const r of rows)counts[r.history_type]=(counts[r.history_type]||0)+1;
+      return Response.json({history:rows,rows,count:rows.length,counts});
+    }
+    if(p==="bank-ledger"){
+      await ensureBankLedgerSchema();
+      const u=new URL(req.url),q=String(u.searchParams.get("search")||"").trim(),st=String(u.searchParams.get("status")||"all").toUpperCase();
+      const bank=String(u.searchParams.get("bank")||"").trim(),from=importDate(u.searchParams.get("from")||""),to=importDate(u.searchParams.get("to")||"");
+      const args:any[]=[],where:string[]=[];
+      if(q){args.push("%"+q+"%");const i=args.length;where.push(`(bank_name ILIKE $${i} OR COALESCE(cheque_no,'') ILIKE $${i} OR COALESCE(upi_ref,'') ILIKE $${i} OR COALESCE(narration,'') ILIKE $${i} OR COALESCE(party_name,'') ILIKE $${i})`)}
+      if(st!=="ALL"){args.push(st);where.push(`status=$${args.length}`)}
+      if(bank){args.push(bank);where.push(`lower(btrim(bank_name))=lower(btrim($${args.length}))`)}
+      if(from){args.push(from);where.push(`entry_date>=$${args.length}::date`)}
+      if(to){args.push(to);where.push(`entry_date<=$${args.length}::date`)}
+      const rr=await pool.query(`SELECT * FROM bank_ledger_entry ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY entry_date DESC,id DESC LIMIT 10000`,args);
+      const br=await pool.query("SELECT id,name,account_no,ifsc FROM simple_master WHERE lower(kind)='bank' ORDER BY name").catch(()=>({rows:[]}));
+      // Per-bank ledger totals: only POSTED entries move the balance; SUSPENSE is shown separately.
+      const sm=await pool.query(`SELECT lower(btrim(bank_name)) k,MAX(bank_name) bank_name,
+          COALESCE(SUM(CASE WHEN status='POSTED' AND entry_type='RECEIPT' THEN ABS(amount) END),0) receipts,
+          COALESCE(SUM(CASE WHEN status='POSTED' AND entry_type='PAYMENT' THEN ABS(amount) END),0) payments,
+          COUNT(*) FILTER (WHERE status='SUSPENSE') suspense_count,COALESCE(SUM(ABS(amount)) FILTER (WHERE status='SUSPENSE'),0) suspense_amount
+        FROM bank_ledger_entry GROUP BY lower(btrim(bank_name))`);
+      let opening=0;
+      if(bank&&from){const o=await pool.query(`SELECT COALESCE(SUM(CASE WHEN entry_type='RECEIPT' THEN ABS(amount) WHEN entry_type='PAYMENT' THEN -ABS(amount) ELSE 0 END),0) v FROM bank_ledger_entry WHERE status='POSTED' AND entry_date<$1::date AND lower(btrim(bank_name))=lower(btrim($2))`,[from,bank]);opening=Number(o.rows[0]?.v||0);}
+      return Response.json({rows:rr.rows,banks:br.rows,summary:sm.rows.map((x:any)=>({bank_name:x.bank_name,receipts:Number(x.receipts),payments:Number(x.payments),balance:Number(x.receipts)-Number(x.payments),suspense_count:Number(x.suspense_count),suspense_amount:Number(x.suspense_amount)})),opening});
+    }
+
+    if(p==="insurance-register"){
+      await ensureInsuranceRegisterSchema();
+      const u=new URL(req.url),type=String(u.searchParams.get("type")||"NEW").toUpperCase()==="OLD"?"OLD":"NEW";
+      const q=String(u.searchParams.get("search")||"").trim(),st=String(u.searchParams.get("status")||"all").toLowerCase();
+      const args:any[]=[type],where=["insurance_type=$1"];
+      if(q){args.push("%"+q+"%");where.push("(customer_name ILIKE $2 OR insurer ILIKE $2 OR COALESCE(chassis_no,'') ILIKE $2 OR COALESCE(bill_no,'') ILIKE $2 OR COALESCE(sp_no,'') ILIKE $2 OR COALESCE(vehicle,'') ILIKE $2)");}
+      const rr=await pool.query(`SELECT * FROM insurance_register WHERE ${where.join(" AND ")} ORDER BY date DESC,id DESC LIMIT 10000`,args);
+      const rows=rr.rows,lc=(v:any)=>String(v||"").trim().toLowerCase();
+      // Batched lookups (was 2 queries per row -> timeouts on big lists).
+      const invByChassis=new Map<string,any>(),invByBill=new Map<string,any>(),orBySp=new Map<string,any>(),orByReg=new Map<string,any>();
+      if(type==="NEW"){
+        const ch=[...new Set(rows.map((r:any)=>lc(r.chassis_no)).filter(Boolean))],bl=[...new Set(rows.map((r:any)=>lc(r.bill_no)).filter(Boolean))];
+        if(ch.length||bl.length){const mr=await pool.query(`SELECT id,bill_no,buyer_name,chassis_no FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND (lower(btrim(COALESCE(chassis_no,'')))=ANY($1::text[]) OR lower(btrim(COALESCE(bill_no,'')))=ANY($2::text[])) ORDER BY id`,[ch,bl]).catch(()=>({rows:[]}));
+          for(const x of mr.rows){if(lc(x.chassis_no))invByChassis.set(lc(x.chassis_no),x);if(lc(x.bill_no))invByBill.set(lc(x.bill_no),x);}}
+      }else{
+        // Old insurance is tagged against Old Rickshaw inventory (SP No. / vehicle reg no.).
+        const sp=[...new Set(rows.map((r:any)=>lc(r.sp_no)).filter(Boolean))],rg=[...new Set(rows.map((r:any)=>lc(r.vehicle).replace(/[\s-]+/g,"")).filter(Boolean))];
+        if(sp.length||rg.length){const mr=await pool.query(`SELECT id,sp_no,vehicle_reg_no,owner_name FROM old_rickshaw WHERE lower(btrim(COALESCE(sp_no,'')))=ANY($1::text[]) OR lower(regexp_replace(COALESCE(vehicle_reg_no,''),'[\\s-]+','','g'))=ANY($2::text[]) ORDER BY id`,[sp,rg]).catch(()=>({rows:[]}));
+          for(const x of mr.rows){if(lc(x.sp_no))orBySp.set(lc(x.sp_no),x);if(lc(x.vehicle_reg_no))orByReg.set(lc(x.vehicle_reg_no).replace(/[\s-]+/g,""),x);}}
+      }
+      const out=rows.map((r:any)=>{
+        if(type==="NEW"){const m=invByChassis.get(lc(r.chassis_no))||invByBill.get(lc(r.bill_no))||null;
+          return {...r,mapping_status:m?"BILLED":"UNBILLED",mapped_bill_no:m?.bill_no||"",mapped_invoice_id:m?.id||null,mapped_customer:m?.buyer_name||"",mapped_chassis:m?.chassis_no||""};}
+        const m=orBySp.get(lc(r.sp_no))||orByReg.get(lc(r.vehicle).replace(/[\s-]+/g,""))||null;
+        return {...r,mapping_status:m?"TAGGED":"UNTAGGED",mapped_old_rickshaw_id:m?.id||null,mapped_customer:m?.owner_name||""};
+      });
+      const filtered=st==="billed"||st==="tagged"?out.filter((r:any)=>["BILLED","TAGGED"].includes(r.mapping_status)):st==="unbilled"||st==="untagged"?out.filter((r:any)=>!["BILLED","TAGGED"].includes(r.mapping_status)):out;
+      // On-account insurer ledger: payments are NOT tied to a record; balance = total payable (New+Old) - vouchers paid to that insurer.
+      const pay=await pool.query(`SELECT lower(btrim(insurer)) k,MAX(insurer) insurer,COALESCE(SUM(payable_amount) FILTER (WHERE insurance_type='NEW'),0) new_payable,COALESCE(SUM(payable_amount) FILTER (WHERE insurance_type='OLD'),0) old_payable,COUNT(*) records FROM insurance_register GROUP BY lower(btrim(insurer))`);
+      const paid=await pool.query(`SELECT lower(btrim(pay_to_name)) k,COALESCE(SUM(amount),0) paid FROM expense_payment_voucher WHERE lower(COALESCE(expense_type,'')) IN ('insurance','insurance_expense') AND UPPER(COALESCE(status,'')) NOT IN ('CANCELLED','CANCELED','REJECTED') GROUP BY lower(btrim(pay_to_name))`).catch(()=>({rows:[]}));
+      const paidMap=new Map(paid.rows.map((x:any)=>[x.k,Number(x.paid)]));
+      const insurer_summary=pay.rows.filter((x:any)=>x.k).map((x:any)=>{const np=Number(x.new_payable),op=Number(x.old_payable),pd=paidMap.get(x.k)||0;return {insurer:x.insurer,records:Number(x.records),new_payable:np,old_payable:op,payable:np+op,paid:pd,balance:np+op-pd};}).sort((a:any,b:any)=>b.balance-a.balance);
+      return Response.json({rows:filtered,insurers:[...new Set(rows.map((r:any)=>String(r.insurer||"").trim()).filter(Boolean))],insurer_summary});
+    }
+    if(p==="rto-register"){
+      await ensureRtoRegisterSchema();
+      const u=new URL(req.url),type=String(u.searchParams.get("type")||"NEW").toUpperCase()==="OLD"?"OLD":"NEW";
+      const q=String(u.searchParams.get("search")||"").trim(),st=String(u.searchParams.get("status")||"all").toLowerCase();
+      const args:any[]=[type],where=["rto_type=$1"];
+      if(q){args.push("%"+q+"%");where.push("(customer_name ILIKE $2 OR rto_agent ILIKE $2 OR COALESCE(work_type,'') ILIKE $2 OR COALESCE(chassis_no,'') ILIKE $2 OR COALESCE(bill_no,'') ILIKE $2 OR COALESCE(sp_no,'') ILIKE $2 OR COALESCE(vehicle,'') ILIKE $2)");}
+      const rr=await pool.query(`SELECT * FROM rto_expense_register WHERE ${where.join(" AND ")} ORDER BY date DESC,id DESC LIMIT 10000`,args);
+      const rows=rr.rows,lc=(v:any)=>String(v||"").trim().toLowerCase(),nospace=(v:any)=>lc(v).replace(/[\s-]+/g,"");
+      const invByChassis=new Map<string,any>(),invByBill=new Map<string,any>(),orBySp=new Map<string,any>(),orByReg=new Map<string,any>();
+      if(type==="NEW"){
+        const ch=[...new Set(rows.map((r:any)=>lc(r.chassis_no)).filter(Boolean))],bl=[...new Set(rows.map((r:any)=>lc(r.bill_no)).filter(Boolean))];
+        if(ch.length||bl.length){const mr=await pool.query(`SELECT id,bill_no,buyer_name,chassis_no FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND (lower(btrim(COALESCE(chassis_no,'')))=ANY($1::text[]) OR lower(btrim(COALESCE(bill_no,'')))=ANY($2::text[])) ORDER BY id`,[ch,bl]).catch(()=>({rows:[]}));
+          for(const x of mr.rows){if(lc(x.chassis_no))invByChassis.set(lc(x.chassis_no),x);if(lc(x.bill_no))invByBill.set(lc(x.bill_no),x);}}
+      }else{
+        const sp=[...new Set(rows.map((r:any)=>lc(r.sp_no)).filter(Boolean))],rg=[...new Set(rows.map((r:any)=>nospace(r.vehicle)).filter(Boolean))];
+        if(sp.length||rg.length){const mr=await pool.query(`SELECT id,sp_no,vehicle_reg_no,owner_name FROM old_rickshaw WHERE lower(btrim(COALESCE(sp_no,'')))=ANY($1::text[]) OR lower(regexp_replace(COALESCE(vehicle_reg_no,''),'[\\s-]+','','g'))=ANY($2::text[]) ORDER BY id`,[sp,rg]).catch(()=>({rows:[]}));
+          for(const x of mr.rows){if(lc(x.sp_no))orBySp.set(lc(x.sp_no),x);if(lc(x.vehicle_reg_no))orByReg.set(nospace(x.vehicle_reg_no),x);}}
+      }
+      const out=rows.map((r:any)=>{
+        if(type==="NEW"){const m=invByChassis.get(lc(r.chassis_no))||invByBill.get(lc(r.bill_no))||null;return {...r,mapping_status:m?"BILLED":"UNBILLED",mapped_bill_no:m?.bill_no||"",mapped_invoice_id:m?.id||null,mapped_customer:m?.buyer_name||""};}
+        const m=orBySp.get(lc(r.sp_no))||orByReg.get(nospace(r.vehicle))||null;return {...r,mapping_status:m?"TAGGED":"UNTAGGED",mapped_old_rickshaw_id:m?.id||null,mapped_customer:m?.owner_name||""};
+      });
+      const good=["BILLED","TAGGED"];
+      const filtered=st==="billed"||st==="tagged"?out.filter((r:any)=>good.includes(r.mapping_status)):st==="unbilled"||st==="untagged"?out.filter((r:any)=>!good.includes(r.mapping_status)):out;
+      // On-account agent ledger: expense vouchers (type rto_expense) paid to the agent are not tied to records.
+      const pay=await pool.query(`SELECT lower(btrim(rto_agent)) k,MAX(rto_agent) agent,COALESCE(SUM(amount) FILTER (WHERE rto_type='NEW'),0) new_amt,COALESCE(SUM(amount) FILTER (WHERE rto_type='OLD'),0) old_amt,COUNT(*) records FROM rto_expense_register GROUP BY lower(btrim(rto_agent))`);
+      const paid=await pool.query(`SELECT lower(btrim(pay_to_name)) k,COALESCE(SUM(amount),0) paid FROM expense_payment_voucher WHERE lower(COALESCE(expense_type,'')) IN ('rto_expense','rto') AND UPPER(COALESCE(status,'')) NOT IN ('CANCELLED','CANCELED','REJECTED') GROUP BY lower(btrim(pay_to_name))`).catch(()=>({rows:[]}));
+      const paidMap=new Map(paid.rows.map((x:any)=>[x.k,Number(x.paid)]));
+      const agent_summary=pay.rows.filter((x:any)=>x.k).map((x:any)=>{const n=Number(x.new_amt),o=Number(x.old_amt),pd=paidMap.get(x.k)||0;return {agent:x.agent,records:Number(x.records),new_amount:n,old_amount:o,total:n+o,paid:pd,balance:n+o-pd};}).sort((a:any,b:any)=>b.balance-a.balance);
+      const pm=await pool.query("SELECT DISTINCT name FROM simple_master WHERE lower(kind)='party' AND lower(COALESCE(sub_category,''))='rto' AND COALESCE(name,'')<>'' ORDER BY name").catch(()=>({rows:[]}));
+      return Response.json({rows:filtered,agents:pm.rows.map((x:any)=>x.name),agent_summary});
+    }
+    if(p==="insurance-register/export"){
+      await ensureInsuranceRegisterSchema();
+      const u=new URL(req.url),type=String(u.searchParams.get("type")||"NEW").toUpperCase();
+      const rr=await pool.query("SELECT * FROM insurance_register WHERE insurance_type=$1 ORDER BY date DESC,id DESC",[type]);
+      return Response.json({rows:rr.rows});
+    }
+
+    if(p==="showroom/expenses-reports"){
+      const u=new URL(req.url),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
+      const vcols=await columns("expense_payment_voucher");
+      const vsql=vcols.has("dealer_id")
+        ?"SELECT v.*,d.name AS dealer_name FROM expense_payment_voucher v LEFT JOIN dealer d ON d.id=v.dealer_id ORDER BY v.date DESC,v.id DESC LIMIT 5000"
+        :"SELECT * FROM expense_payment_voucher ORDER BY date DESC,id DESC LIMIT 5000";
+      const vouchers=(await pool.query(vsql)).rows;
+      let shop:any[]=[];
+      try{await ensureDealerCashSchema();shop=(await pool.query("SELECT e.*,d.name AS dealer_name FROM dealer_cash_expense e LEFT JOIN dealer d ON d.id=e.dealer_id ORDER BY e.date DESC,e.id DESC LIMIT 5000")).rows;}catch(e){console.error("[showroom expenses]",e);shop=[]}
+      const inRange=(r:any)=>{const d=ymd(r.date||r.expense_date);return (!from||(d&&d>=from))&&(!to||(d&&d<=to))};
+      const textOf=(r:any)=>[r.expense_type_name,r.expense_type,r.pay_to_name,r.dealer_name,r.remarks,r.bill_no,r.voucher_no,r.category,r.category_label,r.paid_to,r.expense_no].filter(Boolean).join(" ").toLowerCase();
+      // Cancelled / inactive rows total me nahi gino (ledger bhi sirf ACTIVE shop expense leta hai).
+      const voucherLive=(r:any)=>!["CANCELLED","CANCELED","DELETED"].includes(String(r.status||"").trim().toUpperCase())&&r.cancelled!==true;
+      const shopLive=(r:any)=>String(r.status||"ACTIVE").trim().toUpperCase()==="ACTIVE";
+      const v=vouchers.filter((r:any)=>voucherLive(r)&&inRange(r)&&(!search||textOf(r).includes(search)));
+      const s=shop.filter((r:any)=>shopLive(r)&&inRange(r)&&(!search||textOf(r).includes(search)));
+      const voucher_total=v.reduce((n:number,r:any)=>n+num(r.amount),0),shop_total=s.reduce((n:number,r:any)=>n+num(r.amount),0);
+      return Response.json({vouchers:v,shop_expenses:s,voucher_total,shop_total,total_expenses:voucher_total+shop_total});
+    }
     const table=tableFor(path);
     if(table)return genericGet(req,path,table);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
@@ -2163,6 +2781,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     }
 
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    await ensureSecuritySchema();
+    if(!(await actionAllowed(a,p,"create")))return Response.json({error:"Forbidden."},{status:403});
 
     if(p==="admin/backfill-loan-status"){
       if(!isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
@@ -2534,6 +3154,60 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           [b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null]);
         await client.query("COMMIT");
         return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(p==="notifications/read"){
+      await ensureNotificationSchema();
+      const id=idOf(b.id); if(!id)return Response.json({error:"Notification id required."},{status:400});
+      const userKey=String(a?.id??a?.user_id??a?.username??"").trim();
+      const r=await pool.query("UPDATE app_notification SET is_read=true WHERE id=$1 AND (user_id=$2 OR user_id IS NULL OR dealer_id=$3) RETURNING id",[id,userKey,num(a?.dealer_id)||0]);
+      return Response.json({success:r.rowCount>0});
+    }
+    if(p==="notifications/cash-limit"){
+      if(a?.scope!=="staff" || !isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
+      await ensureNotificationSchema();
+      const dealerId=idOf(b.dealer_id),cashLimit=num(b.cash_limit);
+      if(!dealerId || cashLimit<=0)return Response.json({error:"Branch and a positive cash limit are required."},{status:400});
+      const d=await pool.query("SELECT id FROM dealer WHERE id=$1 AND LOWER(COALESCE(dealer_category,''))='branch'",[dealerId]);
+      if(!d.rowCount)return Response.json({error:"Selected dealer is not a Branch."},{status:400});
+      const r=await pool.query("INSERT INTO dealer_cash_limit(dealer_id,cash_limit,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(dealer_id) DO UPDATE SET cash_limit=EXCLUDED.cash_limit,updated_at=NOW() RETURNING *",[dealerId,cashLimit]);
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    if(p==="battery-fit"){
+      await ensureBatteryFitSchema(); await ensureNotificationSchema();
+      const challanId=idOf(b.challan_id),fitDate=String(b.fit_date||"").slice(0,10)||ymd(new Date()),maker=String(b.battery_maker||"").trim();
+      const nums=[1,2,3,4].map(n=>String(b["battery_no"+n]||"").trim());
+      if(!challanId || !maker || !nums[0])return Response.json({error:"Challan, Battery Maker and at least Battery No. 1 are required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query(`SELECT dc.*,d.name AS dealer_name,v.model_name,v.battery_maker AS old_battery_maker,
+          v.battery_no1 AS old_battery_no1,v.battery_no2 AS old_battery_no2,v.battery_no3 AS old_battery_no3,v.battery_no4 AS old_battery_no4
+          FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id
+          WHERE dc.id=$1 FOR UPDATE`,[challanId]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        const row=dc.rows[0];
+        if(row.cancelled)throw new Error("Cancelled challan par battery fit nahi ho sakti.");
+        const inv=await client.query("SELECT id FROM tax_invoice WHERE delivery_challan_id=$1 AND COALESCE(cancelled,false)=false LIMIT 1",[challanId]);
+        if(inv.rowCount)throw new Error("Billed challan par battery fit/change nahi ho sakti.");
+        if(a?.scope==="dealer" && Number(row.dealer_id)!==Number(a.dealer_id))throw new Error("Ye challan aapke dealer ka nahi hai.");
+        const oldNums=[1,2,3,4].map(n=>String(row["old_battery_no"+n]||"").trim()).filter(Boolean);
+        const changed=oldNums.join("|")!==nums.filter(Boolean).join("|") || String(row.old_battery_maker||"").trim().toLowerCase()!==maker.toLowerCase();
+        await client.query(`UPDATE vehicle SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5,battery_fit_date=$6 WHERE id=$7`,[maker,nums[0]||null,nums[1]||null,nums[2]||null,nums[3]||null,fitDate,row.vehicle_id]);
+        await client.query(`UPDATE delivery_challan SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5,battery_fit_date=$6 WHERE id=$7`,[maker,nums[0]||null,nums[1]||null,nums[2]||null,nums[3]||null,fitDate,challanId]);
+        const ins=await client.query(`INSERT INTO battery_fit_log
+          (fit_date,challan_id,challan_no,dealer_id,dealer_name,vehicle_id,chassis_no,model_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,
+           old_battery_maker,old_battery_no1,old_battery_no2,old_battery_no3,old_battery_no4,reference_no,remarks,fitted_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id`,
+          [fitDate,challanId,row.challan_no,row.dealer_id,row.dealer_name,row.vehicle_id,row.chassis_no,row.model_name,maker,nums[0]||null,nums[1]||null,nums[2]||null,nums[3]||null,row.old_battery_maker||null,row.old_battery_no1||null,row.old_battery_no2||null,row.old_battery_no3||null,row.old_battery_no4||null,b.reference_no||null,b.remarks||null,String(a?.username||a?.full_name||a?.id||"").trim()||null]);
+        const reg=await client.query("INSERT INTO battery_register_entry(date,battery_maker,battery_no,qty,entry_type,source_type,source_id,source_no,party_name,dealer_id,vehicle_id,remarks) VALUES($1,$2,$3,1,'FIT','DELIVERY_CHALLAN',$4,$5,$6,$7,$8,$9) RETURNING id",[fitDate,maker,nums[0]||null,challanId,row.challan_no,row.dealer_name,row.dealer_id,row.vehicle_id,"Battery fitted to Delivery Challan"+(changed&&oldNums.length?" (battery changed)":"")]);
+        const title=changed&&oldNums.length?"Battery Changed on Dealer Challan":"Battery Fitted on Dealer Challan";
+        const msg=changed&&oldNums.length
+          ? `${row.challan_no||"Challan"} / ${row.chassis_no||""}: battery changed to ${maker} - ${nums.filter(Boolean).join(", ")}.`
+          : `${row.challan_no||"Challan"} / ${row.chassis_no||""}: battery fitted (${maker} - ${nums.filter(Boolean).join(", ")}).`;
+        await client.query("INSERT INTO app_notification(notification_type,title,message,dealer_id,reference_type,reference_id,dedupe_key) VALUES('battery_change',$1,$2,$3,'battery_fit',$4,$5) ON CONFLICT(dedupe_key) DO UPDATE SET message=EXCLUDED.message,is_read=false",[title,msg,row.dealer_id,Number(ins.rows[0].id),Number(ins.rows[0].id),"battery-fit-"+Number(ins.rows[0].id)]);
+        await client.query("COMMIT");
+        return Response.json({success:true,fit_id:Number(ins.rows[0].id),register_id:Number(reg.rows[0].id),battery_fit_date:fitDate});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="billing/pending-sales/create"){
@@ -3025,6 +3699,9 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           await client.query('UPDATE "'+table+'" SET battery_maker=$1,battery_no1=$2,battery_no2=$3,battery_no3=$4,battery_no4=$5 WHERE id=$6',[row.battery_maker,row.battery_no1,row.battery_no2,row.battery_no3,row.battery_no4,id]);
         };
         await update(fromTable,fromId,nextSource); await update(toTable,toId,nextTarget);
+        await ensureNotificationSchema();
+        const swapMsg=`Battery swap on dealer ${num(b.dealer_id)||''}: ${String(source.chassis_no||source.vehicle_no||source.reg_no||fromId)} → ${String(target.chassis_no||target.vehicle_no||target.reg_no||toId)}.`;
+        await client.query("INSERT INTO app_notification(notification_type,title,message,dealer_id,reference_type,reference_id,dedupe_key) VALUES('battery_change','Battery Changed / Swapped',$1,$2,'battery_swap',NULL,'battery-swap-'||extract(epoch from clock_timestamp())::bigint)",[swapMsg,num(b.dealer_id)||null]);
         const vr=await client.query("INSERT INTO battery_swap_voucher (voucher_no,date,dealer_id,from_type,from_id,to_type,to_id,mode,remarks,created_at) VALUES (COALESCE(NULLIF($1,''),'BS-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING *",
           [String(b.voucher_no||""),b.date||null,num(b.dealer_id)||null,fromType,fromId,toType,toId,mode,b.remarks||null]);
         await client.query("COMMIT");
@@ -3193,6 +3870,15 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!r.rowCount)return Response.json({error:"Old Rickshaw record not found."},{status:404});
       return Response.json({success:true,row:r.rows[0],data:r.rows[0]});
     }
+
+    if(p==='sub-groups'){
+      const name=String(b.name||'').trim(); if(!name)return Response.json({error:'Sub Group Name is required.'},{status:400});
+      const r=await pool.query('INSERT INTO product_sub_group(name) VALUES($1) ON CONFLICT(name) DO UPDATE SET active=true RETURNING *',[name]); await audit(a,'sub-groups','create',r.rows[0].id,null,r.rows[0]); return Response.json({success:true,row:r.rows[0]},{status:201});
+    }
+    if(p.startsWith('users/') && p.endsWith('/action-permissions')){
+      const uid=idOf(path[path.length-2]); if(!uid)return Response.json({error:'User id required.'},{status:400});
+      const permissions=Array.isArray(b.permissions)?b.permissions:[]; const oldPerm=(await pool.query('SELECT module_key,can_view,can_create,can_edit,can_delete,can_approve FROM user_action_permission WHERE user_id=$1 ORDER BY module_key',[uid])).rows; for(const x of permissions){const m=String(x.module_key||'').trim();if(!m)continue;await pool.query(`INSERT INTO user_action_permission(user_id,module_key,can_view,can_create,can_edit,can_delete,can_approve) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(user_id,module_key) DO UPDATE SET can_view=EXCLUDED.can_view,can_create=EXCLUDED.can_create,can_edit=EXCLUDED.can_edit,can_delete=EXCLUDED.can_delete,can_approve=EXCLUDED.can_approve`,[uid,m,!!x.can_view,!!x.can_create,!!x.can_edit,!!x.can_delete,!!x.can_approve]);} await audit(a,'user-permissions','edit',uid,oldPerm,permissions,null,'user #'+uid); return Response.json({success:true});
+    }
     // User Master: reset password + save Module Access (Permissions). Must live in POST (was mistakenly inside GET -> fell to genericWrite -> "No valid fields supplied.").
     if(p.startsWith("users/") && p.endsWith("/password")){
       const uid=idOf(path[path.length-2]),body:any=b,np=String(body.new_password||""),cp=String(body.confirm_password||"");
@@ -3200,6 +3886,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!np||np!==cp)return Response.json({error:"Passwords do not match."},{status:400});
       const crypto=await import("crypto"),salt=crypto.randomBytes(16).toString("hex"),hash=crypto.pbkdf2Sync(np,salt,260000,32,"sha256").toString("hex"),value="pbkdf2:sha256:260000$"+salt+"$"+hash;
       const r=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2 RETURNING id,username',[value,uid]);
+      await audit(a,'users/password','edit',uid,{password:'(old)'},{password:'(changed)'},null,r.rows[0]?.username);
       return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
     if(p.startsWith("users/") && p.endsWith("/option-setting")){
@@ -3207,9 +3894,132 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!uid)return Response.json({error:"User id required."},{status:400});
       const meta=await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='user' AND column_name='allowed_modules'");
       const value=String(meta.rows[0]?.data_type||"").toLowerCase()==="array"?modules:modules.join(",");
+      const oldM=(await pool.query('SELECT allowed_modules FROM "user" WHERE id=$1',[uid])).rows[0]?.allowed_modules;
       const r=await pool.query('UPDATE "user" SET allowed_modules=$1 WHERE id=$2 RETURNING id,username,allowed_modules',[value,uid]);
+      await audit(a,'users/module-access','edit',uid,{allowed_modules:oldM??null},{allowed_modules:r.rows[0]?.allowed_modules??null},null,r.rows[0]?.username);
       return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
+    if(p==="bank-ledger/import"){
+      await ensureBankLedgerSchema();
+      const rows=Array.isArray(b.rows)?b.rows:[]; if(!rows.length)return Response.json({error:"No rows supplied."},{status:400});
+      // Bank name must match Bank Details master (typos would otherwise create phantom ledgers).
+      const bm=await pool.query("SELECT name FROM simple_master WHERE lower(kind)='bank'").catch(()=>({rows:[]}));
+      const masters:string[]=bm.rows.map((x:any)=>String(x.name||"").trim()).filter(Boolean);
+      const matchBank=(v:string)=>{if(!masters.length)return v; const n=normKey(v); if(!n)return ""; const ex=masters.find(m=>normKey(m)===n); if(ex)return ex; const part=masters.filter(m=>normKey(m).includes(n)||n.includes(normKey(m))); return part.length===1?part[0]:"";};
+      const client=await pool.connect(); let inserted=0,duplicates=0; const rejected:any[]=[]; const seen=new Map<string,number>();
+      try{
+        await client.query("BEGIN");
+        for(let i=0;i<rows.length;i++){
+          const g=rowGetter(rows[i]),rowNo=i+2;
+          const rawDate=g(["date","entry date","txn date","transaction date","value date"]),date=rawDate===""?todayDate():importDate(rawDate);
+          const amount=importAmount(g(["amount","amt"]));
+          const bankRaw=String(g(["bank name","bank"])||"").trim(),cheque=String(g(["cheque no","cheque number","chq no","cheque no./upi"])||"").trim();
+          const upi=String(g(["upi","upi ref","upi ref no","utr","utr no","reference no"])||"").trim(),narration=String(g(["narration","description","remarks","particulars"])||"").trim();
+          if(!bankRaw&&!amount&&!narration)continue;
+          if(!date){rejected.push({row:rowNo,reason:"Invalid date: "+rawDate});continue;}
+          if(!amount){rejected.push({row:rowNo,reason:"Amount missing/zero"});continue;}
+          if(!bankRaw){rejected.push({row:rowNo,reason:"Bank name missing"});continue;}
+          const bank=matchBank(bankRaw); if(!bank){rejected.push({row:rowNo,reason:"Bank not in Bank Details master: "+bankRaw});continue;}
+          // Duplicate = same key already stored at least as many times as it appears so far in this file
+          // (two genuinely identical UPI payments in one file are both kept; re-importing the same file adds nothing).
+          const key=[date,amount,normKey(bank),normKey(cheque),normKey(upi),normKey(narration)].join("|"),occ=(seen.get(key)||0)+1; seen.set(key,occ);
+          const ex=await client.query(`SELECT COUNT(*)::int c FROM bank_ledger_entry WHERE entry_date=$1::date AND amount=$2 AND lower(btrim(bank_name))=lower(btrim($3)) AND COALESCE(lower(btrim(cheque_no)),'')=lower(btrim($4)) AND COALESCE(lower(btrim(upi_ref)),'')=lower(btrim($5)) AND COALESCE(lower(btrim(narration)),'')=lower(btrim($6))`,[date,amount,bank,cheque,upi,narration]);
+          if(Number(ex.rows[0].c)>=occ){duplicates++;continue;}
+          await client.query(`INSERT INTO bank_ledger_entry(entry_date,amount,bank_name,cheque_no,upi_ref,narration,entry_type,status,source,created_by) VALUES($1::date,$2,$3,$4,$5,$6,'SUSPENSE','SUSPENSE','EXCEL',$7)`,[date,amount,bank,cheque||null,upi||null,narration,String(a?.username||"")]);
+          inserted++;
+        }
+        await client.query("COMMIT");
+      }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+      await audit(a,"bank-ledger","create",null,null,{import:true,inserted,duplicates,rejected:rejected.length},null,"Bank Excel import");
+      return Response.json({success:true,inserted,duplicates,rejected:rejected.slice(0,100),rejected_count:rejected.length});
+    }
+    if(p==="bank-ledger/update"){
+      await ensureBankLedgerSchema(); const id=idOf(b.id); if(!id)return Response.json({error:"Entry id required."},{status:400});
+      const old=(await pool.query("SELECT * FROM bank_ledger_entry WHERE id=$1",[id])).rows[0]; if(!old)return Response.json({error:"Entry not found."},{status:404});
+      const want=String(b.status||"POSTED").toUpperCase(),status=want==="CANCELLED"?"CANCELLED":want==="SUSPENSE"?"SUSPENSE":"POSTED";
+      const party=String(b.party_name||"").trim();
+      // Posting needs the manual "kis se aaya / kise diya" + direction; without it the entry must stay in Suspense.
+      if(status==="POSTED"&&!party)return Response.json({error:"Party (kis se aaya / kise diya) required to post."},{status:400});
+      const type=status==="SUSPENSE"?"SUSPENSE":String(b.entry_type||"").toUpperCase()==="PAYMENT"?"PAYMENT":String(b.entry_type||"").toUpperCase()==="RECEIPT"?"RECEIPT":(status==="POSTED"?"":"SUSPENSE");
+      if(status==="POSTED"&&!type)return Response.json({error:"Select Receipt or Payment."},{status:400});
+      const r=await pool.query(`UPDATE bank_ledger_entry SET party_name=$1,narration=$2,entry_type=$3,status=$4,updated_at=now() WHERE id=$5 RETURNING *`,[party,String(b.narration??old.narration??"").trim(),type||old.entry_type,status,id]);
+      await audit(a,"bank-ledger","approve",id,old,r.rows[0],null,old.cheque_no||old.upi_ref||old.bank_name);
+      return Response.json({success:true,row:r.rows[0]});
+    }
+
+    if(p==="rto-register"){
+      await ensureRtoRegisterSchema();
+      const v=await rtoValidate(b,null); if(v.error)return Response.json({error:v.error},{status:v.status||400}); const f=v.f!;
+      const r=await pool.query(`INSERT INTO rto_expense_register (rto_type,date,customer_name,amount,work_type,rto_agent,chassis_no,bill_no,sp_no,vehicle,dealer_id,remarks,created_by) VALUES($1,$2::date,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        [f.type,f.date,f.customer,f.amount,f.work||null,f.agent,f.chassis||null,f.bill||null,f.sp||null,f.vehicle||null,idOf(b.dealer_id),b.remarks||null,String(a?.username||"")]);
+      await audit(a,"rto-register","create",r.rows[0].id,null,r.rows[0],r.rows[0].dealer_id,r.rows[0].chassis_no||r.rows[0].sp_no);
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    if(p==="rto-register/import"){
+      await ensureRtoRegisterSchema();
+      const type=String(b.rto_type||"NEW").toUpperCase(),rows=Array.isArray(b.rows)?b.rows:[];
+      if(!["NEW","OLD"].includes(type))return Response.json({error:"rto_type must be NEW or OLD."},{status:400});
+      if(!rows.length)return Response.json({error:"No rows supplied."},{status:400});
+      const client=await pool.connect(); let inserted=0,mapped=0,duplicates=0; const rejected:any[]=[]; const seenKeys=new Set<string>();
+      try{
+        await client.query("BEGIN");
+        for(let i=0;i<rows.length;i++){
+          const g=rowGetter(rows[i]),rowNo=i+2,rawDate=g(["date"]);
+          const body:any={rto_type:type,date:rawDate===""?todayDate():importDate(rawDate)||"INVALID",customer_name:g(["customer name","customer","name"]),amount:importAmount(g(["amount","rto expense","rto amount","expense"])),
+            work_type:g(["work type","work","particulars","description"]),rto_agent:g(["rto agent","agent","rto passing person","passing person","paid to","party"]),
+            chassis_no:g(["chassis no","chassis","chassis number"]),bill_no:g(["bill no","bill","invoice no"]),sp_no:g(["sp no","sp","sp number"]),vehicle:g(["vehicle","vehicle no","vehicle reg no","registration no"]),remarks:g(["remarks"])};
+          if(!body.customer_name&&!body.rto_agent&&!body.amount&&!body.chassis_no&&!body.sp_no)continue;
+          const v=await rtoValidate(body,null,client,seenKeys,true); if(v.error){if(v.status===409)duplicates++;else rejected.push({row:rowNo,reason:v.error});continue;}
+          const f=v.f!;
+          await client.query(`INSERT INTO rto_expense_register (rto_type,date,customer_name,amount,work_type,rto_agent,chassis_no,bill_no,sp_no,vehicle,remarks,created_by) VALUES($1,$2::date,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[f.type,f.date,f.customer,f.amount,f.work||null,f.agent,f.chassis||null,f.bill||null,f.sp||null,f.vehicle||null,body.remarks||null,String(a?.username||"")]);
+          if(type==="NEW"){const mr=await client.query(`SELECT 1 FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND lower(btrim(COALESCE(chassis_no,'')))=lower(btrim($1)) LIMIT 1`,[f.chassis]).catch(()=>({rows:[]}));if(mr.rows.length)mapped++;}
+          inserted++;
+        }
+        await client.query("COMMIT");
+      }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+      await audit(a,"rto-register","create",null,null,{import:true,type,inserted,duplicates,rejected:rejected.length},null,"RTO import "+type);
+      return Response.json({success:true,inserted,mapped,duplicates,rejected:rejected.slice(0,100),rejected_count:rejected.length});
+    }
+    if(p==="insurance-register"){
+      await ensureInsuranceRegisterSchema();
+      const v=await insuranceValidate(b,null); if(v.error)return Response.json({error:v.error},{status:v.status||400});
+      const f=v.f!;
+      const r=await pool.query(`INSERT INTO insurance_register
+        (insurance_type,date,customer_name,total_premium,net_premium,discount_rate,payable_amount,insurer,chassis_no,bill_no,sp_no,vehicle,dealer_id,remarks,created_by)
+        VALUES($1,$2::date,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        [f.type,f.date,f.customer,f.total,f.net,f.disc,f.payable,f.insurer,f.chassis||null,f.bill||null,f.sp||null,f.vehicle||null,idOf(b.dealer_id),b.remarks||null,String(a?.username||"")]);
+      await audit(a,"insurance-register","create",r.rows[0].id,null,r.rows[0],r.rows[0].dealer_id,r.rows[0].chassis_no||r.rows[0].sp_no);
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    if(p==="insurance-register/import"){
+      await ensureInsuranceRegisterSchema();
+      const type=String(b.insurance_type||"NEW").toUpperCase(),rows=Array.isArray(b.rows)?b.rows:[];
+      if(!["NEW","OLD"].includes(type))return Response.json({error:"insurance_type must be NEW or OLD."},{status:400});
+      if(!rows.length)return Response.json({error:"No rows supplied."},{status:400});
+      const client=await pool.connect(); let inserted=0,mapped=0,duplicates=0; const rejected:any[]=[]; const seenKeys=new Set<string>();
+      try{
+        await client.query("BEGIN");
+        for(let i=0;i<rows.length;i++){
+          const g=rowGetter(rows[i]),rowNo=i+2;
+          const rawDate=g(["date"]);
+          const body:any={insurance_type:type,date:rawDate===""?todayDate():importDate(rawDate)||"INVALID",customer_name:g(["customer name","customer","name"]),
+            total_premium:importAmount(g(["total premium","premium"])),discount_rate:importAmount(g(["discount rate","discount","discount %"])),
+            net_premium:g(["net premium"])===""?"":importAmount(g(["net premium"])),payable_amount:g(["payable amount","payable"])===""?"":importAmount(g(["payable amount","payable"])),
+            insurer:g(["insurer","insurance provider","agent"]),chassis_no:g(["chassis no","chassis","chassis number"]),bill_no:g(["bill no","bill","invoice no"]),
+            sp_no:g(["sp no","sp","sp number"]),vehicle:g(["vehicle","vehicle no","vehicle reg no","registration no"]),remarks:g(["remarks"])};
+          if(!body.customer_name&&!body.insurer&&!body.total_premium&&!body.chassis_no&&!body.sp_no)continue;
+          const v=await insuranceValidate(body,null,client,seenKeys,true); if(v.error){if(v.status===409)duplicates++;else rejected.push({row:rowNo,reason:v.error});continue;}
+          const f=v.f!;
+          await client.query(`INSERT INTO insurance_register (insurance_type,date,customer_name,total_premium,net_premium,discount_rate,payable_amount,insurer,chassis_no,bill_no,sp_no,vehicle,remarks,created_by) VALUES($1,$2::date,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,[f.type,f.date,f.customer,f.total,f.net,f.disc,f.payable,f.insurer,f.chassis||null,f.bill||null,f.sp||null,f.vehicle||null,body.remarks||null,String(a?.username||"")]);
+          if(type==="NEW"){const mr=await client.query(`SELECT 1 FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND lower(btrim(COALESCE(chassis_no,'')))=lower(btrim($1)) LIMIT 1`,[f.chassis]).catch(()=>({rows:[]}));if(mr.rows.length)mapped++;}
+          inserted++;
+        }
+        await client.query("COMMIT");
+      }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+      await audit(a,"insurance-register","create",null,null,{import:true,type,inserted,duplicates,rejected:rejected.length},null,"Insurance import "+type);
+      return Response.json({success:true,inserted,mapped,duplicates,rejected:rejected.slice(0,100),rejected_count:rejected.length});
+    }
+
     const table=tableFor(path);
     if(table)return genericWrite(req,path,table,"POST",b);
     return Response.json({error:"Node API route not implemented",path:"/api/"+p},{status:404});
@@ -3222,8 +4032,32 @@ async function mutation(req:Request,params:any,method:string){
 
   try{
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
+    await ensureSecuritySchema();
     const {path=[]}=await params,p=path.join("/"),table=tableFor(path);
+    if(!(await actionAllowed(a,p,actionFor(method))))return Response.json({error:"Forbidden."},{status:403});
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
+    const bodyForScope=(method==="DELETE"?{}:await json(req));
+    const scopeGuard=await enforceDealerScope(a,table,idOf(path[path.length-1]),bodyForScope); if(scopeGuard)return scopeGuard;
+    if(path[0]==="rto-register"&&path.length===2&&/^\d+$/.test(path[1])){
+      await ensureRtoRegisterSchema(); const id=idOf(path[1]);
+      const old=(await pool.query("SELECT * FROM rto_expense_register WHERE id=$1",[id])).rows[0]; if(!old)return Response.json({error:"Record not found."},{status:404});
+      if(method==="DELETE"){await pool.query("DELETE FROM rto_expense_register WHERE id=$1",[id]);await audit(a,"rto-register","delete",id,old,null,old.dealer_id,old.chassis_no||old.sp_no);return Response.json({success:true});}
+      const eb:any={...old,...bodyForScope,rto_type:old.rto_type};
+      const v=await rtoValidate(eb,id); if(v.error)return Response.json({error:v.error},{status:v.status||400}); const f=v.f!;
+      const r=await pool.query(`UPDATE rto_expense_register SET date=$1::date,customer_name=$2,amount=$3,work_type=$4,rto_agent=$5,chassis_no=$6,bill_no=$7,sp_no=$8,vehicle=$9,remarks=$10,updated_at=now() WHERE id=$11 RETURNING *`,[f.date,f.customer,f.amount,f.work||null,f.agent,f.chassis||null,f.bill||null,f.sp||null,f.vehicle||null,eb.remarks||null,id]);
+      await audit(a,"rto-register","edit",id,old,r.rows[0],old.dealer_id,r.rows[0].chassis_no||r.rows[0].sp_no);
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    if(path[0]==="insurance-register"&&path.length===2&&/^\d+$/.test(path[1])){
+      await ensureInsuranceRegisterSchema(); const id=idOf(path[1]);
+      const old=(await pool.query("SELECT * FROM insurance_register WHERE id=$1",[id])).rows[0]; if(!old)return Response.json({error:"Record not found."},{status:404});
+      if(method==="DELETE"){await pool.query("DELETE FROM insurance_register WHERE id=$1",[id]);await audit(a,"insurance-register","delete",id,old,null,old.dealer_id,old.chassis_no||old.sp_no);return Response.json({success:true});}
+      const eb:any={...old,...bodyForScope,insurance_type:old.insurance_type};
+      const v=await insuranceValidate(eb,id); if(v.error)return Response.json({error:v.error},{status:v.status||400}); const f=v.f!;
+      const r=await pool.query(`UPDATE insurance_register SET date=$1::date,customer_name=$2,total_premium=$3,net_premium=$4,discount_rate=$5,payable_amount=$6,insurer=$7,chassis_no=$8,bill_no=$9,sp_no=$10,vehicle=$11,remarks=$12,updated_at=now() WHERE id=$13 RETURNING *`,[f.date,f.customer,f.total,f.net,f.disc,f.payable,f.insurer,f.chassis||null,f.bill||null,f.sp||null,f.vehicle||null,eb.remarks||null,id]);
+      await audit(a,"insurance-register","edit",id,old,r.rows[0],old.dealer_id,r.rows[0].chassis_no||r.rows[0].sp_no);
+      return Response.json({success:true,row:r.rows[0]});
+    }
     if(path[0]==="chassis-master"){const cm=await chassisMasterWrite(path,method,await json(req));if(cm)return cm;}
     if(path[0]==="vehicle-no-register"&&(method==="PUT"||method==="PATCH")){
       const id=idOf(path[1]);if(!id)return Response.json({error:"Invoice id required."},{status:400});
@@ -3244,6 +4078,24 @@ async function mutation(req:Request,params:any,method:string){
       return Response.json({success:r.rowCount>0,deleted:r.rowCount});
     }
 
+    if(/^delivery-challans\/\d+$/.test(p) && (method==="PUT" || method==="PATCH")){
+      const id=idOf(path[path.length-1]);if(!id)return Response.json({error:"Delivery Challan id required."},{status:400});
+      const body:any=await json(req);
+      const current=await pool.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
+      if(!current.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
+      const old=current.rows[0];
+      if(Object.prototype.hasOwnProperty.call(body,"dealer_id") || Object.prototype.hasOwnProperty.call(body,"dealer_name")){
+        const incomingId=idOf(body.dealer_id);
+        if(incomingId && incomingId!==Number(old.dealer_id||0))return Response.json({error:"Dealer change ke liye Factory → Challan Shift module use karein."},{status:409});
+      }
+      for(const k of ["battery_maker","battery_no1","battery_no2","battery_no3","battery_no4"]){
+        if(Object.prototype.hasOwnProperty.call(body,k) && String(body[k]??"").trim()!==String(old[k]??"").trim())
+          return Response.json({error:"Battery change Delivery Challan Edit se allowed nahi hai. Battery module se Withdrawal / Swap / Fit use karein."},{status:409});
+      }
+      delete body.dealer_id; delete body.dealer_name;
+      delete body.battery_maker; delete body.battery_no1; delete body.battery_no2; delete body.battery_no3; delete body.battery_no4;
+      return genericWrite(req,path,"delivery_challan",method,body);
+    }
     if(p.startsWith("billing/pending-sales/") && (method==="PUT" || method==="PATCH" || method==="DELETE")){
       await ensureBillingSalesSchema();
       if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});

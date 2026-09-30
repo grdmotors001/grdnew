@@ -5,9 +5,11 @@ import { Money } from './ui';
 
 export function CashAtDealerPage(){
   const [data,setData]=useState(null),[dealers,setDealers]=useState([]),[dealerId,setDealerId]=useState('');
-  const [loading,setLoading]=useState(true),[error,setError]=useState('');
+  const [loading,setLoading]=useState(true),[error,setError]=useState(''),[search,setSearch]=useState('');
   const load=()=>{setLoading(true);const q=dealerId?'?dealer_id='+dealerId:'';Promise.all([get('/reports/cash-at-dealer'+q),get('/dealers')]).then(([d,m])=>{setData(d);setDealers(m.dealers||[])}).catch(e=>setError(e.message)).finally(()=>setLoading(false));};
   useEffect(()=>{load()},[dealerId]);
+  const q=search.trim().toLowerCase();
+  const filteredRows=(data?.rows||[]).filter(r=>!q||String(r.dealer_name||'').toLowerCase().includes(q));
   return <div>
     <div className="dealerContentToolbar">
       <div className="dealerPageIntro"><span className="dealerSectionIcon">₹</span><div><strong>Cash at Dealer</strong><small>Cash received − dealer expenses − cash handed over to Head Office (accepted)</small></div></div>
@@ -15,7 +17,8 @@ export function CashAtDealerPage(){
     </div>
     {error&&<div className="error">{error}</div>}
     <div className="card" style={{marginBottom:14}}><div className="muted">Total Cash at Dealer</div><div style={{fontSize:30,fontWeight:800,marginTop:4}}><Money value={data?.total_cash_at_dealer}/></div></div>
-    <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Dealer</th><th>Cash Received</th><th>Expenses</th><th>HO Handover (Accepted)</th><th>Pending Handover</th><th>Cash at Dealer</th></tr></thead><tbody>{(data?.rows||[]).map(r=><tr key={r.dealer_id}><td><b>{r.dealer_name}</b></td><td><Money value={r.cash_received}/></td><td><Money value={r.expenses}/></td><td><Money value={r.ho_handover}/></td><td><Money value={r.pending_handover}/></td><td><b><Money value={r.cash_at_dealer}/></b></td></tr>)}{!loading&&!data?.rows?.length&&<tr><td colSpan="6" className="dealerEmpty">No dealer cash records found.</td></tr>}</tbody></table></div>
+    <input className="input" style={{width:'100%',maxWidth:420,margin:'0 0 12px'}} placeholder="Search dealer…" value={search} onChange={e=>setSearch(e.target.value)} />
+    <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Dealer</th><th>Cash Received</th><th>Expenses</th><th>HO Handover (Accepted)</th><th>Pending Handover</th><th>Cash at Dealer</th></tr></thead><tbody>{filteredRows.map(r=><tr key={r.dealer_id}><td><b>{r.dealer_name}</b></td><td><Money value={r.cash_received}/></td><td><Money value={r.expenses}/></td><td><Money value={r.ho_handover}/></td><td><Money value={r.pending_handover}/></td><td><b><Money value={r.cash_at_dealer}/></b></td></tr>)}{!loading&&!filteredRows.length&&<tr><td colSpan="6" className="dealerEmpty">No dealer cash records found.</td></tr>}</tbody></table></div>
     {loading&&<div className="dealerEmpty">Loading…</div>}
   </div>;
 }
