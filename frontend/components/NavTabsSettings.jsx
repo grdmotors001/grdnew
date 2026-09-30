@@ -81,7 +81,17 @@ export function NavTabsSettings() {
   const toggleItem = (key) => setDraftItems((d) => (d.includes(key) ? d.filter((k) => k !== key) : [...d, key]));
   const saveItems = (t) => run(async () => { await put(`/admin/nav-tabs/${t.id}`, { items: draftItems }); setOpenItemsFor(null); load(); });
 
-  if (!tabs) return <div className="card">Loading…</div>;
+  if (!tabs) {
+    if (error) {
+      return (
+        <div className="card">
+          <ErrorBanner message={error} />
+          <button className="btn" style={{ marginTop: 10 }} onClick={() => { setError(''); load(); }}>Retry</button>
+        </div>
+      );
+    }
+    return <div className="card">Loading…</div>;
+  }
 
   return (
     <div className="card">
