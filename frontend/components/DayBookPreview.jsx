@@ -41,6 +41,8 @@ export function DayBookPreview({
   onPrev,
   onNext,
   onShowAll,
+  onRowClick,
+  filters=null,
   onPrint,
   onExport,
 }) {
@@ -49,7 +51,7 @@ export function DayBookPreview({
   const [pageSize,setPageSize]=useState(50);
   const allMode=!date;
   const q=search.trim().toLowerCase();
-  const match=x=>!q || [x.no,x.particulars,x.folio].join(' ').toLowerCase().includes(q);
+  const match=x=>!q || [x.no,x.particulars,x.folio,x.bank].join(' ').toLowerCase().includes(q);
   const rs=useMemo(()=>receipts.filter(match),[receipts,q]);
   const ps=useMemo(()=>payments.filter(match),[payments,q]);
   const totalReceipts=rs.reduce((s,x)=>s+Number(x.amount||0),0);
@@ -59,7 +61,7 @@ export function DayBookPreview({
     const combined=[
       ...rs.map(x=>({...x,type:'DEBIT',debit:Number(x.amount||0),credit:0})),
       ...ps.map(x=>({...x,type:'CREDIT',debit:0,credit:Number(x.amount||0)})),
-    ].sort((a,b)=>String(a.date||date).localeCompare(String(b.date||date)) || String(a.no||'').localeCompare(String(b.no||''),undefined,{numeric:true}));
+    ].sort((a,b)=>String(a.date||date).localeCompare(String(b.date||date)) || (Number(a.order||0)-Number(b.order||0)) || String(a.no||'').localeCompare(String(b.no||''),undefined,{numeric:true}));
     let running=Number(openingBalance||0);
     return combined.map(x=>{
       const rowOpening=running;
@@ -89,10 +91,12 @@ export function DayBookPreview({
       .grdCashSummaryCard span{display:block;font-size:10px;color:#68798f;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
       .grdCashSummaryCard strong{display:block;font-size:20px;margin-top:4px}.grdCashSummaryCard.open strong,.grdCashSummaryCard.running strong{color:#1764d1}.grdCashSummaryCard.debit strong{color:#08734b}.grdCashSummaryCard.credit strong{color:#bd1730}
       .grdCashLedger{border:1px solid #dce5f0;border-radius:13px;overflow:auto}
-      .grdCashLedgerTable{width:100%;min-width:760px;border-collapse:collapse;table-layout:fixed}.grdCashLedgerTable th,.grdCashLedgerTable td{border-bottom:1px solid #dbe3ed;padding:10px 9px;font-size:12px;vertical-align:middle}
+      .grdCashLedgerTable{width:100%;min-width:860px;border-collapse:collapse;table-layout:fixed}.grdCashLedgerTable th,.grdCashLedgerTable td{border-bottom:1px solid #dbe3ed;padding:10px 9px;font-size:12px;vertical-align:middle}
       .grdCashLedgerTable th{background:#f7f9fc;font-weight:900;text-align:center;color:#25456e;position:sticky;top:0;z-index:1}
-      .grdCashLedgerTable th:nth-child(1){width:12%}.grdCashLedgerTable th:nth-child(2){width:34%}.grdCashLedgerTable th:nth-child(3){width:17%}.grdCashLedgerTable th:nth-child(4){width:13%}.grdCashLedgerTable th:nth-child(5){width:13%}.grdCashLedgerTable th:nth-child(6){width:17%}
-      .grdCashLedgerTable td:nth-child(1){text-align:center;white-space:nowrap}.grdCashLedgerTable td:nth-child(3),.grdCashLedgerTable td:nth-child(4),.grdCashLedgerTable td:nth-child(5),.grdCashLedgerTable td:nth-child(6){text-align:right;font-weight:800}
+      .grdCashLedgerTable th:nth-child(1){width:10%}.grdCashLedgerTable th:nth-child(2){width:27%}.grdCashLedgerTable th:nth-child(3){width:12%}.grdCashLedgerTable th:nth-child(4){width:12%}.grdCashLedgerTable th:nth-child(5){width:12%}.grdCashLedgerTable th:nth-child(6){width:12%}.grdCashLedgerTable th:nth-child(7){width:15%}
+      .grdCashLedgerTable td:nth-child(1){text-align:center;white-space:nowrap}.grdCashLedgerTable td:nth-child(3){text-align:center;font-weight:700;color:#25456e}.grdCashLedgerTable td:nth-child(4),.grdCashLedgerTable td:nth-child(5),.grdCashLedgerTable td:nth-child(6),.grdCashLedgerTable td:nth-child(7){text-align:right;font-weight:800}
+      .grdCashLedgerTable tbody tr.clickable{cursor:pointer}
+      .grdBankTag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:800;background:#eef3fb;color:#25456e}.grdBankTag.cash{background:#eaf7f0;color:#08734b}
       .grdCashLedgerTable td:nth-child(2){font-weight:700}.grdCashLedgerTable tbody tr:hover{background:#f8fbff}
       .grdCashLedgerTable .debit{color:#08734b}.grdCashLedgerTable .credit{color:#bd1730}.grdCashLedgerTable .running{color:#1764d1}
       .grdCashLedgerEmpty td{text-align:center!important;height:58px;color:#8795a8;font-weight:600!important}
@@ -102,7 +106,7 @@ export function DayBookPreview({
       @media(max-width:600px){
         .grdDayBook{padding:10px}.grdDayBookTitle h2{font-size:21px}.grdDayBookActions{width:100%}.grdDayBookActions>*{flex:1;min-width:110px}
         .grdCashSummary{grid-template-columns:1fr 1fr;gap:7px}.grdCashSummaryCard{padding:10px}.grdCashSummaryCard strong{font-size:17px}
-        .grdCashLedgerTable{min-width:700px}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:8px 6px;font-size:10px}
+        .grdCashLedgerTable{min-width:800px}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:8px 6px;font-size:10px}
       }
       @media print{.grdPager{display:none!important}.grdDayBook{box-shadow:none;border:0;padding:0}.grdDayBookActions{display:none}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:6px;font-size:9px}}
     `}</style>
@@ -120,6 +124,8 @@ export function DayBookPreview({
       </div>
     </div>
 
+    {filters&&<div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>{filters}</div>}
+
     <div className="grdCashSummary">
       <div className="grdCashSummaryCard open"><span>Opening Balance</span><strong>₹{money(openingBalance)}</strong></div>
       <div className="grdCashSummaryCard debit"><span>Total Debit · Cash In</span><strong>₹{money(totalReceipts)}</strong></div>
@@ -132,6 +138,7 @@ export function DayBookPreview({
         <thead><tr>
           <th>Date</th>
           <th>Particulars</th>
+          <th>Bank</th>
           <th>Opening Balance</th>
           <th>Debit<br/><small>Cash In</small></th>
           <th>Credit<br/><small>Cash Out</small></th>
@@ -141,20 +148,22 @@ export function DayBookPreview({
           {page===1&&<tr>
             <td>{dateLabel}</td>
             <td><b>Opening Balance</b></td>
+            <td>—</td>
             <td>{money(openingBalance)}</td>
             <td>—</td>
             <td>—</td>
             <td className="running">{money(openingBalance)}</td>
           </tr>}
-          {pageRows.map((row,i)=><tr key={row.id||row.no||i}>
+          {pageRows.map((row,i)=><tr key={row.key||row.id||row.no||i} className={onRowClick&&row.editable!==false?'clickable':''} title={row.editable===false?'Bank Ledger se edit karein':undefined} onClick={()=>onRowClick&&onRowClick(row)}>
             <td>{formatDate(row.date||date||'')}</td>
             <td>{row.particulars||'—'}{row.no && <div style={{fontSize:10,color:'#728096',marginTop:2}}>{row.type==='DEBIT'?'Receipt':'Voucher'}: {row.no}{row.folio ? ' · Page '+row.folio : ''}</div>}</td>
+            <td><span className={'grdBankTag'+((row.bank||'Cash')==='Cash'?' cash':'')}>{row.bank||'Cash'}</span></td>
             <td>{money(row.rowOpening)}</td>
             <td className="debit">{row.debit ? money(row.debit) : '—'}</td>
             <td className="credit">{row.credit ? money(row.credit) : '—'}</td>
             <td className="running">{money(row.running)}</td>
           </tr>)}
-          {!rows.length && <tr className="grdCashLedgerEmpty"><td colSpan="6">{allMode?'No cash transactions found.':'No cash transactions for this date.'}</td></tr>}
+          {!rows.length && <tr className="grdCashLedgerEmpty"><td colSpan="7">{allMode?'No cash transactions found.':'No cash transactions for this date.'}</td></tr>}
         </tbody>
       </table>
       <Pagination page={page} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={setPageSize}/>

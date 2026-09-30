@@ -1070,12 +1070,18 @@ export function LedgerPage() {
   );
 }
 
+const toList = (d) => Array.isArray(d) ? d : (d?.masters || d?.rows || d?.data || d?.items || []);
+const ymd10 = (v) => String(v || '').slice(0, 10);
+
 export function DayBookPage() {
-  const [data,setData]=useState(null);
+  const [data,setData]=useState(null);          // /day-book  (cash + bank_id wali entries)
+  const [bankData,setBankData]=useState(null);  // /bank-ledger (bank excel entries)
   const [selectedDate,setSelectedDate]=useState(''); // '' = ALL entries (default)
+  const [mode,setMode]=useState('');            // '' = All, 'CASH', ya bank ka naam
   const [ePage,setEPage]=useState(1);
-  const [ePageSize,setEPageSize]=useState(50);
+  const [ePageSize,setEPageSize]=useState(25);
   const [dealers,setDealers]=useState([]);
+  const [financers,setFinancers]=useState([]);
   const [banks,setBanks]=useState([]);
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState({});
@@ -1083,35 +1089,88 @@ export function DayBookPage() {
   const [matchResult,setMatchResult]=useState(null);
   const [matching,setMatching]=useState(false);
 
-  const load=()=>get('/day-book').then(setData).catch(e=>setError(e.message));
-  useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});get('/masters/bank').then(d=>setBanks(Array.isArray(d)?d:(d?.masters||d?.rows||d?.data||d?.items||[]))).catch(()=>{});},[]);
+  const load=()=>{
+    get('/day-book').then(setData).catch(e=>setError(e.message));
+    get('/bank-ledger?status=all').then(setBankData).catch(()=>setBankData({rows:[]}));
+  };
+  useEffect(()=>{
+    load();
+    get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});
+    get('/masters/financer').then(d=>setFinancers(toList(d))).catch(()=>{});
+    get('/masters/bank').then(d=>setBanks(toList(d))).catch(()=>{});
+  },[]);
 
-  const entries=data?.entries||data?.rows||data?.data||data?.items||(Array.isArray(data)?data:[]);
+  const bankName=id=>banks.find(b=>String(b.id)===String(id))?.name||'';
+  const dayBookRows=toList(data);
+  const bankRows=bankData?.rows||[];
+
+  // ---- ONE unified list: Day Book (cash/bank_id) + posted Bank Ledger entries ----
+  const unified=[
+    ...dayBookRows.map(r=>({
+      key:'d'+r.id, src:'daybook', order:0, id:r.id, date:ymd10(r.date), no:r.vr_no,
+      party:r.dealer_name||'', narration:r.narration||'',
+      receipt:Number(r.credit_received||0), payment:Number(r.debit_paid||0),
+      bank:r.bank_id?(bankName(r.bank_id)||'Bank'):'Cash', raw:r,
+    })),
+    ...bankRows.filter(r=>r.status==='POSTED').map(r=>({
+      key:'b'+r.id, src:'bank', order:1, id:r.id, date:ymd10(r.entry_date), no:'B-'+r.id,
+      party:r.party_name||'', narration:[r.cheque_no&&('Chq '+r.cheque_no),r.upi_ref&&('UTR '+r.upi_ref),r.narration].filter(Boolean).join(' | '),
+      receipt:r.entry_type==='RECEIPT'?Math.abs(Number(r.amount||0)):0,
+      payment:r.entry_type==='PAYMENT'?Math.abs(Number(r.amount||0)):0,
+      bank:r.bank_name||'Bank', raw:r,
+    })),
+  ];
+  // Baaki type (abhi classify nahi hui bank entries = Suspense) alag dikhengi
+  const suspense=bankRows.filter(r=>r.status==='SUSPENSE');
+
   const allMode=!selectedDate;
-  const byDateNo=(a,b)=>String(a.date||'').slice(0,10).localeCompare(String(b.date||'').slice(0,10))||String(a.vr_no||'').localeCompare(String(b.vr_no||''),undefined,{numeric:true});
-  const dayEntries=(allMode?[...entries]:entries.filter(r=>String(r.date||'').slice(0,10)===selectedDate)).sort(byDateNo);
-  const priorEntries=allMode?[]:entries.filter(r=>String(r.date||'').slice(0,10)<selectedDate);
-  useEffect(()=>{setEPage(1)},[selectedDate,ePageSize,entries.length]);
-  const pagedEntries=dayEntries.slice((ePage-1)*ePageSize,ePage*ePageSize);
-  const receipts=dayEntries.filter(r=>Number(r.credit_received||0)>0).map(r=>({
-    id:r.id,no:r.vr_no,date:r.date,particulars:[r.dealer_name,r.narration].filter(Boolean).join(' - ')||'Receipt',
-    folio:r.folio||r.page_no||'',amount:r.credit_received
-  }));
-  const payments=dayEntries.filter(r=>Number(r.debit_paid||0)>0).map(r=>({
-    id:r.id,no:r.vr_no,date:r.date,particulars:[r.dealer_name,r.narration].filter(Boolean).join(' - ')||'Payment',
-    folio:r.folio||r.page_no||'',amount:r.debit_paid
-  }));
-  const opening=priorEntries.reduce((s,r)=>s+Number(r.credit_received||0)-Number(r.debit_paid||0),0);
+  const modeOk=bank=>!mode||(mode==='CASH'?bank==='Cash':bank===mode);
+  const scoped=unified.filter(x=>modeOk(x.bank));
+  const dayEntries=allMode?scoped:scoped.filter(x=>x.date===selectedDate);
+  const priorEntries=allMode?[]:scoped.filter(x=>x.date<selectedDate);
+  const suspenseShown=suspense.filter(r=>modeOk(r.bank_name||'Bank')&&(allMode||ymd10(r.entry_date)===selectedDate));
+  useEffect(()=>{setEPage(1)},[selectedDate,mode,ePageSize,bankRows.length]);
+  const pagedSuspense=suspenseShown.slice((ePage-1)*ePageSize,ePage*ePageSize);
+
+  const toRow=x=>({
+    key:x.key,id:x.id,no:x.no,date:x.date,order:x.order,bank:x.bank,editable:x.src==='daybook',src:x.src,raw:x.raw,
+    particulars:[x.party,x.narration].filter(Boolean).join(' - ')||(x.receipt>0?'Receipt':'Payment'),
+    folio:x.src==='daybook'?(x.raw.folio||x.raw.page_no||''):'',
+  });
+  const receipts=dayEntries.filter(x=>x.receipt>0).map(x=>({...toRow(x),amount:x.receipt}));
+  const payments=dayEntries.filter(x=>x.payment>0).map(x=>({...toRow(x),amount:x.payment}));
+  const opening=priorEntries.reduce((s,x)=>s+x.receipt-x.payment,0);
   const totalReceipts=receipts.reduce((s,r)=>s+Number(r.amount||0),0);
   const totalPayments=payments.reduce((s,r)=>s+Number(r.amount||0),0);
   const closing=opening+totalReceipts-totalPayments;
 
+  const bankOptions=[...new Set([...banks.map(b=>b.name),...bankRows.map(r=>r.bank_name)].filter(Boolean))];
+
   const moveDay=(delta)=>{
     const x=new Date((selectedDate||new Date().toISOString().slice(0,10))+'T00:00:00');x.setDate(x.getDate()+delta);setSelectedDate(x.toISOString().slice(0,10));
   };
-  const openNew=()=>{setForm({date:selectedDate||new Date().toISOString().slice(0,10),vr_no:data?.next_vr_no});setOpen(true)};
-  const openEdit=r=>{setForm({...r});setOpen(true)};
-  const save=async e=>{e.preventDefault();try{await post('/day-book',form);setOpen(false);load()}catch(e){setError(e.message)}};
+
+  // Party type: Dealer / Financer / Other  (naam dealer_name column me hi jata hai — koi column rename/add nahi)
+  const partyTypeOf=name=>{
+    if(!name)return 'DEALER';
+    if(dealers.some(d=>d.name===name))return 'DEALER';
+    if(financers.some(f=>f.name===name))return 'FINANCER';
+    return 'OTHER';
+  };
+  const openNew=()=>{setForm({date:selectedDate||new Date().toISOString().slice(0,10),vr_no:data?.next_vr_no,party_type:'DEALER'});setOpen(true)};
+  const openEdit=r=>{
+    if(!r||r.editable===false)return;
+    const e=r.raw;
+    setForm({...e,date:ymd10(e.date),party_type:partyTypeOf(e.dealer_name)});setOpen(true);
+  };
+  const save=async e=>{
+    e.preventDefault();
+    if(!String(form.dealer_name||'').trim()){setError('Party ka naam select/likhna zaroori hai.');return;}
+    try{
+      const {party_type,...payload}=form;
+      await post('/day-book',payload);setOpen(false);setError('');load();
+    }catch(e){setError(e.message)}
+  };
   const remove=async()=>{if(!form.id)return;if(!window.confirm('Delete this entry?'))return;try{await del('/day-book/'+form.id);setOpen(false);load()}catch(e){setError(e.message)}};
   const runAutoMatch=async()=>{setMatching(true);setMatchResult(null);try{const res=await post('/day-book/auto-match',{});setMatchResult(res);load()}catch(e){setError(e.message)}finally{setMatching(false)}};
 
@@ -1128,6 +1187,9 @@ export function DayBookPage() {
       ) : 'Loading…'}
     </div>
   );
+
+  const selStyle={height:40,border:'1px solid #d7e0ec',borderRadius:9,background:'#fff',padding:'0 12px',color:'#12305d',fontWeight:700};
+  const setPT=v=>setForm({...form,party_type:v,dealer_name:''});
   return <div>
     <div className="actions" style={{marginBottom:12,flexWrap:'wrap'}}>
       <button className="btn primary" onClick={openNew}>+ New Entry</button>
@@ -1140,7 +1202,7 @@ export function DayBookPage() {
     <ErrorBanner message={!open?error:''}/>
     <DayBookPreview
       date={selectedDate}
-      dealerLabel="ADMIN · ALL BRANCHES"
+      dealerLabel="ADMIN · CASH + BANK"
       receipts={receipts}
       payments={payments}
       openingBalance={opening}
@@ -1149,27 +1211,41 @@ export function DayBookPage() {
       onPrev={()=>moveDay(-1)}
       onNext={()=>moveDay(1)}
       onShowAll={()=>setSelectedDate('')}
+      onRowClick={openEdit}
       onPrint={()=>window.print()}
       onExport={()=>downloadExcel('/day-book','Day_Book.xlsx')}
-    />
-    <div className="card" style={{marginTop:14}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-        <div><h3 style={{margin:0}}>Day Book Entries</h3><div className="muted">Admin entry register · {allMode?'All dates':selectedDate}</div></div>
+      filters={<>
+        <label style={{fontSize:12,fontWeight:800,color:'#68798f'}}>SHOW&nbsp;
+          <select value={mode} onChange={e=>setMode(e.target.value)} style={selStyle}>
+            <option value="">All (Cash + Bank)</option>
+            <option value="CASH">Cash only</option>
+            {bankOptions.map(n=><option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
         <button className="btn" onClick={load}>Refresh</button>
-      </div>
+      </>}
+    />
+
+    {suspenseShown.length>0&&<div className="card" style={{marginTop:14}}>
+      <h3 style={{margin:0}}>Other / Unclassified Bank Entries</h3>
+      <div className="muted">Bank Excel se aayi entries jo abhi Receipt/Payment classify nahi hui — Bank Ledger me "Classify" karne par upar Day Book me aa jayengi. (Balance me nahi judti)</div>
       <div className="tablewrap" style={{marginTop:10}}>
-        <table className="table"><thead><tr><th>Date</th><th>Vr. No.</th><th>Dealer</th><th>Credit</th><th>Debit</th><th>Narration</th></tr></thead>
-          <tbody>{pagedEntries.map(r=><tr key={r.id} onClick={()=>openEdit(r)} style={{cursor:'pointer'}}><td>{formatDate(r.date)}</td><td>{r.vr_no}</td><td>{r.dealer_name}</td><td><Money value={r.credit_received}/></td><td><Money value={r.debit_paid}/></td><td>{r.narration||'—'}</td></tr>)}{!dayEntries.length&&<tr><td colSpan={6} className="muted">No entries for this date.</td></tr>}</tbody>
+        <table className="table"><thead><tr><th>Date</th><th>Bank</th><th>Cheque / UTR</th><th>Narration</th><th>Amount</th></tr></thead>
+          <tbody>{pagedSuspense.map(r=><tr key={r.id} style={{background:'rgba(245,158,11,.10)'}}><td>{formatDate(r.entry_date)}</td><td><b>{r.bank_name}</b></td><td>{[r.cheque_no,r.upi_ref].filter(Boolean).join(' / ')||'—'}</td><td>{r.narration||'—'}</td><td><Money value={r.amount}/></td></tr>)}</tbody>
         </table>
       </div>
-      <Pagination page={ePage} pageSize={ePageSize} total={dayEntries.length} onPage={setEPage} onPageSize={setEPageSize}/>
-    </div>
+      <Pagination page={ePage} pageSize={ePageSize} total={suspenseShown.length} onPage={setEPage} onPageSize={setEPageSize} sizes={[10,25,50,100]}/>
+    </div>}
+
     {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
       <h2>{form.id?'Edit Day Book Entry':'New Day Book Entry'}</h2><ErrorBanner message={error}/>
       <div className="formgrid">
         <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-        <Field label="Dealer Name" type="select" value={form.dealer_name} options={dealers.map(d=>({value:d.name,label:d.name}))} onChange={v=>setForm({...form,dealer_name:v})} required/>
-        <Field label="Bank" type="select" value={form.bank_id||''} options={[{value:'',label:'Select Bank'},...banks.map(b=>({value:b.id,label:`${b.name}${b.account_no?` — ${b.account_no}`:''}`}))]} onChange={v=>setForm({...form,bank_id:v||null})}/>
+        <Field label="Party Type" type="select" value={form.party_type||'DEALER'} options={[{value:'DEALER',label:'Dealer'},{value:'FINANCER',label:'Financer (Hypothecation)'},{value:'OTHER',label:'Other'}]} onChange={setPT}/>
+        {(form.party_type||'DEALER')==='DEALER'&&<Field label="Dealer Name" type="select" value={form.dealer_name} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.name,label:d.name}))]} onChange={v=>setForm({...form,dealer_name:v})} required/>}
+        {form.party_type==='FINANCER'&&<Field label="Financer Name" type="select" value={form.dealer_name} options={[{value:'',label:'Select Financer'},...financers.map(f=>({value:f.name,label:f.name}))]} onChange={v=>setForm({...form,dealer_name:v})} required/>}
+        {form.party_type==='OTHER'&&<Field label="Other Party Name" value={form.dealer_name} onChange={v=>setForm({...form,dealer_name:v})} required/>}
+        <Field label="Bank (khali = Cash)" type="select" value={form.bank_id||''} options={[{value:'',label:'Cash (No Bank)'},...banks.map(b=>({value:b.id,label:`${b.name}${b.account_no?` — ${b.account_no}`:''}`}))]} onChange={v=>setForm({...form,bank_id:v||null})}/>
         <Field label="Credit Received" type="number" value={form.credit_received} onChange={v=>setForm({...form,credit_received:v})}/>
         <Field label="Debit Paid" type="number" value={form.debit_paid} onChange={v=>setForm({...form,debit_paid:v})}/>
         <Field label="Narration" value={form.narration} onChange={v=>setForm({...form,narration:v})}/>

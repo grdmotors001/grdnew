@@ -1744,7 +1744,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const total_hyp=invoices.reduce((t:number,x:any)=>t+num(x.hypothecation_amount),0),total_received=invoices.reduce((t:number,x:any)=>t+num(x.fin_received),0);
         return Response.json({invoices,total_hyp,total_received,total_balance:invoices.reduce((t:number,x:any)=>t+num(x.balance_amount),0),rows:invoices});
       }
-      if(u.searchParams.get("export")==="csv")return csvResponse(rows,p==="reports/gst-register"?"GST_Register.csv":p==="reports/sale-register"?"Sale_Register.csv":p==="reports/hypothecation-register"?"Hypothecation_Register.csv":"Subsidy_Report.csv");
+      if(u.searchParams.get("export")==="csv")return csvResponse(rows,p==="reports/gst-register"?"GST_Register.csv":p==="reports/sale-register"?"Sale_Register.csv":"Subsidy_Report.csv");
       if(p==="reports/gst-register"){
         const inwardRaw=await pool.query("SELECT pb.id,pb.date,pb.bill_no AS doc_no,pb.party_name,pb.party_state_code,pb.items FROM purchase_bill pb ORDER BY pb.date DESC,pb.id DESC");
         const inward={rows:inwardRaw.rows.map((x:any)=>{const t=purchaseBillTotals(x);return {id:x.id,date:x.date,doc_no:x.doc_no,party_name:x.party_name,...t,total:t.taxable+t.cgst+t.sgst+t.igst}})};
