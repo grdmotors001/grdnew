@@ -505,6 +505,7 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
   const [form,setForm]=useState({});
   const [busy,setBusy]=useState(false);
   const [search,setSearch]=useState('');
+  const [customers,setCustomers]=useState([]);
 
   const load=async()=>{
     try{
@@ -515,21 +516,42 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
     finally{setLoading(false)}
   };
   useEffect(()=>{load()},[]);
+  // Booking customers (Create Sale wali list). Sirf Old Rickshaw booking wale customers dropdown me aate hain.
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const c=await get('/billing/pending-sales/options?part=customers',{noClientCache:true,timeoutMs:30000});
+        setCustomers((c.cash_customers||[]).filter(x=>String(x.booking_for||x.vehicle_no||'').trim().toLowerCase()==='old'));
+      }catch(e){setError(e.message||'Could not load customers')}
+    })();
+  },[]);
+  const pickCustomer=(id)=>{
+    const c=customers.find(x=>String(x.id)===String(id));
+    setForm(x=>({...x,customer_id:id,customer_name:c?.name||'',
+      sale_amount:c?String(Number(c.sale_amount||0)||''):'',loan_amount:c?String(Number(c.loan_amount||0)||0):'0'}));
+  };
+  const selCust=customers.find(x=>String(x.id)===String(form.customer_id));
+  const paidAmt=Number(selCust?.paid_amount||0);
+  const custLabel=c=>[c.page_no?('Page: '+c.page_no):'',c.name,c.phone].filter(Boolean).join(' · ');
 
   const setF=(k,v)=>setForm(x=>({...x,[k]:v}));
-  const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0));
+  const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0)-paidAmt);
   const openSale=(r)=>{
     setNotice('');setError('');setRow(r);
-    setForm({sale_date:todayStr(),customer_name:'',sale_amount:'',loan_amount:'0',do_number:'',ledger_no:''});
+    setForm({sale_date:todayStr(),customer_id:'',customer_name:'',sale_amount:'',loan_amount:'0',do_number:''});
   };
   const save=async(e)=>{
-    e.preventDefault();setBusy(true);setError('');
+    e.preventDefault();
+    if(!selCust){setError('Customer select karo.');return}
+    setBusy(true);setError('');
     try{
       await post('/billing/pending-sales/create',{
         sale_category:'OLD',old_rickshaw_id:row.id,sp_no:row.sp_no||'',sale_date:form.sale_date,
-        customer_name:form.customer_name,sale_amount:Number(form.sale_amount||0),loan_amount:Number(form.loan_amount||0),
-        do_no:form.do_number||'',ledger_no:form.ledger_no||''
-      });
+        dealer_cash_customer_id:Number(selCust.id),customer_name:selCust.name||form.customer_name,buyer_name:selCust.name||form.customer_name,
+        buyer_mobile:selCust.phone||'',customer_phone:selCust.phone||'',dealer_page_no:selCust.page_no||'',
+        sale_amount:Number(form.sale_amount||0),loan_amount:Number(form.loan_amount||0),hypothecation_amount:Number(form.loan_amount||0),
+        amount_received:paidAmt,do_no:form.do_number||'',ledger_no:''
+      },{timeoutMs:60000});
       setNotice('Sale Pending Sales me bhej di gayi: '+(row.vehicle_reg_no||'Old Rickshaw')+' → '+form.customer_name+'. Approval ke baad Sold hogi.');
       setRow(null);
       await load();
@@ -595,18 +617,23 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
       <div className="formgrid">
         <Field label="SP No." value={row.sp_no||'—'} readOnly/>
         <Field label="Sale Date" type="date" value={form.sale_date} onChange={v=>setF('sale_date',v)} required/>
-        <Field label="Customer Name" value={form.customer_name} onChange={v=>setF('customer_name',v)} required/>
-        <Field label="Sale Amount" type="number" value={form.sale_amount} onChange={v=>setF('sale_amount',v)} required/>
-        <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF('loan_amount',v)}/>
+        <label className="field"><span>Customer (booking)</span>
+          <select className="input" value={form.customer_id||''} onChange={e=>pickCustomer(e.target.value)} required>
+            <option value="">{customers.length?'Select Customer':'Koi Old Rickshaw booking customer nahi hai'}</option>
+            {customers.map(c=><option key={c.id} value={c.id}>{custLabel(c)}</option>)}
+          </select>
+        </label>
+        <Field label="Sale Amount" type="number" value={form.sale_amount} readOnly/>
+        <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF("loan_amount",v)}/>
+        <Field label="Amount Received (booking)" type="number" value={paidAmt} readOnly/>
         <Field label="Balance" type="number" value={balance} readOnly/>
-        <Field label="DO No." value={form.do_number} onChange={v=>setF('do_number',v)}/>
-        <Field label={Number(form.loan_amount||0)>0?'Ledger No. (loan) *':'Ledger No.'} value={form.ledger_no} onChange={v=>setF('ledger_no',v)} required={Number(form.loan_amount||0)>0}/>
+        <Field label="DO No. (Optional)" value={form.do_number} onChange={v=>setF('do_number',v)}/>
         <Field label="Vehicle No." value={row.vehicle_reg_no||'—'} readOnly/>
         <Field label="Model" value={row.model_name||'—'} readOnly/>
       </div>
       <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
         <button type="button" className="btn" onClick={()=>setRow(null)}>Cancel</button>
-        <button className="btn primary" disabled={busy||!String(form.customer_name||'').trim()||!(Number(form.sale_amount||0)>0)||(Number(form.loan_amount||0)>0&&!String(form.ledger_no||'').trim())||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
+        <button className="btn primary" disabled={busy||!selCust||!(Number(form.sale_amount||0)>0)||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
       </div>
     </form></div>}
   </div>;
@@ -700,7 +727,6 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
     try{
       if(!(Number(saleAmount)>0))throw new Error('Booking me Sale Amount nahi hai. Pehle customer booking me Sale Amount bharo.');
       if(Number(loanAmount||0)>Number(saleAmount||0))throw new Error('Loan Amount Sale Amount se zyada nahi ho sakta.');
-      if(type==='old'&&Number(loanAmount||0)>0&&!ledgerNo.trim())throw new Error('Loan hai to Ledger No. zaroori hai.');
       let description,extra={};
       if(type==='new'){
         extra={vehicle_id:Number(selected.challan_id),delivery_challan_id:Number(selected.challan_id)};
@@ -723,7 +749,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
         amount_received:paid,do_no:doNo.trim()||'',ledger_no:type==='old'?ledgerNo.trim():'',
         description,internal_sale_details:[description,remarks.trim()].filter(Boolean).join(' | '),
         ...extra
-      });
+      },{timeoutMs:60000});
       alert('Sale Billing ko approval ke liye bhej di gayi hai.');
       onBack();
     }catch(e){setError(e.message||'Could not save sale')}
@@ -800,7 +826,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
           <input className="input" value={doNo} onChange={e=>setDoNo(e.target.value)} placeholder="Enter DO No. (optional)" />
         </label>
 
-        {type==='old'&&<label>Ledger No.{Number(loanAmount||0)>0?' (loan ke liye zaroori)':' (Optional)'}
+        {type==='old'&&<label>Ledger No. (Optional - approval par admin bharega)
           <input className="input" value={ledgerNo} onChange={e=>setLedgerNo(e.target.value)} placeholder="Enter Ledger No." disabled={!selectedCustomer} />
         </label>}
 

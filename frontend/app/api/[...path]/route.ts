@@ -98,6 +98,11 @@ function ymd(v:any):string{
   if(v instanceof Date){if(isNaN(v.getTime()))return "";return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");}
   return String(v||"").slice(0,10);
 }
+// Sab missing columns ek hi ALTER TABLE se (pehle har column ke liye alag query thi -> remote DB par bahut slow, request timeout).
+async function addColumns(table:string,defs:Record<string,string>){
+  const parts=Object.entries(defs).map(([col,type])=>'ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  if(parts.length)await pool.query('ALTER TABLE "'+table+'" '+parts.join(", "));
+}
 async function columns(table:string){
   const r=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1",[table]);
   return new Set(r.rows.map((x:any)=>x.column_name));
@@ -223,7 +228,7 @@ async function ensureBillingSalesSchemaOnce(){
     gst_sale_amount:"numeric NOT NULL DEFAULT 0",gst_rate:"numeric NOT NULL DEFAULT 5",insurance_amount:"numeric NOT NULL DEFAULT 0",registration_amount:"numeric NOT NULL DEFAULT 0",discount:"numeric NOT NULL DEFAULT 0",dealer_cash_customer_id:"bigint",
     old_rickshaw_id:"bigint",sp_no:"text",sale_date:"date"
   };
-  for(const [col,type] of Object.entries(extra)) await pool.query('ALTER TABLE grd_billing_sale ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  await addColumns("grd_billing_sale",extra);
   // Ek Old Rickshaw par ek hi Pending/Approved sale ho sakti hai.
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS grd_billing_sale_old_rickshaw_unique ON grd_billing_sale(old_rickshaw_id) WHERE old_rickshaw_id IS NOT NULL AND status IN ('PENDING','APPROVED')");
 }
@@ -524,7 +529,7 @@ async function ensureOldRickshawLegacySchemaOnce(){
     status:"text NOT NULL DEFAULT 'available'",customer_name:"text",sale_amount:"numeric NOT NULL DEFAULT 0",sold_amount:"numeric NOT NULL DEFAULT 0",
     loan_amount:"numeric NOT NULL DEFAULT 0",down_payment:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",sale_ref_no:"text",
     receipt_amount:"numeric NOT NULL DEFAULT 0",receipt_no:"text",ledger:"text",resale_date:"date",resale_ledger:"text",repo_date:"date"};
-  for(const [col,type] of Object.entries(defs)) await pool.query('ALTER TABLE old_rickshaw ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  await addColumns("old_rickshaw",defs);
 }
 let oldRickshawInventorySchemaReady:Promise<void>|null=null;
 function ensureOldRickshawInventorySchema():Promise<void>{
@@ -568,7 +573,7 @@ async function ensureOldRickshawInventorySchemaOnce(){
     do_number:"text",ledger_no:"text",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text",
     sale_date:"date",chfpl_sale_synced:"boolean NOT NULL DEFAULT false",chfpl_sale_sync_error:"text"
   };
-  for(const [col,type] of Object.entries(defs)) await pool.query('ALTER TABLE old_rickshaw_inventory ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  await addColumns("old_rickshaw_inventory",defs);
   await pool.query("CREATE INDEX IF NOT EXISTS old_rickshaw_inventory_status_idx ON old_rickshaw_inventory(status)");
   await pool.query("CREATE INDEX IF NOT EXISTS old_rickshaw_inventory_dealer_idx ON old_rickshaw_inventory(dealer_id)");
   await pool.query(`CREATE TABLE IF NOT EXISTS old_rickshaw_challan (
@@ -578,13 +583,35 @@ async function ensureOldRickshawInventorySchemaOnce(){
   const cdefs:any={date:"date",challan_no:"text",model_name:"text",vehicle_no:"text",colour:"text",toolkit:"text",dealer_id:"integer",source:"text NOT NULL DEFAULT 'CHFPL'",source_ref:"text",status:"text NOT NULL DEFAULT 'ACTIVE'",
     inventory_id:"integer",old_rickshaw_id:"integer",salesman:"text",ledger_date:"date",chassis_no:"text",battery_name:"text",charger:"text",
     mat_yn:"text",jack_yn:"text",centre_lock_yn:"text",big_mirror_yn:"text",colour_yn:"text",toolkit_yn:"text",stepney_yn:"text"};
-  for(const [col,type] of Object.entries(cdefs)) await pool.query('ALTER TABLE old_rickshaw_challan ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  await addColumns("old_rickshaw_challan",cdefs);
   const odefs:any={
     dealer_id:"integer",dealer_name:"text",challan_no:"text",sp_no:"text",challan_date:"date",customer_name:"text",
     sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",balance_amount:"numeric NOT NULL DEFAULT 0",
     file_charge:"numeric NOT NULL DEFAULT 0",do_number:"text",ledger_no:"text",sale_date:"date"
   };
-  for(const [col,type] of Object.entries(odefs)) await pool.query('ALTER TABLE old_rickshaw ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  await addColumns("old_rickshaw",odefs);
+}
+// old_rickshaw table purani DB me alag types ke saath ban chuki ho sakti hai (jaise record_no integer).
+// Isliye insert/update se pehle value ko column type ke hisaab se theek karte hain: integer column me "OR-1" ki jagah 1.
+async function fitOldRickshaw(obj:any,rowId?:any):Promise<any>{
+  const r=await pool.query("SELECT column_name,data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='old_rickshaw'");
+  const types=new Map<string,string>(r.rows.map((x:any)=>[x.column_name,String(x.data_type)]));
+  const numeric=new Set(["integer","bigint","smallint","numeric","double precision","real"]);
+  const out:any={};
+  for(const [k,v] of Object.entries(obj)){
+    const t=types.get(k);
+    if(!t){continue;}
+    if(numeric.has(t)&&v!==null&&v!==undefined&&v!==""){
+      if(k==="record_no"&&rowId!==undefined&&rowId!==null){out[k]=Number(rowId);continue;}
+      const n=Number(String(v).replace(/[^0-9.\-]/g,""));
+      if(typeof v==="number"||/^-?\d+(\.\d+)?$/.test(String(v).trim())){out[k]=v;}
+      else if(k==="record_no"&&Number.isFinite(n)&&String(v).replace(/\D/g,"")!==""){out[k]=n;}
+      // baaki non-numeric value numeric column me nahi jaati (skip)
+      continue;
+    }
+    out[k]=v;
+  }
+  return out;
 }
 // ---- CHFPL Repo -> GRD Old Rickshaw sync (webhook) ----
 // Repo vehicle "Available for Sale" hote hi: inventory=available, temporary Old Rickshaw Challan (parked dealer ke naam),
@@ -607,12 +634,13 @@ async function releaseRepoInventory(client:any,inventoryId:number){
   // Factory Old Rickshaw Challan Voucher (dealer ke naam) ban jaye -> isliye yahan dealer_id/challan set nahi hota.
   const oldCols=await columns("old_rickshaw");
   const old:any={date:today,source:"chfpl",record_no:"OR-"+row.id,chfpl_ref_no:row.source_ref||"",vehicle_reg_no:row.vehicle_no,model_name:row.model_name||"",colour:row.colour||"",toolkit:row.toolkit||"",battery_maker:row.battery_maker||"",dealer_id:null,dealer_name:"",challan_no:null,vou_no:null,sp_no:sp,status:"available",repo_date:row.repo_date||null};
-  const keys=Object.keys(old).filter(k=>oldCols.has(k));
+  const oldFit=await fitOldRickshaw(old,row.id);
+  const keys=Object.keys(oldFit).filter(k=>oldCols.has(k));
   let oldId=row.old_rickshaw_id;
   if(oldId){
-    await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>old[k]),oldId]);
+    await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>oldFit[k]),oldId]);
   }else{
-    const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>old[k]));
+    const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>oldFit[k]));
     oldId=ins.rows[0].id;
   }
   await client.query("UPDATE old_rickshaw_inventory SET status='available',available_for_sale=true,sp_no=$1,challan_no=NULL,challan_date=NULL,old_rickshaw_id=$2,updated_at=now() WHERE id=$3",[sp,oldId,inventoryId]);
@@ -4061,7 +4089,6 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         const pd=await pool.query("SELECT id FROM grd_billing_sale WHERE old_rickshaw_id=$1 AND status IN ('PENDING','APPROVED') LIMIT 1",[oldRickId]);
         if(pd.rowCount)return Response.json({error:"Is Old Rickshaw par Pending Sale pehle se hai."},{status:409});
         if(!(saleAmount>0))return Response.json({error:"Sale Amount is required."},{status:400});
-        if(loanAmount>0&&!String(b.ledger_no||"").trim())return Response.json({error:"Loan hai to Ledger No. zaroori hai."},{status:400});
         if(!String(b.customer_name||b.buyer_name||"").trim())return Response.json({error:"Customer Name is required."},{status:400});
       }
       const effectiveDealer=(oldRow?Number(oldRow.dealer_id):0)||dealerId||Number(a?.dealer_id||0);
@@ -4127,6 +4154,10 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       await ensureBillingSalesSchema();
       if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
       const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Sale id is required."},{status:400});
+      // Ledger No. dealer nahi, admin approval ke time bharta hai: loan wali Old Rickshaw sale ka ledger no. bina approve nahi hogi.
+      const pre=await pool.query("SELECT sale_type,hypothecation_amount,ledger_no FROM grd_billing_sale WHERE id=$1 AND status='PENDING'",[id]);
+      if(pre.rowCount&&String(pre.rows[0].sale_type||"").toUpperCase()==="OLD RICKSHAW"&&Number(pre.rows[0].hypothecation_amount||0)>0&&!String(pre.rows[0].ledger_no||"").trim())
+        return Response.json({error:"Loan wali Old Rickshaw sale hai. Approve se pehle Edit me Ledger No. bharo aur Save Changes karo."},{status:400});
       const r=await pool.query("UPDATE grd_billing_sale SET status='APPROVED',approved_by=$1,approved_at=NOW(),updated_at=NOW() WHERE id=$2 AND status='PENDING' RETURNING *",[String(a.username||a.sub||"Admin"),id]);
       if(!r.rowCount)return Response.json({error:"Only Pending Sales can be approved."},{status:409});
       if(String(r.rows[0].sale_type||"").toUpperCase()==="OLD RICKSHAW"&&idOf(r.rows[0].old_rickshaw_id)){
@@ -4455,12 +4486,14 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         if(f.battery)old.battery_maker=f.battery;
         let oldId=idOf(row.old_rickshaw_id);
         if(oldId){
-          const keys=Object.keys(old).filter(k=>oldCols.has(k));
-          await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>old[k]),oldId]);
+          const oldFit2=await fitOldRickshaw(old);
+          const keys=Object.keys(oldFit2).filter(k=>oldCols.has(k));
+          await client.query('UPDATE old_rickshaw SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1),[...keys.map(k=>oldFit2[k]),oldId]);
         }else{
           const full:any={...old,source:"chfpl",record_no:"OR-"+row.id,chfpl_ref_no:row.source_ref||"",vehicle_reg_no:row.vehicle_no,model_name:row.model_name||"",colour:row.colour||"",toolkit:row.toolkit||"",sp_no:row.sp_no||null,repo_date:row.repo_date||null};
-          const keys=Object.keys(full).filter(k=>oldCols.has(k));
-          const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>full[k]));
+          const fullFit=await fitOldRickshaw(full,row.id);
+          const keys=Object.keys(fullFit).filter(k=>oldCols.has(k));
+          const ins=await client.query('INSERT INTO old_rickshaw ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',keys.map(k=>fullFit[k]));
           oldId=ins.rows[0].id;
           await client.query("UPDATE old_rickshaw_challan SET old_rickshaw_id=$1 WHERE id=$2",[oldId,cr.rows[0].id]);
         }
