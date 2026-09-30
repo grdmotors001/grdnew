@@ -89,7 +89,7 @@ export function Field({ label, type = 'text', value, onChange, required, options
       ) : type === 'textarea' ? (
         <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} required={required} readOnly={readOnly} />
       ) : (
-        <input type={type} value={value ?? ''} onChange={(e) => onChange(e.target.value)} required={required} readOnly={readOnly}
+        <input type={type} step={type === 'number' ? 'any' : undefined} value={value ?? ''} onChange={(e) => onChange(e.target.value)} required={required} readOnly={readOnly}
                style={readOnly ? { background: '#f2f4f7', color: '#475467' } : undefined} />
       )}
     </div>

@@ -5,7 +5,16 @@ import { SIMPLE_MASTERS } from '../lib/menu';
 import { Field, Card, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
 export function SimpleMasterPage({ kind, setActive }) {
-  const meta = SIMPLE_MASTERS[kind] || { label: kind, fields: [['name', 'Name', 'text']] };
+  const baseMeta = SIMPLE_MASTERS[kind] || { label: kind, fields: [['name', 'Name', 'text']] };
+  // Party Master: Party Type me "Vendor / Supplier" option jodo; khali type bhi Vendor / Supplier maana jayega.
+  const VENDOR = { value: 'vendor', label: 'Vendor / Supplier' };
+  const typeKey = kind === 'party' ? (baseMeta.fields.find(([f, l]) => /party\s*type/i.test(l) || f === 'sub_category') || [])[0] : null;
+  const meta = typeKey ? { ...baseMeta, fields: baseMeta.fields.map((fd) => fd[0] === typeKey
+    ? [fd[0], fd[1], 'select', [VENDOR, ...(fd[3] || []).filter((o) => String(o.value ?? o).toLowerCase() !== 'vendor')]] : fd) } : baseMeta;
+  const typeOptions = typeKey ? meta.fields.find((fd) => fd[0] === typeKey)[3] : [];
+  const typeLabel = (v) => { const x = String(v ?? '').trim(); if (!x) return VENDOR.label; const o = typeOptions.find((o) => String(o.value ?? o).toLowerCase() === x.toLowerCase()); return o ? (o.label ?? o) : x; };
+  const typeVal = (v) => String(v ?? '').trim().toLowerCase() || 'vendor';
+  const [typeFilter, setTypeFilter] = useState('all');
   const [rows, setRows] = useState([]);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -20,6 +29,7 @@ export function SimpleMasterPage({ kind, setActive }) {
   useEffect(() => { load(); setSearch(''); }, [kind]);
 
   const filteredRows = rows.filter((r) => {
+    if (typeKey && typeFilter !== 'all' && typeVal(r[typeKey]) !== typeFilter) return false;
     const q = search.trim().toLowerCase();
     if (!q) return true;
     return meta.fields.some(([f]) => String(r[f] ?? '').toLowerCase().includes(q));
@@ -46,8 +56,9 @@ export function SimpleMasterPage({ kind, setActive }) {
   const save = (e) => {
     e.preventDefault();
     run(async () => {
-      if (editingId) await put(`/masters/${kind}/${editingId}`, form);
-      else await post(`/masters/${kind}`, form);
+      const payload = typeKey ? { ...form, [typeKey]: String(form[typeKey] || '').trim() || 'vendor' } : form;
+      if (editingId) await put(`/masters/${kind}/${editingId}`, payload);
+      else await post(`/masters/${kind}`, payload);
       setForm({});
       setEditingId(null);
       setOpen(false);
@@ -71,6 +82,12 @@ export function SimpleMasterPage({ kind, setActive }) {
         <button className="btn primary" onClick={openNew}>+ Add {meta.label}</button>
         {rows.length > 0 && <><input className="input" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 320 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}</>}
       </div>
+      {typeKey && rows.length > 0 && <div className="actions" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
+        {[{ value: 'all', label: 'All' }, ...typeOptions.map((o) => ({ value: String(o.value ?? o).toLowerCase(), label: o.label ?? o }))].map((t) => {
+          const n = t.value === 'all' ? rows.length : rows.filter((r) => typeVal(r[typeKey]) === t.value).length;
+          return <button key={t.value} className={'btn ' + (typeFilter === t.value ? 'primary' : '')} onClick={() => setTypeFilter(t.value)}>{t.label} ({n})</button>;
+        })}
+      </div>}
       <ErrorBanner message={!open ? error : ''} />
       {rows.length === 0 ? <EmptyState /> : filteredRows.length === 0 ? <EmptyState text="No records match your search." /> : (
         <div className="tablewrap">
@@ -97,7 +114,7 @@ export function SimpleMasterPage({ kind, setActive }) {
                           <span style={{width:24,height:16,borderRadius:4,border:'1px solid var(--border)',background:r.is_double_tone&&r.color_hex2?r.color_hex2:'transparent',display:'inline-block'}} />
                           {r.is_double_tone?(r.color_hex2||'—'):'—'}
                         </span>
-                      ) : String(r[f] ?? '')}
+                      ) : f === typeKey ? typeLabel(r[f]) : String(r[f] ?? '')}
                     </td>
                   ))}
                 </tr>

@@ -7,6 +7,8 @@ import { ErrorBanner, EmptyState } from './ui';
 const sourceLabel = (row) => {
   if (row.source_type === 'PURCHASE') return 'Purchase';
   if (row.source_type === 'DELIVERY_CHALLAN_CANCEL') return 'Delivery Challan Cancel';
+  if (row.source_type === 'DELIVERY_CHALLAN_FIT') return 'Battery Fit (Challan)';
+  if (row.source_type === 'DELIVERY_CHALLAN_FIT_RETURN') return 'Battery Change - Old Returned';
   return 'Delivery Challan';
 };
 

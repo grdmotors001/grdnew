@@ -40,6 +40,7 @@ import { BatteryRegisterPage } from '../components/BatteryRegisterPage';
 import { FactoryCheckReportPage } from '../components/FactoryCheckReportPage';
 import { DailyRawMaterialChecklistPage } from '../components/DailyRawMaterialChecklistPage';
 import { DebitNotePage } from '../components/DebitNotePage';
+import { ContraVoucherPage } from '../components/ContraVoucherPage';
 import { OldRickshawInventoryPage } from '../components/OldRickshawInventoryPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
@@ -50,9 +51,13 @@ import { BalanceSheetPage, ProfitLossPage, AuditReportPage } from '../components
 import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { LoanApplicationViewPage } from '../components/LoanApplicationViewPage';
 import { ChfplRepoVehiclesPage } from '../components/ChfplRepoVehiclesPage';
-import { SIMPLE_MASTERS, keyForPath, routeForKey } from '../lib/menu';
+import { SIMPLE_MASTERS, keyForPath, routeForKey, VOUCHER_PAGE_FOR } from '../lib/menu';
 
 const CUSTOM_PAGES = {
+  // Vouchers tab (F4 / F5 / F6): Contra is its own module; Payment & Receipt reuse the Bank & Cash book in voucher mode.
+  'v-contra': () => <ContraVoucherPage key="v-contra" />,
+  'v-payment': () => <DayBookPage key="v-payment" voucher="PAYMENT" />,
+  'v-receipt': () => <DayBookPage key="v-receipt" voucher="RECEIPT" />,
   'showroom-new-stock': () => <ClosingStockPremisesPage />,
   'showroom-old-stock': () => <OldRickshawPage />,
   'showroom-battery-stock': () => <ShowroomBatteryStockPage />,
@@ -131,7 +136,10 @@ const CUSTOM_PAGES = {
   'hr-attendance': () => <HRAttendancePage />,
 };
 
-function PageRouter({ active, setActive, optionUserId, setOptionUserId, user }) {
+function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user }) {
+  // Vouchers tab keys (v-*) open the existing page of the same voucher.
+  if (CUSTOM_PAGES[rawActive] && rawActive.startsWith('v-')) return CUSTOM_PAGES[rawActive]({ setActive, optionUserId, setOptionUserId, user });
+  const active = VOUCHER_PAGE_FOR[rawActive] || rawActive;
   if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
   if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} />;
   const render = CUSTOM_PAGES[active];

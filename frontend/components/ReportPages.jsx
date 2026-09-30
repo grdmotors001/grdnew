@@ -1,10 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { get, post, put, del, downloadExcel } from '../lib/api';
 import { EmptyState, ErrorBanner, Field, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { DeliveryChallanPrintView } from './PrintDocs';
 import { DayBookPreview, Pagination } from './DayBookPreview';
+import { PartyLedgerView } from './PartyLedgers';
 
 function useReport(path, extraParams = {}) {
   const [from, setFrom] = useState('');
@@ -805,7 +806,7 @@ export function SubsidyReportPage() {
   );
 }
 
-export function LedgerPage() {
+function DealerLedgerView() {
   const [dealers, setDealers] = useState([]);
   const [banks, setBanks] = useState([]);
   const [dealerId, setDealerId] = useState('');
@@ -1070,24 +1071,51 @@ export function LedgerPage() {
   );
 }
 
+// Ledger: Dealer (existing) + Bank + Financer (Hypothecation) + Other party
+export function LedgerPage() {
+  const [type, setType] = useState('DEALER');
+  const tabs = [['DEALER', 'Dealer'], ['FINANCER', 'Financer (Hypothecation)'], ['BANK', 'Bank'], ['OTHER', 'Other Party']];
+  return (
+    <div>
+      <div className="actions" style={{ marginBottom: 14, flexWrap: 'wrap', display: 'flex', gap: 8 }}>
+        {tabs.map(([k, l]) => <button key={k} className={'btn' + (type === k ? ' primary' : '')} onClick={() => setType(k)}>{l} Ledger</button>)}
+      </div>
+      {type === 'DEALER' ? <DealerLedgerView /> : <PartyLedgerView key={type} type={type} />}
+    </div>
+  );
+}
+
 const toList = (d) => Array.isArray(d) ? d : (d?.masters || d?.rows || d?.data || d?.items || []);
 const ymd10 = (v) => String(v || '').slice(0, 10);
+const inr = (v) => Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const escHtml = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-export function DayBookPage() {
-  const [data,setData]=useState(null);          // /day-book  (cash + bank_id wali entries)
-  const [bankData,setBankData]=useState(null);  // /bank-ledger (bank excel entries)
-  const [selectedDate,setSelectedDate]=useState(''); // '' = ALL entries (default)
-  const [mode,setMode]=useState('');            // '' = All, 'CASH', ya bank ka naam
-  const [ePage,setEPage]=useState(1);
-  const [ePageSize,setEPageSize]=useState(25);
+// Bank & Cash Book — cash (day_book) + bank (bank_ledger_entry) ek hi report me.
+// voucher = 'RECEIPT' | 'PAYMENT' -> Vouchers tab (F6 / F5): same Bank & Cash book, but header shows only that voucher's button
+// and the list is limited to that kind. Without the prop it is the normal full Bank & Cash book.
+export function DayBookPage({ voucher } = {}) {
+  const [data,setData]=useState(null);           // /day-book
+  const [bankData,setBankData]=useState(null);   // /bank-ledger
+  const [from,setFrom]=useState('');
+  const [to,setTo]=useState('');
+  const [mode,setMode]=useState('');             // '' = All, 'CASH', ya bank ka naam
+  const [kind,setKind]=useState('');             // '' | 'IN' | 'OUT'
+  const [search,setSearch]=useState('');
+  const [page,setPage]=useState(1);
+  const [pageSize,setPageSize]=useState(50);
+  const [sPage,setSPage]=useState(1);
   const [dealers,setDealers]=useState([]);
   const [financers,setFinancers]=useState([]);
   const [banks,setBanks]=useState([]);
   const [open,setOpen]=useState(false);
   const [form,setForm]=useState({});
+  const [edit,setEdit]=useState(null);           // bank entry classify/edit
   const [error,setError]=useState('');
+  const [msg,setMsg]=useState('');
+  const [busy,setBusy]=useState(false);
   const [matchResult,setMatchResult]=useState(null);
   const [matching,setMatching]=useState(false);
+  const fileRef=useRef(null);
 
   const load=()=>{
     get('/day-book').then(setData).catch(e=>setError(e.message));
@@ -1101,144 +1129,228 @@ export function DayBookPage() {
   },[]);
 
   const bankName=id=>banks.find(b=>String(b.id)===String(id))?.name||'';
-  const dayBookRows=toList(data);
   const bankRows=bankData?.rows||[];
 
-  // ---- ONE unified list: Day Book (cash/bank_id) + posted Bank Ledger entries ----
+  // ---- ek unified list: Day Book (cash / bank_id) + posted Bank Ledger entries ----
   const unified=[
-    ...dayBookRows.map(r=>({
-      key:'d'+r.id, src:'daybook', order:0, id:r.id, date:ymd10(r.date), no:r.vr_no,
+    ...toList(data).map(r=>({
+      key:'d'+r.id, src:'daybook', id:r.id, date:ymd10(r.date), no:r.vr_no==null?'':String(r.vr_no),
       party:r.dealer_name||'', narration:r.narration||'',
       receipt:Number(r.credit_received||0), payment:Number(r.debit_paid||0),
       bank:r.bank_id?(bankName(r.bank_id)||'Bank'):'Cash', raw:r,
     })),
     ...bankRows.filter(r=>r.status==='POSTED').map(r=>({
-      key:'b'+r.id, src:'bank', order:1, id:r.id, date:ymd10(r.entry_date), no:'B-'+r.id,
-      party:r.party_name||'', narration:[r.cheque_no&&('Chq '+r.cheque_no),r.upi_ref&&('UTR '+r.upi_ref),r.narration].filter(Boolean).join(' | '),
+      key:'b'+r.id, src:'bank', id:r.id, date:ymd10(r.entry_date), no:'B-'+r.id,
+      party:r.party_name||'',
+      narration:[r.cheque_no&&('Chq '+r.cheque_no),r.upi_ref&&('UTR '+r.upi_ref),r.narration].filter(Boolean).join(' | '),
       receipt:r.entry_type==='RECEIPT'?Math.abs(Number(r.amount||0)):0,
       payment:r.entry_type==='PAYMENT'?Math.abs(Number(r.amount||0)):0,
       bank:r.bank_name||'Bank', raw:r,
     })),
   ];
-  // Baaki type (abhi classify nahi hui bank entries = Suspense) alag dikhengi
   const suspense=bankRows.filter(r=>r.status==='SUSPENSE');
 
-  const allMode=!selectedDate;
-  const modeOk=bank=>!mode||(mode==='CASH'?bank==='Cash':bank===mode);
-  const scoped=unified.filter(x=>modeOk(x.bank));
-  const dayEntries=allMode?scoped:scoped.filter(x=>x.date===selectedDate);
-  const priorEntries=allMode?[]:scoped.filter(x=>x.date<selectedDate);
-  const suspenseShown=suspense.filter(r=>modeOk(r.bank_name||'Bank')&&(allMode||ymd10(r.entry_date)===selectedDate));
-  useEffect(()=>{setEPage(1)},[selectedDate,mode,ePageSize,bankRows.length]);
-  const pagedSuspense=suspenseShown.slice((ePage-1)*ePageSize,ePage*ePageSize);
-
-  const toRow=x=>({
-    key:x.key,id:x.id,no:x.no,date:x.date,order:x.order,bank:x.bank,editable:x.src==='daybook',src:x.src,raw:x.raw,
-    particulars:[x.party,x.narration].filter(Boolean).join(' - ')||(x.receipt>0?'Receipt':'Payment'),
-    folio:x.src==='daybook'?(x.raw.folio||x.raw.page_no||''):'',
-  });
-  const receipts=dayEntries.filter(x=>x.receipt>0).map(x=>({...toRow(x),amount:x.receipt}));
-  const payments=dayEntries.filter(x=>x.payment>0).map(x=>({...toRow(x),amount:x.payment}));
-  const opening=priorEntries.reduce((s,x)=>s+x.receipt-x.payment,0);
-  const totalReceipts=receipts.reduce((s,r)=>s+Number(r.amount||0),0);
-  const totalPayments=payments.reduce((s,r)=>s+Number(r.amount||0),0);
-  const closing=opening+totalReceipts-totalPayments;
-
+  const kindEff=voucher==='RECEIPT'?'IN':voucher==='PAYMENT'?'OUT':kind;
+  const showIn=voucher!=='PAYMENT',showOut=voucher!=='RECEIPT';
+  const q=search.trim().toLowerCase();
+  const modeOk=b=>!mode||(mode==='CASH'?b==='Cash':b===mode);
+  const inRange=d=>(!from||d>=from)&&(!to||d<=to);
+  const rows=unified
+    .filter(x=>modeOk(x.bank)&&inRange(x.date)&&(!kindEff||(kindEff==='IN'?x.receipt>0:x.payment>0))
+      &&(!q||[x.no,x.party,x.narration,x.bank,x.receipt||'',x.payment||''].join(' ').toLowerCase().includes(q)))
+    .sort((a,b)=>b.date.localeCompare(a.date)||(b.src===a.src?Number(b.id)-Number(a.id):(a.src==='bank'?1:-1)));
+  const susShown=suspense.filter(r=>modeOk(r.bank_name||'Bank')&&inRange(ymd10(r.entry_date))&&(!q||[r.bank_name,r.cheque_no,r.upi_ref,r.narration,r.amount].join(' ').toLowerCase().includes(q)));
+  useEffect(()=>{setPage(1);setSPage(1)},[from,to,mode,kindEff,search,pageSize]);
+  const paged=rows.slice((page-1)*pageSize,page*pageSize);
+  const susPaged=susShown.slice((sPage-1)*10,sPage*10);
+  const totalIn=rows.reduce((s,x)=>s+x.receipt,0);
+  const totalOut=rows.reduce((s,x)=>s+x.payment,0);
   const bankOptions=[...new Set([...banks.map(b=>b.name),...bankRows.map(r=>r.bank_name)].filter(Boolean))];
 
-  const moveDay=(delta)=>{
-    const x=new Date((selectedDate||new Date().toISOString().slice(0,10))+'T00:00:00');x.setDate(x.getDate()+delta);setSelectedDate(x.toISOString().slice(0,10));
+  // ---- Print / Export (filtered saari rows, sirf current page nahi) ----
+  const rangeLabel=(from||to)?`${from?formatDate(from):'Start'} to ${to?formatDate(to):'Today'}`:'All dates';
+  const printReport=()=>{
+    const w=window.open('','_blank');if(!w)return;
+    const body=rows.map(x=>`<tr><td>${escHtml(formatDate(x.date))}</td><td>${escHtml(x.no)}</td><td>${escHtml(x.party)}</td><td>${escHtml(x.narration)}</td><td>${escHtml(x.bank)}</td><td class="n">${x.receipt?inr(x.receipt):''}</td><td class="n">${x.payment?inr(x.payment):''}</td></tr>`).join('');
+    w.document.write(`<html><head><title>Bank & Cash Book</title><style>body{font-family:Arial,sans-serif;font-size:11px;padding:16px}h2{margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:4px 6px;text-align:left}th{background:#eee}.n{text-align:right}tfoot td{font-weight:700}</style></head><body><h2>G.R.D. MOTORS — Bank &amp; Cash Book</h2><div>${escHtml(rangeLabel)} · ${escHtml(mode==='CASH'?'Cash only':mode||'Cash + Bank')}</div><table><thead><tr><th>Date</th><th>Vr. No.</th><th>Party</th><th>Narration</th><th>Bank / Cash</th><th>Receipt</th><th>Payment</th></tr></thead><tbody>${body}</tbody><tfoot><tr><td colspan="5">Total (${rows.length} entries)</td><td class="n">${inr(totalIn)}</td><td class="n">${inr(totalOut)}</td></tr></tfoot></table><script>window.onload=function(){window.print()}<\/script></body></html>`);
+    w.document.close();
+  };
+  const exportReport=async()=>{
+    try{
+      const XLSX=await import('xlsx');
+      const aoa=[['Date','Vr. No.','Party','Narration','Bank / Cash','Receipt','Payment'],
+        ...rows.map(x=>[formatDate(x.date),x.no,x.party,x.narration,x.bank,x.receipt||'',x.payment||'']),
+        ['','','','','Total',totalIn,totalOut]];
+      const ws=XLSX.utils.aoa_to_sheet(aoa),wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,ws,'Bank & Cash Book');
+      XLSX.writeFile(wb,'Bank_Cash_Book.xlsx');
+    }catch(e){setError(e.message||'Export failed')}
   };
 
-  // Party type: Dealer / Financer / Other  (naam dealer_name column me hi jata hai — koi column rename/add nahi)
+  // ---- Bank Excel template (headers backend ke import parser se match karte hain) ----
+  const downloadTemplate=async()=>{
+    try{
+      const XLSX=await import('xlsx');
+      const wb=XLSX.utils.book_new();
+      const data=XLSX.utils.aoa_to_sheet([['Date','Bank Name','Cheque No','UPI Ref','Narration','Amount']]);
+      data['!cols']=[{wch:14},{wch:26},{wch:16},{wch:26},{wch:40},{wch:14}];
+      XLSX.utils.book_append_sheet(wb,data,'Bank Entries');
+      const names=bankOptions.length?bankOptions:['(Bank Details master me bank add karein)'];
+      const info=[
+        ['BANK IMPORT TEMPLATE — INSTRUCTIONS'],[''],
+        ['1. "Bank Entries" sheet me neeche apni entries bharein (header row na badlein).'],
+        ['2. Date: dd-mm-yyyy (jaise 30-09-2026). Khali chhodne par aaj ki date lagegi.'],
+        ['3. Bank Name: neeche di list ke naam se match hona chahiye (Bank Details master).'],
+        ['4. Amount: sirf number (₹ / comma chalega). Receipt ya Payment baad me import ke baad "Classify" me chuna jayega.'],
+        ['5. Cheque No aur UPI Ref optional hain. Same file dobara upload karne par duplicate skip ho jayenge.'],
+        [''],['EXAMPLE ROW'],
+        ['Date','Bank Name','Cheque No','UPI Ref','Narration','Amount'],
+        ['30-09-2026',names[0],'','UTR123456789012','RTGS from ABC Motors',50000],
+        [''],['VALID BANK NAMES'],
+        ...names.map(n=>[n]),
+      ];
+      const ws=XLSX.utils.aoa_to_sheet(info);ws['!cols']=[{wch:60},{wch:26},{wch:16},{wch:22},{wch:30},{wch:12}];
+      XLSX.utils.book_append_sheet(wb,ws,'Instructions');
+      XLSX.writeFile(wb,'Bank_Import_Template.xlsx');
+    }catch(e){setError(e.message||'Template download failed')}
+  };
+
+  // ---- Bank Excel import (pehle Bank Ledger page me tha) ----
+  const importFile=async e=>{
+    const f=e.target.files?.[0];e.target.value='';if(!f)return;
+    setBusy(true);setError('');setMsg('');
+    try{
+      const XLSX=await import('xlsx');
+      const wb=XLSX.read(await f.arrayBuffer(),{type:'array'});
+      const rowsX=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:'',raw:true});
+      if(!rowsX.length)throw new Error('Import file is empty.');
+      const r=await post('/bank-ledger/import',{rows:rowsX});
+      setMsg(`${r.inserted||0} entries imported (Suspense me), ${r.duplicates||0} duplicates skipped, ${r.rejected_count||0} rejected.`+((r.rejected||[]).length?' Rejected: '+r.rejected.slice(0,10).map(x=>`row ${x.row} (${x.reason})`).join('; '):''));
+      load();
+    }catch(err){setError(err.message||'Import failed')}finally{setBusy(false)}
+  };
+  const saveBank=async()=>{
+    if(!edit)return;
+    setBusy(true);setError('');
+    try{
+      await post('/bank-ledger/update',edit);
+      setEdit(null);setMsg(edit.status==='POSTED'?'Entry posted.':'Entry updated.');load();
+    }catch(err){setError(err.message||'Could not update entry')}finally{setBusy(false)}
+  };
+  const openBankEdit=r=>setEdit({id:r.id,bank_name:r.bank_name,amount:r.amount,party_name:r.party_name||'',narration:r.narration||'',entry_type:r.entry_type==='PAYMENT'?'PAYMENT':'RECEIPT',status:r.status==='SUSPENSE'?'POSTED':r.status,_was:r.status});
+
+  // ---- Day Book (cash) entry form: Party Type = Dealer / Financer / Other ----
   const partyTypeOf=name=>{
     if(!name)return 'DEALER';
     if(dealers.some(d=>d.name===name))return 'DEALER';
     if(financers.some(f=>f.name===name))return 'FINANCER';
     return 'OTHER';
   };
-  const openNew=()=>{setForm({date:selectedDate||new Date().toISOString().slice(0,10),vr_no:data?.next_vr_no,party_type:'DEALER'});setOpen(true)};
-  const openEdit=r=>{
-    if(!r||r.editable===false)return;
-    const e=r.raw;
-    setForm({...e,date:ymd10(e.date),party_type:partyTypeOf(e.dealer_name)});setOpen(true);
+  const openNew=(kind)=>{setForm({date:to||new Date().toISOString().slice(0,10),vr_no:data?.next_vr_no,party_type:'DEALER',kind});setError('');setOpen(true)};
+  const onRow=x=>{
+    if(x.src==='bank'){openBankEdit(x.raw);return;}
+    const cr=Number(x.raw.credit_received||0),dr=Number(x.raw.debit_paid||0);
+    setError('');setForm({...x.raw,date:ymd10(x.raw.date),party_type:partyTypeOf(x.raw.dealer_name),kind:cr>0&&dr>0?'BOTH':dr>0?'PAYMENT':'RECEIPT'});setOpen(true);
   };
   const save=async e=>{
     e.preventDefault();
     if(!String(form.dealer_name||'').trim()){setError('Party ka naam select/likhna zaroori hai.');return;}
+    const {party_type,kind,...payload}=form;
+    if(kind==='RECEIPT'){payload.debit_paid=0;if(!(Number(payload.credit_received)>0)){setError('Receipt amount daalein.');return;}}
+    if(kind==='PAYMENT'){payload.credit_received=0;if(!(Number(payload.debit_paid)>0)){setError('Payment amount daalein.');return;}}
     try{
-      const {party_type,...payload}=form;
       await post('/day-book',payload);setOpen(false);setError('');load();
     }catch(e){setError(e.message)}
   };
   const remove=async()=>{if(!form.id)return;if(!window.confirm('Delete this entry?'))return;try{await del('/day-book/'+form.id);setOpen(false);load()}catch(e){setError(e.message)}};
   const runAutoMatch=async()=>{setMatching(true);setMatchResult(null);try{const res=await post('/day-book/auto-match',{});setMatchResult(res);load()}catch(e){setError(e.message)}finally{setMatching(false)}};
+  const setPT=v=>setForm({...form,party_type:v,dealer_name:''});
 
   if(!data)return (
     <div className="card">
       {error ? (
         <>
-          <b>Day Book load failed</b>
-          <div style={{ marginTop: 8, color: '#c0392b' }}>{error}</div>
-          <button className="btn" style={{ marginTop: 12 }} onClick={() => { setError(''); load(); }}>
-            Retry
-          </button>
+          <b>Bank & Cash Book load failed</b>
+          <div style={{ marginTop: 8, color: 'var(--red)' }}>{error}</div>
+          <button className="btn" style={{ marginTop: 12 }} onClick={() => { setError(''); load(); }}>Retry</button>
         </>
       ) : 'Loading…'}
     </div>
   );
 
-  const selStyle={height:40,border:'1px solid #d7e0ec',borderRadius:9,background:'#fff',padding:'0 12px',color:'#12305d',fontWeight:700};
-  const setPT=v=>setForm({...form,party_type:v,dealer_name:''});
+  const tag=(b)=><span style={{display:'inline-block',padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:700,border:'1px solid var(--line)',background:b==='Cash'?'color-mix(in srgb, var(--accent) 12%, var(--card))':'transparent',color:'var(--ink)'}}>{b}</span>;
+  const kpi={flex:'1 1 200px'};
   return <div>
-    <div className="actions" style={{marginBottom:12,flexWrap:'wrap'}}>
-      <button className="btn primary" onClick={openNew}>+ New Entry</button>
-      <button className="btn" onClick={runAutoMatch} disabled={matching}>{matching?'Fixing…':'Fix Old Entries for Ledger'}</button>
+    <div className="pageHeader">
+      <div><h1>{voucher==='RECEIPT'?'Receipt Voucher':voucher==='PAYMENT'?'Payment Voucher':'Bank & Cash Book'}</h1><p className="muted">{voucher?'G.R.D. Motors · '+(voucher==='RECEIPT'?'paisa aaya (Cash / Bank) — naya Receipt yahin se banaye':'paisa gaya (Cash / Bank) — naya Payment yahin se banaye'):'G.R.D. Motors · saari receipts aur payments (Cash + Bank) ek jagah'}</p></div>
+      <div className="actions" style={{flexWrap:'wrap'}}>
+        {showIn&&<button className="btn primary" onClick={()=>openNew('RECEIPT')}>+ Receipt</button>}
+        {showOut&&<button className="btn" onClick={()=>openNew('PAYMENT')} style={{borderColor:'var(--red)',color:'var(--red)',fontWeight:700}}>+ Payment</button>}
+        {!voucher&&<>
+        <button className="btn" onClick={downloadTemplate}>⇩ Excel Template</button>
+        <button className="btn" onClick={()=>fileRef.current?.click()} disabled={busy}>{busy?'Processing…':'Import Bank Excel'}</button>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={importFile}/>
+        <button className="btn" onClick={runAutoMatch} disabled={matching}>{matching?'Fixing…':'Fix Old Entries for Ledger'}</button>
+        </>}
+      </div>
     </div>
     {matchResult&&<div className="card" style={{marginBottom:12}}>
       <b>Fixed {matchResult.fixed.length} old entr{matchResult.fixed.length===1?'y':'ies'}</b>.
       {matchResult.unresolved.length>0&&<span className="muted"> {matchResult.unresolved.length} entries still need manual review.</span>}
     </div>}
-    <ErrorBanner message={!open?error:''}/>
-    <DayBookPreview
-      date={selectedDate}
-      dealerLabel="ADMIN · CASH + BANK"
-      receipts={receipts}
-      payments={payments}
-      openingBalance={opening}
-      closingBalance={closing}
-      onDateChange={setSelectedDate}
-      onPrev={()=>moveDay(-1)}
-      onNext={()=>moveDay(1)}
-      onShowAll={()=>setSelectedDate('')}
-      onRowClick={openEdit}
-      onPrint={()=>window.print()}
-      onExport={()=>downloadExcel('/day-book','Day_Book.xlsx')}
-      filters={<>
-        <label style={{fontSize:12,fontWeight:800,color:'#68798f'}}>SHOW&nbsp;
-          <select value={mode} onChange={e=>setMode(e.target.value)} style={selStyle}>
-            <option value="">All (Cash + Bank)</option>
-            <option value="CASH">Cash only</option>
-            {bankOptions.map(n=><option key={n} value={n}>{n}</option>)}
-          </select>
-        </label>
-        <button className="btn" onClick={load}>Refresh</button>
-      </>}
-    />
+    {msg&&<div className="card" style={{marginBottom:12}}>{msg}</div>}
+    {!voucher&&<div className="muted" style={{marginBottom:10,fontSize:12}}>Bank Excel columns: <b>Date, Bank Name, Cheque No, UPI Ref, Narration, Amount</b> — "Excel Template" button se sahi format download karein.</div>}
+    <ErrorBanner message={!open&&!edit?error:''}/>
 
-    {suspenseShown.length>0&&<div className="card" style={{marginTop:14}}>
-      <h3 style={{margin:0}}>Other / Unclassified Bank Entries</h3>
-      <div className="muted">Bank Excel se aayi entries jo abhi Receipt/Payment classify nahi hui — Bank Ledger me "Classify" karne par upar Day Book me aa jayengi. (Balance me nahi judti)</div>
+    <div className="toolbar">
+      <Field label="From" type="date" value={from} onChange={setFrom}/>
+      <Field label="To" type="date" value={to} onChange={setTo}/>
+      <Field label="Bank / Cash" type="select" value={mode} options={[{value:'',label:'All (Cash + Bank)'},{value:'CASH',label:'Cash only'},...bankOptions.map(n=>({value:n,label:n}))]} onChange={setMode}/>
+      {!voucher&&<Field label="Type" type="select" value={kind} options={[{value:'',label:'Receipts + Payments'},{value:'IN',label:'Receipts only'},{value:'OUT',label:'Payments only'}]} onChange={setKind}/>}
+      <Field label="Search" value={search} onChange={setSearch}/>
+      <button className="btn" style={{alignSelf:'flex-end'}} onClick={()=>{setFrom('');setTo('');setMode('');setKind('');setSearch('')}}>Clear</button>
+      <button className="btn" style={{alignSelf:'flex-end'}} onClick={printReport}>Print</button>
+      <button className="btn primary" style={{alignSelf:'flex-end'}} onClick={exportReport}>Export Excel</button>
+    </div>
+
+    <div style={{display:'flex',gap:12,flexWrap:'wrap',margin:'12px 0'}}>
+      {showIn&&<div className="card" style={kpi}><div className="muted">Total Receipts (In)</div><div className="metric" style={{color:'var(--green)',fontSize:22}}>₹{inr(totalIn)}</div></div>}
+      {showOut&&<div className="card" style={kpi}><div className="muted">Total Payments (Out)</div><div className="metric" style={{color:'var(--red)',fontSize:22}}>₹{inr(totalOut)}</div></div>}
+      <div className="card" style={kpi}><div className="muted">Entries</div><div className="metric" style={{fontSize:22}}>{rows.length}</div></div>
+    </div>
+
+    <div className="tablewrap">
+      <table className="table">
+        <thead><tr><th>Date</th><th>Vr. No.</th><th>Party / Particulars</th><th>Narration</th><th>Bank / Cash</th>{showIn&&<th style={{textAlign:'right'}}>Receipt</th>}{showOut&&<th style={{textAlign:'right'}}>Payment</th>}</tr></thead>
+        <tbody>
+          {paged.map(x=><tr key={x.key} onClick={()=>onRow(x)} style={{cursor:'pointer'}} title={x.src==='bank'?'Bank entry — click to edit':'Click to edit'}>
+            <td style={{whiteSpace:'nowrap'}}>{formatDate(x.date)}</td><td>{x.no||'—'}</td><td><b>{x.party||'—'}</b></td><td>{x.narration||'—'}</td><td>{tag(x.bank)}</td>
+            {showIn&&<td style={{textAlign:'right',fontWeight:700,color:'var(--green)'}}>{x.receipt?inr(x.receipt):''}</td>}
+            {showOut&&<td style={{textAlign:'right',fontWeight:700,color:'var(--red)'}}>{x.payment?inr(x.payment):''}</td>}
+          </tr>)}
+          {!rows.length&&<tr><td colSpan={voucher?6:7} className="muted" style={{textAlign:'center'}}>No entries found.</td></tr>}
+        </tbody>
+        {rows.length>0&&<tfoot><tr><td colSpan={5} style={{fontWeight:800}}>Total ({rows.length} entries)</td>{showIn&&<td style={{textAlign:'right',fontWeight:800}}>{inr(totalIn)}</td>}{showOut&&<td style={{textAlign:'right',fontWeight:800}}>{inr(totalOut)}</td>}</tr></tfoot>}
+      </table>
+      <Pagination page={page} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={setPageSize}/>
+    </div>
+
+    {!voucher&&susShown.length>0&&<div className="card" style={{marginTop:16}}>
+      <h3 style={{margin:0}}>Other / Unclassified Bank Entries ({susShown.length})</h3>
+      <div className="muted">Bank Excel se aayi entries jo abhi Receipt/Payment classify nahi hui. "Classify" karte hi upar Bank &amp; Cash Book me aa jayengi (totals me tab judti hain).</div>
       <div className="tablewrap" style={{marginTop:10}}>
-        <table className="table"><thead><tr><th>Date</th><th>Bank</th><th>Cheque / UTR</th><th>Narration</th><th>Amount</th></tr></thead>
-          <tbody>{pagedSuspense.map(r=><tr key={r.id} style={{background:'rgba(245,158,11,.10)'}}><td>{formatDate(r.entry_date)}</td><td><b>{r.bank_name}</b></td><td>{[r.cheque_no,r.upi_ref].filter(Boolean).join(' / ')||'—'}</td><td>{r.narration||'—'}</td><td><Money value={r.amount}/></td></tr>)}</tbody>
+        <table className="table"><thead><tr><th>Date</th><th>Bank</th><th>Cheque / UTR</th><th>Narration</th><th style={{textAlign:'right'}}>Amount</th><th></th></tr></thead>
+          <tbody>{susPaged.map(r=><tr key={r.id} style={{background:'color-mix(in srgb, var(--orange) 12%, var(--card))'}}>
+            <td>{formatDate(r.entry_date)}</td><td><b>{r.bank_name}</b></td><td>{[r.cheque_no,r.upi_ref].filter(Boolean).join(' / ')||'—'}</td><td>{r.narration||'—'}</td>
+            <td style={{textAlign:'right',fontWeight:700}}>{inr(Math.abs(Number(r.amount||0)))}</td>
+            <td><button className="btn" onClick={()=>openBankEdit(r)}>Classify</button></td></tr>)}</tbody>
         </table>
+        <Pagination page={sPage} pageSize={10} total={susShown.length} onPage={setSPage} onPageSize={()=>{}} sizes={[10]}/>
       </div>
-      <Pagination page={ePage} pageSize={ePageSize} total={suspenseShown.length} onPage={setEPage} onPageSize={setEPageSize} sizes={[10,25,50,100]}/>
     </div>}
 
     {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
-      <h2>{form.id?'Edit Day Book Entry':'New Day Book Entry'}</h2><ErrorBanner message={error}/>
+      <h2>{form.id?'Edit ':'New '}{form.kind==='PAYMENT'?'Payment':form.kind==='RECEIPT'?'Receipt':'Entry'}</h2><ErrorBanner message={error}/>
       <div className="formgrid">
         <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
         <Field label="Party Type" type="select" value={form.party_type||'DEALER'} options={[{value:'DEALER',label:'Dealer'},{value:'FINANCER',label:'Financer (Hypothecation)'},{value:'OTHER',label:'Other'}]} onChange={setPT}/>
@@ -1246,8 +1358,8 @@ export function DayBookPage() {
         {form.party_type==='FINANCER'&&<Field label="Financer Name" type="select" value={form.dealer_name} options={[{value:'',label:'Select Financer'},...financers.map(f=>({value:f.name,label:f.name}))]} onChange={v=>setForm({...form,dealer_name:v})} required/>}
         {form.party_type==='OTHER'&&<Field label="Other Party Name" value={form.dealer_name} onChange={v=>setForm({...form,dealer_name:v})} required/>}
         <Field label="Bank (khali = Cash)" type="select" value={form.bank_id||''} options={[{value:'',label:'Cash (No Bank)'},...banks.map(b=>({value:b.id,label:`${b.name}${b.account_no?` — ${b.account_no}`:''}`}))]} onChange={v=>setForm({...form,bank_id:v||null})}/>
-        <Field label="Credit Received" type="number" value={form.credit_received} onChange={v=>setForm({...form,credit_received:v})}/>
-        <Field label="Debit Paid" type="number" value={form.debit_paid} onChange={v=>setForm({...form,debit_paid:v})}/>
+        {form.kind!=='PAYMENT'&&<Field label="Receipt Amount (Credit Received)" type="number" value={form.credit_received} onChange={v=>setForm({...form,credit_received:v})} required={form.kind==='RECEIPT'}/>}
+        {form.kind!=='RECEIPT'&&<Field label="Payment Amount (Debit Paid)" type="number" value={form.debit_paid} onChange={v=>setForm({...form,debit_paid:v})} required={form.kind==='PAYMENT'}/>}
         <Field label="Narration" value={form.narration} onChange={v=>setForm({...form,narration:v})}/>
       </div>
       <div className="actions" style={{marginTop:18,justifyContent:form.id?'space-between':'flex-end',display:'flex'}}>
@@ -1255,6 +1367,19 @@ export function DayBookPage() {
         <div style={{display:'flex',gap:8}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary">Save</button></div>
       </div>
     </form></div>}
+
+    {edit&&<div className="modal"><div className="modalbox">
+      <h2>{edit._was==='SUSPENSE'?'Classify Bank Entry':'Edit Bank Entry'}</h2><ErrorBanner message={error}/>
+      <div className="formgrid">
+        <Field label="Bank" value={edit.bank_name} readOnly/>
+        <Field label="Amount" value={inr(Math.abs(Number(edit.amount||0)))} readOnly/>
+        <Field label="Direction" type="select" value={edit.entry_type} options={[{value:'RECEIPT',label:'Receipt (paisa aaya)'},{value:'PAYMENT',label:'Payment (paisa gaya)'}]} onChange={v=>setEdit({...edit,entry_type:v})}/>
+        <Field label="Party / From-To" value={edit.party_name} onChange={v=>setEdit({...edit,party_name:v})}/>
+        <Field label="Narration" value={edit.narration} onChange={v=>setEdit({...edit,narration:v})}/>
+        <Field label="Status" type="select" value={edit.status} options={[{value:'POSTED',label:'Posted'},{value:'SUSPENSE',label:'Back to Suspense'},{value:'CANCELLED',label:'Cancelled'}]} onChange={v=>setEdit({...edit,status:v})}/>
+      </div>
+      <div className="actions" style={{justifyContent:'flex-end',marginTop:14,display:'flex',gap:8}}><button className="btn" onClick={()=>{setEdit(null);setError('')}}>Close</button><button className="btn primary" onClick={saveBank} disabled={busy}>{busy?'Saving…':'Save'}</button></div>
+    </div></div>}
   </div>;
 }
 

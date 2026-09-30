@@ -5,7 +5,7 @@ import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 
 const today = () => new Date().toISOString().slice(0, 10);
-const blankItem = () => ({ item_name: '', hsn_code: '', qty: 1, rate: 0, gst_rate: 18, item_type: 'product', is_battery: false, battery_maker: '', product_id: '' });
+const blankItem = () => ({ item_name: '', hsn_code: '', qty: 1, rate: 0, gst_rate: 18, item_type: 'product', is_battery: false, battery_maker: '', battery_master_id: '', product_id: '' });
 const n = (v) => Number(v || 0);
 const asList = (d) => (Array.isArray(d) ? d : (d?.masters || d?.rows || d?.data || d?.products || []));
 // Account Head Master ka kind name agar alag ho to yahan badal dein (pehla jo data de wahi use hoga).
@@ -32,6 +32,7 @@ export function PurchaseBillPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [batteryMakers, setBatteryMakers] = useState([]);
+  const [makerErr, setMakerErr] = useState('');
   const [parties, setParties] = useState([]);
   const [products, setProducts] = useState([]);
   const [expenseHeads, setExpenseHeads] = useState([]);
@@ -46,7 +47,20 @@ export function PurchaseBillPage() {
   const load = () => get('/purchase-bills').then(setRows).catch((e) => setError(e.message));
   useEffect(() => {
     load();
-    get('/masters/battery-maker').then((d) => setBatteryMakers(Array.isArray(d) ? d : (d.masters || []))).catch(() => setBatteryMakers([]));
+    const pickRows = (d) => Array.isArray(d) ? d : (Array.isArray(d?.masters) ? d.masters : Array.isArray(d?.rows) ? d.rows : Array.isArray(d?.data) ? d.data : Array.isArray(d?.items) ? d.items : []);
+    const toMakers = (rows) => { const seen = new Set(); return rows.map((m) => (typeof m === 'string' ? { name: m } : m)).filter((m) => { const nm = String(m?.name || '').trim(); const k = nm.toLowerCase(); if (!nm || seen.has(k)) return false; seen.add(k); return true; }).filter((m) => String(m.name).trim() !== '-').map((m) => ({ ...m, name: String(m.name).trim() })); };
+    get('/masters/battery-maker', { noClientCache: true })
+      .then((d) => {
+        const list = toMakers(pickRows(d));
+        if (list.length) { setBatteryMakers(list); setMakerErr(''); return; }
+        // Master khali/alag ho to Battery Register ki maker list se lo.
+        return get('/battery-register', { noClientCache: true }).then((r) => {
+          const alt = toMakers([...(r?.makers || []), ...((r?.summary || []).map((x) => x.battery_maker))]);
+          setBatteryMakers(alt);
+          setMakerErr(alt.length ? '' : 'Battery Maker Master me koi naam nahi mila. Pehle Battery Maker Master me company add karein.');
+        });
+      })
+      .catch((e) => { setBatteryMakers([]); setMakerErr('Battery Maker list load nahi hui: ' + (e?.message || 'error')); });
     get('/masters/party').then((d) => setParties(asList(d))).catch(() => setParties([]));
     // Item dropdown: Raw Material + Dispatched Material (Product Master se)
     Promise.all([
@@ -87,7 +101,7 @@ export function PurchaseBillPage() {
     setForm({
       id: b.id, bill_no: b.bill_no, date: b.date, party_name: b.party_name,
       party_gst_no: b.party_gst_no, party_state_code: b.party_state_code, remarks: b.remarks,
-      items: (b.items || []).map((it) => ({ item_name: it.item_name, hsn_code: it.hsn_code, qty: it.qty, rate: it.rate, gst_rate: it.gst_rate, item_type: it.item_type || (it.is_battery ? 'battery' : 'product'), is_battery: Boolean(it.is_battery) || it.item_type === 'battery', battery_maker: it.battery_maker || '', product_id: it.product_id || '' })),
+      items: (b.items || []).map((it) => ({ item_name: it.item_name, hsn_code: it.hsn_code, qty: it.qty, rate: it.rate, gst_rate: it.gst_rate, item_type: it.item_type || (it.is_battery ? 'battery' : 'product'), is_battery: Boolean(it.is_battery) || it.item_type === 'battery', battery_maker: it.battery_maker || '', battery_master_id: it.battery_master_id || '', product_id: it.product_id || '' })),
       extra_charges: parseExtra(b.extra_charges),
     });
     setOpen(true);
@@ -115,6 +129,23 @@ export function PurchaseBillPage() {
     if (hsn) patch.hsn_code = hsn;
     if (p.gst_rate != null && p.gst_rate !== '') patch.gst_rate = p.gst_rate;
     patchItem(idx, patch);
+  };
+  // Item dropdown me 'Battery' group: Battery Maker Master ki wahi id (master id) item par jati hai.
+  const pickBattery = (idx, masterId) => {
+    const m = batteryMakers.find((x) => String(x.id) === String(masterId));
+    if (!m) return;
+    patchItem(idx, { item_type: 'battery', is_battery: true, battery_maker: m.name, battery_master_id: m.id, item_name: m.name, product_id: '' });
+  };
+  const normName = (v) => String(v || '').trim().toLowerCase();
+  const itemKnown = (v) => products.some((x) => normName(x.name) === normName(v)) || batteryMakers.some((m) => normName(m.name) === normName(v));
+  // Type karte hi exact match mile to product / battery pick ho jata hai, warna typed text hi rehta hai.
+  const onTypeItem = (idx, v) => {
+    const t = normName(v);
+    const p = t && products.find((x) => normName(x.name) === t);
+    if (p) { pickProduct(idx, p.name); return; }
+    const m = t && batteryMakers.find((x) => normName(x.name) === t && x.id);
+    if (m) { pickBattery(idx, m.id); return; }
+    patchItem(idx, { item_name: v, product_id: '' });
   };
   const pickParty = (name) => {
     const p = parties.find((x) => x.name === name);
@@ -230,10 +261,15 @@ export function PurchaseBillPage() {
               </div>
 
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'22px 0 8px'}}>
-                <div><b style={{fontSize:15}}>Item Details</b><div style={{fontSize:12,color:'#64748b'}}>Battery purchase me sirf company aur quantity enter karein — Battery No. purchase ke time nahi liya jayega. Battery No. Delivery Challan par enter hoga.</div></div>
+                <div><b style={{fontSize:15}}>Item Details</b><div style={{fontSize:12,color:'#64748b'}}>Battery purchase me sirf company aur quantity enter karein — Battery No. purchase ke time nahi liya jayega. Battery No. Delivery Challan par enter hoga.</div>{makerErr && form.items.some((it)=>it.item_type==='battery'||it.is_battery) && <div style={{fontSize:12,color:'#b91c1c',marginTop:4}}>{makerErr}</div>}</div>
                 <button type="button" className="btn primary" onClick={addItem}>+ Add Item</button>
               </div>
 
+              <datalist id="pbItemList">
+                {rawProducts.map((p)=><option key={'r'+p.id} value={p.name} label="Raw Material" />)}
+                {dispatchProducts.map((p)=><option key={'d'+p.id} value={p.name} label="Dispatched Material" />)}
+                {batteryMakers.filter((m)=>m.id).map((m)=><option key={'b'+m.id} value={m.name} label="Battery" />)}
+              </datalist>
               <div className="tablewrap purchaseItemWrap" style={{border:'1px solid #e2e8f0',borderRadius:10}}>
                 <table className="table purchaseItemTable">
                   <thead><tr><th>#</th><th>Type</th><th style={{minWidth:220}}>Item / Description</th><th>Battery Company</th><th>HSN/SAC</th><th>Qty</th><th>Rate</th><th>GST %</th><th>Taxable</th><th>GST</th><th>Total</th><th></th></tr></thead>
@@ -241,16 +277,12 @@ export function PurchaseBillPage() {
                     {form.items.map((it, idx) => { const x=itemCalc({...it,_stateCode:form.party_state_code}); return (
                       <tr key={idx}>
                         <td data-label="#">{idx+1}</td>
-                        <td data-label="Type"><select value={it.item_type || (it.is_battery ? 'battery' : 'product')} onChange={(e)=>{const type=e.target.value;patchItem(idx,{item_type:type,is_battery:type==='battery',product_id:'',...(type==='battery'?{item_name:it.item_name||'Battery'}:{item_name:it.item_name==='Battery'?'':it.item_name})});}}><option value="product">Product / Material</option><option value="battery">Battery</option></select></td>
+                        <td data-label="Type"><select value={it.item_type || (it.is_battery ? 'battery' : 'product')} onChange={(e)=>{const type=e.target.value;patchItem(idx,{item_type:type,is_battery:type==='battery',product_id:'',...(type==='battery'?{item_name:it.item_name||'Battery'}:{item_name:(it.item_name==='Battery'||(it.battery_maker&&it.item_name===it.battery_maker))?'':it.item_name,battery_maker:'',battery_master_id:''})});}}><option value="product">Product / Material</option><option value="battery">Battery</option></select></td>
                         <td data-label="Item / Description">{(it.item_type==='battery'||it.is_battery)
                           ? <input value={it.item_name} placeholder="Battery" onChange={(e)=>updateItem(idx,'item_name',e.target.value)} required />
-                          : <select value={it.item_name || ''} onChange={(e)=>pickProduct(idx,e.target.value)} required>
-                              <option value="">Select Item</option>
-                              {it.item_name && !products.some((p)=>p.name===it.item_name) && <option value={it.item_name}>{it.item_name}</option>}
-                              {rawProducts.length>0 && <optgroup label="Raw Material">{rawProducts.map((p)=><option key={p.id} value={p.name}>{p.name}</option>)}</optgroup>}
-                              {dispatchProducts.length>0 && <optgroup label="Dispatched Material">{dispatchProducts.map((p)=><option key={p.id} value={p.name}>{p.name}</option>)}</optgroup>}
-                            </select>}</td>
-                        <td data-label="Battery Company">{(it.item_type==='battery'||it.is_battery)?<select value={it.battery_maker||''} onChange={(e)=>updateItem(idx,'battery_maker',e.target.value)} required><option value="">Select Battery Company</option>{batteryMakers.map((m)=><option key={m.id||m.name} value={m.name}>{m.name}</option>)}</select>:<span className="muted">—</span>}</td>
+                          : <><input list="pbItemList" autoComplete="off" value={it.item_name || ''} placeholder="Type ya select karein" onFocus={(e)=>e.target.select()} onChange={(e)=>onTypeItem(idx,e.target.value)} required />
+                              {it.item_name && !itemKnown(it.item_name) && <div style={{fontSize:11,color:'#b45309',marginTop:2}}>Product Master me nahi mila (stock me count nahi hoga)</div>}</>}</td>
+                        <td data-label="Battery Company">{(it.item_type==='battery'||it.is_battery)?<select value={it.battery_maker||''} onChange={(e)=>{const nm=e.target.value;const m=batteryMakers.find((x)=>x.name===nm);const auto=!it.item_name||it.item_name==='Battery'||it.item_name===it.battery_maker;patchItem(idx,{battery_maker:nm,battery_master_id:m?.id||'',...(auto?{item_name:nm||'Battery'}:{})});}} required><option value="">Select Battery Company</option>{it.battery_maker && !batteryMakers.some((m)=>m.name===it.battery_maker) && <option value={it.battery_maker}>{it.battery_maker}</option>}{batteryMakers.map((m)=><option key={m.id||m.name} value={m.name}>{m.name}</option>)}</select>:<span className="muted">—</span>}</td>
                         <td data-label="HSN/SAC"><input value={it.hsn_code} placeholder="HSN" onChange={(e)=>updateItem(idx,'hsn_code',e.target.value)} /></td>
                         <td data-label="Qty"><input type="number" min={it.item_type==='battery'?1:0} step={it.item_type==='battery'?1:'0.01'} value={it.qty} onChange={(e)=>updateItem(idx,'qty',e.target.value)} /></td>
                         <td data-label="Rate"><input type="number" min="0" step="0.01" value={it.rate} onChange={(e)=>updateItem(idx,'rate',e.target.value)} /></td>

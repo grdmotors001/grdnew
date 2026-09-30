@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post, setToken } from '../lib/api';
-import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups } from '../lib/menu';
+import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups, VOUCHER_SHORTCUTS, VOUCHER_PAGE_FOR } from '../lib/menu';
 import { THEMES, useTheme } from '../lib/theme';
 import { ChatWidget } from './ChatWidget';
 import { Field } from './ui';
@@ -29,6 +29,7 @@ const ICON_BY_NAME = {
 
 const GROUP_ICONS = {
   Masters: Sliders,
+  Vouchers: BookOpen,
   Factory: Factory,
   Battery: BatteryCharging,
   'Sales & Billing': Receipt,
@@ -189,7 +190,25 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   // Admin users must retain the full staff sidebar after a fresh login/session restore.
   // Some legacy user rows have department=Admin but is_super_user=false and/or an empty allowed_modules list.
   const isAdminUser = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
-  const allowedFor = (items) => isAdminUser ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : (user?.allowed_modules || []).includes(key));
+  // Voucher tab keys (v-*) follow the permission of the page they open.
+  const canOpen = (key) => (user?.allowed_modules || []).includes(VOUCHER_PAGE_FOR[key] || key);
+  const allowedFor = (items) => isAdminUser ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : canOpen(key));
+
+  // Voucher keyboard shortcuts: F1..F9 (only for vouchers this user can open, and
+  // only if the Vouchers tab is actually visible in the sidebar).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      const key = VOUCHER_SHORTCUTS[e.key];
+      if (!key) return;
+      const visible = (navGroups['Vouchers'] || []).some(([k]) => k === key);
+      if (!visible || !(isAdminUser || canOpen(key))) return;
+      e.preventDefault(); // stop browser Help/Find/Refresh etc.
+      selectMenu(key);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   return (
     <div className="app">

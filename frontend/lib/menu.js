@@ -55,7 +55,7 @@ export const MENU = {
     ['incentive-register', 'Incentive Register'], ['insurance-rto', 'Insurance Register'], ['rto-expense', 'RTO Expense Register'],
     ['subsidy-report', 'Subsidy Report'],
     ['ledger', 'Ledger'],
-    ['day-book', 'Day Book Entry'],
+    ['day-book', 'Bank & Cash'],
     ['ledger-v', 'Ledger V'],
     ['password', 'Password'],
   ],
@@ -119,6 +119,21 @@ export const NAV_GROUPS = {
     ['production-formula', 'Production Formula'],
     ['mechanic', 'Mechanic Master'], ['fabricator', 'Fabricator Master'], ['salesman', 'Salesman Master'], ['bank', 'Bank Details'], ['colour', 'Colour Master'],
   ],
+  // Tally-style Vouchers tab. Every entry has its OWN key (v-*) that renders an
+  // already existing page (see VOUCHER_PAGE_FOR in this file / CUSTOM_PAGES in
+  // app/page.jsx), so the top strip stays inside "Vouchers" and does not jump to
+  // the group the original page lives in. Order = as requested. F-key = keyboard shortcut.
+  Vouchers: [
+    ['v-contra', 'F4 · Contra'],
+    ['v-payment', 'F5 · Payment'],
+    ['v-receipt', 'F6 · Receipt'],
+    ['v-journal', 'F7 · Journal'],
+    ['v-sales', 'F8 · Sales'],
+    ['v-purchase', 'F9 · Purchase'],
+    ['v-credit-note', 'F1 · Credit Note'],
+    ['v-debit-note', 'F2 · Debit Note'],
+    ['v-production', 'F3 · Production'],
+  ],
   Factory: [
     ['debit-note', 'Debit Note'],
     ['repair-service-voucher', 'Repair & Service Voucher'], ['old-rickshaw-challan', 'Old Rickshaw Challan Voucher'], ['journal-stock', 'Journal Stock'],
@@ -143,8 +158,8 @@ export const NAV_GROUPS = {
     ['insurance-rto', 'Insurance Register'], ['rto-expense', 'RTO Expense Register'],
   ],
   Accounts: [
-    ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'], ['day-book', 'Day Book'],
-    ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'], ['bank-ledger', 'Bank Ledger'],
+    ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'], ['day-book', 'Bank & Cash'],
+    ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
   ],
   Inventory: [
     ['old-rickshaw-inventory', 'Old Rickshaw Inventory'],
@@ -167,6 +182,26 @@ export const NAV_GROUPS = {
     ['profile', 'My Profile'], ['password', 'Password'],
     ['nav-settings', 'Menu / Tabs Settings'],
   ],
+};
+
+// Voucher tab: F-key -> menu key, and menu key -> existing page's module key
+// (used for permission check: a user who may open Tax Invoice may open F8 Sales).
+export const VOUCHER_SHORTCUTS = {
+  F4: 'v-contra', F5: 'v-payment', F6: 'v-receipt', F7: 'v-journal',
+  F8: 'v-sales', F9: 'v-purchase', F1: 'v-credit-note', F2: 'v-debit-note', F3: 'v-production',
+};
+export const VOUCHER_PAGE_FOR = {
+  // v-contra / v-payment / v-receipt render their own page (see CUSTOM_PAGES in app/page.jsx).
+  // v-payment & v-receipt use the Bank & Cash book, so they follow its permission ('day-book');
+  // v-contra has no entry here on purpose: it is its own module key.
+  'v-payment': 'day-book',
+  'v-receipt': 'day-book',
+  'v-journal': 'journal-stock',
+  'v-sales': 'tax-invoice',
+  'v-purchase': 'purchase-bills',
+  'v-credit-note': 'credit-note',
+  'v-debit-note': 'debit-note',
+  'v-production': 'production-voucher',
 };
 
 // Central routing registry: every menu key gets a stable client route.
@@ -221,6 +256,9 @@ export const NAV_ICON_NAMES = [
 // when none are set up yet), build the same shape as NAV_GROUPS —
 // { [tabLabel]: [[key,label], ...] } — falling back to the static layout.
 // Also returns iconByGroup, a { [tabLabel]: iconName } map for custom tabs.
+// Bank Ledger ab Bank & Cash (day-book) page me merge ho gaya — DB me saved purana tab bhi na dikhe.
+const HIDDEN_NAV_KEYS = new Set(['bank-ledger']);
+
 export function buildNavGroups(customTabs) {
   // Built-in groups can now be persisted in NavTab rows so admins can
   // rename, hide, reorder and edit their modules. Truly custom tabs remain
@@ -240,7 +278,7 @@ export function buildNavGroups(customTabs) {
     if (tab.hidden || !String(tab.label || '').trim()) continue;
 
     const label = String(tab.label).trim();
-    const items = (tab.items || []).map((key) => [key, labelFor(key)]);
+    const items = (tab.items || []).filter((key) => !HIDDEN_NAV_KEYS.has(key)).map((key) => [key, labelFor(key)]);
 
     if (Object.prototype.hasOwnProperty.call(NAV_GROUPS, tab.key)) {
       groups[label] = items;

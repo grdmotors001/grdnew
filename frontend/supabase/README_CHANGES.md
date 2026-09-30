@@ -1,3 +1,19 @@
+# Pending Sales workflow (28-09-2026, 2nd change)
+
+No SQL needed. Replace in repo frontend/:
+   - app/api/[...path]/route.ts
+   - components/BillingPendingSalesPage.jsx
+
+1. List me direct "Approve" button hata diya. Pending row par: [Open for Approve] [Edit] [Delete].
+   "Open for Approve" -> sale form dobara khulta hai VIEW (read-only) me, saari details (Applicant / Internal / Amount-Tax) dikhti hain,
+   aur Approve usi form ke andar se hota hai.
+2. Approve ke baad: Sale Amount (internal) aur Loan / Hypothecation Amount change nahi hote, sale delete nahi hoti
+   (server par bhi enforce: PUT/DELETE billing/pending-sales/:id). Approved sale me sirf View + Create Sale / Complete Sale.
+   Naya handler zaroori tha: pehle ye path generic CRUD se loan_workflow table par map hota tha.
+3. Create Sale (Tax Invoice) form me Tax Invoice form ki saari details (Applicant, Internal, GST) pre-filled; Sale Amount / Loan Amount read-only.
+   save-invoice server par bhi Sale Amount / Loan Amount approved sale se hi leta hai, form se nahi.
+4. Bill No. sirf New Rickshaw par. Old Rickshaw / Battery: "Complete Sale (No Bill)", koi bill no nahi (save-invoice server par bhi block).
+
 # Changes (28-09-2026)
 
 Purchase bills: purchase_bill.items column already exists with data, so NO SQL needed for it (01 script removed).

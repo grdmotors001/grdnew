@@ -6,18 +6,23 @@ const money=v=>`₹${Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:
 const today=()=>new Date().toISOString().slice(0,10);
 
 export function ExpensePaymentVoucherPage(){
-  const [masters,setMasters]=useState({expense_types:[],pay_to_types:[],dealers:[],staff:[],mechanics:[],fabricators:[]});
+  const EMPTY_MASTERS={expense_types:[],account_heads:[],pay_to_types:[],dealers:[],staff:[],mechanics:[],fabricators:[]};
+  const [masters,setMasters]=useState(EMPTY_MASTERS);
   const [partyMasters,setPartyMasters]=useState([]);
   const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[bookingRows,setBookingRows]=useState([]),[partyRickshaws,setPartyRickshaws]=useState([]),[selected,setSelected]=useState([]);
   const [rows,setRows]=useState([]),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
   const [error,setError]=useState(''),[msg,setMsg]=useState(''),[statusFilter,setStatusFilter]=useState('');
-  const [form,setForm]=useState({date:today(),pay_to_type:'dealer',pay_to_name:'',dealer_id:'',staff_name:'',expense_type:'office_exp',vehicle_id:'',vehicle_ids:[],payment_mode:'cash',amount:'',bill_no:'',attachment_url:'',remarks:'',work_model_name:'',work_qty:1,rate_per_unit:''});
+  const [form,setForm]=useState({date:today(),pay_to_type:'dealer',pay_to_name:'',dealer_id:'',staff_name:'',expense_type:'office_exp',account_head:'',vehicle_id:'',vehicle_ids:[],payment_mode:'cash',amount:'',bill_no:'',attachment_url:'',remarks:'',work_model_name:'',work_qty:1,rate_per_unit:''});
 
   async function load(){
     setLoading(true);setError('');
     try{
       const [m,v,p]=await Promise.all([get('/expense-payment-voucher/masters'),get('/expense-payment-voucher'+(statusFilter?'?status='+statusFilter:'')),get('/masters/party')]);
-      setMasters(m);setRows(v.vouchers||[]);setPartyMasters(p||[]);
+      // Backend kabhi koi list na bheje to bhi page crash na kare (pehle masters.expense_types undefined hone par .map() fatta tha).
+      const list=x=>Array.isArray(x)?x:[];
+      setMasters({...EMPTY_MASTERS,...(m||{}),expense_types:list(m?.expense_types),account_heads:list(m?.account_heads),pay_to_types:list(m?.pay_to_types),dealers:list(m?.dealers),staff:list(m?.staff),mechanics:list(m?.mechanics),fabricators:list(m?.fabricators)});
+      setRows(list(v?.vouchers).length?v.vouchers:list(v?.rows));
+      setPartyMasters(Array.isArray(p)?p:list(p?.masters).length?p.masters:list(p?.rows));
     }catch(e){setError(e.message||'Could not load voucher data')}finally{setLoading(false)}
   }
   useEffect(()=>{load()},[statusFilter]);
@@ -38,7 +43,8 @@ export function ExpensePaymentVoucherPage(){
           .then(x=>setBookingRows(x.rows||[])).catch(e=>setError(e.message||'Could not load bookings'));
         return;
       }
-      if(et==='insurance'||et==='rto_expense'){
+      if(et==='insurance')return; // Insurance = sirf on-account payment, rickshaw list nahi
+      if(et==='rto_expense'){
         const party=(form.pay_to_name||'').trim();
         if(party) get('/expense-payment-voucher/party-rickshaws?'+new URLSearchParams({expense_type:et,party_name:party}))
           .then(x=>setPartyRickshaws(x.rickshaws||[])).catch(e=>setError(e.message||'Could not load rickshaws'));
@@ -53,7 +59,18 @@ export function ExpensePaymentVoucherPage(){
   },[form.expense_type,form.pay_to_type,form.dealer_id,form.staff_name,form.pay_to_name]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
+  // In expense types ka head Account Head Master me hota hai; naam match ho to apne aap select ho jata hai.
+  const HEAD_DEFAULT={dl_exp:['dl exp','dl expense'],ll_exp:['ll exp','ll expense'],pcc_cvr_exp:['pcc/cvr exp','pcc/cvr expense','pcc cvr exp'],fitness:['fitness','fitness exp','fitness expense']};
+  const HEAD_REQUIRED=['dl_exp','ll_exp','pcc_cvr_exp','fitness','office_exp','other'];
+  const normHead=x=>String(x||'').trim().toLowerCase().replace(/\s+/g,' ');
+  useEffect(()=>{
+    const want=HEAD_DEFAULT[form.expense_type];
+    if(!want||form.account_head)return;
+    const h=masters.account_heads.find(x=>want.includes(normHead(x.name)));
+    if(h)setForm(x=>x.expense_type===form.expense_type&&!x.account_head?{...x,account_head:h.name}:x);
+  },[form.expense_type,masters.account_heads,form.account_head]);
   const onExpenseType=v=>{
+    set('account_head','');
     if(v==='commission'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'staff',pay_to_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:''}));
     }else if(v==='assembly'){
@@ -114,7 +131,7 @@ export function ExpensePaymentVoucherPage(){
 
   async function approval(id,action){
     let reason='';if(action==='reject'){reason=window.prompt('Enter rejection reason')||'';if(!reason)return}
-    try{const r=await post('/expense-payment-voucher/'+id+'/approval',{action,reason});setRows(x=>x.map(v=>v.id===id?r.voucher:v));}
+    try{setError('');setMsg('');const r=await post('/expense-payment-voucher/'+id+'/approval',{action,reason});setRows(x=>x.map(v=>v.id===id?r.voucher:v));setMsg(action==='approve'?'Voucher approved — entry Cash Book me post ho gayi':'Voucher rejected');}
     catch(e){setError(e.message||'Could not update approval')}
   }
   async function markPaid(id){
@@ -132,6 +149,7 @@ export function ExpensePaymentVoucherPage(){
       <div className="grid">
         <input className="input" type="date" value={form.date} onChange={e=>set('date',e.target.value)} required/>
         <select className="input" value={form.expense_type} onChange={e=>onExpenseType(e.target.value)}>{masters.expense_types.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        <select className="input" value={form.account_head} onChange={e=>set('account_head',e.target.value)} required={HEAD_REQUIRED.includes(et)}><option value="">{HEAD_REQUIRED.includes(et)?'Select Account Head':'Account Head (optional)'}</option>{masters.account_heads.map(h=><option key={h.id} value={h.name}>{h.name} — {h.sub_category}</option>)}</select>
         {et==='assembly'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}} required><option value="">Select Assembler / Mechanic</option>{masters.mechanics.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
         {et==='fabrication'&&<select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required><option value="">Select Fabricator</option>{masters.fabricators.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
         {et!=='assembly'&&et!=='fabrication'&&<select className="input" value={form.pay_to_type} onChange={e=>set('pay_to_type',e.target.value)}><option value="dealer">Dealer</option><option value="staff">Staff / Salesman</option><option value="other">Other</option></select>}
@@ -175,8 +193,9 @@ export function ExpensePaymentVoucherPage(){
         <div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div>
       </div>}
 
-      {(et==='insurance'||et==='rto_expense')&&<div className="muted" style={{marginTop:10}}>Select rickshaws for a per-rickshaw voucher, or select none to save an ON-ACCOUNT payment (amount = total paid).</div>}
-      {(et==='insurance'||et==='rto_expense')&&<div className="card" style={{marginTop:10}}><div className="actions" style={{justifyContent:'space-between'}}><b>Eligible Rickshaws ({partyRickshaws.length})</b><button type="button" className="btn" onClick={()=>setSelected(selected.length===partyRickshaws.length?[]:partyRickshaws.map(r=>r.vehicle_id))}>{selected.length===partyRickshaws.length?'Unselect All':'Select All'}</button></div><div className="tablewrap"><table className="table"><thead><tr><th></th><th>Date</th><th>Chassis</th><th>Model</th><th>Dealer</th></tr></thead><tbody>{partyRickshaws.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}><td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td><td>{r.date}</td><td><b>{r.chassis_no}</b></td><td>{r.model_name||'—'}</td><td>{r.dealer_name||'—'}</td></tr>)}{!partyRickshaws.length&&<tr><td colSpan="5" className="muted">Enter provider/person name to load eligible rickshaws.</td></tr>}</tbody></table></div><div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div></div>}
+      {et==='insurance'&&<div className="muted" style={{marginTop:10}}>On-account payment: Amount = insurer ko diya gaya total paisa. Hisaab Insurance Register me insurer ke ledger me dikhega.</div>}
+      {et==='rto_expense'&&<div className="muted" style={{marginTop:10}}>Select rickshaws for a per-rickshaw voucher, or select none to save an ON-ACCOUNT payment (amount = total paid).</div>}
+      {et==='rto_expense'&&<div className="card" style={{marginTop:10}}><div className="actions" style={{justifyContent:'space-between'}}><b>Eligible Rickshaws ({partyRickshaws.length})</b><button type="button" className="btn" onClick={()=>setSelected(selected.length===partyRickshaws.length?[]:partyRickshaws.map(r=>r.vehicle_id))}>{selected.length===partyRickshaws.length?'Unselect All':'Select All'}</button></div><div className="tablewrap"><table className="table"><thead><tr><th></th><th>Date</th><th>Chassis</th><th>Model</th><th>Dealer</th></tr></thead><tbody>{partyRickshaws.map(r=><tr key={r.vehicle_id} onClick={()=>toggle(r.vehicle_id)} style={{cursor:'pointer'}}><td><input type="checkbox" checked={selected.includes(r.vehicle_id)} onChange={()=>toggle(r.vehicle_id)} onClick={e=>e.stopPropagation()}/></td><td>{r.date}</td><td><b>{r.chassis_no}</b></td><td>{r.model_name||'—'}</td><td>{r.dealer_name||'—'}</td></tr>)}{!partyRickshaws.length&&<tr><td colSpan="5" className="muted">Enter provider/person name to load eligible rickshaws.</td></tr>}</tbody></table></div><div className="muted" style={{marginTop:8}}>Selected: <b>{selected.length}</b> · Total: <b>{money(selected.length*Number(form.amount||0))}</b></div></div>}
       {et==='passing_exp'&&<div className="muted" style={{marginTop:10}}>Select one rickshaw below for Passing Expense.</div>}
       {et==='passing_exp'&&<select className="input" style={{marginTop:8}} value={form.vehicle_id} onChange={e=>set('vehicle_id',e.target.value)} required><option value="">Select Rickshaw</option>{rickshaws.map(r=><option key={r.vehicle_id} value={r.vehicle_id}>{r.chassis_no} — {r.model_name}</option>)}</select>}
       <button className="btn primary" disabled={saving} style={{marginTop:14}}>{saving?'Saving…':'Save Voucher'}</button>
@@ -184,8 +203,8 @@ export function ExpensePaymentVoucherPage(){
 
     <div className="card"><div className="actions" style={{justifyContent:'space-between',flexWrap:'wrap'}}><h2 style={{margin:0}}>Payment / Work Register</h2>
       <div className="actions"><button className={'btn '+(!statusFilter?'primary':'')} onClick={()=>setStatusFilter('')}>All</button><button className={'btn '+(statusFilter==='unpaid'?'primary':'')} onClick={()=>setStatusFilter('unpaid')}>Unpaid</button><button className={'btn '+(statusFilter==='paid'?'primary':'')} onClick={()=>setStatusFilter('paid')}>Paid</button></div></div>
-      {loading?<div className="muted">Loading…</div>:<div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Work / Expense</th><th>Pay To</th><th>Model</th><th>Chassis</th><th>Qty</th><th>Rate</th><th>Amount</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead>
-      <tbody>{rows.map(r=><tr key={r.id}><td>{r.date}</td><td><b>{r.voucher_no}</b></td><td>{r.expense_type_name}</td><td>{r.pay_to_name}</td><td>{r.work_model_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.work_qty||'—'}</td><td>{r.rate_per_unit?money(r.rate_per_unit):'—'}</td><td>{money(r.amount)}</td><td>{r.status}</td><td><b>{r.payment_status}</b>{r.paid_at?' · '+r.paid_at:''}</td><td>{r.status==='pending'?<><button type="button" className="btn" onClick={()=>approval(r.id,'approve')} style={{marginRight:5}}>Approve</button><button type="button" className="btn" onClick={()=>approval(r.id,'reject')}>Reject</button></>:r.status==='approved'&&!r.paid_at?<button type="button" className="btn primary" onClick={()=>markPaid(r.id)}>Mark Paid</button>:'—'}</td></tr>)}{!rows.length&&<tr><td colSpan="12" className="muted">No vouchers found.</td></tr>}</tbody></table></div>}
+      {loading?<div className="muted">Loading…</div>:<div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Work / Expense</th><th>Pay To</th><th>Account Head</th><th>Model</th><th>Chassis</th><th>Qty</th><th>Rate</th><th>Amount</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead>
+      <tbody>{rows.map(r=><tr key={r.id}><td>{r.date}</td><td><b>{r.voucher_no}</b></td><td>{r.expense_type_name}</td><td>{r.pay_to_name}</td><td>{r.account_head||'—'}</td><td>{r.work_model_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.work_qty||'—'}</td><td>{r.rate_per_unit?money(r.rate_per_unit):'—'}</td><td>{money(r.amount)}</td><td>{r.status}</td><td><b>{r.payment_status}</b>{r.paid_at?' · '+r.paid_at:''}</td><td>{r.status==='pending'?<><button type="button" className="btn" onClick={()=>approval(r.id,'approve')} style={{marginRight:5}}>Approve</button><button type="button" className="btn" onClick={()=>approval(r.id,'reject')}>Reject</button></>:r.status==='approved'&&!r.paid_at?<button type="button" className="btn primary" onClick={()=>markPaid(r.id)}>Mark Paid</button>:'—'}</td></tr>)}{!rows.length&&<tr><td colSpan="13" className="muted">No vouchers found.</td></tr>}</tbody></table></div>}
     </div>
   </div>
 }
