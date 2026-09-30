@@ -92,7 +92,8 @@ function importDate(v:any):string|null{
   return null;
 }
 function importAmount(v:any):number{if(typeof v==='number')return Number.isFinite(v)?v:0;const t=String(v??'').replace(/[₹,\s]/g,'').replace(/\((.*)\)/,'-$1').replace(/(dr|cr)\.?$/i,'');const n=Number(t);return Number.isFinite(n)?n:0;}
-function moduleAlias(x:string){return x==='contra-vouchers'?'v-contra':x==='insurance-register'?'insurance-rto':x==='rto-register'?'rto-expense':x==='hypothecation-receipts'?'hypothecation-register':x;}
+const STOCK_MODULE_ALIAS:any={'closing-dealers':'closing-stock-dealers','ledger-dealers':'stock-ledger-dealers','closing-premises':'closing-stock-premises','ledger-premises':'stock-ledger-premises','closing-raw':'closing-stock-raw','ledger-raw':'closing-stock-raw','payment-receivable':'payment-receivable-report'};
+function moduleAlias(x:string){if(STOCK_MODULE_ALIAS[x])return STOCK_MODULE_ALIAS[x];return x==='contra-vouchers'?'v-contra':x==='insurance-register'?'insurance-rto':x==='rto-register'?'rto-expense':x==='hypothecation-receipts'?'hypothecation-register':x;}
 function ymd(v:any):string{
   if(v instanceof Date){if(isNaN(v.getTime()))return "";return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");}
   return String(v||"").slice(0,10);
@@ -1613,8 +1614,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="health")return Response.json({status:"ok",backend:"node",python:false});
     if(!a)return Response.json({error:"Authentication required."},{status:401});
     await ensureSecuritySchema();
-    if(!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
-    if(!(await actionAllowed(a,p,"view")))return Response.json({error:"Forbidden."},{status:403});
+    // Notifications: jinke paas permission nahi (jaise Salesman) unko 403 ki jagah khali list -> header me error/console spam nahi.
+    if(p==="notifications"&&!canRead(a,p))return Response.json({notifications:[],branch_cash_limits:[],count:0});
+    // Har logged-in staff ko menu (nav-config), dashboard aur apna profile chahiye; ye allowed_modules se block nahi hone chahiye.
+    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="auth/me");
+    if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
+    if(!baselineRead&&!(await actionAllowed(a,p,"view")))return Response.json({error:"Forbidden."},{status:403});
     if(p==="expense-payment-voucher"||p.startsWith("expense-payment-voucher/")){const evr=await expenseVoucherGet(req,path,a);if(evr)return evr;}
     if(p==="audit-report"){
       if(!isAdmin(a)) return Response.json({error:"Admin access required."},{status:403});
@@ -2356,7 +2361,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const stage_counts:any={};for(const r of stages.rows)stage_counts[r.stage]=Number(r.count||0);
       const total=Object.values(stage_counts).reduce((s:number,x:any)=>s+Number(x||0),0);
       const recent=vehicles.rows;
-      return Response.json({
+      const dash:any={
         manufacturing:recent.filter((x:any)=>x.stage==="Manufacturing"),
         delivery_challan:recent.filter((x:any)=>x.stage==="Delivery Challan"),
         tax_invoice:recent.filter((x:any)=>x.stage==="Tax Invoice"),
@@ -2367,7 +2372,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         sales_total:Number(sales.rows[0]?.sales||0),received_total:Number(sales.rows[0]?.received||0),
         loan_total:Number(sales.rows[0]?.loan||0),production_this_month:Number(production.rows[0]?.n||0),
         today_challans:todayChallans.rows,today_bills:todayBills.rows,today_production:todayProduction.rows
-      });
+      };
+      if(isSalesman(a)){dash.sales_total=0;dash.received_total=0;dash.loan_total=0;dash.billed_monthly=[];dash.state_sales=[];dash.today_bills=[];dash.today_production=[];dash.production_this_month=0;}
+      return Response.json(dash);
     }
     if(p==="nav-config"){
       const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");
