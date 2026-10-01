@@ -4,6 +4,7 @@ import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { TaxInvoicePrintView } from './PrintDocs';
+import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters } from './invoiceHelpers';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -53,6 +54,16 @@ export function TaxInvoicePage() {
       .some(v => String(v || '').toLowerCase().includes(q));
   });
   const { busy, error, setError, run } = useAsyncAction();
+  const { rtos, defaultBank } = useInvoiceMasters();
+  const rtoNames = rtos.map((r) => r.name).filter(Boolean);
+  const rtoOptions = (cur) => (cur && !rtoNames.includes(cur) ? [cur, ...rtoNames] : rtoNames).map((n) => ({ value: n, label: n }));
+  const b2c = isB2C(form);
+
+  // New invoice: pre-fill the bank that is ticked "Default" in Bank Details.
+  useEffect(() => {
+    if (!open || editingId || !defaultBank) return;
+    setForm((f) => (f.bank_name ? f : { ...f, bank_name: defaultBank.name || '', bank_account_no: defaultBank.account_no || '', bank_ifsc: defaultBank.ifsc || '' }));
+  }, [open, editingId, defaultBank]);
 
   useEffect(() => { get('/masters/financer').then((d) => setFinancers(Array.isArray(d) ? d : (d.masters || d.rows || d.data || []))).catch(() => {}); }, []);
 
@@ -159,6 +170,12 @@ export function TaxInvoicePage() {
   const save = (e) => {
     e.preventDefault();
     run(async () => {
+      // Checks apply to new invoices only, so the 16,000+ old invoices stay editable.
+      if (!editingId && form.bill_no !== 'GRD/1000X') {
+        if (!String(form.rto_name || '').trim()) { setStep(0); throw new Error('Select the RTO Name before creating the invoice.'); }
+        const idErr = b2cIdError(form);
+        if (idErr) { setStep(0); throw new Error(idErr); }
+      }
       if (editingId) await put(`/tax-invoices/${editingId}`, form);
       else await post('/tax-invoices', form);
       setOpen(false);
@@ -304,6 +321,8 @@ export function TaxInvoicePage() {
                     <Field label={`Delivery Challan to Invoice (${filteredChallans.length})`} type="select" value={form.billing_queue_id ? '' : (form.challan_id || '')}
                            options={filteredChallans.map((c) => ({ value: c.id, label: `${c.challan_no} — ${c.dealer_name} — ${c.chassis_no}` }))}
                            onChange={(id) => { setForm(f => ({...f, billing_queue_id: ''})); pickChallan(id); }} />
+                    <Field label="RTO Name (select first)" type="select" value={form.rto_name}
+                           options={rtoOptions(form.rto_name)} onChange={(v) => setForm({ ...form, rto_name: v })} />
                     <Field label="Bill No." value={form.bill_no} onChange={(v) => setForm({ ...form, bill_no: v })} />
                     <button type="button" className="btn" style={{ alignSelf: 'flex-end', height: 38 }}
                             title="Fills Bill No. with the GRD/1000X stock-removal placeholder and zeroes Sale Amount/Tax/Insurance/Registration/Subsidy — buyer and internal details are left as-is."
@@ -359,13 +378,15 @@ export function TaxInvoicePage() {
                     </div>
                   )}
                   <Field label="Customer Name" value={form.buyer_name} onChange={(v) => setForm({ ...form, buyer_name: v })} required />
-                  <Field label="Buyer Relation" value={form.buyer_relation} onChange={(v) => setForm({ ...form, buyer_relation: v })} />
+                  <Field label="Relation (S/O, D/O, C/O)" type="select" value={form.buyer_relation}
+                         options={relationOptionsFor(form.buyer_relation).filter((o) => o.value !== '')}
+                         onChange={(v) => setForm({ ...form, buyer_relation: v })} />
                   <Field label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={(v) => setForm({ ...form, buyer_father_name: v })} />
                   <Field label="Buyer Address" value={form.buyer_address} onChange={(v) => setForm({ ...form, buyer_address: v })} />
                   <Field label="Buyer Mobile" value={form.buyer_mobile} onChange={(v) => setForm({ ...form, buyer_mobile: v })} />
                   <Field label="Buyer GSTIN (if any)" value={form.buyer_gst_no} onChange={(v) => setForm({ ...form, buyer_gst_no: v })} />
-                  <Field label="Buyer PAN" value={form.buyer_pan} onChange={(v) => setForm({ ...form, buyer_pan: v })} />
-                  <Field label="Buyer Aadhar" value={form.buyer_aadhar} onChange={(v) => setForm({ ...form, buyer_aadhar: v })} />
+                  <Field label={'Buyer PAN' + (b2c ? ' * (required, no GSTIN)' : '')} value={form.buyer_pan} onChange={(v) => setForm({ ...form, buyer_pan: v.toUpperCase() })} />
+                  <Field label={'Buyer Aadhar' + (b2c ? ' * (required, no GSTIN)' : '')} value={form.buyer_aadhar} onChange={(v) => setForm({ ...form, buyer_aadhar: v })} />
                   <Field label="Buyer Date of Birth" type="date" value={form.buyer_dob} onChange={(v) => setForm({ ...form, buyer_dob: v })} />
                   <Field label="Buyer State" value={form.buyer_state} onChange={(v) => setForm({ ...form, buyer_state: v })} />
                   <Field label="Buyer State Code" value={form.buyer_state_code} onChange={(v) => setForm({ ...form, buyer_state_code: v })} />
@@ -376,7 +397,7 @@ export function TaxInvoicePage() {
                   <Field label="Bank Name" value={form.bank_name} onChange={(v) => setForm({ ...form, bank_name: v })} />
                   <Field label="Bank Account No." value={form.bank_account_no} onChange={(v) => setForm({ ...form, bank_account_no: v })} />
                   <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
-                  <Field label="RTO Name" value={form.rto_name} onChange={(v) => setForm({ ...form, rto_name: v })} />
+                  <Field label="RTO Name" type="select" value={form.rto_name} options={rtoOptions(form.rto_name)} onChange={(v) => setForm({ ...form, rto_name: v })} />
                   <Field label="Despatch Through" value={form.despatch_through} onChange={(v) => setForm({ ...form, despatch_through: v })} />
                   <Field label="E-Way Bill No." value={form.eway_bill_no} onChange={(v) => setForm({ ...form, eway_bill_no: v })} />
                   <Field label="License No." value={form.license_no} onChange={(v) => setForm({ ...form, license_no: v })} />

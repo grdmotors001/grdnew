@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, Money } from './ui';
+import { ProformaInvoicePrintView } from './PrintDocs';
+import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters } from './invoiceHelpers';
 
 // Old Rickshaw / Battery sales are not GST sales: no Tax Invoice, they are completed after approval.
 const isNonGst=t=>['OLD RICKSHAW','BATTERY'].includes(String(t||'').toUpperCase());
@@ -11,6 +13,7 @@ export function BillingPendingSalesPage(){
   const [rows,setRows]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[search,setSearch]=useState('');
   const [createOpen,setCreateOpen]=useState(false);
   const [invoiceSale,setInvoiceSale]=useState(null),[view,setView]=useState('PENDING'),[canApprove,setCanApprove]=useState(false);
+  const [proformaId,setProformaId]=useState(null);
   const [sheet,setSheet]=useState(null); // {mode:'view'|'edit', sale}
 
   const load=async()=>{
@@ -67,6 +70,7 @@ export function BillingPendingSalesPage(){
               <button className="btn" onClick={()=>setSheet({mode:'edit',sale:r})}>Edit</button>
               <button className="btn" onClick={()=>removeSale(r)}>Delete</button></>}
             {r.status==='APPROVED'&&<button className="btn" onClick={()=>setSheet({mode:'view',sale:r})}>View</button>}
+            {r.status==='APPROVED'&&!isNonGst(r.sale_type)&&<button className="btn" onClick={()=>setProformaId(r.id)}>🖨 Print Proforma</button>}
             {r.status==='APPROVED'&&canApprove&&(isNonGst(r.sale_type)
               ?<button className="btn primary" onClick={()=>completeSale(r.id)}>Complete Sale (No Bill)</button>
               :<button className="btn primary" onClick={()=>openSale(r.id)}>Create Sale</button>)}
@@ -81,6 +85,7 @@ export function BillingPendingSalesPage(){
       canApprove={canApprove&&sheet.sale.status==='PENDING'} onApprove={async()=>{if(await approve(sheet.sale.id))setSheet(null)}}
       onEdit={()=>setSheet({mode:'edit',sale:sheet.sale})}
       onClose={()=>setSheet(null)} onSaved={()=>{setSheet(null);load()}}/>}
+    {proformaId&&<ProformaInvoicePrintView saleId={proformaId} onClose={()=>setProformaId(null)}/>}
     {invoiceSale&&<TaxInvoiceModal data={invoiceSale} onClose={()=>setInvoiceSale(null)} onSaved={()=>{setInvoiceSale(null);load()}}/>}
   </div>
 }
@@ -142,6 +147,7 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
   const [people,setPeople]=useState({loading:false,error:'',loans:[],customers:[]});
   const [financers,setFinancers]=useState([]);
   const seq=useRef(0);
+  const [chassisText,setChassisText]=useState('');
 
   // 1) dealers only (fast). Financer master is fetched after that, staff only.
   const loadDealers=()=>{
@@ -162,10 +168,11 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
   const vehicle=vehicles.find(v=>String(v.challan_id)===String(form.vehicle_id));
   const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.hypothecation_amount||0)-Number(form.amount_received||0));
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const chooseKind=k=>{setKind(k);setError('');setStep(0);setForm(initial);setStock({loading:false,error:'',rows:[]});setPeople({loading:false,error:'',loans:[],customers:[]});seq.current++};
+  const chooseKind=k=>{setChassisText('');setKind(k);setError('');setStep(0);setForm(initial);setStock({loading:false,error:'',rows:[]});setPeople({loading:false,error:'',loans:[],customers:[]});seq.current++};
 
   // 2) that dealer's stock, 3) then that dealer's customers / approved loans. New Rickshaw only.
   const selectDealer=async v=>{
+    setChassisText('');
     setForm(f=>({...f,dealer_id:v,application_id:null,dealer_cash_customer_id:'',vehicle_id:'',buyer_name:'',buyer_mobile:'',buyer_address:'',
       sale_amount:'',gst_sale_amount:'',hypothecation_amount:'',amount_received:'',financer_name:'',do_no:'',dealer_page_no:''}));
     const my=++seq.current;
@@ -192,6 +199,18 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
     if(!l){setForm(f=>({...f,application_id:null,hypothecation_amount:'',financer_name:'',do_no:''}));return}
     setForm(f=>({...f,application_id:l.id,hypothecation_amount:String(Number(l.loan_amount)||''),financer_name:f.financer_name||'CHFPL',
       do_no:l.do_no||f.do_no,buyer_name:f.buyer_name||l.customer_name||'',buyer_mobile:f.buyer_mobile||l.customer_phone||''}));
+  };
+  // Chassis can be typed: exact chassis no., or any text (>=4 chars) that matches exactly one of this dealer's vehicles.
+  const typeChassis=t=>{
+    setChassisText(t);
+    const q=t.trim().toLowerCase();
+    let m=null;
+    if(q){
+      m=vehicles.find(v=>String(v.chassis_no||'').toLowerCase()===q)||null;
+      if(!m&&q.length>=4){const hits=vehicles.filter(v=>String(v.chassis_no||'').toLowerCase().includes(q));if(hits.length===1)m=hits[0]}
+    }
+    if(m)applyVehicle(String(m.challan_id));
+    else setForm(f=>f.vehicle_id?{...f,vehicle_id:''}:f);
   };
   const applyVehicle=v=>{
     const x=vehicles.find(y=>String(y.challan_id)===String(v)); if(!x)return;
@@ -261,7 +280,7 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
       <fieldset disabled={readOnly} style={{border:0,padding:0,margin:0,minWidth:0}}>
       <div className="formgrid" style={{marginTop:12}}>
         {dealerSelect}
-        {editing?<Input label="Chassis / Vehicle" value={[sale?.chassis_no,sale?.model_name].filter(Boolean).join(' · ')||'—'} readOnly disabled/>:<label className="field"><span>Vehicle / Delivery Challan</span><select className="input" value={form.vehicle_id} onChange={e=>applyVehicle(e.target.value)} disabled={!form.dealer_id||stock.loading} required><option value="">{!form.dealer_id?'Select Dealer First':stock.loading?'Stock load ho raha hai…':vehicles.length?'Select Vehicle / Chassis':'Is dealer ke paas unbilled stock nahi hai'}</option>{vehicles.map(v=><option key={v.challan_id} value={v.challan_id}>{v.chassis_no||'—'} · {v.challan_no||'DC'} · {v.product_name||v.model_name||''}</option>)}</select></label>}
+        {editing?<Input label="Chassis / Vehicle" value={[sale?.chassis_no,sale?.model_name].filter(Boolean).join(' · ')||'—'} readOnly disabled/>:<label className="field"><span>Chassis No. (type or pick)</span><input className="input" list="pendingChassisList" value={vehicle&&!chassisText?(vehicle.chassis_no||''):chassisText} onChange={e=>typeChassis(e.target.value)} disabled={!form.dealer_id||stock.loading} autoComplete="off" placeholder={!form.dealer_id?'Select Dealer First':stock.loading?'Stock load ho raha hai…':vehicles.length?'Type chassis no. or pick from list':'Is dealer ke paas unbilled stock nahi hai'}/><datalist id="pendingChassisList">{vehicles.map(v=><option key={v.challan_id} value={v.chassis_no||''}>{(v.challan_no||'DC')+' · '+(v.product_name||v.model_name||'')}</option>)}</datalist>{chassisText&&!form.vehicle_id&&vehicles.length>0&&<small style={{color:'#c0392b'}}>No unique match in this dealer's stock yet.</small>}</label>}
       </div>
       {stock.error&&<ErrorBanner message={stock.error}/>}
       {form.dealer_id&&!editing&&<div className="formgrid" style={{marginTop:10}}>
@@ -280,7 +299,7 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
       {(readOnly||step===0)&&<div className="formgrid">
         <Input label="Dealer Page No." value={form.dealer_page_no} onChange={e=>set('dealer_page_no',e.target.value)}/>
         <Input label="Customer Name" value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required/>
-        <Input label="Buyer Relation" value={form.buyer_relation} onChange={e=>set('buyer_relation',e.target.value)}/>
+        <label className="field"><span>Relation (S/O, D/O, C/O)</span><select className="input" value={form.buyer_relation||''} onChange={e=>set('buyer_relation',e.target.value)}><option value="">— (Firm / none)</option>{relationOptionsFor(form.buyer_relation).filter(o=>o.value).map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
         <Input label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={e=>set('buyer_father_name',e.target.value)}/>
         <Input label="Buyer Address" value={form.buyer_address} onChange={e=>set('buyer_address',e.target.value)}/>
         <Input label="Buyer Mobile" value={form.buyer_mobile} onChange={e=>set('buyer_mobile',e.target.value)}/>
@@ -357,7 +376,16 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
 function TaxInvoiceModal({data,onClose,onSaved}){
   const [form,setForm]=useState(data.invoice||{}),[saving,setSaving]=useState(false),[error,setError]=useState('');
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const save=async()=>{setSaving(true);setError('');try{await post('/billing/pending-sales/'+data.id+'/save-invoice',{invoice:form});onSaved()}catch(e){setError(e.message)}finally{setSaving(false)}};
+  const {rtos,defaultBank}=useInvoiceMasters();
+  const rtoNames=rtos.map(r=>r.name).filter(Boolean);
+  const rtoOpts=(rtoNames.includes(form.rto_name)||!form.rto_name?rtoNames:[form.rto_name,...rtoNames]).map(n=>({value:n,label:n}));
+  const b2c=isB2C(form);
+  // Default bank from Bank Details master auto-fills when the invoice has no bank yet.
+  useEffect(()=>{if(defaultBank)setForm(f=>f.bank_name?f:{...f,bank_name:defaultBank.name||'',bank_account_no:defaultBank.account_no||'',bank_ifsc:defaultBank.ifsc||''})},[defaultBank]);
+  const save=async()=>{setSaving(true);setError('');try{
+    if(!String(form.rto_name||'').trim())throw new Error('RTO Name select karo — Bill No. banne se pehle RTO zaroori hai.');
+    const idErr=b2cIdError(form);if(idErr)throw new Error(idErr);
+    await post('/billing/pending-sales/'+data.id+'/save-invoice',{invoice:form});onSaved()}catch(e){setError(e.message)}finally{setSaving(false)}};
   const F=(label,k,extra={})=><Field key={k} label={label} value={form[k]??''} onChange={v=>set(k,v)} {...extra}/>;
   const locked={readOnly:true};
   const h=t=><h3 style={{margin:'18px 0 6px'}}>{t}</h3>;
@@ -366,17 +394,18 @@ function TaxInvoiceModal({data,onClose,onSaved}){
     <ErrorBanner message={error}/>
     {h('Invoice / Vehicle')}
     <div className="formgrid">
+      {F('RTO Name (select first) *','rto_name',{type:'select',options:rtoOpts})}
       {F('Invoice Date','date',{type:'date'})}{F('Dealer','dealer_name')}{F('Dealer Page No.','dealer_page_no')}
       {F('Model','product_name')}{F('Chassis No.','chassis_no')}{F('Motor No.','motor_no')}{F('Controller No.','controller_no')}{F('Colour','colour')}
     </div>
     {h('1. Applicant Details')}
     <div className="formgrid">
-      {F('Customer Name','buyer_name')}{F('Buyer Relation','buyer_relation')}{F('Buyer Father/Husband Name','buyer_father_name')}{F('Buyer Address','buyer_address')}
-      {F('Buyer Mobile','buyer_mobile')}{F('Buyer GSTIN (if any)','buyer_gst_no')}{F('Buyer PAN','buyer_pan')}{F('Buyer Aadhar','buyer_aadhar')}
+      {F('Customer Name','buyer_name')}{F('Relation (S/O, D/O, C/O)','buyer_relation',{type:'select',options:relationOptionsFor(form.buyer_relation).filter(o=>o.value)})}{F('Buyer Father/Husband Name','buyer_father_name')}{F('Buyer Address','buyer_address')}
+      {F('Buyer Mobile','buyer_mobile')}{F('Buyer GSTIN (if any)','buyer_gst_no')}{F('Buyer PAN'+(b2c?' * (required, no GSTIN)':''),'buyer_pan')}{F('Buyer Aadhar'+(b2c?' * (required, no GSTIN)':''),'buyer_aadhar')}
       {F('Buyer Date of Birth','buyer_dob',{type:'date'})}{F('Buyer State','buyer_state')}{F('Buyer State Code','buyer_state_code')}
       {F('Intra/Inter State','state_type',{type:'select',options:[{value:'I',label:'Intra-state (CGST+SGST)'},{value:'O',label:'Inter-state (IGST)'}]})}
       {F('Mode / Term','mode_term')}{F('Bank Name','bank_name')}{F('Bank Account No.','bank_account_no')}{F('Bank IFSC','bank_ifsc')}
-      {F('RTO Name','rto_name')}{F('Despatch Through','despatch_through')}{F('E-Way Bill No.','eway_bill_no')}{F('License No.','license_no')}
+      {F('Despatch Through','despatch_through')}{F('E-Way Bill No.','eway_bill_no')}{F('License No.','license_no')}
       {F('CVR No.','cvr_no')}{F('Cancelled Cheque No.','cancelled_cheque_no')}{F('Remarks','remarks')}
     </div>
     {h('2. Internal')}

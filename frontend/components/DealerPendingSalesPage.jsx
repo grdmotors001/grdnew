@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 import { Money } from './ui';
+import { relationOptionsFor } from './invoiceHelpers';
 
 const today=()=>new Date().toISOString().slice(0,10);
 const initial={dealer_id:'',delivery_challan_id:'',application_id:'',date:today(),
@@ -90,7 +91,7 @@ export function DealerPendingSalesPage(){
           <div className="formgrid">
             <Input label="Dealer Page No." value={form.dealer_page_no} onChange={e=>set('dealer_page_no',e.target.value)}/>
             <Input label="Customer Name" value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required/>
-            <Input label="Buyer Relation" value={form.buyer_relation} onChange={e=>set('buyer_relation',e.target.value)}/>
+            <label className="field"><span>Relation (S/O, D/O, C/O)</span><select className="input" value={form.buyer_relation||''} onChange={e=>set('buyer_relation',e.target.value)}><option value="">— (Firm / none)</option>{relationOptionsFor(form.buyer_relation).filter(o=>o.value).map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
             <Input label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={e=>set('buyer_father_name',e.target.value)}/>
             <Input label="Buyer Address" value={form.buyer_address} onChange={e=>set('buyer_address',e.target.value)}/>
             <Input label="Buyer Mobile" value={form.buyer_mobile} onChange={e=>set('buyer_mobile',e.target.value)}/>

@@ -362,7 +362,7 @@ export function labelFor(key) {
 export const SIMPLE_MASTERS = {
   party: { label: 'Party Master', fields: [['name', 'Name', 'text'], ['sub_category', 'Party Type', 'select', [{ value: 'insurance', label: 'Insurance Provider / Agent' }, { value: 'rto', label: 'RTO Passing Person / Provider' }]], ['address', 'Address', 'text'], ['mobile', 'Mobile No.', 'text'], ['extra', 'GSTIN', 'text']] },
   'battery-maker': { label: 'Battery Maker Master', fields: [['name', 'Battery Maker Name', 'text']] },
-  rto: { label: 'RTO Master', fields: [['name', 'RTO Name', 'text'], ['code', 'RTO Code', 'text'], ['address', 'Address', 'text']] },
+  rto: { label: 'RTO Master', fields: [['name', 'RTO Name', 'text'], ['code', 'RTO Code', 'text'], ['address', 'Address Line 1', 'text'], ['address2', 'Address Line 2', 'text']] },
   financer: { label: 'Financer Master', fields: [['name', 'Name', 'text'], ['address', 'Address', 'text']] },
   mechanic: { label: 'Mechanic Master', fields: [['name', 'Mechanic Name', 'text']] },
   fabricator: { label: 'Fabricator Master', fields: [['name', 'Fabricator Name', 'text']] },

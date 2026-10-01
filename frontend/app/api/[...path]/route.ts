@@ -1246,7 +1246,23 @@ async function chassisMasterWrite(path:string[],method:string,b:any):Promise<Res
   return Response.json({success:true,row:r.rows[0]||null});
 }
 
+async function defaultBank(company:any){
+  // Bank Details master: the row ticked "Default". Falls back to the Company Master bank when none is ticked.
+  const r=await pool.query("SELECT sm.name,to_jsonb(sm)->>'account_no' AS account_no,to_jsonb(sm)->>'ifsc' AS ifsc FROM simple_master sm WHERE lower(sm.kind)='bank' AND COALESCE(btrim(sm.name),'')<>'' AND lower(COALESCE(to_jsonb(sm)->>'is_default','false')) IN ('true','t','1','yes') ORDER BY sm.id DESC LIMIT 1").catch(()=>({rows:[] as any[]}));
+  const b=r.rows[0];
+  if(b)return {name:b.name||"",account_no:b.account_no||"",ifsc:b.ifsc||""};
+  return {name:company.bank_name||"",account_no:company.bank_account_no||"",ifsc:company.bank_ifsc||""};
+}
+// RTO Master prints as two address lines at the bottom-left of the invoice (Address + Address Line 2).
+function rtoAddressText(rr:any){
+  const lines=[rr.address||rr.address1,rr.address2].map((v:any)=>String(v||"").trim()).filter(Boolean);
+  return lines.length?lines.join("\n"):String(rr.details||"").trim();
+}
+
+let simpleMasterAddr2Ready:Promise<void>|null=null;
 async function genericWrite(req:Request,path:string[],table:string,method:string,parsedBody?:any){
+  // RTO Master keeps a second address line (prints as the 2nd line at the invoice bottom-left).
+  if(table==="simple_master"){if(!simpleMasterAddr2Ready)simpleMasterAddr2Ready=addColumns("simple_master",{address2:"text"}).catch(e=>{simpleMasterAddr2Ready=null;throw e});await simpleMasterAddr2Ready;}
   const cols=await columns(table);
   if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
   const body:any=parsedBody!==undefined?parsedBody:await json(req),input:any={};
@@ -2332,6 +2348,41 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       // name/phone resolved + old/new billed customers removed (they cannot be sold again).
       const cashList=(await enrichCashCustomers(cashCustomers.rows)).filter((x:any)=>x.status!=="BILLED").map((x:any)=>({...x,booking_for:x.vehicle_no}));
       return Response.json({applications:appsR.rows,vehicles:ch.rows,dealers:dealers.rows,cash_customers:cashList,can_approve:billingStaff(a)});
+    }
+    if(p==="billing/pending-sales/proforma"){
+      // PROFORMA INVOICE print for an Approved Sale: same data shape as tax-invoices/:id/print, but no Bill No. and
+      // Registration / Insurance charges are left out (amounts forced to 0 and excluded from the total).
+      await ensureBillingSalesSchema();
+      if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
+      const id=idOf(new URL(req.url).searchParams.get("id"));
+      if(!id)return Response.json({error:"Sale id is required."},{status:400});
+      const r=await pool.query(`SELECT s.*,lw.application_no,lw.loan_model_name,
+        COALESCE(NULLIF(s.customer_name,''),c.full_name) AS c_name,COALESCE(NULLIF(s.customer_phone,''),c.phone) AS c_phone,COALESCE(NULLIF(s.customer_address,''),c.address) AS c_address,COALESCE(NULLIF(s.customer_state,''),c.state) AS c_state,
+        d.name AS d_name,v.model_name,v.motor_no,v.colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,
+        COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(v)->>'colour_code','') AS colour_code
+        FROM grd_billing_sale s LEFT JOIN loan_workflow lw ON lw.id=s.application_id LEFT JOIN customer c ON c.id=s.customer_id
+        LEFT JOIN dealer d ON d.id=s.dealer_id LEFT JOIN vehicle v ON v.id=s.vehicle_id WHERE s.id=$1`,[id]);
+      if(!r.rowCount)return Response.json({error:"Sale not found."},{status:404});
+      const x=r.rows[0];
+      if(!["APPROVED","BILLED"].includes(String(x.status||"")))return Response.json({error:"Proforma Invoice sirf Approved Sale ka banta hai."},{status:403});
+      if(["OLD RICKSHAW","BATTERY"].includes(String(x.sale_type||"").toUpperCase()))return Response.json({error:"Proforma Invoice sirf New Rickshaw (GST) sale ka banta hai."},{status:409});
+      const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+      const printBank=await defaultBank(company);
+      const taxable=Math.max(0,num(x.gst_sale_amount||x.sale_amount)-num(x.discount)),rate=num(x.gst_rate)||5,gst=taxable*rate/100;
+      const intra=(String(x.state_type||"I").trim().toUpperCase()||"I")==="I";
+      const productName=x.model_name||x.loan_model_name||"";
+      const lg=await productLogo(productName,x.model_name||"");
+      const dt=x.approved_at?new Date(x.approved_at).toISOString().slice(0,10):new Date().toISOString().slice(0,10);
+      const invoice={...x,bill_no:"PF/"+dt.slice(0,4)+"/"+String(x.id).padStart(5,"0"),date:dt,
+        buyer_name:x.c_name||"",buyer_mobile:x.c_phone||"",buyer_address:x.c_address||"",buyer_state:x.c_state||"",dealer_name:x.d_name||"",
+        product_name:productName,chassis_no:x.chassis_no||"",motor_no:x.motor_no||"",colour:x.colour||"",
+        insurance_amount:0,registration_amount:0,gst_rate:rate,taxable_value:taxable,
+        cgst_amount:intra?gst/2:0,sgst_amount:intra?gst/2:0,igst_amount:intra?0:gst,tax_amount:gst,bill_total:taxable+gst,
+        financer_name:x.financer_name||"",eway_bill_no:"",umrn_code:lg.umrn_code||x.umrn_code||"",logo_keys:lg.logo_keys};
+      let rto_address="";const rtoName=String(x.rto_name||"").trim();
+      if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);rto_address=rtoAddressText(rm.rows[0]||{});}
+      return Response.json({invoice,company,product:{umrn_code:invoice.umrn_code,logo_keys:lg.logo_keys,colour_code:x.colour_code,name:productName},doc_title:"PROFORMA INVOICE",doc_no_label:"Proforma No.",rto_address,
+        print_bank_name:printBank.name,print_bank_account_no:printBank.account_no,print_bank_ifsc:printBank.ifsc});
     }
     if(p==="billing/pending-sales/invoice"){
       await ensureBillingSalesSchema();
@@ -3486,10 +3537,13 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
       const x=r.rows[0],invoice={...x,dealer_name:x.dealer_name||x.joined_dealer_name||"",dealer_code:x.dealer_code||"",dealer_mobile:x.dealer_mobile||"",dealer_gst_no:x.dealer_gst_no||"",dealer_address1:x.dealer_address1||"",dealer_address2:x.dealer_address2||"",product_name:x.product_name||x.vehicle_model_name||"",chassis_no:x.chassis_no||x.vehicle_chassis_no||"",motor_no:x.motor_no||x.vehicle_motor_no||"",colour:x.colour||x.vehicle_colour||"",battery_maker:x.battery_maker||"",battery_no1:x.battery_no1||"",battery_no2:x.battery_no2||"",battery_no3:x.battery_no3||"",battery_no4:x.battery_no4||"",umrn_code:x.umrn_code||"",colour_code:x.colour_code||""};
       const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+      const pd=await pool.query("SELECT (SELECT pv.date::text FROM production_voucher pv WHERE lower(btrim(pv.chassis_no))=lower(btrim($1)) ORDER BY pv.id DESC LIMIT 1) AS d",[invoice.chassis_no||""]).catch(()=>({rows:[] as any[]}));
+      (invoice as any).production_date=String(pd.rows[0]?.d||"").slice(0,10);
+      const printBank=await defaultBank(company);
       const rtoName=String(x.rto||x.rto_name||"").trim();let rto_address="";
-      if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);const rr=rm.rows[0]||{};rto_address=String(rr.address||rr.address1||rr.address2||rr.details||"");}
+      if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);const rr=rm.rows[0]||{};rto_address=rtoAddressText(rr);}
       const lg=await productLogo(invoice.product_name,x.vehicle_model_name||"");invoice.umrn_code=lg.umrn_code||invoice.umrn_code;(invoice as any).logo_keys=lg.logo_keys;
-      return Response.json({invoice,company,product:{umrn_code:invoice.umrn_code,logo_keys:lg.logo_keys,colour_code:invoice.colour_code,name:invoice.product_name},doc_title:doc==="invoice"?"TAX INVOICE":doc.toUpperCase(),doc_no_label:doc==="invoice"?"Bill No.":"Document No.",rto_address,print_bank_name:company.bank_name||"",print_bank_account_no:company.bank_account_no||"",print_bank_ifsc:company.bank_ifsc||""});
+      return Response.json({invoice,company,product:{umrn_code:invoice.umrn_code,logo_keys:lg.logo_keys,colour_code:invoice.colour_code,name:invoice.product_name},doc_title:doc==="invoice"?"TAX INVOICE":doc.toUpperCase(),doc_no_label:doc==="invoice"?"Bill No.":"Document No.",rto_address,print_bank_name:printBank.name,print_bank_account_no:printBank.account_no,print_bank_ifsc:printBank.ifsc});
     }
     if(p==="battery-register/preview"){
       const u=new URL(req.url),type=String(u.searchParams.get("type")||"").toLowerCase(),id=idOf(u.searchParams.get("id"));
@@ -4830,7 +4884,9 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         buyer_state:b.buyer_state||null,buyer_state_code:b.buyer_state_code||null,state_type:b.state_type||null,product_name:b.product_name||null,
         chassis_no:b.chassis_no||null,motor_no:b.motor_no||null,sale_amount:num(b.sale_amount),gst_sale_amount:taxable,gst_rate:rate,
         discount:num(b.discount),insurance_amount:num(b.insurance_amount),registration_amount:num(b.registration_amount),
-        amount_received:num(b.amount_received),subsidy_amount:num(b.subsidy_amount),dealer_name:b.dealer_name||null,created_at:new Date()
+        amount_received:num(b.amount_received),subsidy_amount:num(b.subsidy_amount),dealer_name:b.dealer_name||null,created_at:new Date(),
+        // RTO (prints bottom-left of the invoice) and bank details; only columns that exist are written.
+        rto_name:b.rto_name||null,rto:b.rto_name||null,bank_name:b.bank_name||null,bank_account_no:b.bank_account_no||null,bank_ifsc:b.bank_ifsc||null
       };
       const keys=Object.keys(values).filter(k=>cols.has(k)),ph=keys.map((_,i)=>"$"+(i+1));
       if(!keys.length)return Response.json({error:"No compatible Tax Invoice columns found."},{status:500});

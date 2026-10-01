@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, getToken } from '../lib/api';
+import { get } from '../lib/api';
 import { Money } from './ui';
 
 // NOTE: the original app's actual print templates (templates/vouchers/*.html)
@@ -534,6 +534,292 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
   );
 }
 
+function Form22Body({ data }) {
+  const i = data.invoice, company = data.company, p = data.product || {};
+  const { rto_address } = data;
+  const brand = i.product_name || p.name || '';
+  const row = (k, v) => (
+    <tr><td style={{ width: 190, padding: '5px 0' }}>{k}</td><td style={{ width: 20 }}>:</td><td style={{ fontWeight: 800 }}>{v}</td></tr>
+  );
+  return (
+    <>
+      <style>{TI_STYLES}</style>
+      <div className="tiw">
+        <div className="top-line">DHAN-DHAN SAHIB SHRI GURU RAMDAS SAHIB JI</div>
+        <div className="header">
+          <div>
+            <div className="logo-title">{company?.name || 'G.R.D. MOTORS'}</div>
+            <div className="logo-sub">MANUFACTURER OF E-RICKSHAW &amp; E-CART</div>
+          </div>
+          <div className="header-right">
+            <div className="gstin-top">GSTIN : {company?.gst_no}</div>
+            <div className="ti-banner">FORM 22</div>
+          </div>
+        </div>
+
+        <div style={{ textAlign: 'center', lineHeight: 1.6, margin: '6px 0 18px' }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>FORM 22</div>
+          <div style={{ fontSize: 12 }}>[See Rules 47(g), 115, 124(2), 126A and 127(1), 127(2)]</div>
+          <div style={{ fontWeight: 800, fontSize: 14, margin: '16px auto 0', maxWidth: 560 }}>
+            INITIAL CERTIFICATE OF COMPLIANCE WITH POLLUTION STANDARDS, SAFETY STANDARDS OF COMPONENTS AND ROAD-WORTHINESS
+          </div>
+          <div style={{ fontSize: 12.5, margin: '14px auto 0', maxWidth: 440 }}>
+            (To be issued by the manufacturer or registered E-rickshaw or E-cart Association (in case of E-rickshaw or E-cart))
+          </div>
+          <div style={{ fontSize: 13, margin: '16px auto 0', maxWidth: 480 }}>
+            Certified that the following vehicle complies with the provisions of the Motor Vehicles Act, 1988, and the rules made thereunder, including the following mass emission norms:
+          </div>
+        </div>
+
+        <div className="box" style={{ padding: '12px 18px', marginBottom: 14 }}>
+          <div style={{ fontSize: 12, marginBottom: 8 }}>[To be issued by manufacturer]</div>
+          <table style={{ fontSize: 13, borderCollapse: 'collapse' }}><tbody>
+            {row('Brand name of the vehicle', brand)}
+            {row('Chassis No.', i.chassis_no)}
+            {row('Motor No.', i.motor_no)}
+            {row('Emission norms', 'Battery Operated Vehicles')}
+          </tbody></table>
+          <div style={{ fontSize: 12, marginTop: 6 }}>[Bharat Stage-I/II/III/Bharat (Trem) Stage-III etc.]</div>
+        </div>
+
+        <div className="decl-row" style={{ justifyContent: 'flex-end' }}>
+          <div className="box sign-box" style={{ flex: '0 0 46%' }}>
+            <div className="for">For {company?.name || 'G.R.D. MOTORS'}</div>
+            <div className="line">Authorised Signatory</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+              <div className="flag-logo" style={{ width: 150 }}>
+                <UMRNLogo umrn={p.umrn_code} keys={p.logo_keys || i.logo_keys} alt={brand} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="footer-row">
+          <div className="footer-addr">
+            <div>📍 {rto_address
+              ? rto_address.split('\n').map((l, idx, arr) => (<span key={idx}>{l}{idx < arr.length - 1 && <br />}</span>))
+              : (<>{company?.address1}<br />{company?.address2}</>)}</div>
+            <div>✉️ E-Mail : {company?.email}</div>
+            <div>📞 Mob : {company?.mobile}</div>
+            <div>🌐 Web site : {company?.website}</div>
+          </div>
+        </div>
+        <div className="bottom-strip">DHAN DHAN SAHIB SHRI GURU RAM DAS SAHIB JI</div>
+      </div>
+    </>
+  );
+}
+
+function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.', showCharges = true }) {
+  const i = data.invoice, company = data.company;
+  const { rto_address, print_bank_name, print_bank_account_no, print_bank_ifsc } = data;
+  const p = data.product || {};
+  const gstHalf = (i.gst_rate || 0) / 2;
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
+  const umrn = p.umrn_code;
+  const regAmt = showCharges ? (Number(i.registration_amount) || 0) : 0;
+  const insAmt = showCharges ? (Number(i.insurance_amount) || 0) : 0;
+  const batteryNos = [i.battery_no1, i.battery_no2, i.battery_no3, i.battery_no4]
+    .map((x) => String(x ?? '').trim()).filter((x) => x && x !== '0');
+
+  return (
+    <>
+      <div className="tiw">
+        <style>{TI_STYLES}</style>
+
+        <div className="top-line">DHAN-DHAN SAHIB SHRI GURU RAMDAS SAHIB JI</div>
+        <div className="header">
+          <div>
+            <div className="logo-title">{company?.name || 'G.R.D. MOTORS'}</div>
+            <div className="logo-sub">MANUFACTURER OF E-RICKSHAW &amp; E-CART</div>
+          </div>
+          <div className="header-right">
+            <div className="gstin-top">GSTIN : {company?.gst_no}</div>
+            <div className="ti-banner">{banner}</div>
+          </div>
+        </div>
+
+        <div className="row-top">
+          <div className="box buyer-box">
+            <div className="box-title"><span className="dot">👤</span>BUYER (BILLED TO)</div>
+            <div className="buyer-body">
+              <div className="buyer-name">{i.buyer_name}</div>
+              {(i.buyer_relation || i.buyer_father_name) && (
+                <div className="buyer-addr" style={{ marginBottom: 2 }}><b>{[i.buyer_relation, i.buyer_father_name].filter(Boolean).join(' ')}</b></div>
+              )}
+              <div className="buyer-addr">{i.buyer_address}</div>
+              {i.buyer_gst_no && <div className="buyer-kv"><span className="k">GSTIN/UIN</span><span className="v">: {i.buyer_gst_no}</span></div>}
+              <div className="buyer-kv"><span className="k">PAN No.</span><span className="v">: {i.buyer_pan || '—'}</span></div>
+              {!i.buyer_gst_no && <div className="buyer-kv"><span className="k">Aadhar No.</span><span className="v">: {i.buyer_aadhar || '—'}</span></div>}
+              <div className="buyer-kv"><span className="k">Mobile No.</span><span className="v">: {i.buyer_mobile}</span></div>
+              <div className="buyer-kv"><span className="k">State</span><span className="v">: {i.buyer_state} ({i.buyer_state_code})</span></div>
+            </div>
+          </div>
+          <div className="right-col">
+            <div className="box">
+              <table className="meta-table"><tbody>
+                <tr><td>📄 {numberLabel}</td><td>: {i.bill_no}</td></tr>
+                <tr><td>📅 Dated</td><td>: {fmtDate(i.date)}</td></tr>
+                <tr><td>🧾 e-Way Bill No.</td><td>: {i.eway_bill_no || '—'}</td></tr>
+              </tbody></table>
+            </div>
+            <div className="box">
+              <div className="box-title"><span className="dot">🏦</span>COMPANY'S BANK DETAILS</div>
+              <div className="bank-body">
+                <table><tbody>
+                  <tr><td>Bank Name</td><td>: {print_bank_name || ''}</td></tr>
+                  <tr><td>Account No.</td><td>: {print_bank_account_no || ''}</td></tr>
+                  <tr><td>IFSC Code</td><td>: {print_bank_ifsc || ''}</td></tr>
+                </tbody></table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="info-strip">
+          <div className="info-cell">
+            <div className="lbl"><span className="dot" />DEALER</div>
+            <div className="val">{i.dealer_name || '—'}</div>
+          </div>
+          <div className="info-cell">
+            <div className="lbl"><span className="dot" />CUSTOMER'S OTHERS INFO.</div>
+            <div className="val">{i.financer_name || '—'}</div>
+          </div>
+          <div className="info-cell">
+            <div className="lbl"><span className="dot" />MODE OF PAYMENT</div>
+            <div className="val">{i.mode_term || '—'}</div>
+          </div>
+          <div className="info-cell">
+            <div className="lbl"><span className="dot" />VEHICLE REG. NO.</div>
+            <div className="val">{i.vehicle_reg_no || '\u00a0'}</div>
+          </div>
+          <div className="info-cell">
+            <div className="lbl"><span className="dot" />DESPATCHED THROUGH</div>
+            <div className="val">{i.despatch_through || '\u00a0'}</div>
+          </div>
+        </div>
+
+        <table className="items">
+          <thead>
+            <tr>
+              <th style={{ width: 36 }}>S. No.</th><th>DESCRIPTION OF GOODS</th><th>HSN/SAC</th>
+              <th>QUANTITY</th><th>RATE</th><th>PER</th><th>DISC.</th><th>AMOUNT</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="center">1</td>
+              <td>
+                <div className="item-name">{i.product_name || p.name || i.model_name}</div>
+                <div className="item-sub">Chassis No. : {i.chassis_no}</div>
+                <div className="item-sub">Motor No. : {i.motor_no}</div>
+                <div className="item-sub">Color : {i.colour}</div>
+                {i.battery_maker && <div className="item-sub">Battery Make : {i.battery_maker}</div>}
+                {batteryNos.length > 0 && <div className="item-sub">Battery No. : {batteryNos.join(', ')}</div>}
+              </td>
+              <td className="center">{p.hsn_code || '—'}</td>
+              <td className="center">1 {p.unit || 'PCS'}</td>
+              <td className="num"><Money value={i.taxable_value} noSymbol /></td>
+              <td className="center">{p.unit || 'PCS'}</td>
+              <td className="center">{i.discount ? <Money value={i.discount} noSymbol /> : '-'}</td>
+              <td className="num"><Money value={i.taxable_value} /></td>
+            </tr>
+            {regAmt > 0 && (
+              <tr>
+                <td className="center">2</td><td><div className="item-name">Registration Charges</div></td>
+                <td className="center">—</td><td className="center">—</td><td className="num"><Money value={regAmt} noSymbol /></td>
+                <td className="center">—</td><td className="center">-</td><td className="num"><Money value={regAmt} /></td>
+              </tr>
+            )}
+            {insAmt > 0 && (
+              <tr>
+                <td className="center">{regAmt > 0 ? 3 : 2}</td><td><div className="item-name">Insurance Charges</div></td>
+                <td className="center">—</td><td className="center">—</td><td className="num"><Money value={insAmt} noSymbol /></td>
+                <td className="center">—</td><td className="center">-</td><td className="num"><Money value={insAmt} /></td>
+              </tr>
+            )}
+            <tr><td colSpan={8}>&nbsp;</td></tr>
+          </tbody>
+        </table>
+
+        <div className="totals-row">
+          <div className="box words-box">
+            <div className="box-title" style={{ marginLeft: -14, marginTop: -10, marginRight: -14, marginBottom: 10 }}>
+              <span className="dot">🔤</span>AMOUNT CHARGEABLE (IN WORDS)
+            </div>
+            {amountInWords(i.bill_total)}
+          </div>
+          <div className="box amt-box">
+            <table className="amt-table"><tbody>
+              <tr><td>Taxable Amount</td><td><Money value={i.taxable_value} /></td></tr>
+              <tr><td>GST @ {i.gst_rate}%</td><td><Money value={(Number(i.cgst_amount) || 0) + (Number(i.sgst_amount) || 0) + (Number(i.igst_amount) || 0)} /></td></tr>
+              {regAmt > 0 && <tr><td>Registration Charges</td><td><Money value={regAmt} /></td></tr>}
+              {insAmt > 0 && <tr><td>Insurance Charges</td><td><Money value={insAmt} /></td></tr>}
+            </tbody></table>
+            <div className="amt-total"><span>TOTAL</span><span><Money value={i.bill_total} /></span></div>
+          </div>
+        </div>
+
+        <div className="decl-row">
+          <div className="box decl-box">
+            <div className="box-title" style={{ marginLeft: -14, marginTop: -10, marginRight: -14, marginBottom: 10 }}>
+              <span className="dot">ℹ️</span>DECLARATION
+            </div>
+            <ol>
+              <li>Goods Once Sold Will Not Taken Back</li>
+              <li>Warranty As Per T&amp;C of Principal Company Only</li>
+              <li>Subject To Delhi Jurisdiction Only</li>
+            </ol>
+          </div>
+          <div className="box sign-box">
+            <div className="for">for {company?.name || 'G.R.D. MOTORS'}</div>
+            <div className="line">Authorised Signatory</div>
+          </div>
+        </div>
+
+        <div className="footer-row">
+          <div className="footer-addr">
+            <div>📍 {rto_address
+              ? rto_address.split('\n').map((l, idx, arr) => (
+                  <span key={idx}>{l}{idx < arr.length - 1 && <br />}</span>
+                ))
+              : (<>{company?.address1}<br />{company?.address2}</>)}</div>
+            <div>✉️ E-Mail : {company?.email}</div>
+            <div>📞 Mob : {company?.mobile}</div>
+            <div>🌐 Web site : {company?.website}</div>
+          </div>
+          <div className="footer-side">
+            <div className="qr-placeholder">QR CODE</div>
+            <div className="flag-logo"><UMRNLogo umrn={umrn} keys={p.logo_keys || i.logo_keys} alt={i.product_name || ''} /></div>
+          </div>
+        </div>
+
+        <div className="bottom-strip">DHAN DHAN SAHIB SHRI GURU RAM DAS SAHIB JI</div>
+      </div>
+  </>
+  );
+}
+
+// "Print" for an Approved Sale: same layout as the Tax Invoice, titled
+// PROFORMA INVOICE, and without the Registration / Insurance charge lines.
+export function ProformaInvoicePrintView({ saleId, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    setData(null); setError('');
+    get(`/billing/pending-sales/proforma?id=${saleId}`)
+      .then(setData)
+      .catch((e) => setError(e.message || 'Unable to load Proforma Invoice.'));
+  }, [saleId]);
+  if (error) return <div className="modal"><div className="modalbox" style={{maxWidth:520}}><h3>Proforma Invoice</h3><div className="error">{error}</div><button className="btn" onClick={onClose}>Close</button></div></div>;
+  if (!data) return <div className="modal"><div className="modalbox" style={{maxWidth:420}}>Loading Proforma Invoice…</div></div>;
+  return (
+    <Overlay onClose={onClose} title="Proforma Invoice">
+      <InvoiceBody data={data} banner="PROFORMA INVOICE" numberLabel="Proforma No." showCharges={false} />
+    </Overlay>
+  );
+}
+
 export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose }) {
   const [doc, setDoc] = useState(initialDoc);
   const [data, setData] = useState(null);
@@ -546,21 +832,6 @@ export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose
       .catch((e) => setError(e.message || 'Unable to load Tax Invoice print.'));
   }, [invoiceId, doc]);
 
-  const downloadUploadCode = async () => {
-    const token = getToken();
-    const r = await fetch(`/api/backend/tax-invoices/${invoiceId}/upload-code`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    const blob = await r.blob();
-    const disposition = r.headers.get('content-disposition') || '';
-    const match = /filename="?([^"]+)"?/.exec(disposition);
-    const filename = match ? match[1] : 'upload.TXT';
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-    window.URL.revokeObjectURL(url);
-  };
-
   if (error) return <div className="modal"><div className="modalbox" style={{maxWidth:520}}><h3>Tax Invoice Print</h3><div className="error">{error}</div><button className="btn" onClick={onClose}>Close</button></div></div>;
   if (!data) return <div className="modal"><div className="modalbox" style={{maxWidth:420}}>Loading Tax Invoice…</div></div>;
   const { invoice: i, company, doc_title, doc_no_label, rto_address,
@@ -569,6 +840,7 @@ export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose
   const docSelect = (
     <select className="noprint" value={doc} onChange={(e) => setDoc(e.target.value)} style={{ marginRight: 8 }}>
       <option value="invoice">Tax Invoice</option>
+      <option value="manufacturing">Manufacturing Invoice</option>
       <option value="affidavit">Affidavit</option>
       <option value="undertaking">Undertaking</option>
       <option value="form22">Form 22</option>
@@ -577,167 +849,45 @@ export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose
   const extraActions = (
     <>
       {docSelect}
-      <button className="btn noprint" onClick={downloadUploadCode}>Download UMRN Upload Code (.TXT)</button>
     </>
   );
 
   if (doc === 'invoice') {
-    const p = data.product || {};
-    const gstHalf = (i.gst_rate || 0) / 2;
-    const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
-    const umrn = p.umrn_code;
-
     return (
       <Overlay onClose={onClose} extraActions={extraActions}>
-        <div className="tiw">
-          <style>{TI_STYLES}</style>
+        <InvoiceBody data={data} />
+      </Overlay>
+    );
+  }
 
-          <div className="top-line">DHAN-DHAN SAHIB SHRI GURU RAMDAS SAHIB JI</div>
-          <div className="header">
-            <div>
-              <div className="logo-title">{company?.name || 'G.R.D. MOTORS'}</div>
-              <div className="logo-sub">MANUFACTURER OF E-RICKSHAW &amp; E-CART</div>
-            </div>
-            <div className="header-right">
-              <div className="gstin-top">GSTIN : {company?.gst_no}</div>
-              <div className="ti-banner">TAX INVOICE</div>
-            </div>
-          </div>
+  if (doc === 'form22') {
+    return (
+      <Overlay onClose={onClose} extraActions={extraActions} title="Form 22">
+        <Form22Body data={data} />
+      </Overlay>
+    );
+  }
 
-          <div className="row-top">
-            <div className="box buyer-box">
-              <div className="box-title"><span className="dot">👤</span>BUYER (BILLED TO)</div>
-              <div className="buyer-body">
-                <div className="buyer-name">{i.buyer_name}</div>
-                <div className="buyer-addr">{i.buyer_address}</div>
-                <div className="buyer-kv"><span className="k">GSTIN/UIN/PAN</span><span className="v">: {i.buyer_gst_no || i.buyer_pan || '—'}</span></div>
-                <div className="buyer-kv"><span className="k">Mobile No.</span><span className="v">: {i.buyer_mobile}</span></div>
-                <div className="buyer-kv"><span className="k">State</span><span className="v">: {i.buyer_state} ({i.buyer_state_code})</span></div>
-              </div>
-            </div>
-            <div className="right-col">
-              <div className="box">
-                <table className="meta-table"><tbody>
-                  <tr><td>📄 Invoice No.</td><td>: {i.bill_no}</td></tr>
-                  <tr><td>📅 Dated</td><td>: {fmtDate(i.date)}</td></tr>
-                  <tr><td>🧾 e-Way Bill No.</td><td>: {i.eway_bill_no || '—'}</td></tr>
-                </tbody></table>
-              </div>
-              <div className="box">
-                <div className="box-title"><span className="dot">🏦</span>COMPANY'S BANK DETAILS</div>
-                <div className="bank-body">
-                  <table><tbody>
-                    <tr><td>Bank Name</td><td>: {print_bank_name || ''}</td></tr>
-                    <tr><td>Account No.</td><td>: {print_bank_account_no || ''}</td></tr>
-                    <tr><td>IFSC Code</td><td>: {print_bank_ifsc || ''}</td></tr>
-                  </tbody></table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="info-strip">
-            <div className="info-cell">
-              <div className="lbl"><span className="dot" />DEALER</div>
-              <div className="val">{i.dealer_name || '—'}</div>
-            </div>
-            <div className="info-cell">
-              <div className="lbl"><span className="dot" />CUSTOMER'S OTHERS INFO.</div>
-              <div className="val">{i.financer_name || '—'}</div>
-            </div>
-            <div className="info-cell">
-              <div className="lbl"><span className="dot" />MODE OF PAYMENT</div>
-              <div className="val">{i.mode_term || '—'}</div>
-            </div>
-            <div className="info-cell">
-              <div className="lbl"><span className="dot" />VEHICLE REG. NO.</div>
-              <div className="val">{i.vehicle_reg_no || '\u00a0'}</div>
-            </div>
-            <div className="info-cell">
-              <div className="lbl"><span className="dot" />DESPATCHED THROUGH</div>
-              <div className="val">{i.despatch_through || '\u00a0'}</div>
-            </div>
-          </div>
-
-          <table className="items">
-            <thead>
-              <tr>
-                <th style={{ width: 36 }}>S. No.</th><th>DESCRIPTION OF GOODS</th><th>HSN/SAC</th>
-                <th>QUANTITY</th><th>RATE</th><th>PER</th><th>DISC.</th><th>AMOUNT</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="center">1</td>
-                <td>
-                  <div className="item-name">{i.product_name}</div>
-                  <div className="item-sub">Chassis No. : {i.chassis_no}</div>
-                  <div className="item-sub">Motor No. : {i.motor_no}</div>
-                  <div className="item-sub">Color : {i.colour}</div>
-                </td>
-                <td className="center">{p.hsn_code || '—'}</td>
-                <td className="center">1 {p.unit || 'PCS'}</td>
-                <td className="num"><Money value={i.taxable_value} noSymbol /></td>
-                <td className="center">{p.unit || 'PCS'}</td>
-                <td className="center">{i.discount ? <Money value={i.discount} noSymbol /> : '-'}</td>
-                <td className="num"><Money value={i.taxable_value} /></td>
-              </tr>
-              <tr><td colSpan={8}>&nbsp;</td></tr>
-            </tbody>
-          </table>
-
-          <div className="totals-row">
-            <div className="box words-box">
-              <div className="box-title" style={{ marginLeft: -14, marginTop: -10, marginRight: -14, marginBottom: 10 }}>
-                <span className="dot">🔤</span>AMOUNT CHARGEABLE (IN WORDS)
-              </div>
-              {amountInWords(i.bill_total)}
-            </div>
-            <div className="box amt-box">
-              <table className="amt-table"><tbody>
-                <tr><td>Taxable Amount</td><td><Money value={i.taxable_value} /></td></tr>
-                <tr><td>GST @ {i.gst_rate}%</td><td><Money value={(Number(i.cgst_amount) || 0) + (Number(i.sgst_amount) || 0) + (Number(i.igst_amount) || 0)} /></td></tr>
-              </tbody></table>
-              <div className="amt-total"><span>TOTAL</span><span><Money value={i.bill_total} /></span></div>
-            </div>
-          </div>
-
-          <div className="decl-row">
-            <div className="box decl-box">
-              <div className="box-title" style={{ marginLeft: -14, marginTop: -10, marginRight: -14, marginBottom: 10 }}>
-                <span className="dot">ℹ️</span>DECLARATION
-              </div>
-              <ol>
-                <li>Goods Once Sold Will Not Taken Back</li>
-                <li>Warranty As Per T&amp;C of Principal Company Only</li>
-                <li>Subject To Delhi Jurisdiction Only</li>
-              </ol>
-            </div>
-            <div className="box sign-box">
-              <div className="for">for {company?.name || 'G.R.D. MOTORS'}</div>
-              <div className="line">Authorised Signatory</div>
-            </div>
-          </div>
-
-          <div className="footer-row">
-            <div className="footer-addr">
-              <div>📍 {rto_address
-                ? rto_address.split('\n').map((l, idx, arr) => (
-                    <span key={idx}>{l}{idx < arr.length - 1 && <br />}</span>
-                  ))
-                : (<>{company?.address1}<br />{company?.address2}</>)}</div>
-              <div>✉️ E-Mail : {company?.email}</div>
-              <div>📞 Mob : {company?.mobile}</div>
-              <div>🌐 Web site : {company?.website}</div>
-            </div>
-            <div className="footer-side">
-              <div className="qr-placeholder">QR CODE</div>
-              <div className="flag-logo"><UMRNLogo umrn={umrn} keys={p.logo_keys || i.logo_keys} alt={i.product_name || ''} /></div>
-            </div>
-          </div>
-
-          <div className="bottom-strip">DHAN DHAN SAHIB SHRI GURU RAM DAS SAHIB JI</div>
-        </div>
+  // Manufacturing Invoice: same layout as the Tax Invoice, value Rs. 10,000 lower (GST recalculated on the
+  // reduced taxable value) and dated with the date of production instead of the invoice date.
+  if (doc === 'manufacturing') {
+    const MFG_LESS = 10000;
+    const taxable = Math.max(0, (Number(i.taxable_value) || 0) - MFG_LESS);
+    const gst = taxable * (Number(i.gst_rate) || 0) / 100;
+    const inter = (Number(i.igst_amount) || 0) > 0;
+    const mfg = {
+      ...data,
+      invoice: {
+        ...i,
+        date: i.production_date || i.date,
+        taxable_value: taxable,
+        cgst_amount: inter ? 0 : gst / 2, sgst_amount: inter ? 0 : gst / 2, igst_amount: inter ? gst : 0,
+        bill_total: taxable + gst + (Number(i.insurance_amount) || 0) + (Number(i.registration_amount) || 0),
+      },
+    };
+    return (
+      <Overlay onClose={onClose} extraActions={extraActions} title="Manufacturing Invoice">
+        <InvoiceBody data={mfg} banner="MANUFACTURING INVOICE" />
       </Overlay>
     );
   }
