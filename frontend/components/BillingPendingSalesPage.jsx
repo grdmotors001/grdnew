@@ -171,11 +171,28 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
   const chooseKind=k=>{setChassisText('');setKind(k);setError('');setStep(0);setForm(initial);setStock({loading:false,error:'',rows:[]});setPeople({loading:false,error:'',loans:[],customers:[]});seq.current++};
 
   // 2) that dealer's stock, 3) then that dealer's customers / approved loans. New Rickshaw only.
+  // Registered dealer => buyer = dealer itself: naam, address, GSTIN, PAN, state auto-fill (sab editable rehta hai).
+  const DEALER_FILL_KEYS=['buyer_name','buyer_address','buyer_mobile','buyer_gst_no','buyer_pan','buyer_state','buyer_state_code'];
+  const dealerFilled=useRef(false);
+  const dealerBuyerFields=async v=>{
+    let d=dealers.find(x=>String(x.id)===String(v));
+    // options?part=dealers me address/GSTIN na aaye to master list se utha lo.
+    if(!d||(d.address1===undefined&&d.gst_no===undefined&&d.pan===undefined)){
+      try{const r=await get('/dealers');d={...(d||{}),...((r.dealers||[]).find(x=>String(x.id)===String(v))||{})}}catch(e){}
+    }
+    if(!d)return null;
+    const cat=String(d.dealer_category||'').toLowerCase();
+    if(['showroom','branch'].includes(cat)||String(d.registration_type||'registered').toLowerCase()==='unregistered')return null;
+    return {buyer_name:d.name||'',buyer_address:[d.address1,d.address2].map(x=>String(x||'').trim()).filter(Boolean).join(', '),
+      buyer_mobile:d.mobile||'',buyer_gst_no:d.gst_no||'',buyer_pan:d.pan||'',buyer_state:d.state||'',buyer_state_code:d.state_code||''};
+  };
   const selectDealer=async v=>{
     setChassisText('');
-    setForm(f=>({...f,dealer_id:v,application_id:null,dealer_cash_customer_id:'',vehicle_id:'',buyer_name:'',buyer_mobile:'',buyer_address:'',
+    dealerFilled.current=false;
+    setForm(f=>({...f,dealer_id:v,application_id:null,dealer_cash_customer_id:'',vehicle_id:'',buyer_name:'',buyer_mobile:'',buyer_address:'',buyer_gst_no:'',buyer_pan:'',buyer_state:'',buyer_state_code:'',
       sale_amount:'',gst_sale_amount:'',hypothecation_amount:'',amount_received:'',financer_name:'',do_no:'',dealer_page_no:''}));
     const my=++seq.current;
+    if(v&&kind==='NEW'){dealerBuyerFields(v).then(b=>{if(b&&seq.current===my){dealerFilled.current=true;setForm(f=>({...f,...b}))}})}
     setStock({loading:false,error:'',rows:[]});setPeople({loading:false,error:'',loans:[],customers:[]});
     if(!v||kind!=='NEW')return;
     setStock({loading:true,error:'',rows:[]});
@@ -197,8 +214,11 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
   const pickLoan=v=>{
     const l=loans.find(y=>String(y.id)===String(v));
     if(!l){setForm(f=>({...f,application_id:null,hypothecation_amount:'',financer_name:'',do_no:''}));return}
+    const clearDealer=dealerFilled.current;dealerFilled.current=false;
     setForm(f=>({...f,application_id:l.id,hypothecation_amount:String(Number(l.loan_amount)||''),financer_name:f.financer_name||'CHFPL',
-      do_no:l.do_no||f.do_no,buyer_name:f.buyer_name||l.customer_name||'',buyer_mobile:f.buyer_mobile||l.customer_phone||''}));
+      do_no:l.do_no||f.do_no,
+      ...(clearDealer?{buyer_name:l.customer_name||'',buyer_mobile:l.customer_phone||'',buyer_address:'',buyer_gst_no:'',buyer_pan:''}
+        :{buyer_name:f.buyer_name||l.customer_name||'',buyer_mobile:f.buyer_mobile||l.customer_phone||''})}));
   };
   // Chassis can be typed: exact chassis no., or any text (>=4 chars) that matches exactly one of this dealer's vehicles.
   const typeChassis=t=>{

@@ -125,11 +125,11 @@ export function DealerPage() {
  });
 
  const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07', registration_type: 'registered', sub_group_name: 'Primary' }); setOpen(true); };
-  const openEdit = (d) => { setEditingId(d.id); setForm({ ...d }); setOpen(true); };
+  const openEdit = (d) => { setEditingId(d.id); const { password, password_hash, ...rest } = d; setForm({ ...rest }); setOpen(true); };
 
   const save = (e) => {
     e.preventDefault();
-    run(async () => { await post('/dealers', { ...form, id: editingId || undefined }); setOpen(false); setEditingId(null); load(); });
+    run(async () => { const body = { ...form, id: editingId || undefined }; if (!String(body.password || '').trim()) delete body.password; await post('/dealers', body); setOpen(false); setEditingId(null); load(); });
   };
 
   const remove = (id) => {
@@ -214,8 +214,8 @@ export function DealerPage() {
                   })}
                 </div>
               </div>
-              <Field label="Dealer Login ID" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
-              <Field label="Dealer Password" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
+              <Field label="Dealer Login ID" name="dealer_login_id" autoComplete="off" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
+              <Field label="Dealer Password" name="dealer_new_password" type="password" autoComplete="new-password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
             </div>
             <div className="actions" style={{ marginTop: 18, justifyContent: 'space-between' }}>
               {editingId ? (
