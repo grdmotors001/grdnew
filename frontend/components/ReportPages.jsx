@@ -1509,24 +1509,33 @@ export function LedgerVPage() {
 
 export function VehicleNoRegisterPage() {
   const r = useReport('/vehicle-no-register');
-  const [editId, setEditId] = useState(null);
-  const [draft, setDraft] = useState('');
+  // Every row has its own always-visible box. An empty row is open for typing / pasting. As soon as a value is
+  // pasted (or Enter / leaving the box) it is saved and the box locks; only the Edit button unlocks it again.
+  const [drafts, setDrafts] = useState({});      // id -> text being typed
+  const [unlocked, setUnlocked] = useState({});  // id -> true while a saved value is being edited
   const [saved, setSaved] = useState({});
-  const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState('');
   if (r.error) return <ErrorBanner message={r.error} />;
-  if (!r.data) return <div className="card">Loading…</div>;
+  if (!r.data) return <div className="card">Loading...</div>;
   const rows = r.data.rows || [];
   const regOf = (i) => (saved[i.id] !== undefined ? saved[i.id] : i.vehicle_reg_no) || '';
-  const startEdit = (i) => { setErr(''); setEditId(i.id); setDraft(regOf(i)); };
-  const save = async (i) => {
-    setBusy(true); setErr('');
+  const isLocked = (i) => !!regOf(i) && !unlocked[i.id];
+  const norm = (v) => String(v || '').toUpperCase().replace(/\s+/g, '');
+  const setDraft = (id, v) => setDrafts((d) => ({ ...d, [id]: v }));
+  const save = async (i, value) => {
+    const val = norm(value);
+    if (!val || val === regOf(i)) { setUnlocked((u) => ({ ...u, [i.id]: false })); setDrafts((d) => { const n = { ...d }; delete n[i.id]; return n; }); return; }
+    setBusyId(i.id); setErr('');
     try {
-      const res = await put(`/vehicle-no-register/${i.id}`, { vehicle_reg_no: draft });
-      setSaved((s) => ({ ...s, [i.id]: res?.row?.vehicle_reg_no || '' }));
-      setEditId(null);
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+      const res = await put(`/vehicle-no-register/${i.id}`, { vehicle_reg_no: val });
+      setSaved((s) => ({ ...s, [i.id]: res?.row?.vehicle_reg_no ?? val }));
+      setUnlocked((u) => ({ ...u, [i.id]: false }));
+      setDrafts((d) => { const n = { ...d }; delete n[i.id]; return n; });
+    } catch (e) { setErr(e.message); } finally { setBusyId(null); }
   };
+  const startEdit = (i) => { setErr(''); setDraft(i.id, regOf(i)); setUnlocked((u) => ({ ...u, [i.id]: true })); };
+  const cancelEdit = (i) => { setUnlocked((u) => ({ ...u, [i.id]: false })); setDrafts((d) => { const n = { ...d }; delete n[i.id]; return n; }); };
   return (
     <>
       <FilterBar r={r} />
@@ -1535,27 +1544,41 @@ export function VehicleNoRegisterPage() {
         <div className="tablewrap">
           <table className="table">
             <thead><tr><th>Date</th><th>Bill No.</th><th>Customer Name</th><th>Chassis No.</th><th>Dealer</th><th>Model</th><th>Vehicle No.</th><th style={{ width: 150 }}>Action</th></tr></thead>
-            <tbody>{rows.map((i) => (
+            <tbody>{rows.map((i) => {
+              const locked = isLocked(i), busy = busyId === i.id;
+              return (
               <tr key={i.id}>
                 <td>{formatDate(i.date)}</td>
                 <td>{i.bill_no}</td>
-                <td>{i.buyer_name || '—'}</td>
-                <td>{i.chassis_no || '—'}</td>
-                <td>{i.dealer_name || '—'}</td>
-                <td>{i.product_name || '—'}</td>
-                <td>{editId === i.id
-                  ? <input className="input" autoFocus value={draft} placeholder="e.g. DL5ERB0160" style={{ maxWidth: 190 }}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') save(i); if (e.key === 'Escape') setEditId(null); }} />
-                  : (regOf(i) || '—')}</td>
-                <td>{editId === i.id ? (
-                  <>
-                    <button className="btn primary" disabled={busy} onClick={() => save(i)}>{busy ? 'Saving…' : 'Save'}</button>{' '}
-                    <button className="btn" disabled={busy} onClick={() => setEditId(null)}>Cancel</button>
-                  </>
-                ) : <button className="btn" onClick={() => startEdit(i)}>Edit</button>}</td>
+                <td>{i.buyer_name || '--'}</td>
+                <td>{i.chassis_no || '--'}</td>
+                <td>{i.dealer_name || '--'}</td>
+                <td>{i.product_name || '--'}</td>
+                <td>
+                  <input className="input" style={{ maxWidth: 190, ...(locked ? { background: '#f2f4f7', color: '#475467' } : {}) }}
+                    value={locked ? regOf(i) : (drafts[i.id] ?? regOf(i))}
+                    disabled={locked || busy}
+                    placeholder="Paste vehicle no. e.g. DL5ERB0160"
+                    autoFocus={!!unlocked[i.id]}
+                    onChange={(e) => setDraft(i.id, e.target.value.toUpperCase())}
+                    onPaste={(e) => {
+                      const text = (e.clipboardData || window.clipboardData).getData('text');
+                      if (!norm(text)) return;
+                      e.preventDefault();
+                      setDraft(i.id, norm(text));
+                      save(i, text);
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') save(i, drafts[i.id] ?? regOf(i)); if (e.key === 'Escape' && unlocked[i.id]) cancelEdit(i); }}
+                    onBlur={() => { if (!regOf(i) && drafts[i.id] !== undefined && norm(drafts[i.id]) && !busy) save(i, drafts[i.id]); }} />
+                </td>
+                <td>{locked
+                  ? <button className="btn" onClick={() => startEdit(i)}>Edit</button>
+                  : (regOf(i)
+                      ? <><button className="btn primary" disabled={busy} onClick={() => save(i, drafts[i.id] ?? regOf(i))}>{busy ? 'Saving...' : 'Save'}</button>{' '}<button className="btn" disabled={busy} onClick={() => cancelEdit(i)}>Cancel</button></>
+                      : <span className="muted">{busy ? 'Saving...' : 'Paste to save'}</span>)}</td>
               </tr>
-            ))}</tbody>
+              );
+            })}</tbody>
             <tfoot><tr><td colSpan={8}><b>{rows.length}</b> records</td></tr></tfoot>
           </table>
         </div>
