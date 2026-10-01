@@ -77,12 +77,22 @@ export function ProductionVoucherPage() {
       setForm((f) => (f.product_name === productName
         ? { ...f, chassis_no: gen.chassis_no, motor_no: gen.motor_no, controller_no: gen.controller_no }
         : f));
+      if (gen.wrapped) {
+        setError('Note: serial limit ke baad chassis serial dobara 001 se shuru hua (pehle se bane numbers skip kiye gaye).');
+      }
       if (gen.missing_item_code) {
         setError('Note: this product has no Chassis Item Code set in Product Master — used a fallback prefix.');
       }
     }).catch(() => {});
   };
 
+  // Mechanic ka naam: machnic ya koi bhi mechanic jaisi column (purane imported data me alag naam ho sakta hai).
+  const mechanicOf = (r) => {
+    const direct = r.machnic || r.mechanic || r.mechanic_name || r.mechnic;
+    if (direct) return direct;
+    const k = Object.keys(r).find((x) => /mach?e?nic|mechanic/i.test(x) && String(r[x] ?? '').trim() !== '');
+    return k ? r[k] : '';
+  };
   const productByName = (name) => products.find((p) => String(p.name) === String(name));
   const chassisLenFor = (name) => {
     const p = productByName(name) || {};
@@ -112,12 +122,12 @@ export function ProductionVoucherPage() {
     if (formulasForProduct.length > 0 && !form.formula_name) { setError('Formula Name select karein — is model ke formula ke hisaab se raw material stock se kategi.'); return; }
     run(async () => {
       // Duplicate chassis: same chassis no. pehle se kisi voucher me ho to save nahi hoga.
-      const dq = await get(`/production-vouchers?${new URLSearchParams({ search: ch, page: 1, per_page: 50 })}`);
+      const dq = await get(`/production-vouchers?${new URLSearchParams({ search: ch, page: 1, per_page: 50 })}`, { timeoutMs: 90000 });
       const dup = (dq.vouchers || []).find((v) => String(v.id) !== String(editingId || '')
         && String(v.chassis_no || '').trim().toLowerCase() === ch.toLowerCase());
       if (dup) throw new Error(`Chassis No. "${ch}" pehle se Vou. No. ${dup.vou_no || '-'} me bana hua hai. Duplicate chassis nahi ban sakta.`);
-      if (editingId) await put(`/production-vouchers/${editingId}`, form);
-      else await post('/production-vouchers', form);
+      if (editingId) await put(`/production-vouchers/${editingId}`, form, { timeoutMs: 120000 });
+      else await post('/production-vouchers', form, { timeoutMs: 120000 });
       setOpen(false);
       load();
     });
@@ -149,12 +159,12 @@ export function ProductionVoucherPage() {
       {!data ? <div className="card">Loading…</div> : rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Vou. No.</th><th>Model Name</th><th>Chassis No.</th><th>Motor No.</th><th>Colour</th><th>Raw Material Lines</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Vou. No.</th><th>Model Name</th><th>Chassis No.</th><th>Motor No.</th><th>Colour</th><th>Mechanic</th><th>Raw Material Lines</th><th></th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td>{formatDate(r.date)}</td><td>{r.vou_no}</td><td>{r.product_name}</td>
-                  <td><b>{r.chassis_no}</b></td><td>{r.motor_no}</td><td>{r.colour}</td>
+                  <td><b>{r.chassis_no}</b></td><td>{r.motor_no}</td><td>{r.colour}</td><td>{mechanicOf(r)}</td>
                   <td>{r.item_count}</td>
                   <td>
                     <button className="btn" onClick={() => openEdit(r.id)}>Edit</button>

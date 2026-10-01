@@ -1,0 +1,115 @@
+--- orig/route.ts	2026-10-01 09:31:00.132796427 +0000
++++ app/app/api/[...path]/route.ts	2026-10-01 09:31:29.078021614 +0000
+@@ -1905,6 +1905,93 @@
+ }
+ // =================== end Expense Payment Voucher ===================
+ 
++// ===== Production costing (ADMIN ONLY) =========================================================
++// Avg cost of one vehicle = SUM( raw-material qty used x weighted-average PURCHASE rate of that item ) / vehicles.
++//  * Rate = total taxable purchase value / total purchase qty of that item, using only purchases dated ON OR BEFORE
++//    the production voucher date (moving weighted average). GST is excluded (input credit).
++//  * If an item has no purchase up to that date, the average of ALL its purchases is used.
++//  * If an item was never purchased, it is counted in cost_missing (cost is then understated).
++//  * Consumption lines come from: stock journal (Production Consumption) -> production_voucher_item -> formula x qty.
++type RateSeries={d:string[],cq:number[],ca:number[]};
++let _rateCache:{t:number,idx:Map<string,RateSeries>}|null=null;
++const costKey=(s:any)=>String(s??"").replace(/\s+/g," ").trim().toLowerCase();
++async function purchaseRateIndex(){
++  if(_rateCache&&Date.now()-_rateCache.t<60000)return _rateCache.idx;
++  const r=await pool.query("SELECT date,items FROM purchase_bill WHERE date IS NOT NULL");
++  const first=(...v:any[])=>{for(const x of v){if(x===null||x===undefined||x==="")continue;const n=Number(x);if(Number.isFinite(n)&&n!==0)return n;}return 0;};
++  const raw=new Map<string,{d:string,q:number,a:number}[]>();
++  for(const pb of r.rows){
++    const d=ymd(pb.date);if(!d)continue;
++    for(const it of parseItems(pb.items)){
++      const k=costKey(it?.item_name||it?.name);if(!k)continue;
++      const q=first(it.qty,it.quantity),rate=first(it.rate,it.unit_rate,it.price);
++      const amt=first(it.taxable_amt,it.taxable_amount,it.taxable,it.subtotal,q*rate);
++      if(q<=0||amt<=0)continue;
++      let arr=raw.get(k);if(!arr){arr=[];raw.set(k,arr);}
++      arr.push({d,q,a:amt});
++    }
++  }
++  const idx=new Map<string,RateSeries>();
++  for(const [k,arr] of raw){
++    arr.sort((x,y)=>x.d<y.d?-1:x.d>y.d?1:0);
++    let cq=0,ca=0;const s:RateSeries={d:[],cq:[],ca:[]};
++    for(const e of arr){cq+=e.q;ca+=e.a;s.d.push(e.d);s.cq.push(cq);s.ca.push(ca);}
++    idx.set(k,s);
++  }
++  _rateCache={t:Date.now(),idx};
++  return idx;
++}
++function avgRateAsOf(idx:Map<string,RateSeries>,k:string,date:string):number|null{
++  const s=idx.get(k);if(!s||!s.d.length)return null;
++  let lo=0,hi=s.d.length-1,pos=-1;
++  if(date){while(lo<=hi){const m=(lo+hi)>>1;if(s.d[m]<=date){pos=m;lo=m+1}else hi=m-1}}
++  const i=pos>=0?pos:s.d.length-1;   // nothing on/before the date -> use all purchases
++  return s.cq[i]>0?s.ca[i]/s.cq[i]:null;
++}
++async function productionCosts(rows:any[]){
++  const out=new Map<number,{cost:number,missing:number,lines:number,source:string}>();
++  if(!rows.length)return out;
++  const idx=await purchaseRateIndex();
++  const lines=new Map<number,{k:string,qty:number}[]>(),source=new Map<number,string>();
++  // 1) stock journal lines written when the voucher was saved in this app
++  const vous=rows.map(r=>String(r.vou_no||"")).filter(Boolean);
++  if(vous.length){
++    const j=await pool.query("SELECT batch_ref,item_name,ABS(qty) AS qty FROM journal_stock WHERE reason='Production Consumption' AND batch_ref=ANY($1::text[])",[vous]);
++    const by=new Map<string,any[]>();
++    for(const x of j.rows){let a=by.get(String(x.batch_ref));if(!a){a=[];by.set(String(x.batch_ref),a);}a.push(x);}
++    for(const r of rows){const a=by.get(String(r.vou_no||""));if(a&&a.length){lines.set(r.id,a.map(x=>({k:costKey(x.item_name),qty:num(x.qty)})));source.set(r.id,"stock");}}
++  }
++  // 2) raw-material lines saved with the voucher (imported / older vouchers)
++  const need2=rows.filter(r=>!lines.has(r.id)).map(r=>Number(r.id));
++  if(need2.length){
++    try{
++      const it=await pool.query("SELECT voucher_id,item_name,qty FROM production_voucher_item WHERE voucher_id=ANY($1::int[])",[need2]);
++      const by=new Map<number,any[]>();
++      for(const x of it.rows){let a=by.get(Number(x.voucher_id));if(!a){a=[];by.set(Number(x.voucher_id),a);}a.push(x);}
++      for(const id of need2){const a=by.get(id);if(a&&a.length){lines.set(id,a.map(x=>({k:costKey(x.item_name),qty:Math.abs(num(x.qty))})));source.set(id,"items");}}
++    }catch{/* table not present in this database */}
++  }
++  // 3) fallback: Production Formula x voucher quantity
++  const need3=rows.filter(r=>!lines.has(r.id));
++  if(need3.length){
++    const prods=[...new Set(need3.map(r=>costKey(r.product_name)).filter(Boolean))];
++    if(prods.length){
++      const f=await pool.query("SELECT product_name,formula_name,raw_item_name,qty FROM production_formula WHERE lower(btrim(product_name))=ANY($1::text[])",[prods]);
++      for(const r of need3){
++        const pk=costKey(r.product_name),fk=costKey(r.formula_name),q=Math.max(1,Math.trunc(num(r.quantity)||1));
++        const l=f.rows.filter((x:any)=>costKey(x.product_name)===pk&&(!fk||costKey(x.formula_name)===fk));
++        if(l.length){lines.set(r.id,l.map((x:any)=>({k:costKey(x.raw_item_name),qty:num(x.qty)*q})));source.set(r.id,"formula");}
++      }
++    }
++  }
++  for(const r of rows){
++    const l=lines.get(r.id)||[],d=ymd(r.date),vq=Math.max(1,Math.trunc(num(r.quantity)||1));
++    let total=0,missing=0;
++    for(const x of l){if(!x.k||x.qty<=0)continue;const rate=avgRateAsOf(idx,x.k,d);if(rate===null)missing++;else total+=x.qty*rate;}
++    out.set(r.id,{cost:Math.round((total/vq)*100)/100,missing,lines:l.length,source:source.get(r.id)||"none"});
++  }
++  return out;
++}
+ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>}){
+   try{
+     const {path=[]}=await params,p=path.join("/");
+@@ -2513,9 +2600,16 @@
+       if(status==="delivered")w.push("COALESCE(vh.stage,'Manufacturing')<>'Manufacturing'");
+       const where=w.length?" WHERE "+w.join(" AND "):"";
+       const r=await pool.query("SELECT v.*,COALESCE(vh.stage,'Manufacturing') AS stage FROM production_voucher v LEFT JOIN vehicle vh ON vh.chassis_no=v.chassis_no"+where+" ORDER BY v.date DESC,v.id DESC",args);
+-      if(u.searchParams.get("export")==="csv")return csvResponse(r.rows,"Production_Register.csv");
++      // Costing is ADMIN ONLY: non-admin users never get any cost field, in the table or in the Excel export.
++      const costAdmin=isAdmin(a);
++      const withCost=async(list:any[])=>{
++        if(!costAdmin||!list.length)return list;
++        const cm=await productionCosts(list);
++        return list.map((x:any)=>{const c=cm.get(x.id);return {...x,avg_cost:c?c.cost:0,cost_missing_items:c?c.missing:0,cost_source:c?c.source:"none"};});
++      };
++      if(u.searchParams.get("export")==="csv")return csvResponse(await withCost(r.rows),"Production_Register.csv");
+       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
+-      return Response.json({rows:r.rows.slice(start,start+per),page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per))});
++      return Response.json({rows:await withCost(r.rows.slice(start,start+per)),page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per)),cost_visible:costAdmin});
+     }
+     if(p==="reports/purchase-register"){
+       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("pb",u,args);

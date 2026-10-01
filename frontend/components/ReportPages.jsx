@@ -169,6 +169,7 @@ export function ProductionRegisterPage() {
   if (!r.data) return <div className="card">Loading…</div>;
 
   const rows = r.data.rows || [];
+  const costVisible = !!r.data.cost_visible;   // sent by the server to admin users only
   const setStatus = (status) => r.setExtra({ ...r.extra, status, page: 1 });
   const goPage = (page) => r.setExtra({ ...r.extra, page });
 
@@ -186,15 +187,29 @@ export function ProductionRegisterPage() {
         </button>
       </FilterBar>
 
+      {costVisible && (
+        <p className="muted" style={{ margin: '4px 0 8px' }}>
+          Avg Cost = raw material used × average purchase rate (voucher date tak ki purchases, GST alag) ÷ vehicles. <b style={{ color: '#d97706' }}>*</b> = kuch item ka rate/line nahi mili, cost kam ho sakti hai. Ye column sirf Admin ko dikhta hai.
+        </p>
+      )}
+
       {rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th><th>Mechanic</th>{costVisible && <th style={{ textAlign: 'right' }}>Avg Cost (₹)</th>}<th>Status</th><th></th></tr></thead>
             <tbody>{rows.map((v) => {
               const status = v.stage || 'In Factory Stock';
               return <tr key={v.id}>
                 <td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.quantity}</td>
-                <td>{v.chassis_no}</td><td>{v.motor_no}</td><td>{status}</td>
+                <td>{v.chassis_no}</td><td>{v.motor_no}</td><td>{String(v.machnic || '').trim()}</td>
+                {costVisible && (
+                  <td style={{ textAlign: 'right' }}
+                      title={v.cost_missing_items > 0 ? `${v.cost_missing_items} raw item(s) ka purchase rate nahi mila - cost kam dikh sakti hai` : (v.cost_source === 'none' ? 'Raw material lines / formula nahi mili' : '')}>
+                    {v.avg_cost > 0 ? Number(v.avg_cost).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                    {(v.cost_missing_items > 0 || v.cost_source === 'none') && <b style={{ color: '#d97706' }}> *</b>}
+                  </td>
+                )}
+                <td>{status}</td>
                 <td><span className="muted">View only</span></td>
               </tr>;
             })}</tbody>
@@ -301,7 +316,7 @@ export function DeliveryChallanRegisterPage() {
                 <th>Date</th><th>Challan No.</th><th>Party Name</th>
                 <th>Chassis No.</th><th>Model</th><th>Colour</th><th>Other</th>
                 <th>Sale Bill No.</th><th>Sale Value</th><th>Salesman</th>
-                <th>Battery Make</th><th>Battery No.</th>
+                <th>Battery Make</th><th>Battery No.</th><th>Old Battery Make</th><th>Old Battery No.</th>
                 {showRemarks && <><th>Remarks (1)</th><th>Remarks (2)</th></>}<th></th>
               </tr>
             </thead>
@@ -328,6 +343,8 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.salesman}</td>
                   <td>{c.battery_maker}</td>
                   <td>{[c.battery_no1,c.battery_no2,c.battery_no3,c.battery_no4].map((x) => String(x||'').trim()).filter(Boolean).join(', ')}</td>
+                  <td>{c.old_battery_maker || ''}</td>
+                  <td>{[c.old_battery_no1,c.old_battery_no2,c.old_battery_no3,c.old_battery_no4].map((x) => String(x||'').trim()).filter(Boolean).join(', ')}</td>
                   {showRemarks && <><td>{c.remarks1}</td><td>{c.remarks2}</td></>}
                   <td></td>
                 </tr>
@@ -435,6 +452,8 @@ export function DeliveryChallanRegisterPage() {
               <Field label="Battery No. 2" value={detailRow.battery_no2 || '—'} readOnly />
               <Field label="Battery No. 3" value={detailRow.battery_no3 || '—'} readOnly />
               <Field label="Battery No. 4" value={detailRow.battery_no4 || '—'} readOnly />
+              <Field label="Old Battery Maker" value={detailRow.old_battery_maker || '—'} readOnly />
+              <Field label="Old Battery No." value={[detailRow.old_battery_no1,detailRow.old_battery_no2,detailRow.old_battery_no3,detailRow.old_battery_no4].map((x) => String(x||'').trim()).filter(Boolean).join(', ') || '—'} readOnly />
               <Field label="Item Amount" value={detailRow.item_amount ?? '—'} readOnly />
               <Field label="Sale Bill No." value={detailRow.bill_no || '—'} readOnly />
               <Field label="Sale Value" value={detailRow.sale_value ?? '—'} readOnly />

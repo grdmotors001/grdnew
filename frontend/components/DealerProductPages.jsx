@@ -332,10 +332,16 @@ export function ProductPage() {
           ? `"${same.name}" naam ka product pehle se bana hua hai (Code: ${same.code || '-'}). Duplicate nahi ban sakta.`
           : `Code "${same.code}" pehle se "${same.name}" product me use ho raha hai.`);
       }
+      // Screen par Full Chassis No. Length 17 dikhta hai (default), par form me save nahi hota tha -> DB me blank reh jata tha.
+      // Finished product ke liye wo dikhne wali value ab hamesha save hoti hai.
+      const payload = { ...form };
+      if (String(payload.fro || 'F') === 'F' && (payload.chassis_length_digits === undefined || payload.chassis_length_digits === null || payload.chassis_length_digits === '')) {
+        payload.chassis_length_digits = 17;
+      }
       if (editingId) {
-        await put(`/products/${editingId}`, { ...form, id: undefined });
+        await put(`/products/${editingId}`, { ...payload, id: undefined });
       } else {
-        await post('/products', { ...form });
+        await post('/products', payload);
       }
       setOpen(false);
       setEditingId(null);

@@ -524,10 +524,17 @@ async function consumeProductionStock(client:any,v:{vou_no:string,date:string|nu
     const cur=need.get(k);if(cur)cur.qty+=n;else need.set(k,{name:String(line.raw_item_name).trim(),qty:n});
   }
   const short:string[]=[];
-  for(const it of need.values()){
-    await client.query("SELECT id FROM product WHERE lower(btrim(name))=lower(btrim($1)) FOR UPDATE",[it.name]);
-    const bal=await rawStockBalance(client,it.name);
-    if(bal<it.qty)short.push(it.name+" (chahiye "+it.qty+", available "+bal+")");
+  // Pehle har item ke liye alag-alag lock + balance query chalti thi (64 items = 128+ slow queries, request time out ho jati thi).
+  // Ab ek query me sab lock (id order me, deadlock se bachne ke liye) aur ek query me sab balance.
+  const keys=[...need.keys()];
+  if(keys.length){
+    await client.query("SELECT id FROM product WHERE lower(btrim(name))=ANY($1::text[]) ORDER BY id FOR UPDATE",[keys]);
+    const bq=await client.query("SELECT lower(btrim(item_name)) AS k,COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='OUT' THEN -ABS(qty) WHEN UPPER(COALESCE(work_type,''))='IN' THEN ABS(qty) ELSE qty END),0) AS balance FROM journal_stock WHERE lower(btrim(item_name))=ANY($1::text[]) GROUP BY 1",[keys]);
+    const balMap=new Map<string,number>(bq.rows.map((r:any)=>[String(r.k),Number(r.balance||0)] as [string,number]));
+    for(const [k,it] of need.entries()){
+      const bal=balMap.get(k)||0;
+      if(bal<it.qty)short.push(it.name+" (chahiye "+it.qty+", available "+bal+")");
+    }
   }
   if(short.length)throw new Error("Insufficient stock: "+short.join("; "));
   for(const it of need.values())await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[ref,v.date||null,it.name,it.qty,v.product_name||null]);
@@ -1898,6 +1905,93 @@ async function expenseVoucherDelete(path:string[],a:any):Promise<Response>{
 }
 // =================== end Expense Payment Voucher ===================
 
+// ===== Production costing (ADMIN ONLY) =========================================================
+// Avg cost of one vehicle = SUM( raw-material qty used x weighted-average PURCHASE rate of that item ) / vehicles.
+//  * Rate = total taxable purchase value / total purchase qty of that item, using only purchases dated ON OR BEFORE
+//    the production voucher date (moving weighted average). GST is excluded (input credit).
+//  * If an item has no purchase up to that date, the average of ALL its purchases is used.
+//  * If an item was never purchased, it is counted in cost_missing (cost is then understated).
+//  * Consumption lines come from: stock journal (Production Consumption) -> production_voucher_item -> formula x qty.
+type RateSeries={d:string[],cq:number[],ca:number[]};
+let _rateCache:{t:number,idx:Map<string,RateSeries>}|null=null;
+const costKey=(s:any)=>String(s??"").replace(/\s+/g," ").trim().toLowerCase();
+async function purchaseRateIndex(){
+  if(_rateCache&&Date.now()-_rateCache.t<60000)return _rateCache.idx;
+  const r=await pool.query("SELECT date,items FROM purchase_bill WHERE date IS NOT NULL");
+  const first=(...v:any[])=>{for(const x of v){if(x===null||x===undefined||x==="")continue;const n=Number(x);if(Number.isFinite(n)&&n!==0)return n;}return 0;};
+  const raw=new Map<string,{d:string,q:number,a:number}[]>();
+  for(const pb of r.rows){
+    const d=ymd(pb.date);if(!d)continue;
+    for(const it of parseItems(pb.items)){
+      const k=costKey(it?.item_name||it?.name);if(!k)continue;
+      const q=first(it.qty,it.quantity),rate=first(it.rate,it.unit_rate,it.price);
+      const amt=first(it.taxable_amt,it.taxable_amount,it.taxable,it.subtotal,q*rate);
+      if(q<=0||amt<=0)continue;
+      let arr=raw.get(k);if(!arr){arr=[];raw.set(k,arr);}
+      arr.push({d,q,a:amt});
+    }
+  }
+  const idx=new Map<string,RateSeries>();
+  for(const [k,arr] of raw){
+    arr.sort((x,y)=>x.d<y.d?-1:x.d>y.d?1:0);
+    let cq=0,ca=0;const s:RateSeries={d:[],cq:[],ca:[]};
+    for(const e of arr){cq+=e.q;ca+=e.a;s.d.push(e.d);s.cq.push(cq);s.ca.push(ca);}
+    idx.set(k,s);
+  }
+  _rateCache={t:Date.now(),idx};
+  return idx;
+}
+function avgRateAsOf(idx:Map<string,RateSeries>,k:string,date:string):number|null{
+  const s=idx.get(k);if(!s||!s.d.length)return null;
+  let lo=0,hi=s.d.length-1,pos=-1;
+  if(date){while(lo<=hi){const m=(lo+hi)>>1;if(s.d[m]<=date){pos=m;lo=m+1}else hi=m-1}}
+  const i=pos>=0?pos:s.d.length-1;   // nothing on/before the date -> use all purchases
+  return s.cq[i]>0?s.ca[i]/s.cq[i]:null;
+}
+async function productionCosts(rows:any[]){
+  const out=new Map<number,{cost:number,missing:number,lines:number,source:string}>();
+  if(!rows.length)return out;
+  const idx=await purchaseRateIndex();
+  const lines=new Map<number,{k:string,qty:number}[]>(),source=new Map<number,string>();
+  // 1) stock journal lines written when the voucher was saved in this app
+  const vous=rows.map(r=>String(r.vou_no||"")).filter(Boolean);
+  if(vous.length){
+    const j=await pool.query("SELECT batch_ref,item_name,ABS(qty) AS qty FROM journal_stock WHERE reason='Production Consumption' AND batch_ref=ANY($1::text[])",[vous]);
+    const by=new Map<string,any[]>();
+    for(const x of j.rows){let a=by.get(String(x.batch_ref));if(!a){a=[];by.set(String(x.batch_ref),a);}a.push(x);}
+    for(const r of rows){const a=by.get(String(r.vou_no||""));if(a&&a.length){lines.set(r.id,a.map(x=>({k:costKey(x.item_name),qty:num(x.qty)})));source.set(r.id,"stock");}}
+  }
+  // 2) raw-material lines saved with the voucher (imported / older vouchers)
+  const need2=rows.filter(r=>!lines.has(r.id)).map(r=>Number(r.id));
+  if(need2.length){
+    try{
+      const it=await pool.query("SELECT voucher_id,item_name,qty FROM production_voucher_item WHERE voucher_id=ANY($1::int[])",[need2]);
+      const by=new Map<number,any[]>();
+      for(const x of it.rows){let a=by.get(Number(x.voucher_id));if(!a){a=[];by.set(Number(x.voucher_id),a);}a.push(x);}
+      for(const id of need2){const a=by.get(id);if(a&&a.length){lines.set(id,a.map(x=>({k:costKey(x.item_name),qty:Math.abs(num(x.qty))})));source.set(id,"items");}}
+    }catch{/* table not present in this database */}
+  }
+  // 3) fallback: Production Formula x voucher quantity
+  const need3=rows.filter(r=>!lines.has(r.id));
+  if(need3.length){
+    const prods=[...new Set(need3.map(r=>costKey(r.product_name)).filter(Boolean))];
+    if(prods.length){
+      const f=await pool.query("SELECT product_name,formula_name,raw_item_name,qty FROM production_formula WHERE lower(btrim(product_name))=ANY($1::text[])",[prods]);
+      for(const r of need3){
+        const pk=costKey(r.product_name),fk=costKey(r.formula_name),q=Math.max(1,Math.trunc(num(r.quantity)||1));
+        const l=f.rows.filter((x:any)=>costKey(x.product_name)===pk&&(!fk||costKey(x.formula_name)===fk));
+        if(l.length){lines.set(r.id,l.map((x:any)=>({k:costKey(x.raw_item_name),qty:num(x.qty)*q})));source.set(r.id,"formula");}
+      }
+    }
+  }
+  for(const r of rows){
+    const l=lines.get(r.id)||[],d=ymd(r.date),vq=Math.max(1,Math.trunc(num(r.quantity)||1));
+    let total=0,missing=0;
+    for(const x of l){if(!x.k||x.qty<=0)continue;const rate=avgRateAsOf(idx,x.k,d);if(rate===null)missing++;else total+=x.qty*rate;}
+    out.set(r.id,{cost:Math.round((total/vq)*100)/100,missing,lines:l.length,source:source.get(r.id)||"none"});
+  }
+  return out;
+}
 export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>}){
   try{
     const {path=[]}=await params,p=path.join("/");
@@ -2501,14 +2595,21 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="reports/production-register"){
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("v",u,args);
       const status=u.searchParams.get("status")||"all";
-      if(search){args.push("%"+search+"%");w.push("(COALESCE(v.vou_no,'') ILIKE $"+args.length+" OR COALESCE(v.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(v.product_name,'') ILIKE $"+args.length+")");}
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(v.vou_no,'') ILIKE $"+args.length+" OR COALESCE(v.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(v.product_name,'') ILIKE $"+args.length+" OR COALESCE(v.machnic,'') ILIKE $"+args.length+")");}
       if(status==="factory")w.push("COALESCE(vh.stage,'Manufacturing')='Manufacturing'");
       if(status==="delivered")w.push("COALESCE(vh.stage,'Manufacturing')<>'Manufacturing'");
       const where=w.length?" WHERE "+w.join(" AND "):"";
       const r=await pool.query("SELECT v.*,COALESCE(vh.stage,'Manufacturing') AS stage FROM production_voucher v LEFT JOIN vehicle vh ON vh.chassis_no=v.chassis_no"+where+" ORDER BY v.date DESC,v.id DESC",args);
-      if(u.searchParams.get("export")==="csv")return csvResponse(r.rows,"Production_Register.csv");
+      // Costing is ADMIN ONLY: non-admin users never get any cost field, in the table or in the Excel export.
+      const costAdmin=isAdmin(a);
+      const withCost=async(list:any[])=>{
+        if(!costAdmin||!list.length)return list;
+        const cm=await productionCosts(list);
+        return list.map((x:any)=>{const c=cm.get(x.id);return {...x,avg_cost:c?c.cost:0,cost_missing_items:c?c.missing:0,cost_source:c?c.source:"none"};});
+      };
+      if(u.searchParams.get("export")==="csv")return csvResponse(await withCost(r.rows),"Production_Register.csv");
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
-      return Response.json({rows:r.rows.slice(start,start+per),page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per))});
+      return Response.json({rows:await withCost(r.rows.slice(start,start+per)),page,per_page:per,total:r.rowCount,total_pages:Math.max(1,Math.ceil(r.rowCount/per)),cost_visible:costAdmin});
     }
     if(p==="reports/purchase-register"){
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("pb",u,args);
@@ -2739,8 +2840,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT * FROM production_formula ORDER BY product_name,formula_name,id");
       const grouped:any[]=[]; const map=new Map<string,any>();
       for(const row of r.rows){if(!String(row.formula_name||"").trim())row.formula_name=row.product_name;const key=String(row.formula_name||"")+"::"+String(row.product_name||"");let g=map.get(key);if(!g){g={formula_name:row.formula_name,product_name:row.product_name,lines:[]};map.set(key,g);grouped.push(g)}g.lines.push(row)}
-      const products=await pool.query("SELECT name,fro FROM product ORDER BY name");
-      return Response.json({grouped,rows:r.rows,lines:r.rows,finished_products:products.rows.filter((x:any)=>x.fro!=="R"),raw_materials:products.rows.filter((x:any)=>x.fro==="R")});
+      const products=await pool.query("SELECT name,fro,UPPER(COALESCE(NULLIF(product_category,''),CASE WHEN fro='F' THEN 'FINISHED' ELSE 'RAW' END)) AS category FROM product ORDER BY name");
+      // Finished Product dropdown: sirf asli FINISHED items (Production Voucher jaisa rule). DISPATCH (Data Card, Drill, Labour Charge, Packing...) aur RAW yahan nahi aayenge.
+      return Response.json({grouped,rows:r.rows,lines:r.rows,finished_products:products.rows.filter((x:any)=>x.fro!=="R"&&x.category==="FINISHED"),raw_materials:products.rows.filter((x:any)=>x.fro==="R")});
     }
     if(p==="production-formulas/lines"){
       const u=new URL(req.url),args:any[]=[];const w:string[]=[];
@@ -2774,24 +2876,35 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       };
       const firstFix=pick(["chassis_item_code","chassis_first_fix","first_fix"],/first.*fix|chassis.*item/i);
       const afterFix=pick(["chassis_after_code","chassis_after_fix","after_fix","chassis_suffix_code","chassis_suffix"],/chassis.*(after|suffix)|after.*(month|year|fix)/i);
-      const fullLen=Number(pick(["chassis_length","chassis_no_length","full_chassis_length","chassis_len"],/chassis.*len|len.*chassis/i));
+      // Product Master screen par length default 17 dikhta hai; purane products me DB me blank ho sakti hai -> 17 maano.
+      const fullLen=Number(pick(["chassis_length_digits","chassis_length","chassis_no_length","full_chassis_length","chassis_len"],/chassis.*len|len.*chassis/i))||17;
       const seen=Object.keys(j).filter(k=>/chassis|fix|len/i.test(k));
       if(!firstFix)return Response.json({error:"Product Master mein Chassis First Fix set nahi hai.",product_keys:seen},{status:400});
       if(!afterFix)return Response.json({error:"Product Master mein After Month & Year Fix set nahi hai.",product_keys:seen},{status:400});
       if(fullLen!==17&&fullLen!==18)return Response.json({error:"Full Chassis No. Length 17 ya 18 hona chahiye (abhi: "+(fullLen||"blank")+").",product_keys:seen},{status:400});
 
+      // Rule: First Fix 9 char -> Month code 10th position -> Year code 11th position -> After Month & Year Fix -> serial (17 digit: 001, 18 digit: 0001).
+      if(firstFix.length!==9)return Response.json({error:"Chassis First Fix 9 character ka hona chahiye taaki Month Code 10th aur Year Code 11th position par aaye (abhi \""+firstFix+"\" = "+firstFix.length+" character). Product Master check karo."},{status:400});
+      if(monthCode.length!==1||yearCode.length!==1)return Response.json({error:"Chassis Master me Month Code aur Year Code 1-1 character ke hone chahiye (Month: \""+monthCode+"\", Year: \""+yearCode+"\")."},{status:400});
       const prefix=firstFix+monthCode+yearCode+afterFix,digits=fullLen===17?3:4;
       if(prefix.length+digits!==fullLen)return Response.json({error:"Length match nahi: prefix "+prefix+" ("+prefix.length+" char) + "+digits+" digit serial = "+(prefix.length+digits)+", lekin Full Length "+fullLen+" hai. Product Master ki fix values check karo."},{status:400});
 
-      const mx=await pool.query("SELECT MAX(substr(c,$2::int+1)::bigint) AS n FROM (SELECT chassis_no AS c FROM vehicle UNION ALL SELECT chassis_no FROM production_voucher) x WHERE left(c,$2::int)=$1::text AND length(c)=$3::int AND substr(c,$2::int+1) ~ '^[0-9]+$'",[prefix,prefix.length,fullLen]);
-      const next=Number(mx.rows[0]?.n||0)+1;
-      if(next>Math.pow(10,digits)-1)return Response.json({error:"Serial limit poori ho gayi ("+"9".repeat(digits)+") for "+prefix},{status:400});
+      // Serial 001..999 (17 digit) ya 0001..9999 (18 digit). Last used + 1; limit ke baad dobara 001 se, jo number pehle se use ho chuka ho use skip.
+      const usedQ=await pool.query("SELECT DISTINCT substr(c,$2::int+1)::bigint AS n FROM (SELECT chassis_no AS c FROM vehicle UNION ALL SELECT chassis_no FROM production_voucher) x WHERE left(c,$2::int)=$1::text AND length(c)=$3::int AND substr(c,$2::int+1) ~ '^[0-9]+$'",[prefix,prefix.length,fullLen]);
+      const used=new Set<number>(usedQ.rows.map((r:any)=>Number(r.n)));
+      const limit=Math.pow(10,digits)-1,lastUsed=used.size?Math.max(...used):0;
+      let next=0,wrapped=false;
+      for(let i=1;i<=limit;i++){
+        const cand=((lastUsed+i-1)%limit)+1;
+        if(!used.has(cand)){next=cand;wrapped=cand<=lastUsed;break;}
+      }
+      if(!next)return Response.json({error:"Serial 1 se "+limit+" tak sab use ho chuke hain for "+prefix+". Naya serial nahi mil sakta."},{status:400});
       const chassis=prefix+String(next).padStart(digits,"0");
 
       const last=await pool.query("SELECT motor_no,controller_no FROM production_voucher WHERE lower(btrim(product_name))=lower(btrim($1::text)) AND COALESCE(motor_no,'')<>'' ORDER BY date DESC,id DESC LIMIT 1",[product]);
       const L=last.rows[0]||{};
       const bump=(v:any,by:number)=>{const m=String(v||"").match(/^(.*?)(\d+)$/);if(!m)return "";return m[1]+(BigInt(m[2])+BigInt(by)).toString().padStart(m[2].length,"0")};
-      return Response.json({chassis_no:chassis,motor_no:bump(L.motor_no,1),controller_no:bump(L.controller_no,1),missing_item_code:false});
+      return Response.json({chassis_no:chassis,motor_no:bump(L.motor_no,1),controller_no:bump(L.controller_no,1),missing_item_code:false,wrapped});
     }
     if(p==="chassis-master"||p==="chassis-master/months"||p==="chassis-master/years"||p==="chassis-master/rule"){
       await ensureChassisMasterSchema();
@@ -3159,17 +3272,18 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({products:rows.rows,rows:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per))});
     }
     if(p==="reports/delivery-challan-register"){
+      await ensureBatteryFitSchema();
       const u=new URL(req.url),args:any[]=[],w:string[]=["COALESCE(dc.cancelled,false)=false"];
       const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim();
       if(from){args.push(from);w.push("dc.date >= $"+args.length+"::date");}
       if(to){args.push(to);w.push("dc.date <= $"+args.length+"::date");}
-      if(search){args.push("%"+search+"%");w.push("(COALESCE(dc.challan_no,'') ILIKE $"+args.length+" OR COALESCE(dc.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(dc.product_name,'') ILIKE $"+args.length+" OR COALESCE(d.name,'') ILIKE $"+args.length+")");}
+      if(search){args.push("%"+search+"%");w.push("(COALESCE(dc.challan_no,'') ILIKE $"+args.length+" OR COALESCE(dc.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(dc.product_name,'') ILIKE $"+args.length+" OR COALESCE(d.name,'') ILIKE $"+args.length+" OR COALESCE(NULLIF(v.battery_maker,''),to_jsonb(dc)->>'battery_maker','') ILIKE $"+args.length+")");}
       const dealer=String(u.searchParams.get("dealer")||"ALL"),product=String(u.searchParams.get("product")||"ALL"),salesman=String(u.searchParams.get("salesman")||"ALL"),battery=String(u.searchParams.get("battery")||"ALL");
       if(dealer!=="ALL"){args.push(dealer);w.push("d.id=$"+args.length);}
       if(product!=="ALL"){args.push(product);w.push("LOWER(COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name,''))=LOWER($"+args.length);}
       if(salesman!=="ALL"){args.push(salesman);w.push("LOWER(COALESCE(to_jsonb(dc)->>'salesman',''))=LOWER($"+args.length);}
-      if(battery!=="ALL"){args.push(battery);w.push("LOWER(COALESCE(v.battery_maker,''))=LOWER($"+args.length);}
-      const base="SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name) AS product_name,COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(to_jsonb(dc)->>'motor_no',''),v.motor_no) AS motor_no,COALESCE(NULLIF(to_jsonb(dc)->>'colour',''),v.colour) AS colour,COALESCE(to_jsonb(dc)->>'controller_no','') AS controller_no,COALESCE(to_jsonb(dc)->>'other','') AS other,COALESCE(to_jsonb(dc)->>'remarks1','') AS remarks1,COALESCE(to_jsonb(dc)->>'remarks2','') AS remarks2,COALESCE(to_jsonb(dc)->>'destination','') AS destination,COALESCE(to_jsonb(dc)->>'salesman','') AS salesman,COALESCE(to_jsonb(dc)->>'formula_name','') AS formula_name,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(dc)->>'dealer_page_no','') AS dealer_page_no,ti.bill_no,COALESCE(ti.sale_amount,0) AS sale_value FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id LEFT JOIN LATERAL (SELECT * FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false ORDER BY x.id DESC LIMIT 1) ti ON true";
+      if(battery!=="ALL"){args.push(battery);w.push("LOWER(COALESCE(NULLIF(v.battery_maker,''),to_jsonb(dc)->>'battery_maker',''))=LOWER($"+args.length);}
+      const base="SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name) AS product_name,COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(to_jsonb(dc)->>'motor_no',''),v.motor_no) AS motor_no,COALESCE(NULLIF(to_jsonb(dc)->>'colour',''),v.colour) AS colour,COALESCE(to_jsonb(dc)->>'controller_no','') AS controller_no,COALESCE(to_jsonb(dc)->>'other','') AS other,COALESCE(to_jsonb(dc)->>'remarks1','') AS remarks1,COALESCE(to_jsonb(dc)->>'remarks2','') AS remarks2,COALESCE(to_jsonb(dc)->>'destination','') AS destination,COALESCE(to_jsonb(dc)->>'salesman','') AS salesman,COALESCE(to_jsonb(dc)->>'formula_name','') AS formula_name,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_maker ELSE to_jsonb(dc)->>'battery_maker' END AS battery_maker,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no1 ELSE to_jsonb(dc)->>'battery_no1' END AS battery_no1,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no2 ELSE to_jsonb(dc)->>'battery_no2' END AS battery_no2,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no3 ELSE to_jsonb(dc)->>'battery_no3' END AS battery_no3,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no4 ELSE to_jsonb(dc)->>'battery_no4' END AS battery_no4,bf.old_battery_maker,bf.old_battery_no1,bf.old_battery_no2,bf.old_battery_no3,bf.old_battery_no4,bf.battery_change_date,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(dc)->>'dealer_page_no','') AS dealer_page_no,ti.bill_no,COALESCE(ti.sale_amount,0) AS sale_value FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id LEFT JOIN LATERAL (SELECT f.old_battery_maker,f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4,f.fit_date AS battery_change_date FROM battery_fit_log f WHERE f.challan_id=dc.id AND (COALESCE(f.old_battery_no1,'')<>'' OR COALESCE(f.old_battery_maker,'')<>'') AND (COALESCE(f.old_battery_maker,'')<>COALESCE(f.battery_maker,'') OR concat_ws('|',f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4)<>concat_ws('|',f.battery_no1,f.battery_no2,f.battery_no3,f.battery_no4)) ORDER BY f.id DESC LIMIT 1) bf ON true LEFT JOIN LATERAL (SELECT * FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false ORDER BY x.id DESC LIMIT 1) ti ON true";
       const all=await pool.query(base+" WHERE "+w.join(" AND ")+" ORDER BY dc.date DESC,dc.id DESC",args);
       const rows=all.rows.map((x:any)=>({...x,battery_name:[x.battery_maker,x.battery_no1,x.battery_no2,x.battery_no3,x.battery_no4].filter(Boolean).join(" ")}));
       const products=[...new Set(rows.map((x:any)=>String(x.product_name||"").trim()).filter(Boolean))].sort();
@@ -4789,6 +4903,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         await ensureProductionVoucherSchema();
         const chassis=String(b.chassis_no||"").trim();
         if(chassis){
+          // Same chassis ke do save ek saath aaye to dusra pehle wale ke commit tak ruk jaye (phir duplicate error mile).
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",["chassis:"+chassis.toUpperCase()]);
           const dup=await client.query("SELECT 1 FROM vehicle WHERE upper(btrim(chassis_no))=upper($1) UNION ALL SELECT 1 FROM production_voucher WHERE upper(btrim(chassis_no))=upper($1) LIMIT 1",[chassis]);
           if(dup.rowCount)throw new Error("Chassis No. \""+chassis+"\" already exists. Duplicate chassis nahi ban sakta.");
           // Product Master me jitni Full Chassis No. Length likhi hai, chassis utna hi bada hona chahiye.
@@ -5448,6 +5564,15 @@ async function mutation(req:Request,params:any,method:string){
         if(!pv.rowCount){await client.query("ROLLBACK");return Response.json({error:"Production Voucher not found."},{status:404});}
         const old=pv.rows[0],keys=Object.keys(input);
         if(!keys.length)throw new Error("No valid fields supplied.");
+        if("chassis_no" in input){
+          const newCh=String(input.chassis_no||"").trim(),oldCh=String(old.chassis_no||"").trim();
+          input.chassis_no=newCh;
+          if(newCh&&newCh.toUpperCase()!==oldCh.toUpperCase()){
+            await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",["chassis:"+newCh.toUpperCase()]);
+            const dup=await client.query("SELECT 1 FROM vehicle WHERE upper(btrim(chassis_no))=upper($1) UNION ALL SELECT 1 FROM production_voucher WHERE upper(btrim(chassis_no))=upper($1) AND id<>$2 LIMIT 1",[newCh,id]);
+            if(dup.rowCount)throw new Error("Chassis No. \""+newCh+"\" already exists. Duplicate chassis nahi ban sakta.");
+          }
+        }
         const prod=String(input.product_name??old.product_name??""),fname=String(input.formula_name??old.formula_name??"");
         if(!fname.trim()){
           const fc=await client.query("SELECT COUNT(DISTINCT formula_name)::int AS n FROM production_formula WHERE product_name=$1",[prod]);
@@ -5455,10 +5580,17 @@ async function mutation(req:Request,params:any,method:string){
         }
         const up=await client.query('UPDATE production_voucher SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1)+" RETURNING *, to_char(date,'YYYY-MM-DD') AS date_s",[...keys.map(k=>input[k]),id]);
         const nv=up.rows[0];
-        await reverseProductionStock(client,String(old.vou_no));
-        const formula=await consumeProductionStock(client,{vou_no:String(nv.vou_no),date:nv.date_s||null,product_name:String(nv.product_name||""),formula_name:String(nv.formula_name||""),quantity:nv.quantity});
+        // Sirf Mechanic / Colour / Motor No. jaisi cheezein badli hon (product, formula, quantity, date same) to stock dobara nahi kata/lauta -
+        // purane imported vouchers me mechanic bharte waqt "Insufficient stock" na aaye.
+        const sameVal=(k:string,f:(x:any)=>string)=>!(k in input)||f(input[k])===f(old[k]);
+        const stockChanged=!(sameVal("product_name",x=>String(x||"").trim())&&sameVal("formula_name",x=>String(x||"").trim())&&sameVal("quantity",x=>String(Math.max(1,Math.trunc(num(x)||1))))&&sameVal("date",x=>ymd(x)||""));
+        let formula:any={rows:[]};
+        if(stockChanged){
+          await reverseProductionStock(client,String(old.vou_no));
+          formula=await consumeProductionStock(client,{vou_no:String(nv.vou_no),date:nv.date_s||null,product_name:String(nv.product_name||""),formula_name:String(nv.formula_name||""),quantity:nv.quantity});
+        }
         const rep=await client.query("SELECT id,status FROM factory_check_report WHERE production_voucher_id=$1 FOR UPDATE",[id]);
-        if(rep.rowCount&&String(rep.rows[0].status).toUpperCase()!=="APPROVED"){
+        if(stockChanged&&rep.rowCount&&String(rep.rows[0].status).toUpperCase()!=="APPROVED"){
           const q=Math.max(1,Math.trunc(num(nv.quantity)||1));
           await client.query("UPDATE factory_check_report SET product_name=$1,quantity=$2,date=COALESCE($3::date,date) WHERE id=$4",[nv.product_name||"",q,nv.date_s||null,rep.rows[0].id]);
           await client.query("DELETE FROM factory_check_item WHERE report_id=$1 AND additional=false",[rep.rows[0].id]);
