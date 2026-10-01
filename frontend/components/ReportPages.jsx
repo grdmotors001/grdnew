@@ -227,6 +227,7 @@ export function DeliveryChallanRegisterPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filters, setFilters] = useState({ product: 'ALL', dealer: 'ALL', salesman: 'ALL', battery: 'ALL' });
   const [draftFilters, setDraftFilters] = useState(filters);
+  const [showRemarks, setShowRemarks] = useState(false); // Remarks hamesha hidden; button se dikhao
 
 
   if (r.error) return <ErrorBanner message={r.error} />;
@@ -287,6 +288,9 @@ export function DeliveryChallanRegisterPage() {
                 onClick={() => downloadExcel('/reports/delivery-challan-register' + qs(r) + `&status=${r.extra.status}&export=csv`, 'Delivery_Challan_Register.xlsx')}>
           Export Excel
         </button>
+        <button className={`btn ${showRemarks ? 'primary' : ''}`} style={{ alignSelf: 'flex-end' }} onClick={() => setShowRemarks((v) => !v)}>
+          {showRemarks ? 'Hide Remarks' : 'Show Remarks'}
+        </button>
       </FilterBar>
 
       {rows.length === 0 ? <EmptyState /> : (
@@ -295,10 +299,10 @@ export function DeliveryChallanRegisterPage() {
             <thead>
               <tr>
                 <th>Date</th><th>Challan No.</th><th>Party Name</th>
-                <th>Chassis No.</th><th>Colour</th><th>Other</th>
+                <th>Chassis No.</th><th>Model</th><th>Colour</th><th>Other</th>
                 <th>Sale Bill No.</th><th>Sale Value</th><th>Salesman</th>
-                <th>Battery Make</th><th>Battery No. 1</th><th>Battery No. 2</th><th>Battery No. 3</th><th>Battery No. 4</th>
-                <th>Remarks (1)</th><th>Remarks (2)</th><th></th>
+                <th>Battery Make</th><th>Battery No.</th>
+                {showRemarks && <><th>Remarks (1)</th><th>Remarks (2)</th></>}<th></th>
               </tr>
             </thead>
             <tbody>
@@ -313,6 +317,7 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.challan_no}</td>
                   <td><button type="button" onClick={() => setDetailRow(c)} title="Open Delivery Challan" style={{border:0,background:"none",padding:0,color:"var(--primary,#1976d2)",textDecoration:"underline",fontWeight:600,cursor:"pointer"}}>{c.dealer_name}</button></td>
                   <td><button type="button" onClick={() => setDetailRow(c)} title="Open Delivery Challan" style={{border:0,background:"none",padding:0,color:"var(--primary,#1976d2)",textDecoration:"underline",fontWeight:600,cursor:"pointer"}}>{c.chassis_no}</button></td>
+                  <td>{c.product_name || '—'}</td>
                   <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}>
                     <span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)||'transparent'}} />
                     {c.colour||'—'}
@@ -321,8 +326,9 @@ export function DeliveryChallanRegisterPage() {
                   <td>{c.bill_no || '—'}</td>
                   <td>{c.sale_value ? <Money value={c.sale_value} /> : ''}</td>
                   <td>{c.salesman}</td>
-                  <td>{c.battery_maker}</td><td>{c.battery_no1}</td><td>{c.battery_no2}</td><td>{c.battery_no3}</td><td>{c.battery_no4}</td>
-                  <td>{c.remarks1}</td><td>{c.remarks2}</td>
+                  <td>{c.battery_maker}</td>
+                  <td>{[c.battery_no1,c.battery_no2,c.battery_no3,c.battery_no4].map((x) => String(x||'').trim()).filter(Boolean).join(', ')}</td>
+                  {showRemarks && <><td>{c.remarks1}</td><td>{c.remarks2}</td></>}
                   <td></td>
                 </tr>
               ))}
@@ -348,7 +354,7 @@ export function DeliveryChallanRegisterPage() {
                      options={['ALL', ...(filterOptions.product || [])]}
                      onChange={(v) => setDraftFilters({ ...draftFilters, product: v })} />
               <Field label="Dealer" type="select" value={draftFilters.dealer}
-                     options={['ALL', ...(filterOptions.dealer || [])]}
+                     options={['ALL', ...(filterOptions.dealer || []).filter((d) => d && (typeof d !== 'object' || d.id)).map((d) => (typeof d === 'object' ? { value: String(d.id), label: d.name || ('Dealer #' + d.id) } : d))]}
                      onChange={(v) => setDraftFilters({ ...draftFilters, dealer: v })} />
               <Field label="Salesman" type="select" value={draftFilters.salesman}
                      options={['ALL', ...(filterOptions.salesman || [])]}

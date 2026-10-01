@@ -121,7 +121,7 @@ export function BatterySwapVoucherPage() {
   const [detailRow,setDetailRow]=useState(null);
   const [form,setForm]=useState({date:today(),dealer_id:'',dealer_name:'',from_type:'new',from_id:'',to_type:'new',to_id:'',remarks:''});
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
-  const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-swap-vouchers')]);setDealers(d.dealers||[]);setRows(v.records||[]);}catch(e){setError(e.message)}};
+  const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-swap-vouchers')]);setDealers(d.dealers||[]);setRows(v.records||v.rows||[]);}catch(e){setError(e.message)}};
   const loadStock=async dealerId=>{if(!dealerId){setRickshaws({new:[],old:[]});return;}try{const [n,o]=await Promise.all([get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=new'),get('/dealer/rickshaw-battery-options?dealer_id='+dealerId+'&type=old')]);setRickshaws({new:n.rickshaws||[],old:o.rickshaws||[]});}catch(e){setError(e.message)}};
   useEffect(()=>{load()},[]);
   useEffect(()=>{loadStock(form.dealer_id)},[form.dealer_id]);
@@ -145,7 +145,7 @@ export function BatterySwapVoucherPage() {
       <Field label="To Rickshaw" type="select" value={form.to_id} options={opts(form.to_type).filter(o=>!(form.to_type===form.from_type&&String(o.value)===String(form.from_id)))} onChange={v=>{setError('');setForm({...form,to_id:Number(v)})}} required/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
     </div><div className="actions" style={{marginTop:16}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Battery Swap / Exchange'}</button></div></form>
-  </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From Rickshaw</th><th>To Rickshaw</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{dealers.find(d=>d.id===r.dealer_id)?.name||r.dealer_id}</td><td>{r.mode}</td><td><b>{r.from_model_name||'—'}</b><br/><span className="muted">{r.from_chassis_no||r.from_reg_no||('ID '+r.from_id)}</span></td>
+  </div><div className="card"><h2>Swap / Exchange History</h2><div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Dealer</th><th>Mode</th><th>From Rickshaw</th><th>To Rickshaw</th><th></th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td>{r.voucher_no}</td><td>{r.dealer_name||dealers.find(d=>String(d.id)===String(r.dealer_id))?.name||r.dealer_id}</td><td>{r.mode}</td><td><b>{r.from_model_name||'—'}</b><br/><span className="muted">{r.from_chassis_no||r.from_reg_no||('ID '+r.from_id)}</span></td>
 <td><b>{r.to_model_name||'—'}</b><br/><span className="muted">{r.to_chassis_no||r.to_reg_no||('ID '+r.to_id)}</span></td>
 <td style={{display:'flex',gap:6}}>
   <button className="btn" onClick={()=>setDetailRow(r)}>View</button>
@@ -156,7 +156,7 @@ export function BatterySwapVoucherPage() {
         <h2>Battery Swap / Exchange — {detailRow.voucher_no}</h2>
         <div className="formgrid">
           <Field label="Date" value={formatDate(detailRow.date)} readOnly />
-          <Field label="Dealer" value={dealers.find(d=>d.id===detailRow.dealer_id)?.name||detailRow.dealer_id} readOnly />
+          <Field label="Dealer" value={detailRow.dealer_name||dealers.find(d=>String(d.id)===String(detailRow.dealer_id))?.name||detailRow.dealer_id} readOnly />
           <Field label="Mode" value={detailRow.mode} readOnly />
           <Field label="From Type" value={detailRow.from_type} readOnly />
           <Field label="From Model" value={detailRow.from_model_name||'—'} readOnly />
@@ -182,7 +182,7 @@ export function BatteryWithdrawalPage() {
   const [dealers,setDealers]=useState([]),[rickshaws,setRickshaws]=useState([]),[rows,setRows]=useState([]);
   const [form,setForm]=useState({date:today(),dealer_id:'',dealer_name:'',rickshaw_type:'new',rickshaw_id:'',battery_no:'',reference_no:'',remarks:''});
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
-  const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-withdrawal')]);setDealers(d.dealers||[]);setRows(v.records||[]);}catch(e){setError(e.message)}};
+  const load=async()=>{try{const [d,v]=await Promise.all([get('/dealers'),get('/battery-withdrawal')]);setDealers(d.dealers||[]);setRows(v.records||v.rows||[]);}catch(e){setError(e.message)}};
   const loadR=async()=>{if(!form.dealer_id){setRickshaws([]);return;}const x=await get('/dealer/rickshaw-battery-options?dealer_id='+form.dealer_id+'&type='+form.rickshaw_type);setRickshaws(x.rickshaws||[]);};
   useEffect(()=>{load()},[]);
   useEffect(()=>{loadR()},[form.dealer_id,form.rickshaw_type]);
@@ -193,7 +193,8 @@ export function BatteryWithdrawalPage() {
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
       <Field label="Dealer" type="combo" value={form.dealer_name} options={dealers.map(d=>({value:d.name,label:d.name}))} onChange={v=>{const d=dealers.find(x=>String(x.name).trim().toLowerCase()===String(v).trim().toLowerCase());setForm({...form,dealer_name:v,dealer_id:d?Number(d.id):'',rickshaw_id:'',battery_no:''})}} required/>
       <Field label="Rickshaw Type" type="select" value={form.rickshaw_type} options={[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}]} onChange={v=>setForm({...form,rickshaw_type:v,rickshaw_id:'',battery_no:''})}/>
-      <Field label="Rickshaw" type="select" value={form.rickshaw_id} options={rickshaws.map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')}))} onChange={v=>setForm({...form,rickshaw_id:Number(v),battery_no:''})} required/>
+      <Field label="Rickshaw" type="select" value={form.rickshaw_id} options={rickshaws.map(r=>({value:r.id,label:(r.reg_no||r.chassis_no)+' — '+(r.model_name||'')+(r.battery_maker?' — '+r.battery_maker:'')}))} onChange={v=>setForm({...form,rickshaw_id:Number(v),battery_no:''})} required/>
+      <Field label="Battery Maker" value={current?.battery_maker||''} readOnly/>
       <Field label="Battery No." type="select" value={form.battery_no} options={(current?.battery_numbers||[]).map(n=>({value:n,label:n}))} onChange={v=>setForm({...form,battery_no:v})} required/>
       <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
@@ -299,14 +300,14 @@ export function BatteryDeliveryChallanPage() {
   const [data,setData]=useState(null),[dealers,setDealers]=useState([]),[makers,setMakers]=useState([]),[open,setOpen]=useState(false);
   const [form,setForm]=useState({date:today(),qty:1,battery_numbers:['']});
   const {busy,error,setError,run}=useAsyncAction();
-  const load=()=>get('/battery-delivery-challans').then(setData).catch(e=>setError(e.message));
+  const load=()=>get('/battery-delivery-challans').then(d=>{const list=Array.isArray(d)?d:(d?.records||d?.rows||d?.items||d?.data||[]);setData({...(Array.isArray(d)?{}:d),records:Array.isArray(list)?list:[]})}).catch(e=>setError(e.message));
   useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[]));get('/masters/battery-maker').then(d=>setMakers(Array.isArray(d)?d:(d.masters||[]))).catch(()=>setMakers([]));},[]);
   const openNew=()=>{setForm({date:today(),qty:1,challan_no:data?.suggested_challan_no||'',dealer_id:'',battery_maker:'',battery_numbers:[''],remarks:''});setOpen(true)};
   const setQty=(v)=>{const qty=Math.max(1,Number(v)||1);setForm(f=>({...f,qty,battery_numbers:Array.from({length:qty},(_,i)=>f.battery_numbers?.[i]||'')}))};
   const setNo=(i,v)=>setForm(f=>({...f,battery_numbers:f.battery_numbers.map((x,n)=>n===i?v:x)}));
   const save=e=>{e.preventDefault();run(async()=>{await post('/battery-delivery-challans',form);setOpen(false);load()})};
   const remove=id=>{if(!confirm('Delete this record?'))return;run(async()=>{await del('/battery-delivery-challans/'+id);load()})};
-  if(!data)return <div className="card">Loading…</div>;
+  if(!data)return <div className="card">{error?<><b>Battery Delivery Challan load failed</b><div style={{marginTop:8,color:'#c0392b'}}>{error}</div><button className="btn" style={{marginTop:12}} onClick={()=>{setError('');load()}}>Retry</button></>:'Loading…'}</div>;
   return <>
     <div className="actions" style={{marginBottom:14}}><button className="btn primary" onClick={openNew}>+ New Battery Delivery Challan</button></div>
     <ErrorBanner message={!open?error:''}/>

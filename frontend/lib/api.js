@@ -101,7 +101,13 @@ export async function api(path, options = {}) {
       }
       const contentType = r.headers.get('content-type') || '';
       const d = contentType.includes('application/json') ? await r.json().catch(() => ({})) : null;
-      if (!r.ok) throw new Error((d && d.error) || `Request failed (${r.status})`);
+      if (!r.ok) {
+        // Generic 403 = this user has no right for the module/action -> clear message instead of bare "Forbidden."
+        if (r.status === 403 && (!d?.error || /^forbidden\.?$/i.test(String(d.error).trim()))) {
+          throw new Error("You don't have rights for this action. Please contact Admin to get access.");
+        }
+        throw new Error((d && d.error) || `Request failed (${r.status})`);
+      }
       if (cacheable) getCache.set(cacheKey, { data: d, expiresAt: Date.now() + GET_CACHE_TTL_MS });
       return d;
     } catch (error) {

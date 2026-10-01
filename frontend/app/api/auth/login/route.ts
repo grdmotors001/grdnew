@@ -43,7 +43,7 @@ export async function POST(req:Request){
     const dr=await pool.query("SELECT * FROM dealer WHERE login_id=$1 LIMIT 1",[userid]);
     const dealer=dr.rows[0];
     if(dealer && !dealer.blocked && verifyWerkzeug(dealer.password_hash,password)){
-      const portalModules=String(dealer.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+      const portalModules=String(dealer.portal_modules||"").replace(/[{}"\[\]]/g,"").split(",").map((x:string)=>x.trim()).filter(Boolean);
       const safeDealer={
         id:dealer.id,code:dealer.code,name:dealer.name,login_id:dealer.login_id,
         dealer_category:dealer.dealer_category||"dealer",purchase_access:Boolean(dealer.purchase_access),

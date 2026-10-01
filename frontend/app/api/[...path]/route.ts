@@ -93,7 +93,25 @@ function importDate(v:any):string|null{
 }
 function importAmount(v:any):number{if(typeof v==='number')return Number.isFinite(v)?v:0;const t=String(v??'').replace(/[₹,\s]/g,'').replace(/\((.*)\)/,'-$1').replace(/(dr|cr)\.?$/i,'');const n=Number(t);return Number.isFinite(n)?n:0;}
 const STOCK_MODULE_ALIAS:any={'dealer-day-book':'cash-at-dealer','dealer-stock':'cash-at-dealer','showroom-stock':'cash-at-dealer','closing-dealers':'closing-stock-dealers','ledger-dealers':'stock-ledger-dealers','closing-premises':'closing-stock-premises','ledger-premises':'stock-ledger-premises','closing-raw':'closing-stock-raw','ledger-raw':'closing-stock-raw','payment-receivable':'payment-receivable-report'};
-function moduleAlias(x:string){if(STOCK_MODULE_ALIAS[x])return STOCK_MODULE_ALIAS[x];return x==='contra-vouchers'?'v-contra':x==='insurance-register'?'insurance-rto':x==='rto-register'?'rto-expense':x==='hypothecation-receipts'?'hypothecation-register':x;}
+// API path (plural) -> menu/rights key (singular): Action Rights menu 'dealer'/'product' keys par save hote hain, API /dealers,/products par aati hai.
+const PATH_TO_MENU_KEY:any={'dealers':'dealer','products':'product'};
+function moduleAlias(x:string){if(PATH_TO_MENU_KEY[x])return PATH_TO_MENU_KEY[x];if(STOCK_MODULE_ALIAS[x])return STOCK_MODULE_ALIAS[x];return x==='contra-vouchers'?'v-contra':x==='insurance-register'?'insurance-rto':x==='rto-register'?'rto-expense':x==='hypothecation-receipts'?'hypothecation-register':x;}
+// API path -> Action Rights / Module Access menu keys. Menu keys singular hote hain (tax-invoice, credit-note...) jabki API path plural (tax-invoices, credit-notes...);
+// kuch paths ka naam alag hai (hr -> hr-attendance, backup -> backup-restore). Isliye diye gaye rights match nahi hote the (Forbidden).
+function rightsKeys(p:string):string[]{
+  const segs=String(p||"").split("/").filter(x=>x&&!/^\d+$/.test(x)),root=segs[0]||"",sing=(x:string)=>x.replace(/s$/,"");
+  const out=[root,sing(root),moduleAlias(root),moduleAlias(sing(root))];
+  if(root==="hr")out.push("hr-attendance");
+  if(root==="backup")out.push("backup-restore");
+  if(root==="bank-ledger")out.push("day-book"); // Bank Ledger ab Bank & Cash book ka hissa hai
+  if(root==="factory-check-items")out.push("factory-check-report");
+  if(root==="battery-swap-vouchers")out.push("battery-swap");
+  if(root==="repair-service-masters"||root==="repair-service-receipts"||root==="repair-service-vouchers")out.push("repair-service-voucher");
+  if(root==="billing"&&segs[1]==="pending-sales")out.push("billing-pending-sales");
+  if((root==="masters"||root==="factory"||root==="billing"||root==="dealer")&&segs[1]){out.push(segs[1],sing(segs[1]),moduleAlias(segs[1]),moduleAlias(sing(segs[1])));}
+  if(root==="inventory"&&segs[1]==="old-rickshaw")out.push("old-rickshaw-inventory");
+  return [...new Set(out.filter(Boolean))];
+}
 function ymd(v:any):string{
   if(v instanceof Date){if(isNaN(v.getTime()))return "";return v.getFullYear()+"-"+String(v.getMonth()+1).padStart(2,"0")+"-"+String(v.getDate()).padStart(2,"0");}
   return String(v||"").slice(0,10);
@@ -107,6 +125,19 @@ async function columns(table:string){
   const r=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1",[table]);
   return new Set(r.rows.map((x:any)=>x.column_name));
 }
+let batteryMovementSchemaReady:Promise<void>|null=null;
+function ensureBatteryMovementSchema():Promise<void>{
+  if(!batteryMovementSchemaReady){
+    batteryMovementSchemaReady=(async()=>{
+      await pool.query("CREATE TABLE IF NOT EXISTS battery_stock_movement (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,dealer_id integer,battery_maker text,battery_no text,reference_no text,movement_type text,created_at timestamptz NOT NULL DEFAULT now())");
+      await addColumns("battery_stock_movement",{vehicle_id:"integer",rickshaw_type:"text",remarks:"text",created_by:"text"});
+    })().catch((e)=>{batteryMovementSchemaReady=null;throw e});
+  }
+  return batteryMovementSchemaReady;
+}
+// Dealer battery stock = har battery ki LATEST movement dekho: withdrawal/delivery => dealer stock me hai; addition => rickshaw par lagi hui.
+// (Pehle "kabhi addition hua to hamesha hidden" logic tha, isliye withdraw ke baad battery wapas stock me nahi dikhti thi.)
+const DEALER_BATTERY_STOCK_SQL="SELECT * FROM (SELECT DISTINCT ON (upper(trim(battery_no))) * FROM battery_stock_movement WHERE dealer_id=$1 AND COALESCE(trim(battery_no),'')<>'' ORDER BY upper(trim(battery_no)),id DESC) t WHERE movement_type IN ('withdrawal','delivery') ORDER BY date DESC,id DESC";
 let challanShiftSchemaReady:Promise<void>|null=null;
 function ensureChallanShiftSchema():Promise<void>{
   if(!challanShiftSchemaReady){
@@ -357,11 +388,12 @@ async function actionAllowed(a:any,moduleKey:string,action:string){
   if(a?.is_super_user || String(a?.department||'').toLowerCase()==='admin') return true;
   await ensureSecuritySchema();
   const segs=String(moduleKey||'').split('/').filter(Boolean),clean=segs.filter(x=>!/^\d+$/.test(x));
-  const keys=[...new Set([moduleKey,clean.join('/'),clean.slice(0,2).join('/'),clean[0],moduleAlias(String(clean[0]||''))].filter(Boolean))];
+  const keys=[...new Set([moduleKey,clean.join('/'),clean.slice(0,2).join('/'),clean[0],moduleAlias(String(clean[0]||'')),...rightsKeys(moduleKey)].filter(Boolean))];
+  if(clean[0]==='bank-ledger'&&action==='view')keys.push('ledger');
   const r=await pool.query('SELECT module_key,can_view,can_create,can_edit,can_delete,can_approve,can_download,can_backup FROM user_action_permission WHERE user_id=$1 AND module_key=ANY($2::text[])',[idOf(a?.sub),keys]);
   if(r.rowCount){const row=keys.map(k=>r.rows.find((x:any)=>x.module_key===k)).find(Boolean); return Boolean(row['can_'+action]);}
   const mods=Array.isArray(a?.allowed_modules)?a.allowed_modules.map((x:any)=>String(x)):String(a?.allowed_modules||'').split(',').map((x:string)=>x.trim()).filter(Boolean);
-  const parts=String(moduleKey||'').split('/').filter(Boolean); const candidates=[moduleKey,...parts,...parts.map(moduleAlias),parts.at(-1),String(parts.at(-1)||'').replace(/s$/,'')].filter(Boolean);
+  const parts=String(moduleKey||'').split('/').filter(Boolean); const candidates=[moduleKey,...parts,...parts.map(moduleAlias),parts.at(-1),String(parts.at(-1)||'').replace(/s$/,''),...(clean[0]==='bank-ledger'?['day-book',...(action==='view'?['ledger']:[])]:[])].filter(Boolean);
   return candidates.some((x:any)=>mods.includes(x));
 }
 
@@ -468,7 +500,43 @@ async function ensureProductionFormulaSchema(){
   await pool.query("UPDATE production_voucher SET formula_name=btrim(formula_name) WHERE formula_name IS NOT NULL AND formula_name<>btrim(formula_name)");
   await pool.query("UPDATE production_formula SET formula_name=product_name WHERE COALESCE(BTRIM(formula_name),'')='' AND COALESCE(product_name,'')<>''");
   await pool.query("UPDATE production_voucher v SET formula_name=v.product_name WHERE COALESCE(BTRIM(v.formula_name),'')='' AND EXISTS (SELECT 1 FROM production_formula f WHERE f.product_name=v.product_name) AND (SELECT COUNT(DISTINCT f.formula_name) FROM production_formula f WHERE f.product_name=v.product_name)=1");
+  // Ek formula me ek raw material sirf ek baar. Agar purane duplicate rows hain to index nahi banega (supabase/20261001_production_formula_unique.sql chalayein).
+  try{await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS uq_production_formula_line ON production_formula (lower(btrim(COALESCE(product_name,''))),lower(btrim(COALESCE(formula_name,''))),lower(btrim(COALESCE(raw_item_name,''))))");}
+  catch(e:any){console.warn("[production_formula] unique index skipped (duplicate rows exist):",e?.message);}
   _pfSchemaDone=true;
+}
+// Raw material ka current stock (journal_stock: OUT = minus, IN = plus).
+async function rawStockBalance(client:any,name:string){
+  const r=await client.query("SELECT COALESCE(SUM(CASE WHEN UPPER(COALESCE(work_type,''))='OUT' THEN -ABS(qty) WHEN UPPER(COALESCE(work_type,''))='IN' THEN ABS(qty) ELSE qty END),0) AS balance FROM journal_stock WHERE lower(trim(item_name))=lower(trim($1))",[name]);
+  return Number(r.rows[0]?.balance||0);
+}
+// Production voucher ke formula ke hisab se raw material OUT entries. Stock kam ho to poora transaction fail (throw).
+// Jo item is voucher ke liye pehle se kata hua hai use dobara nahi katta.
+async function consumeProductionStock(client:any,v:{vou_no:string,date:string|null,product_name:string,formula_name:string,quantity:any}){
+  const qty=Math.max(1,Math.trunc(num(v.quantity)||1)),ref=String(v.vou_no);
+  const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[v.product_name||"",String(v.formula_name||"")]);
+  const done=await client.query("SELECT lower(btrim(item_name)) AS k FROM journal_stock WHERE batch_ref=$1 AND reason='Production Consumption'",[ref]);
+  const doneSet=new Set(done.rows.map((r:any)=>r.k));
+  const need=new Map<string,{name:string,qty:number}>();
+  for(const line of formula.rows){
+    const n=num(line.qty)*qty;if(n<=0)continue;
+    const k=String(line.raw_item_name||"").trim().toLowerCase();if(!k||doneSet.has(k))continue;
+    const cur=need.get(k);if(cur)cur.qty+=n;else need.set(k,{name:String(line.raw_item_name).trim(),qty:n});
+  }
+  const short:string[]=[];
+  for(const it of need.values()){
+    await client.query("SELECT id FROM product WHERE lower(btrim(name))=lower(btrim($1)) FOR UPDATE",[it.name]);
+    const bal=await rawStockBalance(client,it.name);
+    if(bal<it.qty)short.push(it.name+" (chahiye "+it.qty+", available "+bal+")");
+  }
+  if(short.length)throw new Error("Insufficient stock: "+short.join("; "));
+  for(const it of need.values())await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[ref,v.date||null,it.name,it.qty,v.product_name||null]);
+  return formula;
+}
+// Voucher delete/edit par is voucher ki raw material consumption wapas (stock +).
+async function reverseProductionStock(client:any,vouNo:string){
+  const r=await client.query("DELETE FROM journal_stock WHERE batch_ref=$1 AND reason='Production Consumption'",[String(vouNo)]);
+  return r.rowCount||0;
 }
 async function ensureFactoryCheckSchema(){
   await pool.query("CREATE TABLE IF NOT EXISTS factory_check_report (id bigserial PRIMARY KEY, production_voucher_id integer NOT NULL UNIQUE, date date NOT NULL DEFAULT CURRENT_DATE, product_name text, quantity numeric NOT NULL DEFAULT 1, status text NOT NULL DEFAULT 'PENDING', approved_by text, approved_at timestamptz, remarks text, created_at timestamptz NOT NULL DEFAULT now())");
@@ -1071,9 +1139,8 @@ function canWrite(a:any,p:string){
     if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
     const need=DEALER_WRITE_MODULE[p];
     if(!need)return false;
-    const mods=Array.isArray(a?.portal_modules)
-      ? a.portal_modules.map((x:any)=>String(x))
-      : String(a?.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+    const mods=(Array.isArray(a?.portal_modules)?a.portal_modules:String(a?.portal_modules||"").split(","))
+      .map((x:any)=>String(x).replace(/[{}"\[\]]/g,"").trim()).filter(Boolean);
     return mods.includes(need);
   }
   // Billing staff may operate the Pending Sales approval/invoice workflow.
@@ -1086,6 +1153,8 @@ function canWrite(a:any,p:string){
   if(p==="challan-shift")return mods.includes("challan-shift") || mods.includes("delivery-challan");
   if(p==="battery-fit")return mods.includes("battery-fit") || mods.includes("battery-addition") || mods.includes("delivery-challan");
   if(p==="notifications/read" || p==="notifications/cash-limit")return true;
+  // /masters/<kind> ka menu/rights key <kind> hota hai (party, financer, colour ...), isliye wo bhi match karo.
+  if(rightsKeys(p).some(k=>mods.includes(k)))return true;
   return mods.includes(p) || mods.includes(key) || mods.includes(moduleAlias(key));
 }
 // User Master save. Frontend posts /users for BOTH add and edit (edit sends id). The generic writer always INSERTed and dropped
@@ -1842,7 +1911,12 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // Har logged-in staff ko menu (nav-config), dashboard aur apna profile chahiye; ye allowed_modules se block nahi hone chahiye.
     const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="auth/me");
     if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
-    if(!baselineRead&&!(await actionAllowed(a,p,"view")))return Response.json({error:"Forbidden."},{status:403});
+    // Dealer Master form ko salesman list aur sub-group list chahiye: jiske paas Dealer module ka view right hai use ye 2 lookup read allowed (warna dropdown khali rehta tha).
+    const dealerLookup=a?.scope==="staff"&&(p==="masters/salesman"||p==="sub-groups")&&(await actionAllowed(a,"dealer","view"));
+    // Ledger page (Dealer / Financer / Bank / Other Party) in lookups ko padhta hai: jiske paas Ledger ka view right hai use ye read-only lookups allowed (warna "You don't have rights" aata tha).
+    const LEDGER_LOOKUPS=["day-book","bank-ledger","masters/bank","masters/financer","dealers","reports/hypothecation-register"];
+    const ledgerLookup=a?.scope==="staff"&&LEDGER_LOOKUPS.includes(p)&&(await actionAllowed(a,"ledger","view"));
+    if(!baselineRead&&!dealerLookup&&!ledgerLookup&&!(await actionAllowed(a,p,"view")))return Response.json({error:"Forbidden."},{status:403});
     // Download right: CSV exports and *export / *download endpoints need can_download on that module.
     if(String(new URL(req.url).searchParams.get("export")||"").toLowerCase()==="csv"||p.endsWith("/export")||p.includes("/download")){
       if(!(await actionAllowed(a,p,"download")))return Response.json({error:"Download permission required."},{status:403});
@@ -2598,7 +2672,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({vehicles:r.rows,rows:r.rows,count:r.rowCount});
     }
     if(p==="dashboard"){
-      const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production,todayChallans,todayBills,todayProduction]=await Promise.all([
+      const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production,todayChallans,todayBills,todayProduction,mfgMonthly]=await Promise.all([
         pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100"),
         pool.query("SELECT COALESCE(stage,'Unknown') AS stage,COUNT(*)::int AS count FROM vehicle GROUP BY stage"),
         pool.query(`SELECT COALESCE(d.month,i.month) AS month,COALESCE(d.delivery_challan,0)::int AS delivery_challan,COALESCE(i.tax_invoice,0)::int AS tax_invoice FROM (SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*)::int AS delivery_challan FROM delivery_challan WHERE COALESCE(cancelled,false)=false AND date >= date_trunc('month',CURRENT_DATE)-INTERVAL '11 months' GROUP BY 1) d FULL OUTER JOIN (SELECT TO_CHAR(date,'YYYY-MM') AS month,COUNT(*)::int AS tax_invoice FROM tax_invoice WHERE COALESCE(cancelled,false)=false AND date >= date_trunc('month',CURRENT_DATE)-INTERVAL '11 months' GROUP BY 1) i ON i.month=d.month ORDER BY 1`),
@@ -2610,7 +2684,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         pool.query("SELECT COUNT(*)::int AS n FROM production_voucher WHERE date >= date_trunc('month',CURRENT_DATE)"),
         pool.query("SELECT dc.id,dc.date,dc.challan_no,COALESCE(NULLIF(dc.product_name,''),v.model_name) AS model_name,d.name AS dealer_name,COALESCE(NULLIF(dc.chassis_no,''),v.chassis_no) AS chassis_no,TRIM(CONCAT_WS(' ',NULLIF(v.battery_maker,''),NULLIF(v.battery_no1,''),NULLIF(v.battery_no2,''),NULLIF(v.battery_no3,''),NULLIF(v.battery_no4,''))) AS battery_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.date::date=CURRENT_DATE AND COALESCE(dc.cancelled,false)=false ORDER BY dc.date DESC,dc.id DESC LIMIT 100"),
         pool.query("SELECT ti.id,ti.date,ti.bill_no,COALESCE(ti.dealer_name,d.name) AS dealer_name,ti.financer_name,COALESCE(NULLIF(ti.chassis_no,''),v.chassis_no) AS chassis_no,TRIM(CONCAT_WS(' ',NULLIF(v.battery_maker,''),NULLIF(v.battery_no1,''),NULLIF(v.battery_no2,''),NULLIF(v.battery_no3,''),NULLIF(v.battery_no4,''))) AS battery_name FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.date::date=CURRENT_DATE AND COALESCE(ti.cancelled,false)=false ORDER BY ti.date DESC,ti.id DESC LIMIT 100"),
-        pool.query("SELECT id,date,vou_no,product_name AS model_name,quantity FROM production_voucher WHERE date=CURRENT_DATE ORDER BY date DESC,id DESC LIMIT 100")
+        pool.query("SELECT id,date,vou_no,product_name AS model_name,quantity FROM production_voucher WHERE date=CURRENT_DATE ORDER BY date DESC,id DESC LIMIT 100"),
+        pool.query(`SELECT TO_CHAR(date,'YYYY-MM') AS month,COALESCE(SUM(COALESCE(quantity,0)),0)::int AS quantity FROM production_voucher WHERE date >= date_trunc('month',CURRENT_DATE)-INTERVAL '11 months' GROUP BY 1 ORDER BY 1`)
       ]);
       const stage_counts:any={};for(const r of stages.rows)stage_counts[r.stage]=Number(r.count||0);
       const total=Object.values(stage_counts).reduce((s:number,x:any)=>s+Number(x||0),0);
@@ -2621,13 +2696,13 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         tax_invoice:recent.filter((x:any)=>x.stage==="Tax Invoice"),
         stage_counts,total_vehicles:total,
         counts:{manufacturing:Number(stage_counts.Manufacturing||0),delivery_challan:Number(stage_counts["Delivery Challan"]||0),tax_invoice:Number(stage_counts["Tax Invoice"]||0),total},
-        monthly:monthly.rows,billed_monthly:billed.rows,state_sales:states.rows,cash_at_dealer:0,
+        monthly:monthly.rows,billed_monthly:billed.rows,manufacturing_monthly:mfgMonthly.rows,state_sales:states.rows,cash_at_dealer:0,
         dealers:Number(dealers.rows[0]?.n||0),pending_challans:Number(pending.rows[0]?.n||0),
         sales_total:Number(sales.rows[0]?.sales||0),received_total:Number(sales.rows[0]?.received||0),
         loan_total:Number(sales.rows[0]?.loan||0),production_this_month:Number(production.rows[0]?.n||0),
         today_challans:todayChallans.rows,today_bills:todayBills.rows,today_production:todayProduction.rows
       };
-      if(isSalesman(a)){dash.sales_total=0;dash.received_total=0;dash.loan_total=0;dash.billed_monthly=[];dash.state_sales=[];dash.today_bills=[];dash.today_production=[];dash.production_this_month=0;}
+      if(isSalesman(a)){dash.sales_total=0;dash.received_total=0;dash.loan_total=0;dash.billed_monthly=[];dash.manufacturing_monthly=[];dash.state_sales=[];dash.today_bills=[];dash.today_production=[];dash.production_this_month=0;}
       return Response.json(dash);
     }
     if(p==="nav-config"){
@@ -2809,7 +2884,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const d=r.rows[0]||null;
       if(!d)return Response.json({error:"Dealer not found."},{status:404});
       d.purchase_access=Boolean(d.purchase_access);
-      d.portal_modules=String(d.portal_modules||"").split(",").map((x:any)=>x.trim()).filter(Boolean);
+      d.portal_modules=String(d.portal_modules||"").replace(/[{}"\[\]]/g,"").split(",").map((x:any)=>x.trim()).filter(Boolean);
       if(String(a.role||"")==="salesman"){d.is_salesman=true;d.salesman=String(a.salesman||a.username||"");d.role="salesman";}
       return Response.json({dealer:d});
     }
@@ -2834,6 +2909,41 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const name=dr.rows[0]?.name||"";
       const r=await pool.query("SELECT * FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) ORDER BY date DESC,id DESC",[name]);
       return Response.json({vehicles:r.rows,count:r.rowCount});
+    }
+    if(p==="battery-addition"&&a.scope==="staff"){
+      const u=new URL(req.url);
+      if(String(u.searchParams.get("location")||"").toLowerCase()==="factory"){
+        const r=await pool.query("SELECT id,chassis_no,model_name,battery_maker FROM vehicle WHERE COALESCE(to_jsonb(vehicle)->>'stage','')='Manufacturing' AND COALESCE(NULLIF(trim(battery_no1),''),NULLIF(trim(battery_no2),''),NULLIF(trim(battery_no3),''),NULLIF(trim(battery_no4),'')) IS NULL ORDER BY id DESC LIMIT 2000");
+        return Response.json({rickshaws:r.rows.map((x:any)=>({id:x.id,reg_no:null,chassis_no:x.chassis_no,model_name:x.model_name,battery_maker:x.battery_maker,battery_numbers:[]}))});
+      }
+      await ensureBatteryMovementSchema();
+      const did=idOf(u.searchParams.get("dealer_id"));
+      if(!did)return Response.json({batteries:[],count:0});
+      // Har battery ki LATEST movement dekho: withdrawal/delivery = dealer stock me available; addition = rickshaw par lagi hui.
+      const r=await pool.query("SELECT * FROM (SELECT DISTINCT ON (upper(trim(battery_no))) * FROM battery_stock_movement WHERE dealer_id=$1 AND COALESCE(trim(battery_no),'')<>'' ORDER BY upper(trim(battery_no)),id DESC) t WHERE movement_type IN ('withdrawal','delivery') ORDER BY date DESC,id DESC",[did]);
+      const batteries=r.rows.map((x:any)=>({...x,qty:1}));
+      return Response.json({batteries,count:batteries.length});
+    }
+    if(p==="battery-swap-vouchers"&&a.scope==="staff"){
+      if(!(await columns("battery_swap_voucher")).size)return Response.json({records:[],rows:[]});
+      const r=await pool.query("SELECT bsv.*,d.name AS dealer_name FROM battery_swap_voucher bsv LEFT JOIN dealer d ON d.id=bsv.dealer_id ORDER BY bsv.date DESC,bsv.id DESC LIMIT 1000");
+      const isOld=(t:any)=>String(t||"").toLowerCase().includes("old");
+      const ids=(side:string,old:boolean)=>[...new Set(r.rows.filter((x:any)=>isOld(x[side+"_type"])===old).map((x:any)=>Number(x[side+"_id"])).filter((n:number)=>n>0))];
+      const load=async(table:string,list:number[])=>{const m=new Map<number,any>();if(list.length){const q=await pool.query('SELECT * FROM "'+table+'" WHERE id=ANY($1::bigint[])',[list]);q.rows.forEach((x:any)=>m.set(Number(x.id),x));}return m;};
+      const vNew=await load("vehicle",[...new Set([...ids("from",false),...ids("to",false)])] as number[]);
+      const vOld=await load("old_rickshaw",[...new Set([...ids("from",true),...ids("to",true)])] as number[]);
+      const side=(x:any,sd:string)=>{
+        const row=(isOld(x[sd+"_type"])?vOld:vNew).get(Number(x[sd+"_id"]));
+        const nums=row?[1,2,3,4].map(i=>String(row["battery_no"+i]||"").trim()).filter(Boolean):[];
+        return {[sd+"_model_name"]:row?.model_name||"",[sd+"_chassis_no"]:row?.chassis_no||"",[sd+"_reg_no"]:row?.vehicle_reg_no||row?.vehicle_no||"",[sd+"_battery_maker"]:row?.battery_maker||"",[sd+"_battery_numbers"]:nums};
+      };
+      const records=r.rows.map((x:any)=>({...x,...side(x,"from"),...side(x,"to")}));
+      return Response.json({records,rows:records});
+    }
+    if(p==="battery-withdrawal"&&a.scope==="staff"){
+      await ensureBatteryMovementSchema();
+      const r=await pool.query("SELECT m.*,d.name AS dealer_name FROM battery_stock_movement m LEFT JOIN dealer d ON d.id=m.dealer_id WHERE m.movement_type='withdrawal' ORDER BY m.date DESC,m.id DESC LIMIT 1000");
+      return Response.json({records:r.rows,rows:r.rows});
     }
     if(p==="dealer/rickshaw-battery-options"){
       const ou=new URL(req.url),otype=String(ou.searchParams.get("type")||"new").toLowerCase();
@@ -2920,18 +3030,16 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const did=num(a.dealer_id);
       const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1",[did]);
       if(!dr.rowCount)return Response.json({error:"Dealer not found."},{status:404});
-      const stock=await pool.query("SELECT * FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') ORDER BY date DESC,id DESC",[did]);
-      const used=await pool.query("SELECT battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type='addition'",[did]);
-      const usedSet=new Set(used.rows.map((x:any)=>String(x.battery_no||"").trim().toUpperCase()));
-      const batteries=stock.rows.filter((x:any)=>!usedSet.has(String(x.battery_no||"").trim().toUpperCase())).map((x:any)=>({...x,qty:1}));
+      await ensureBatteryMovementSchema();
+      const stock=await pool.query(DEALER_BATTERY_STOCK_SQL,[did]);
+      const batteries=stock.rows.map((x:any)=>({...x,qty:1}));
       const vehicles=await pool.query("SELECT id,date,model_name,chassis_no,motor_no,stage,dealer_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4 FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) ORDER BY date DESC,id DESC",[dr.rows[0].name]);
       return Response.json({batteries,vehicles:vehicles.rows,makers:[...new Set(batteries.map((x:any)=>String(x.battery_maker||"").trim()).filter(Boolean))]});
     }
     if(p==="dealer/battery-stock"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT * FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') ORDER BY date DESC,id DESC",[num(a.dealer_id)]);
-      const used=await pool.query("SELECT battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type='addition'",[num(a.dealer_id)]);
-      const usedSet=new Set(used.rows.map((x:any)=>String(x.battery_no||"").trim().toUpperCase()));
-      const batteries=r.rows.filter((x:any)=>!usedSet.has(String(x.battery_no||"").trim().toUpperCase())).map((x:any)=>({...x,qty:1}));
+      await ensureBatteryMovementSchema();
+      const r=await pool.query(DEALER_BATTERY_STOCK_SQL,[num(a.dealer_id)]);
+      const batteries=r.rows.map((x:any)=>({...x,qty:1}));
       return Response.json({batteries,count:batteries.length});
     }
     if(p==="dealer/delivery-challans"&&a.scope==="dealer"){
@@ -3095,59 +3203,6 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         ORDER BY s.shift_date DESC,s.id DESC LIMIT 2000`);
       return Response.json({challans:eligible.rows,dealers:dealers.rows,shifts:shifts.rows,count:eligible.rowCount});
     }
-    if(p==="challan-shift"){
-      await ensureChallanShiftSchema();
-      const challanId=idOf(b.challan_id),toDealerId=idOf(b.to_dealer_id);
-      const shiftDate=String(b.shift_date||"").slice(0,10)||new Date().toISOString().slice(0,10);
-      const remark=String(b.remark||"").trim();
-      if(!challanId)return Response.json({error:"Delivery Challan is required."},{status:400});
-      if(!toDealerId)return Response.json({error:"Shift To Dealer is required."},{status:400});
-      if(!remark)return Response.json({error:"Shift Remark is required."},{status:400});
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const dc=await client.query(`SELECT dc.*,d.name AS dealer_name,
-          EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) AS invoiced
-          FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
-          WHERE dc.id=$1 FOR UPDATE`,[challanId]);
-        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
-        const row=dc.rows[0];
-        if(Boolean(row.cancelled))throw new Error("Cancelled Delivery Challan cannot be shifted.");
-        if(Boolean(row.invoiced))throw new Error("Bill already generated. Dealer shift is locked.");
-        if(Number(row.dealer_id||0)===toDealerId)throw new Error("New dealer is same as current dealer.");
-        const td=await client.query("SELECT id,name FROM dealer WHERE id=$1 AND COALESCE(blocked,false)=false",[toDealerId]);
-        if(!td.rowCount)throw new Error("Shift To Dealer not found.");
-        const toName=String(td.rows[0].name||"").trim();
-        const fromName=String(row.dealer_name||"").trim();
-        const ins=await client.query(`INSERT INTO delivery_challan_shift
-          (challan_id,challan_no,chassis_no,model_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,
-           shift_from_dealer_id,shift_from_dealer_name,shift_to_dealer_id,shift_to_dealer_name,shift_date,remark,shifted_by)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::date,$15,$16) RETURNING id`,
-          [challanId,row.challan_no||"",row.chassis_no||"",row.product_name||"",row.battery_maker||null,row.battery_no1||null,row.battery_no2||null,row.battery_no3||null,row.battery_no4||null,
-           idOf(row.dealer_id),fromName,toDealerId,toName,shiftDate,remark,String(a.username||a.full_name||a.user_id||"Admin")]);
-        const ref="DCS-"+shiftDate.replace(/-/g,"")+"-"+String(ins.rows[0].id).padStart(5,"0");
-        await client.query("UPDATE delivery_challan_shift SET shift_ref=$1 WHERE id=$2",[ref,ins.rows[0].id]);
-
-        const dcCols=await columns("delivery_challan");
-        const sets:string[]=["dealer_id=$1"],vals:any[]=[toDealerId];
-        if(dcCols.has("dealer_name")){sets.push("dealer_name=$2");vals.push(toName);}
-        vals.push(challanId);
-        await client.query("UPDATE delivery_challan SET "+sets.join(",")+" WHERE id=$"+vals.length,vals);
-
-        const vcols=await columns("vehicle");
-        if(row.vehicle_id&&vcols.has("dealer_name"))await client.query("UPDATE vehicle SET dealer_name=$1 WHERE id=$2",[toName,row.vehicle_id]);
-
-        const log=`Dealer Shift: ${fromName||"—"} → ${toName} | Shift Date: ${shiftDate} | Ref: ${ref} | Remark: ${remark}`;
-        const target=dcCols.has("remarks2")?"remarks2":(dcCols.has("remarks1")?"remarks1":null);
-        if(target){
-          const old=String(row[target]||"").trim();
-          const next=old?[old,log].join("\n"):log;
-          await client.query("UPDATE delivery_challan SET \""+target+"\"=$1 WHERE id=$2",[next,challanId]);
-        }
-        await client.query("COMMIT");
-        return Response.json({success:true,shift_ref:ref,shift_id:Number(ins.rows[0].id),dealer_id:toDealerId,dealer_name:toName});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
     if(p==="delivery-challans" || p==="dealer/delivery-challans"){
       await ensureDispatchSchema();
       const u=new URL(req.url),page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),search=String(u.searchParams.get("search")||"").trim();
@@ -3167,7 +3222,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const dealerExpr=dcCols.has("dealer_name")&&dealerCols.has("name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : (dealerCols.has("name")&&dcCols.has("dealer_id")?"d.name":"''");
       const joinDealer=dcCols.has("dealer_id")&&dealerCols.has("id")?" LEFT JOIN dealer d ON d.id=dc.dealer_id":"";
       const invoiceExpr=invoiceCols.has("delivery_challan_id") ? "EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND "+(invoiceCols.has("cancelled")?"COALESCE(ti.cancelled,false)=false":"TRUE")+") AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no" : "false AS invoiced,'' AS bill_no";
-      const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,"+invoiceExpr+" FROM delivery_challan dc"+joinDealer+whereSql+" ORDER BY "+(dcCols.has("date")?"dc.date DESC,dc.id DESC":"dc.id DESC")+" LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const bmExpr=vehicleCols.has("battery_maker")&&dcCols.has("vehicle_id")?"COALESCE(NULLIF(v.battery_maker,''),'')":"''";const joinVeh=vehicleCols.has("battery_maker")&&dcCols.has("vehicle_id")?" LEFT JOIN vehicle v ON v.id=dc.vehicle_id":"";const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,"+bmExpr+" AS battery_maker,"+invoiceExpr+" FROM delivery_challan dc"+joinDealer+joinVeh+whereSql+" ORDER BY "+(dcCols.has("date")?"dc.date DESC,dc.id DESC":"dc.id DESC")+" LIMIT "+per+" OFFSET "+((page-1)*per),args);
       const stageCol=vehicleCols.has("stage");
       const available=stageCol
         ? await pool.query("SELECT * FROM vehicle WHERE stage='Manufacturing' ORDER BY id DESC LIMIT 2000")
@@ -3607,6 +3662,60 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     await ensureSecuritySchema();
     if(!(await actionAllowed(a,p,"create")))return Response.json({error:"Forbidden."},{status:403});
 
+    if(p==="challan-shift"){
+      await ensureChallanShiftSchema();
+      const challanId=idOf(b.challan_id),toDealerId=idOf(b.to_dealer_id);
+      const shiftDate=String(b.shift_date||"").slice(0,10)||new Date().toISOString().slice(0,10);
+      const remark=String(b.remark||"").trim();
+      if(!challanId)return Response.json({error:"Delivery Challan is required."},{status:400});
+      if(!toDealerId)return Response.json({error:"Shift To Dealer is required."},{status:400});
+      if(!remark)return Response.json({error:"Shift Remark is required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dc=await client.query(`SELECT dc.*,d.name AS dealer_name,
+          EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND COALESCE(ti.cancelled,false)=false) AS invoiced
+          FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id
+          WHERE dc.id=$1 FOR UPDATE OF dc`,[challanId]);
+        if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        const row=dc.rows[0];
+        if(Boolean(row.cancelled))throw new Error("Cancelled Delivery Challan cannot be shifted.");
+        if(Boolean(row.invoiced))throw new Error("Bill already generated. Dealer shift is locked.");
+        if(Number(row.dealer_id||0)===toDealerId)throw new Error("New dealer is same as current dealer.");
+        const td=await client.query("SELECT id,name FROM dealer WHERE id=$1 AND COALESCE(blocked,false)=false",[toDealerId]);
+        if(!td.rowCount)throw new Error("Shift To Dealer not found.");
+        const toName=String(td.rows[0].name||"").trim();
+        const fromName=String(row.dealer_name||"").trim();
+        const ins=await client.query(`INSERT INTO delivery_challan_shift
+          (challan_id,challan_no,chassis_no,model_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,
+           shift_from_dealer_id,shift_from_dealer_name,shift_to_dealer_id,shift_to_dealer_name,shift_date,remark,shifted_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::date,$15,$16) RETURNING id`,
+          [challanId,row.challan_no||"",row.chassis_no||"",row.product_name||"",row.battery_maker||null,row.battery_no1||null,row.battery_no2||null,row.battery_no3||null,row.battery_no4||null,
+           idOf(row.dealer_id),fromName,toDealerId,toName,shiftDate,remark,String(a.username||a.full_name||a.user_id||"Admin")]);
+        const ref="DCS-"+shiftDate.replace(/-/g,"")+"-"+String(ins.rows[0].id).padStart(5,"0");
+        await client.query("UPDATE delivery_challan_shift SET shift_ref=$1 WHERE id=$2",[ref,ins.rows[0].id]);
+
+        const dcCols=await columns("delivery_challan");
+        const sets:string[]=["dealer_id=$1"],vals:any[]=[toDealerId];
+        if(dcCols.has("dealer_name")){sets.push("dealer_name=$2");vals.push(toName);}
+        vals.push(challanId);
+        await client.query("UPDATE delivery_challan SET "+sets.join(",")+" WHERE id=$"+vals.length,vals);
+
+        const vcols=await columns("vehicle");
+        if(row.vehicle_id&&vcols.has("dealer_name"))await client.query("UPDATE vehicle SET dealer_name=$1 WHERE id=$2",[toName,row.vehicle_id]);
+
+        const log=`Dealer Shift: ${fromName||"—"} → ${toName} | Shift Date: ${shiftDate} | Ref: ${ref} | Remark: ${remark}`;
+        const target=dcCols.has("remarks2")?"remarks2":(dcCols.has("remarks1")?"remarks1":null);
+        if(target){
+          const old=String(row[target]||"").trim();
+          const next=old?[old,log].join("\n"):log;
+          await client.query("UPDATE delivery_challan SET \""+target+"\"=$1 WHERE id=$2",[next,challanId]);
+        }
+        await client.query("COMMIT");
+        return Response.json({success:true,shift_ref:ref,shift_id:Number(ins.rows[0].id),dealer_id:toDealerId,dealer_name:toName});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+
     if(p==="admin/backfill-loan-status"){
       if(!isAdmin(a))return Response.json({error:"Admin rights required."},{status:403});
       await ensureLoanWorkflowBridgeSchema();
@@ -3793,9 +3902,16 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const lines:any[]=Array.isArray(b.lines)?b.lines:[];
       if(!product||!formula)return Response.json({error:"Product aur Formula Name zaroori hai."},{status:400});
       if(!lines.length)return Response.json({error:"Kam se kam ek raw material line chahiye."},{status:400});
+      const seen=new Set<string>();
+      for(const l of lines){const k=String(l.raw_item_name||"").trim().toLowerCase();if(!k)continue;if(seen.has(k))return Response.json({error:"\""+String(l.raw_item_name).trim()+"\" is formula me do baar hai. Ek hi line rakhein."},{status:400});seen.add(k);}
+      const removeIds:number[]=(Array.isArray(b.removed_ids)?b.removed_ids:[]).map((x:any)=>idOf(x)).filter(Boolean) as number[];
       const client=await pool.connect();
       try{
         await client.query("BEGIN");
+        // Modal me hataayi gayi lines Save ke saath hi (isi transaction me) delete hoti hain; Cancel par kuch nahi udta.
+        // Pehle delete, taaki "line hatao + wahi raw material nayi line" unique index se na takraye.
+        let deleted=0;
+        if(removeIds.length){const d=await client.query("DELETE FROM production_formula WHERE id=ANY($1::bigint[]) AND "+NORM("product_name")+"="+NORM("$2")+" AND "+NORM("formula_name")+"="+NORM("$3"),[removeIds,product,formula]);deleted=d.rowCount||0;}
         let updated=0,inserted=0;
         for(const l of lines){
           const rawItem=String(l.raw_item_name||"").trim(),qty=num(l.qty),unit=String(l.unit||"PCS").trim()||"PCS";
@@ -3810,8 +3926,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           await client.query("INSERT INTO production_formula (product_name,formula_name,raw_item_name,qty,unit) VALUES ($1,$2,$3,$4,$5)",[product,formula,rawItem,qty,unit]);inserted++;
         }
         await client.query("COMMIT");
-        return Response.json({success:true,updated,inserted});
-      }catch(e:any){await client.query("ROLLBACK");return Response.json({error:e.message||"Save failed"},{status:400})}finally{client.release()}
+        return Response.json({success:true,updated,inserted,deleted});
+      }catch(e:any){await client.query("ROLLBACK");const dup=e?.code==="23505";return Response.json({error:dup?"Ek formula me ek raw material do baar nahi aa sakta.":(e.message||"Save failed")},{status:400})}finally{client.release()}
     }
     if(p==="hr/employees"){
       await ensureHRSchemas();
@@ -3951,33 +4067,185 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         return Response.json({success:true,receipt},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
-    if(a.scope==="dealer" && p==="battery-withdrawal"){
-      const did=num(a.dealer_id), batteryNo=String(b.battery_no||"").trim();
+    if(a.scope==="staff" && p==="battery-addition"){
+      await ensureBatteryMovementSchema();
+      const loc=String(b.location||"dealer").toLowerCase()==="factory"?"factory":"dealer";
+      const rid=idOf(b.rickshaw_id),batteryNo=String(b.battery_no||"").trim();
+      const isOld=loc==="dealer"&&String(b.rickshaw_type||"new").toLowerCase().includes("old");
+      if(!rid)return Response.json({error:"Rickshaw is required."},{status:400});
       if(!batteryNo)return Response.json({error:"Battery No. is required."},{status:400});
-      const r=await pool.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',NOW()) RETURNING *",
-        [b.date||null,did,String(b.battery_maker||"").trim()||null,batteryNo,String(b.reference_no||"").trim()||null]);
-      return Response.json({success:true,row:r.rows[0],data:r.rows[0]},{status:201});
-    }
-    if(a.scope==="dealer" && p==="battery-addition"){
-      const did=num(a.dealer_id),vehicleId=idOf(b.vehicle_id),batteryNo=String(b.battery_no||"").trim();
-      if(!vehicleId||!batteryNo)return Response.json({error:"Vehicle and Battery No. are required."},{status:400});
       const client=await pool.connect();
       try{
         await client.query("BEGIN");
-        const dr=await client.query("SELECT name FROM dealer WHERE id=$1",[did]);
+        if(loc==="factory"){
+          const maker=String(b.battery_maker||"").trim();
+          if(!maker)throw new Error("Battery Maker is required.");
+          const vr=await client.query("SELECT * FROM vehicle WHERE id=$1 AND COALESCE(to_jsonb(vehicle)->>'stage','')='Manufacturing' FOR UPDATE",[rid]);
+          if(!vr.rowCount)throw new Error("Rickshaw not found in Factory (Manufacturing) stock.");
+          const row=vr.rows[0],slot=[1,2,3,4].find(i=>!String(row["battery_no"+i]||"").trim());
+          if(!slot)throw new Error("Rickshaw already has 4 batteries fitted.");
+          const dup=await client.query("SELECT chassis_no FROM vehicle WHERE id<>$1 AND upper(trim($2)) IN (upper(trim(COALESCE(battery_no1,''))),upper(trim(COALESCE(battery_no2,''))),upper(trim(COALESCE(battery_no3,''))),upper(trim(COALESCE(battery_no4,'')))) LIMIT 1",[rid,batteryNo]);
+          if(dup.rowCount)throw new Error("Battery No. "+batteryNo+" is already fitted on another rickshaw ("+(dup.rows[0].chassis_no||"")+").");
+          const existingMaker=String(row.battery_maker||"").trim();
+          if(existingMaker&&existingMaker.toLowerCase()!==maker.toLowerCase())throw new Error("Rickshaw already has batteries of a different maker ("+existingMaker+").");
+          await client.query('UPDATE vehicle SET "battery_no'+slot+'"=$1,battery_maker=$2 WHERE id=$3',[batteryNo,maker,rid]);
+          await client.query("COMMIT");
+          // Factory stock register ka OUT entry Delivery Challan banne par hota hai (toggleBatteryRegisterForDelivery), isliye yahan double entry nahi.
+          return Response.json({success:true,vehicle_id:rid,battery_no:batteryNo,battery_maker:maker},{status:201});
+        }
+        const did=idOf(b.dealer_id);
+        if(!did)throw new Error("Dealer is required.");
+        const dr=await client.query("SELECT id,name FROM dealer WHERE id=$1",[did]);
+        if(!dr.rowCount)throw new Error("Dealer not found.");
+        const avail=await client.query("SELECT * FROM (SELECT DISTINCT ON (upper(trim(battery_no))) * FROM battery_stock_movement WHERE dealer_id=$1 AND upper(trim(battery_no))=upper(trim($2)) ORDER BY upper(trim(battery_no)),id DESC) t WHERE movement_type IN ('withdrawal','delivery')",[did,batteryNo]);
+        if(!avail.rowCount)throw new Error("Battery is not available in this dealer's battery stock.");
+        const tbl=isOld?"old_rickshaw":"vehicle";
+        const vr=isOld
+          ?await client.query("SELECT * FROM old_rickshaw WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[rid,did])
+          :await client.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2)) FOR UPDATE",[rid,dr.rows[0].name]);
+        if(!vr.rowCount)throw new Error("Rickshaw not found in this dealer's stock.");
+        const row=vr.rows[0],slot=[1,2,3,4].find(i=>!String(row["battery_no"+i]||"").trim());
+        if(!slot)throw new Error("Rickshaw already has 4 batteries fitted.");
+        const maker=String(avail.rows[0].battery_maker||b.battery_maker||"").trim()||null;
+        const existingMaker=String(row.battery_maker||"").trim();
+        if(existingMaker&&maker&&existingMaker.toLowerCase()!==maker.toLowerCase())throw new Error("Rickshaw already has batteries of a different maker ("+existingMaker+").");
+        await client.query('UPDATE "'+tbl+'" SET "battery_no'+slot+'"=$1,battery_maker=COALESCE(NULLIF(battery_maker,\'\'),$2) WHERE id=$3',[batteryNo,maker,rid]);
+        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',$6,$7,$8,$9,NOW()) RETURNING *",
+          [ymd(b.date)||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,rid,isOld?"old":"new",String(b.remarks||"").trim()||null,String(a.username||a.full_name||a.user_id||"")]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:mv.rows[0],vehicle_id:rid,battery_no:batteryNo},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(a.scope==="staff" && p==="battery-withdrawal"){
+      await ensureBatteryMovementSchema();
+      const did=idOf(b.dealer_id),rid=idOf(b.rickshaw_id),batteryNo=String(b.battery_no||"").trim();
+      const isOld=String(b.rickshaw_type||"new").toLowerCase().includes("old");
+      if(!did)return Response.json({error:"Dealer is required."},{status:400});
+      if(!rid)return Response.json({error:"Rickshaw is required."},{status:400});
+      if(!batteryNo)return Response.json({error:"Battery No. is required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dr=await client.query("SELECT id,name FROM dealer WHERE id=$1",[did]);
+        if(!dr.rowCount)throw new Error("Dealer not found.");
+        const tbl=isOld?"old_rickshaw":"vehicle";
+        const vr=isOld
+          ?await client.query("SELECT * FROM old_rickshaw WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[rid,did])
+          :await client.query("SELECT * FROM vehicle WHERE id=$1 AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2)) FOR UPDATE",[rid,dr.rows[0].name]);
+        if(!vr.rowCount)throw new Error("Rickshaw not found in this dealer's stock.");
+        const row=vr.rows[0];
+        let slot="";
+        for(const i of [1,2,3,4]){if(String(row["battery_no"+i]||"").trim().toLowerCase()===batteryNo.toLowerCase()){slot="battery_no"+i;break;}}
+        if(!slot)throw new Error("This battery is not fitted on the selected rickshaw.");
+        const maker=String(row.battery_maker||"").trim()||null;
+        await client.query('UPDATE "'+tbl+'" SET "'+slot+'"=NULL WHERE id=$1',[rid]);
+        const left=[1,2,3,4].filter(i=>"battery_no"+i!==slot&&String(row["battery_no"+i]||"").trim()!=="").length;
+        if(!left)await client.query('UPDATE "'+tbl+'" SET battery_maker=NULL WHERE id=$1',[rid]);
+        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',$6,$7,$8,$9,NOW()) RETURNING *",
+          [ymd(b.date)||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,rid,isOld?"old":"new",String(b.remarks||"").trim()||null,String(a.username||a.full_name||a.user_id||"")]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:mv.rows[0],data:mv.rows[0]},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(a.scope==="dealer" && p==="battery-withdrawal"){
+      await ensureBatteryMovementSchema();
+      const did=num(a.dealer_id), batteryNo=String(b.battery_no||"").trim();
+      if(!batteryNo)return Response.json({error:"Battery No. is required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dr=await client.query("SELECT id,name FROM dealer WHERE id=$1",[did]);
+        if(!dr.rowCount)throw new Error("Dealer not found.");
+        // Latest movement: agar battery pehle se dealer stock me hai to dobara withdraw nahi (duplicate stock entry).
+        const last=await client.query("SELECT movement_type FROM battery_stock_movement WHERE dealer_id=$1 AND upper(trim(battery_no))=upper(trim($2)) ORDER BY id DESC LIMIT 1",[did,batteryNo]);
+        if(last.rowCount&&["withdrawal","delivery"].includes(String(last.rows[0].movement_type)))throw new Error("Battery No. "+batteryNo+" is already in your battery stock.");
+        // Agar battery abhi is dealer ki kisi rickshaw par lagi hai to wahan se nikaal do (taaki dobara fit karne par do jagah na dikhe).
+        const slotsSql="upper(trim($2)) IN (upper(trim(COALESCE(battery_no1,''))),upper(trim(COALESCE(battery_no2,''))),upper(trim(COALESCE(battery_no3,''))),upper(trim(COALESCE(battery_no4,''))))";
+        let maker=String(b.battery_maker||"").trim()||null,vehicleId:number|null=null,rType:string|null=null;
+        const vr=await client.query("SELECT * FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) AND "+slotsSql+" ORDER BY id DESC LIMIT 1 FOR UPDATE",[dr.rows[0].name,batteryNo]);
+        const orr=vr.rowCount?{rowCount:0,rows:[]}:await client.query("SELECT * FROM old_rickshaw WHERE dealer_id=$1 AND "+slotsSql+" ORDER BY id DESC LIMIT 1 FOR UPDATE",[did,batteryNo]);
+        const fitted=vr.rowCount?vr:orr;
+        if(fitted.rowCount){
+          const tbl=vr.rowCount?"vehicle":"old_rickshaw",row=fitted.rows[0];
+          const slot=[1,2,3,4].find(i=>String(row["battery_no"+i]||"").trim().toLowerCase()===batteryNo.toLowerCase())!;
+          await client.query('UPDATE "'+tbl+'" SET "battery_no'+slot+'"=NULL WHERE id=$1',[row.id]);
+          const left=[1,2,3,4].filter(i=>i!==slot&&String(row["battery_no"+i]||"").trim()!=="").length;
+          if(!left)await client.query('UPDATE "'+tbl+'" SET battery_maker=NULL WHERE id=$1',[row.id]);
+          maker=String(row.battery_maker||"").trim()||maker;vehicleId=Number(row.id);rType=vr.rowCount?"new":"old";
+        }
+        const r=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',$6,$7,$8,$9,NOW()) RETURNING *",
+          [ymd(b.date)||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,vehicleId,rType,vehicleId?"Withdrawn from rickshaw":null,String(a.username||a.full_name||a.dealer_id||"")]);
+        await client.query("COMMIT");
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],removed_from_rickshaw:Boolean(vehicleId)},{status:201});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
+    if(a.scope==="dealer" && p==="battery-addition"){
+      await ensureBatteryMovementSchema();
+      const did=num(a.dealer_id),vehicleId=idOf(b.vehicle_id),batteryNo=String(b.battery_no||"").trim();
+      const fromFactory=String(b.source||b.location||"dealer").toLowerCase()==="factory";
+      if(!vehicleId||!batteryNo)return Response.json({error:"Vehicle and Battery No. are required."},{status:400});
+      if(fromFactory&&!String(b.battery_maker||"").trim())return Response.json({error:"Battery Maker is required for a factory battery."},{status:400});
+      if(fromFactory){await ensureBatteryFitSchema();await ensureNotificationSchema();}
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const dr=await client.query("SELECT id,name FROM dealer WHERE id=$1",[did]);
         if(!dr.rowCount)throw new Error("Dealer not found.");
         const vr=await client.query("SELECT * FROM vehicle WHERE id=$1 AND stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($2)) FOR UPDATE",[vehicleId,dr.rows[0].name]);
         if(!vr.rowCount)throw new Error("Vehicle not found in this dealer's stock.");
-        const available=await client.query("SELECT battery_maker,battery_no FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type IN ('withdrawal','delivery') AND upper(trim(battery_no))=upper(trim($2)) AND NOT EXISTS (SELECT 1 FROM battery_stock_movement x WHERE x.dealer_id=$1 AND x.movement_type='addition' AND upper(trim(x.battery_no))=upper(trim($2))) LIMIT 1",[did,batteryNo]);
-        if(!available.rowCount)throw new Error("Battery is not available in dealer battery stock.");
+        const row=vr.rows[0];
         const position=Math.min(4,Math.max(1,Number(b.position)||1));
         const field="battery_no"+position;
-        const maker=String(b.battery_maker||available.rows[0].battery_maker||"").trim()||null;
-        await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
-        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',NOW()) RETURNING *",
-          [b.date||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null]);
+        if(String(row[field]||"").trim())throw new Error("Battery position "+position+" par pehle se battery ("+String(row[field]).trim()+") lagi hai. Dusri position chuno ya pehle usse withdraw karo.");
+        // Ye battery kisi aur rickshaw par to nahi lagi?
+        const dup=await client.query("SELECT chassis_no FROM vehicle WHERE id<>$1 AND upper(trim($2)) IN (upper(trim(COALESCE(battery_no1,''))),upper(trim(COALESCE(battery_no2,''))),upper(trim(COALESCE(battery_no3,''))),upper(trim(COALESCE(battery_no4,'')))) LIMIT 1",[vehicleId,batteryNo]);
+        if(dup.rowCount)throw new Error("Battery No. "+batteryNo+" is already fitted on another rickshaw ("+(dup.rows[0].chassis_no||"")+").");
+        const stockQ=await client.query("SELECT * FROM (SELECT DISTINCT ON (upper(trim(battery_no))) * FROM battery_stock_movement WHERE dealer_id=$1 AND upper(trim(battery_no))=upper(trim($2)) ORDER BY upper(trim(battery_no)),id DESC) t WHERE movement_type IN ('withdrawal','delivery')",[did,batteryNo]);
+        const date=ymd(b.date)||ymd(new Date()),refNo=String(b.reference_no||"").trim()||null,who=String(a.username||a.full_name||a.dealer_id||"");
+        if(!fromFactory){
+          // Dealer stock se fit
+          if(!stockQ.rowCount)throw new Error("Battery is not available in dealer battery stock.");
+          const maker=String(b.battery_maker||stockQ.rows[0].battery_maker||"").trim()||null;
+          await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
+          const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES ($1::date,$2,$3,$4,$5,'addition',$6,'new','Fitted from dealer stock',$7,NOW()) RETURNING *",[date,did,maker,batteryNo,refNo,vehicleId,who]);
+          await client.query("COMMIT");
+          return Response.json({success:true,source:"dealer",row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
+        }
+        // Factory se fit: battery dealer stock me hona nahi chahiye, aur factory register me pehle issue nahi hui honi chahiye
+        if(stockQ.rowCount)throw new Error("Battery No. "+batteryNo+" already your dealer stock me hai - 'Dealer Stock' option se fit karo.");
+        const maker=String(b.battery_maker||"").trim();
+        await assertBatterySerialsAvailable(client,maker,[batteryNo]);
+        const oldNums=[1,2,3,4].map(i=>String(row["battery_no"+i]||"").trim()),oldMaker=String(row.battery_maker||"").trim();
+        const newNums=oldNums.slice();newNums[position-1]=batteryNo;
+        await client.query('UPDATE vehicle SET battery_maker=COALESCE(NULLIF(battery_maker,\'\'),$1),"'+field+'"=$2,battery_fit_date=$3 WHERE id=$4',[maker,batteryNo,date,vehicleId]);
+        // History: factory -> dealer (delivery) + rickshaw par fit (addition)
+        const fromRemark="Factory se "+dr.rows[0].name+" ko bheji gayi - rickshaw "+(row.chassis_no||vehicleId)+" par fit";
+        await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES ($1::date,$2,$3,$4,$5,'delivery',$6,'new',$7,$8,NOW())",[date,did,maker,batteryNo,refNo,vehicleId,fromRemark,who]);
+        const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES ($1::date,$2,$3,$4,$5,'addition',$6,'new',$7,$8,NOW()) RETURNING *",[date,did,maker,batteryNo,refNo,vehicleId,"Factory battery fitted on "+(row.chassis_no||vehicleId),who]);
+        // Delivery challan / battery fit log / factory register update
+        const dc=await client.query("SELECT id,challan_no FROM delivery_challan WHERE vehicle_id=$1 AND COALESCE(cancelled,false)=false ORDER BY id DESC LIMIT 1 FOR UPDATE",[vehicleId]);
+        const dcRow=dc.rows[0];
+        let fitId:number|null=null;
+        if(dcRow){
+          const billed=await client.query("SELECT 1 FROM tax_invoice WHERE delivery_challan_id=$1 AND COALESCE(cancelled,false)=false LIMIT 1",[dcRow.id]);
+          if(!billed.rowCount){
+            await client.query('UPDATE delivery_challan SET battery_maker=COALESCE(NULLIF(battery_maker,\'\'),$1),"'+field+'"=$2,battery_fit_date=$3 WHERE id=$4',[maker,batteryNo,date,dcRow.id]);
+            const fl=await client.query(`INSERT INTO battery_fit_log
+              (fit_date,challan_id,challan_no,dealer_id,dealer_name,vehicle_id,chassis_no,model_name,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,
+               old_battery_maker,old_battery_no1,old_battery_no2,old_battery_no3,old_battery_no4,reference_no,remarks,fitted_by)
+              VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id`,
+              [date,dcRow.id,dcRow.challan_no,did,dr.rows[0].name,vehicleId,row.chassis_no,row.model_name,oldMaker||maker,newNums[0]||null,newNums[1]||null,newNums[2]||null,newNums[3]||null,oldMaker||null,oldNums[0]||null,oldNums[1]||null,oldNums[2]||null,oldNums[3]||null,refNo,"Factory battery fitted by dealer",who||null]);
+            fitId=Number(fl.rows[0].id);
+          }
+        }
+        await client.query("INSERT INTO battery_register_entry(date,battery_maker,battery_no,qty,entry_type,source_type,source_id,source_no,party_name,dealer_id,vehicle_id,remarks) VALUES($1,$2,$3,1,'OUT','DEALER_FACTORY_FIT',$4,$5,$6,$7,$8,$9)",
+          [date,maker,batteryNo,dcRow?Number(dcRow.id):vehicleId,dcRow?.challan_no||row.chassis_no||null,dr.rows[0].name,did,vehicleId,"Factory battery fitted by dealer on "+(row.chassis_no||"rickshaw")]);
+        if(fitId){
+          await client.query("INSERT INTO app_notification(notification_type,title,message,dealer_id,reference_type,reference_id,dedupe_key) VALUES('battery_change','Factory Battery Fitted on Dealer Rickshaw',$1,$2,'battery_fit',$3,$4) ON CONFLICT(dedupe_key) DO UPDATE SET message=EXCLUDED.message,is_read=false",
+            [`${dr.rows[0].name} / ${row.chassis_no||""}: factory battery fitted (${maker} - ${batteryNo}).`,did,fitId,"battery-fit-"+fitId]);
+        }
         await client.query("COMMIT");
-        return Response.json({success:true,row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
+        return Response.json({success:true,source:"factory",row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo,challan_updated:Boolean(fitId)},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="notifications/read"){
@@ -4033,7 +4301,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         const dc=await client.query(`SELECT dc.*,d.name AS dealer_name,v.model_name,v.battery_maker AS old_battery_maker,
           v.battery_no1 AS old_battery_no1,v.battery_no2 AS old_battery_no2,v.battery_no3 AS old_battery_no3,v.battery_no4 AS old_battery_no4
           FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id
-          WHERE dc.id=$1 FOR UPDATE`,[challanId]);
+          WHERE dc.id=$1 FOR UPDATE OF dc`,[challanId]);
         if(!dc.rowCount)throw new Error("Delivery Challan not found.");
         const row=dc.rows[0];
         if(row.cancelled)throw new Error("Cancelled challan par battery fit nahi ho sakti.");
@@ -4228,7 +4496,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     }
     if(p==="credit-notes"){
       await ensureCreditDebitSchema();const invoiceId=idOf(b.invoice_id||b.tax_invoice_id);if(!invoiceId)return Response.json({error:"Original Tax Invoice is required."},{status:400});
-      const client=await pool.connect();try{await client.query("BEGIN");const inv=await client.query("SELECT ti.*,d.name AS joined_dealer_name FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id WHERE ti.id=$1 FOR UPDATE",[invoiceId]);if(!inv.rowCount)throw new Error("Tax Invoice not found.");const x=inv.rows[0];if(Boolean(x.cancelled))throw new Error("Tax Invoice is already cancelled.");
+      const client=await pool.connect();try{await client.query("BEGIN");const inv=await client.query("SELECT ti.*,d.name AS joined_dealer_name FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id WHERE ti.id=$1 FOR UPDATE OF ti",[invoiceId]);if(!inv.rowCount)throw new Error("Tax Invoice not found.");const x=inv.rows[0];if(Boolean(x.cancelled))throw new Error("Tax Invoice is already cancelled.");
         const taxable=Math.max(0,Number(x.gst_sale_amount||x.sale_amount||0)-Number(x.discount||0)),tax=taxable*Number(x.gst_rate||0)/100,total=taxable+tax+Number(x.insurance_amount||0)+Number(x.registration_amount||0),no="CN-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(invoiceId).padStart(5,"0");
         const r=await client.query("INSERT INTO credit_note (date,credit_note_no,tax_invoice_id,delivery_challan_id,original_bill_no,dealer_name,buyer_name,chassis_no,taxable_amount,tax_amount,total_amount,reason,remarks) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *",[b.date||null,no,invoiceId,x.delivery_challan_id||null,x.bill_no||null,x.dealer_name||x.joined_dealer_name||null,x.buyer_name||null,x.chassis_no||null,taxable,tax,total,String(b.reason||"").trim(),String(b.remarks||"").trim()||null]);
         await client.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1",[invoiceId]);await client.query("COMMIT");return Response.json({success:true,credit_note_no:no,credit_note:r.rows[0],row:r.rows[0]},{status:201});
@@ -4541,13 +4809,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
           [String(b.vou_no||""),b.date||null,b.product_name||"",String(b.formula_name||""),qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
         if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
           [b.date||null,b.product_name||null,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null]);
-        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[b.product_name||"",String(b.formula_name||"")]);
-        for(const line of formula.rows){
-          const need=num(line.qty)*qty;
-          if(need<=0)continue;
-          const existing=await client.query("SELECT id FROM journal_stock WHERE batch_ref=$1 AND item_name=$2 AND reason='Production Consumption' LIMIT 1",[String(b.vou_no||r.rows[0].vou_no),line.raw_item_name]);
-          if(!existing.rowCount)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,model_name,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'RAW',$4,'Production Consumption',NOW(),$5,'OUT',$1)",[String(b.vou_no||r.rows[0].vou_no),b.date||null,line.raw_item_name,need,b.product_name||null]);
-        }
+        // Stock check + raw material OUT: kam stock par poora voucher (vehicle samet) rollback ho jata hai.
+        const formula=await consumeProductionStock(client,{vou_no:String(b.vou_no||r.rows[0].vou_no),date:b.date||null,product_name:b.product_name||"",formula_name:String(b.formula_name||""),quantity:qty});
         await ensureFactoryCheckSchema();
         const check=await client.query("INSERT INTO factory_check_report (production_voucher_id,date,product_name,quantity,status,remarks) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,'PENDING',$5) ON CONFLICT (production_voucher_id) DO NOTHING RETURNING id",[r.rows[0].id,b.date||null,b.product_name||"",qty,"Auto-created from Production Formula. Approval is for audit/checking only and does not block production."]);
         if(check.rowCount){
@@ -5069,6 +5332,32 @@ async function mutation(req:Request,params:any,method:string){
     const bodyForScope=(method==="DELETE"?{}:await json(req));
     const scopeGuard=await enforceDealerScope(a,table,idOf(path[path.length-1]),bodyForScope); if(scopeGuard)return scopeGuard;
     if(path[0]==="expense-payment-voucher"&&path.length===2&&method==="DELETE")return expenseVoucherDelete(path,a);
+    if(p==="battery-withdrawal"&&method==="DELETE"&&a.scope==="staff"){
+      await ensureBatteryMovementSchema();
+      const id=idOf(new URL(req.url).searchParams.get("id"));
+      if(!id)return Response.json({error:"Record id required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const m=await client.query("SELECT * FROM battery_stock_movement WHERE id=$1 AND movement_type='withdrawal' FOR UPDATE",[id]);
+        if(!m.rowCount)throw new Error("Withdrawal record not found.");
+        const x=m.rows[0];
+        const used=await client.query("SELECT 1 FROM battery_stock_movement WHERE dealer_id=$1 AND movement_type='addition' AND upper(trim(battery_no))=upper(trim($2)) AND id>$3 LIMIT 1",[x.dealer_id,x.battery_no,x.id]);
+        if(used.rowCount)throw new Error("This battery is already fitted again; withdrawal cannot be deleted.");
+        if(x.vehicle_id){
+          const tbl=String(x.rickshaw_type||"")==="old"?"old_rickshaw":"vehicle";
+          const vr=await client.query('SELECT * FROM "'+tbl+'" WHERE id=$1 FOR UPDATE',[x.vehicle_id]);
+          if(vr.rowCount){
+            const row=vr.rows[0],free=[1,2,3,4].find(i=>String(row["battery_no"+i]||"").trim()==="");
+            if(!free)throw new Error("Rickshaw has no free battery slot to restore this battery.");
+            await client.query('UPDATE "'+tbl+'" SET "battery_no'+free+'"=$1,battery_maker=COALESCE(NULLIF(battery_maker,\'\'),$2) WHERE id=$3',[x.battery_no,x.battery_maker||null,x.vehicle_id]);
+          }
+        }
+        await client.query("DELETE FROM battery_stock_movement WHERE id=$1",[id]);
+        await client.query("COMMIT");
+        return Response.json({success:true});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     if(path[0]==="contra-vouchers"&&path.length===2&&method==="DELETE"){
       await ensureContraSchema();const id=idOf(path[1]);
       const old=(await pool.query("SELECT * FROM contra_voucher WHERE id=$1",[id])).rows[0];if(!old)return Response.json({error:"Contra voucher not found."},{status:404});
@@ -5121,6 +5410,65 @@ async function mutation(req:Request,params:any,method:string){
       const r=await pool.query("UPDATE tax_invoice SET vehicle_reg_no=$1 WHERE id=$2 RETURNING id,vehicle_reg_no",[reg||null,id]);
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
       return Response.json({success:true,row:{id:r.rows[0].id,vehicle_reg_no:r.rows[0].vehicle_reg_no||""}});
+    }
+
+    // Production Voucher delete: raw material stock wapas, vehicle row aur factory check report bhi saaf (ek transaction).
+    if(method==="DELETE" && /^production-vouchers\/\d+$/.test(p)){
+      await ensureProductionVoucherSchema();await ensureFactoryCheckSchema();
+      const id=idOf(path[1]);const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const pv=await client.query("SELECT * FROM production_voucher WHERE id=$1 FOR UPDATE",[id]);
+        if(!pv.rowCount){await client.query("ROLLBACK");return Response.json({error:"Production Voucher not found."},{status:404});}
+        const old=pv.rows[0],ch=String(old.chassis_no||"").trim();
+        if(ch){
+          const vh=await client.query("SELECT stage FROM vehicle WHERE upper(btrim(chassis_no))=upper($1) FOR UPDATE",[ch]);
+          const st=String(vh.rows[0]?.stage||"Manufacturing");
+          if(vh.rowCount&&st.toLowerCase()!=="manufacturing")throw new Error("Chassis "+ch+" ki gaadi aage ke stage ("+st+") me ja chuki hai, voucher delete nahi ho sakta.");
+          await client.query("DELETE FROM vehicle WHERE upper(btrim(chassis_no))=upper($1)",[ch]);
+        }
+        const reversed=await reverseProductionStock(client,String(old.vou_no));
+        await client.query("DELETE FROM factory_check_report WHERE production_voucher_id=$1",[id]);
+        await client.query("DELETE FROM production_voucher WHERE id=$1",[id]);
+        await client.query("COMMIT");
+        await audit(a,p.split("/")[0],"delete",id,old,null,null,old.vou_no);
+        return Response.json({success:true,row:old,stock_reversed:reversed});
+      }catch(e:any){await client.query("ROLLBACK");return Response.json({error:e.message||"Delete failed"},{status:400})}finally{client.release()}
+    }
+    // Production Voucher edit: purani consumption hatakar nayi qty/formula ke hisab se dobara (stock check ke saath).
+    if((method==="PUT"||method==="PATCH") && /^production-vouchers\/\d+$/.test(p)){
+      await ensureProductionVoucherSchema();await ensureFactoryCheckSchema();
+      const id=idOf(path[1]),body:any=await json(req),cols=await columns("production_voucher"),input:any={};
+      for(const [k,v] of Object.entries(body||{})){const c=snake(k);if(cols.has(c)&&c!=="id"&&c!=="created_at")input[c]=v;}
+      if("quantity" in input)input.quantity=Math.max(1,Math.trunc(num(input.quantity)||1));
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const pv=await client.query("SELECT * FROM production_voucher WHERE id=$1 FOR UPDATE",[id]);
+        if(!pv.rowCount){await client.query("ROLLBACK");return Response.json({error:"Production Voucher not found."},{status:404});}
+        const old=pv.rows[0],keys=Object.keys(input);
+        if(!keys.length)throw new Error("No valid fields supplied.");
+        const prod=String(input.product_name??old.product_name??""),fname=String(input.formula_name??old.formula_name??"");
+        if(!fname.trim()){
+          const fc=await client.query("SELECT COUNT(DISTINCT formula_name)::int AS n FROM production_formula WHERE product_name=$1",[prod]);
+          if(Number(fc.rows[0]?.n||0)>1)throw new Error("Is model ke ek se zyada formula hain. Formula Name select karein.");
+        }
+        const up=await client.query('UPDATE production_voucher SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1)+" RETURNING *, to_char(date,'YYYY-MM-DD') AS date_s",[...keys.map(k=>input[k]),id]);
+        const nv=up.rows[0];
+        await reverseProductionStock(client,String(old.vou_no));
+        const formula=await consumeProductionStock(client,{vou_no:String(nv.vou_no),date:nv.date_s||null,product_name:String(nv.product_name||""),formula_name:String(nv.formula_name||""),quantity:nv.quantity});
+        const rep=await client.query("SELECT id,status FROM factory_check_report WHERE production_voucher_id=$1 FOR UPDATE",[id]);
+        if(rep.rowCount&&String(rep.rows[0].status).toUpperCase()!=="APPROVED"){
+          const q=Math.max(1,Math.trunc(num(nv.quantity)||1));
+          await client.query("UPDATE factory_check_report SET product_name=$1,quantity=$2,date=COALESCE($3::date,date) WHERE id=$4",[nv.product_name||"",q,nv.date_s||null,rep.rows[0].id]);
+          await client.query("DELETE FROM factory_check_item WHERE report_id=$1 AND additional=false",[rep.rows[0].id]);
+          for(const line of formula.rows){const need=num(line.qty)*q;if(need<=0)continue;await client.query("INSERT INTO factory_check_item (report_id,raw_item_name,expected_qty,consumed_qty,unit,additional,status) VALUES ($1,$2,$3,$3,$4,false,'PENDING')",[rep.rows[0].id,line.raw_item_name,need,line.unit||"PCS"]);}
+        }
+        await client.query("COMMIT");
+        delete nv.date_s;
+        await audit(a,"production-vouchers","edit",id,old,nv,null,nv.vou_no);
+        return Response.json({success:true,row:nv,data:nv});
+      }catch(e:any){await client.query("ROLLBACK");return Response.json({error:e.message||"Update failed"},{status:400})}finally{client.release()}
     }
 
     // Production Formula: poora formula (ek product + formula name ki saari lines) delete.
@@ -5266,7 +5614,7 @@ async function mutation(req:Request,params:any,method:string){
         await client.query("BEGIN");
         const cn=await client.query("SELECT * FROM credit_note WHERE id=$1 FOR UPDATE",[id]);if(!cn.rowCount)throw new Error("Credit Note not found.");
         const dcId=idOf(cn.rows[0].delivery_challan_id);if(!dcId)throw new Error("No Delivery Challan is linked to this Credit Note.");
-        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE",[dcId]);if(!dc.rowCount)throw new Error("Linked Delivery Challan not found.");
+        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE OF dc",[dcId]);if(!dc.rowCount)throw new Error("Linked Delivery Challan not found.");
         if(!dc.rows[0].cancelled){
           const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[dcId]);
           for(const item of items.rows){const qty=Math.max(0,Number(item.qty)||0);if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Credit Note Challan Reversal',NOW(),'IN',$1)",[String(dc.rows[0].challan_no||("DC-"+dcId)),dc.rows[0].date,item.product_name,qty]);}
@@ -5282,7 +5630,7 @@ async function mutation(req:Request,params:any,method:string){
       await ensureDispatchSchema();await ensureBatteryRegisterSchema();const client=await pool.connect();
       try{
         await client.query("BEGIN");
-        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE",[id]);
+        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE OF dc",[id]);
         if(!dc.rowCount)throw new Error("Delivery Challan not found.");
         const row=dc.rows[0],nextCancelled=!Boolean(row.cancelled);
         const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[id]);

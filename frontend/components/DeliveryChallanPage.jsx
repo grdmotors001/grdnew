@@ -160,7 +160,7 @@ export function DeliveryChallanPage() {
       ...baseForm,
       dealer_name: value,
       dealer_id: dealer ? Number(dealer.id) : '',
-      destination: dealer ? destination : (baseForm.destination || ''),
+      destination: dealer ? destination : '',
       salesman: dealer ? (dealer.salesman || '') : (baseForm.salesman || ''),
     };
   };
@@ -232,20 +232,11 @@ export function DeliveryChallanPage() {
   const saveEdit = (e) => {
     e.preventDefault();
     run(async () => {
-      await put(`/delivery-challans/${editRow.id}`, editRow);
+      const { remarks2, ...payload } = editRow;
+      await put(`/delivery-challans/${editRow.id}`, payload);
       setEditRow(null);
       load(page, search);
     });
-  };
-
-  const cancelChallan = (id) => {
-    if (!confirm('Toggle cancel on this Delivery Challan? Cancelling sends the chassis back to Manufacturing.')) return;
-    run(async () => { await post(`/delivery-challans/${id}/cancel`); load(page, search); });
-  };
-
-  const remove = (id) => {
-    if (!confirm('Delete this Delivery Challan permanently?')) return;
-    run(async () => { await del(`/delivery-challans/${id}`); load(page, search); });
   };
 
   if (!data) return (
@@ -292,7 +283,7 @@ export function DeliveryChallanPage() {
       {data.challans.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Colour</th><th>Battery Fit Date</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Colour</th><th>Battery Make</th><th></th></tr></thead>
             <tbody>
               {data.challans.map((c) => (
                 <tr key={c.id}>
@@ -302,14 +293,10 @@ export function DeliveryChallanPage() {
                   <td>{c.product_name}</td>
                   <td><b>{c.chassis_no}</b></td>
                   <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)?.background||'transparent'}} />{c.colour||'—'}</span></td>
-                  <td>
-                    {c.cancelled ? <Pill text="Cancelled" /> : c.invoiced ? <Pill text={`Sold (${c.bill_no})`} kind="t" /> : <Pill text="Unsold" kind="d" />}
-                  </td>
+                  <td>{c.battery_maker || '—'}</td>
                   <td style={{ display: 'flex', gap: 8 }}>
                     <button className="btn" onClick={() => openEdit(c)}>Edit</button>
                     <button className="btn" onClick={() => setPrintId(c.id)}>Preview</button>
-                    <button className="btn" onClick={() => cancelChallan(c.id)}>{c.cancelled ? 'Un-cancel' : 'Cancel'}</button>
-                    <button className="btn danger" onClick={() => remove(c.id)}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -348,7 +335,7 @@ export function DeliveryChallanPage() {
                          onChange={(v) => setForm(applyDealer(v))} required />
                 </div>
                 <div style={{ gridColumn: 'span 3' }}>
-                  <Field label="Destination" value={form.destination} onChange={(v) => setForm({ ...form, destination: v })} />
+                  <Field label="Destination" value={form.destination} readOnly />
                 </div>
                 <Field label="Salesman" value={form.salesman} readOnly />
               </div>
@@ -454,7 +441,7 @@ export function DeliveryChallanPage() {
               <Field label="Challan No." value={editRow.challan_no} onChange={(v) => setEditRow({ ...editRow, challan_no: v })} />
               <Field label="Date" type="date" value={editRow.date} onChange={(v) => setEditRow({ ...editRow, date: v })} />
               <Field label="Dealer" value={editRow.dealer_name} readOnly />
-              <Field label="Destination" value={editRow.destination} onChange={(v) => setEditRow({ ...editRow, destination: v })} />
+              <Field label="Destination" value={editRow.destination || [dealerById(editRow.dealer_id)?.address1, dealerById(editRow.dealer_id)?.address2].filter(Boolean).join(', ')} readOnly />
               <Field label="Salesman" value={editRow.salesman} onChange={(v) => setEditRow({ ...editRow, salesman: v })} />
               <Field label="Chassis No." value={editRow.chassis_no} readOnly />
               <Field label="Model Name" value={editRow.product_name} readOnly />
@@ -469,9 +456,17 @@ export function DeliveryChallanPage() {
                </div>
               <AccessoriesFields value={editRow} onChange={(next) => setEditRow({ ...editRow, ...next })} />
               <Field label="Remarks" value={editRow.remarks1} onChange={(v) => setEditRow({ ...editRow, remarks1: v })} />
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Remarks 2 (Dealer Shift Log)</label>
+                <textarea value={editRow.remarks2 || ''} readOnly rows={Math.min(6, Math.max(2, String(editRow.remarks2 || '').split('\n').length))}
+                          style={{ background: '#f2f4f7', color: '#475467' }} />
+              </div>
             </div>
             <div className="actions" style={{ marginTop: 18 }}>
-              <button type="button" className="btn" onClick={() => setEditRow(null)}>Cancel</button>
+              <button type="button" className="btn danger" disabled={busy} onClick={() => { if (!confirm('Delete this Delivery Challan permanently?')) return; run(async () => { await del(`/delivery-challans/${editRow.id}`); setEditRow(null); load(page, search); }); }}>Delete Challan</button>
+              <button type="button" className="btn" disabled={busy} onClick={() => { if (!confirm('Toggle cancel on this Delivery Challan? Cancelling sends the chassis back to Manufacturing.')) return; run(async () => { await post(`/delivery-challans/${editRow.id}/cancel`); setEditRow(null); load(page, search); }); }}>{editRow.cancelled ? 'Un-cancel Challan' : 'Cancel Challan'}</button>
+              <span style={{ flex: 1 }} />
+              <button type="button" className="btn" onClick={() => setEditRow(null)}>Close</button>
               <button type="button" className="btn" onClick={() => setPrintId(editRow.id)}>Print / Preview</button>
               <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save Changes'}</button>
             </div>

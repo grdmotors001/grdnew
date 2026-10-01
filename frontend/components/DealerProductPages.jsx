@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post, put, del, getToken } from '../lib/api';
+import { STATE_NAMES, stateCodeFor } from '../lib/states';
 import { Field, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
 // Re-encodes the chosen image as a JPEG in the browser before upload, so the
@@ -97,7 +98,7 @@ function LogoUploadField({ umrnCode }) {
   );
 }
 
-const modsOf = (d) => Array.isArray(d?.portal_modules) ? d.portal_modules : String(d?.portal_modules || '').split(',').map((x) => x.trim()).filter(Boolean);
+const modsOf = (d) => (Array.isArray(d?.portal_modules) ? d.portal_modules : String(d?.portal_modules || '').split(',')).map((x) => String(x).replace(/[{}"\[\]]/g, '').trim()).filter(Boolean);
 
 export function DealerPage() {
   const [dealers, setDealers] = useState([]);
@@ -107,22 +108,15 @@ export function DealerPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({});
-  const [subGroups, setSubGroups] = useState([{ name: 'Primary' }]);
-  const [newSubGroup, setNewSubGroup] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
 
-  const load = () => Promise.all([get('/dealers'), get('/masters/salesman')]).then(([d, sm]) => {
+  const load = () => Promise.all([get('/dealers'), get('/masters/salesman').catch(() => [])]).then(([d, sm]) => {
     setDealers(d.dealers || []);
     setSalesmen(Array.isArray(sm) ? sm : (sm?.masters || sm?.rows || sm?.data || sm?.items || []));
     setSuggestedCode(d.suggested_code);
   })
     .catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
-  useEffect(() => {
-    get('/sub-groups')
-      .then((d) => setSubGroups(d.sub_groups || d.rows || [{ name: 'Primary' }]))
-      .catch(() => {});
-  }, []);
 
   const filteredDealers = dealers.filter((d) => {
  const q = search.trim().toLowerCase();
@@ -174,35 +168,34 @@ export function DealerPage() {
       )}
       {open && (
         <div className="modal">
-          <form className="modalbox" onSubmit={save}>
+          <form className="modalbox dealerFormWide" onSubmit={save}>
             <h2>{editingId ? 'Edit Dealer' : 'Add Dealer'}</h2>
             <ErrorBanner message={error} />
+            <div className="dealerSplit">
             <div className="formgrid">
               <Field label="Dealer Code" value={form.code} onChange={(v) => setForm({ ...form, code: v })} />
               <Field label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
-              <Field label="Sub Group" type="select" value={form.sub_group_name || 'Primary'} onChange={(v) => setForm({ ...form, sub_group_name: v })} options={[{ value: 'Primary', label: 'Primary' }, ...subGroups.filter((g) => g.name !== 'Primary').map((g) => ({ value: g.name, label: g.name }))]} />
-              <div style={{gridColumn:'1 / -1',display:'flex',gap:8,alignItems:'center'}}>
-                <input className="input" placeholder="New Sub Group" value={newSubGroup} onChange={e=>setNewSubGroup(e.target.value)} style={{maxWidth:220}} />
-                <button type="button" className="btn" onClick={async()=>{const n=newSubGroup.trim();if(!n)return;await post('/sub-groups',{name:n});setNewSubGroup('');const d=await get('/sub-groups');setSubGroups(d.sub_groups||d.rows||[]);setForm(f=>({...f,sub_group_name:n}));}}>+ Add Sub Group</button>
-              </div>
               <Field label="Address Line 1" value={form.address1} onChange={(v) => setForm({ ...form, address1: v })} />
               <Field label="Address Line 2" value={form.address2} onChange={(v) => setForm({ ...form, address2: v })} />
               <Field label="Mobile" value={form.mobile} onChange={(v) => setForm({ ...form, mobile: v })} />
               <Field label="GSTIN" value={form.gst_no} onChange={(v) => setForm({ ...form, gst_no: v })} />
               <Field label="Dealer Category" type="select" value={form.dealer_category || "dealer"} onChange={(v) => setForm({ ...form, dealer_category: v })} options={[{value:"showroom",label:"Showroom / Branch"},{value:"dealer",label:"Dealer"}]} />
               {form.dealer_category !== 'showroom' && <Field label="Dealer Registration" type="select" value={form.registration_type || "registered"} onChange={(v) => setForm({ ...form, registration_type: v, purchase_access: v === 'unregistered' ? false : form.purchase_access })} options={[{value:"registered",label:"Registered Dealer"},{value:"unregistered",label:"Unregistered Dealer"}]} />}
-              <Field label="State" value={form.state} onChange={(v) => setForm({ ...form, state: v })} />
+              <Field label="State" type="combo" value={form.state} options={STATE_NAMES} onChange={(v) => { const c = stateCodeFor(v); setForm({ ...form, state: v, ...(c ? { state_code: c } : {}) }); }} />
               <Field label="State Code" value={form.state_code} onChange={(v) => setForm({ ...form, state_code: v })} />
               <Field label="PAN" value={form.pan} onChange={(v) => setForm({ ...form, pan: v })} />
               <Field label="Bank Name" value={form.bank_name} onChange={(v) => setForm({ ...form, bank_name: v })} />
               <Field label="Bank Account No." value={form.bank_account_no} onChange={(v) => setForm({ ...form, bank_account_no: v })} />
               <Field label="Bank IFSC" value={form.bank_ifsc} onChange={(v) => setForm({ ...form, bank_ifsc: v })} />
               <Field label="Salesman" type="select" value={form.salesman || ''} onChange={(v) => setForm({ ...form, salesman: v })} options={[{ value: '', label: 'Select Salesman' }, ...salesmen.map((u) => { const n = u.name || u.value || u.label || ''; return { value: n, label: n }; }).filter((o) => o.value)]} />
+            </div>
+            <div className="dealerSplitRight">
+            <div className="formgrid">
               <Field label="Blocked" type="checkbox" value={form.blocked} onChange={(v) => setForm({ ...form, blocked: v })} />
               <Field label="Allow Purchase / Customer Invoice" type="checkbox" value={form.purchase_access && form.registration_type !== 'unregistered'} disabled={form.registration_type === 'unregistered'} onChange={(v) => setForm({ ...form, purchase_access: form.registration_type === 'unregistered' ? false : v })} />
               <div className="field" style={{gridColumn:'1/-1'}}>
                 <label>Dealer Portal Permissions</label>
-                <div style={{display:'flex',gap:12,flexWrap:'wrap',padding:'10px 0'}}>
+                <div className="dealerPerms">
                   {[
                     ['battery-withdrawal','Battery Withdrawal'],
                     ['battery-swap','Battery Swap / Exchange'],
@@ -213,7 +206,7 @@ export function DealerPage() {
                     ['old-rickshaw-sales','Old Rickshaw Sale'],
                     ['repair-receipt','Repair Payment Receipt'],
                   ].map(([key,label])=>{
-                    return <label key={key} style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                    return <label key={key}>
                       <input type="checkbox" checked={modsOf(form).includes(key)} onChange={e=>{
                         const a=new Set(modsOf(form)); e.target.checked?a.add(key):a.delete(key); setForm({...form,portal_modules:[...a]});
                       }}/> {label}
@@ -232,6 +225,8 @@ export function DealerPage() {
                 <button type="button" className="btn" onClick={() => { setOpen(false); setEditingId(null); }}>Cancel</button>
                 <button className="btn primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
               </div>
+            </div>
+            </div>
             </div>
           </form>
         </div>

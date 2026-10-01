@@ -443,7 +443,7 @@
     bottom:max(10px, env(safe-area-inset-bottom)) !important;
     height:64px !important;
     display:grid !important;
-    grid-template-columns:repeat(4,1fr) !important;
+    grid-template-columns:repeat(5,1fr) !important;
     background:var(--card) !important;
     border:1px solid var(--line) !important;
     border-radius:18px !important;
@@ -608,3 +608,21 @@
 [data-theme="midnight-dark"] input::placeholder,
 [data-theme="midnight-dark"] textarea::placeholder{color:#94a3b8}
 [data-theme="midnight-dark"] option{background:#111827;color:#f8fafc}
+
+/* Dealer Master add/edit form: wide modal, left = details, right = flags/permissions/login/buttons */
+.modalbox.dealerFormWide{width:min(1280px,100%)}
+.dealerSplit{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:28px;align-items:start}
+.dealerSplitRight{border-left:1px solid var(--line);padding-left:28px}
+.dealerSplitRight .formgrid{grid-template-columns:1fr}
+@media(max-width:1000px){.dealerSplit{grid-template-columns:1fr}.dealerSplitRight{border-left:0;padding-left:0}}
+@media(max-width:700px){.dealerSplit .formgrid{grid-template-columns:1fr}}
+
+/* Dealer form (right panel): bigger, easy-to-tap checkboxes */
+.dealerSplitRight input[type="checkbox"]{width:20px;height:20px;margin:0;flex:none;accent-color:var(--accent);cursor:pointer}
+.dealerSplitRight .field:has(> input[type="checkbox"]){display:flex;flex-direction:row-reverse;justify-content:flex-end;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;background:var(--input-bg)}
+.dealerSplitRight .field:has(> input[type="checkbox"]) label{font-size:14px;font-weight:600;color:var(--ink);cursor:pointer;margin:0}
+.dealerPerms{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px 0}
+.dealerPerms label{display:flex!important;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--input-bg);font-size:14px;font-weight:500;color:var(--ink);cursor:pointer;transition:border-color .15s,background .15s}
+.dealerPerms label:hover{border-color:var(--accent)}
+.dealerPerms label:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--input-bg))}
+@media(max-width:700px){.dealerPerms{grid-template-columns:1fr}}

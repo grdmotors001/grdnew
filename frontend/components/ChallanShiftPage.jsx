@@ -36,11 +36,10 @@ export function ChallanShiftPage() {
 
   const confirmShift = async (e) => {
     e.preventDefault();
-    if (!selected || !dealerId) return;
-    if (!remark.trim()) {
-      setError('Shift Remark is required.');
-      return;
-    }
+    if (!selected) return;
+    if (!dealerId) { setError('Please select the dealer to shift to.'); return; }
+    if (!remark.trim()) { setError('Shift Remark is required. Please enter a remark.'); return; }
+    setError('');
     setBusy(true);
     try {
       await post('/challan-shift', {
@@ -76,7 +75,7 @@ export function ChallanShiftPage() {
         </div>
       </div>
 
-      <ErrorBanner message={error} />
+      <ErrorBanner message={selected ? '' : error} />
 
       <form className="actions" style={{ marginBottom: 12 }} onSubmit={(e) => { e.preventDefault(); load(search); }}>
         <input className="input" placeholder="Search challan / chassis / dealer"
@@ -149,23 +148,23 @@ export function ChallanShiftPage() {
             <div className="muted" style={{ marginBottom: 14 }}>
               Challan number same rahega. Sirf current dealer change hoga.
             </div>
+            <ErrorBanner message={error} />
             <div className="formgrid">
               <Field label="Challan No." value={selected.challan_no || '—'} readOnly />
               <Field label="Chassis No." value={selected.chassis_no || '—'} readOnly />
               <Field label="Model" value={selected.product_name || selected.model_name || '—'} readOnly />
               <Field label="Current Dealer" value={selected.dealer_name || '—'} readOnly />
-              <Field label="Shift To Dealer" type="select" value={dealerId}
+              <Field label="Shift To Dealer *" type="select" value={dealerId}
                 options={dealers.map((d) => ({ value: String(d.id), label: d.name }))}
-                onChange={setDealerId} required />
+                onChange={setDealerId} />
               <Field label="Shift Date" type="date" value={shiftDate} onChange={setShiftDate} required />
               <div style={{ gridColumn: '1 / -1' }}>
-                <Field label="Remark" value={remark} onChange={setRemark}
-                  placeholder="e.g. Shifted from Dealer A to Dealer B before billing" required />
+                <Field label="Remark * (required)" value={remark} onChange={setRemark} />
               </div>
             </div>
             <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>
               <button type="button" className="btn" onClick={() => setSelected(null)}>Cancel</button>
-              <button className="btn primary" disabled={busy || !dealerId || !remark.trim()}>
+              <button className="btn primary" type="submit" disabled={busy}>
                 {busy ? 'Shifting…' : 'Confirm Shift'}
               </button>
             </div>

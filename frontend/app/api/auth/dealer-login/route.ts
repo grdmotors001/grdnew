@@ -28,7 +28,7 @@ export async function POST(req:Request){
   const r=await pool.query("SELECT * FROM dealer WHERE login_id=$1 LIMIT 1",[login]);
   const d=r.rows[0];
   if(!d||d.blocked||!check(d.password_hash,password))return Response.json({error:"Invalid Dealer Login."},{status:401});
-  const portalModules=String(d.portal_modules||"").split(",").map((x:string)=>x.trim()).filter(Boolean);
+  const portalModules=String(d.portal_modules||"").replace(/[{}"\[\]]/g,"").split(",").map((x:string)=>x.trim()).filter(Boolean);
   const safe={
     id:d.id,
     code:d.code,

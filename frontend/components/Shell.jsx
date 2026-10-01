@@ -4,6 +4,8 @@ import { get, post, setToken } from '../lib/api';
 import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups, VOUCHER_SHORTCUTS, VOUCHER_PAGE_FOR } from '../lib/menu';
 import { THEMES, useTheme } from '../lib/theme';
 import { ChatWidget } from './ChatWidget';
+import { MenuSearch, MobileSearchSheet } from './MenuSearch';
+import { HelpButton } from './HelpButton';
 import { Field } from './ui';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
@@ -124,6 +126,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   const [showPalette, setShowPalette] = useState(false);
   const [pendingTheme, setPendingTheme] = useState(themeId);
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profile, setProfile] = useState({});
   const [myAttendance, setMyAttendance] = useState(null);
@@ -193,6 +196,28 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   // Voucher tab keys (v-*) follow the permission of the page they open.
   const canOpen = (key) => (user?.allowed_modules || []).includes(VOUCHER_PAGE_FOR[key] || key);
   const allowedFor = (items) => isAdminUser ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : canOpen(key));
+  // Help me dikhane ke liye shortcuts: voucher F-keys sirf wahi jo is user ko dikhte hain.
+  const helpSections = [
+    { title: 'Search & Navigation', rows: [
+      ['Ctrl|K', 'Menu search kholo (kisi bhi option ko naam se dhoondo)'],
+      ['/', 'Menu search kholo (jab koi box khula na ho)'],
+      ['↑|↓', 'Search results me upar / neeche'],
+      ['Enter', 'Chuna hua option kholo'],
+      ['Esc', 'Search saaf karo / band karo'],
+    ] },
+    { title: 'Voucher shortcuts', rows: Object.entries(VOUCHER_SHORTCUTS)
+      .filter(([, key]) => (navGroups['Vouchers'] || []).some(([k]) => k === key) && (isAdminUser || canOpen(key)))
+      .sort(([a], [b]) => Number(a.slice(1)) - Number(b.slice(1)))
+      .map(([fk, key]) => [fk, labelFor(key).replace(/^F\d+\s*·\s*/, '')]) },
+    { title: 'Forms', rows: [
+      ['Enter', 'Production Formula: raw material ki agli line add karo'],
+      ['Esc', 'Table me edit cancel karo'],
+    ] },
+  ];
+  // Search ke liye: jo options is user ko dikhte hain wahi (group ke naam ke saath).
+  const searchItems = [{ key: 'dashboard', label: 'Dashboard', group: '' }].concat(
+    Object.entries(navGroups).flatMap(([group, items]) => allowedFor(items).map(([key, label]) => ({ key, label, group })))
+  );
 
   // Voucher keyboard shortcuts: F1..F9 (only for vouchers this user can open, and
   // only if the Vouchers tab is actually visible in the sidebar).
@@ -274,6 +299,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           </>
         )}
 
+        {!collapsed && <MenuSearch items={searchItems} onPick={selectMenu} variant="dark" recentKey="grd_admin_recent_menu" />}
         <nav className="sidebarNav">
           <NavItem
             icon={LayoutDashboard}
@@ -284,6 +310,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           />
           {Object.entries(navGroups).map(([group, items]) => {
             const allowed = allowedFor(items);
+            // Group me user ke liye ek bhi option allow na ho to group sidebar se poora hide.
             if (!allowed.length) return null;
             const GroupIcon = ICON_BY_NAME[iconByGroup[group]] || GROUP_ICONS[group] || FileText;
             const firstKey = allowed[0]?.[0];
@@ -363,6 +390,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
             </div>
           ) : null}
           <div className="grdHeaderActions">
+            <HelpButton sections={helpSections} />
             <button type="button" className="grdHeaderIcon" title="Office Chat" onClick={() => { if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen((v) => !v); }}><MessageCircle size={18} /></button>
             <button type="button" className="grdHeaderIcon" title={notificationCount > 0 ? String(notificationCount) + ' unread notifications' : 'Notifications'} onClick={() => selectMenu('notifications')}>
               <span aria-hidden="true">🔔</span>{notificationCount > 0 && <span>{notificationCount > 99 ? '99+' : notificationCount}</span>}
@@ -375,6 +403,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
       <nav className="adminBottomNav adminBottomNavForce" aria-label="Staff bottom navigation">
         <button type="button" className={active === 'dashboard' ? 'active' : ''} onClick={() => selectMenu('dashboard')}>
           <LayoutDashboard size={18} /><small>Home</small>
+        </button>
+        <button type="button" onClick={() => { setMobileMenu(false); setSearchOpen(true); }}>
+          <span style={{fontSize:17,lineHeight:1}}>🔍</span><small>Search</small>
         </button>
         <button type="button" onClick={() => setMobileMenu(v => !v)}>
           <span style={{fontSize:18,lineHeight:1}}>☰</span><small>Menu</small>
@@ -393,6 +424,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           <Users size={18} /><small>Profile</small>
         </button>
       </nav>
+      <MobileSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} onPick={selectMenu} recentKey="grd_admin_recent_menu" />
       <ChatWidget open={chatOpen} onOpenChange={setChatOpen} />
     </div>
   );

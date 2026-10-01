@@ -306,6 +306,27 @@ export function buildNavGroups(customTabs) {
 
   return { groups, iconByGroup };
 }
+// Permissions (User wise Option Setting) page ke liye: sidebar jaisa hi grouping (NAV_GROUPS / admin ke saved tabs),
+// taaki admin har sub-option ko usi jagah se allow/deny kare jahan wo sidebar me dikhta hai.
+// Vouchers tab ke F-key items (v-*) apne page ke permission key par map hote hain (VOUCHER_PAGE_FOR),
+// isliye wahi key toggle hoti hai jo sidebar check karta hai. MENU ke jo keys sidebar me nahi hain wo "Other" me aate hain.
+export function buildPermissionGroups(navGroups) {
+  const out = {};
+  const seen = new Set();
+  for (const [group, items] of Object.entries(navGroups || NAV_GROUPS)) {
+    const inGroup = new Set();
+    for (const [key, label] of items) {
+      const permKey = VOUCHER_PAGE_FOR[key] || key;
+      if (inGroup.has(permKey)) continue;
+      inGroup.add(permKey); seen.add(permKey);
+      (out[group] = out[group] || []).push([permKey, String(label).replace(/^F\d+\s*·\s*/, '')]);
+    }
+  }
+  const extra = [];
+  for (const items of Object.values(MENU)) for (const [k, l] of items) if (!seen.has(k)) { seen.add(k); extra.push([k, l]); }
+  if (extra.length) out['Other'] = extra;
+  return out;
+}
 export function routeForKey(key) {
   return ROUTES[key] || { path: '/' + key, title: key };
 }

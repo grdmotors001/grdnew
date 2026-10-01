@@ -116,18 +116,9 @@ export function ProductionFormulaPage() {
     });
   };
 
+  // Line sirf modal se hatti hai; asli delete Save dabane par hota hai (Cancel karne par kuch nahi udta).
   const removeModalRow = (idx) => {
-    const line = modalForm.lines[idx];
-    if (line.id) {
-      if (!confirm('Remove this raw material line from the formula?')) return;
-      run(async () => {
-        await del(`/production-formulas/${line.id}`);
-        setModalForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }));
-        load();
-      });
-    } else {
-      setModalForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }));
-    }
+    setModalForm((f) => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }));
   };
 
   const saveModal = (e) => {
@@ -161,6 +152,7 @@ export function ProductionFormulaPage() {
         formula_name: formulaName,
         product_name: modalForm.product_name,
         lines: rows.map((l) => ({ id: l.id, raw_item_name: l.raw_item_name, qty: l.qty, unit: l.unit })),
+        removed_ids: (modalForm.orig_ids || []).filter((oid) => !rows.some((l) => l.id === oid)),
       });
       setModalOpen(false);
       load();
