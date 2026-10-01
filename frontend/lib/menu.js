@@ -160,7 +160,7 @@ export const NAV_GROUPS = {
   ],
   Accounts: [
     ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'], ['day-book', 'Bank & Cash'],
-    ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'],
+    ['balance-sheet', 'Balance Sheet'], ['profit-loss', 'Profit & Loss A/c'], ['sale-record', 'Record'],
   ],
   Inventory: [
     ['seized-stock', 'Seized Stock'],

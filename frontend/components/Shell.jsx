@@ -55,7 +55,7 @@ const ICONS = {
   'stock-ledger-premises': ClipboardList, 'stock-ledger-dealers': ClipboardList,
   'loan-workflow': ClipboardList, 'loan-application-view': ClipboardList,
   'purchase-register': FileText, 'production-register': FileText, 'delivery-challan-register': FileText,
-  'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText, 'vehicle-no-register': FileText,
+  'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText, 'vehicle-no-register': FileText, 'sale-record': FileText,
   'payment-receivable-report': Wallet, 'subsidy-report': Gift, ledger: BookOpen,
   'day-book': Calendar, 'ledger-v': BookOpen, password: Key,
   'backup-restore': Database, 'hr-attendance': Users, profile: UserCog,

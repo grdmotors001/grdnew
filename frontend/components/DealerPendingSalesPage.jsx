@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 import { Money } from './ui';
-import { relationOptionsFor } from './invoiceHelpers';
+import { relationOptionsFor, RtoSelect } from './invoiceHelpers';
 
 const today=()=>new Date().toISOString().slice(0,10);
 const initial={dealer_id:'',delivery_challan_id:'',application_id:'',date:today(),
@@ -106,7 +106,7 @@ export function DealerPendingSalesPage(){
             <Input label="Bank Name" value={form.bank_name} onChange={e=>set('bank_name',e.target.value)}/>
             <Input label="Bank Account No." value={form.bank_account_no} onChange={e=>set('bank_account_no',e.target.value)}/>
             <Input label="Bank IFSC" value={form.bank_ifsc} onChange={e=>set('bank_ifsc',e.target.value)}/>
-            <Input label="RTO Name" value={form.rto_name} onChange={e=>set('rto_name',e.target.value)}/>
+            <RtoSelect value={form.rto_name} onChange={v=>set('rto_name',v)}/>
             <Input label="Despatch Through" value={form.despatch_through} onChange={e=>set('despatch_through',e.target.value)}/>
             <Input label="E-Way Bill No." value={form.eway_bill_no} onChange={e=>set('eway_bill_no',e.target.value)}/>
             <Input label="License No." value={form.license_no} onChange={e=>set('license_no',e.target.value)}/>

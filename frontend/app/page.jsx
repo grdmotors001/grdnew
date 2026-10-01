@@ -53,6 +53,7 @@ import { BalanceSheetPage, ProfitLossPage, AuditReportPage } from '../components
 import { LoanWorkflowPage } from '../components/LoanWorkflowPage';
 import { LoanApplicationViewPage } from '../components/LoanApplicationViewPage';
 import { ChfplRepoVehiclesPage } from '../components/ChfplRepoVehiclesPage';
+import { SaleRecordPage } from '../components/SaleRecordPage';
 import { SIMPLE_MASTERS, keyForPath, routeForKey, VOUCHER_PAGE_FOR } from '../lib/menu';
 
 const CUSTOM_PAGES = {
@@ -121,6 +122,7 @@ const CUSTOM_PAGES = {
   'delivery-challan-register': () => <DeliveryChallanRegisterPage />,
   'sale-register': () => <SaleRegisterPage />,
   'gst-register': () => <GstRegisterPage />,
+  'sale-record': () => <SaleRecordPage />,
   'hypothecation-register': () => <HypothecationRegisterPage />,
   'vehicle-no-register': () => <VehicleNoRegisterPage />,
   'payment-receivable-report': () => <PaymentReceivablePage />,

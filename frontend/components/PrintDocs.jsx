@@ -596,9 +596,7 @@ function Form22Body({ data }) {
 
         <div className="footer-row">
           <div className="footer-addr">
-            <div>📍 {rto_address
-              ? rto_address.split('\n').map((l, idx, arr) => (<span key={idx}>{l}{idx < arr.length - 1 && <br />}</span>))
-              : (<>{company?.address1}<br />{company?.address2}</>)}</div>
+            <div>📍 {company?.address1}<br />{company?.address2}</div>
             <div>✉️ E-Mail : {company?.email}</div>
             <div>📞 Mob : {company?.mobile}</div>
             <div>🌐 Web site : {company?.website}</div>
@@ -610,7 +608,7 @@ function Form22Body({ data }) {
   );
 }
 
-function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.', showCharges = true }) {
+function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.', showCharges = true, mfg = false }) {
   const i = data.invoice, company = data.company;
   const { rto_address, print_bank_name, print_bank_account_no, print_bank_ifsc } = data;
   const p = data.product || {};
@@ -647,7 +645,9 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
               {(i.buyer_relation || i.buyer_father_name) && (
                 <div className="buyer-addr" style={{ marginBottom: 2 }}><b>{[i.buyer_relation, i.buyer_father_name].filter(Boolean).join(' ')}</b></div>
               )}
-              <div className="buyer-addr">{i.buyer_address}</div>
+              <div className="buyer-addr">{mfg && rto_address
+                ? rto_address.split('\n').map((l, idx) => <div key={idx}>{l}</div>)
+                : i.buyer_address}</div>
               {i.buyer_gst_no && <div className="buyer-kv"><span className="k">GSTIN/UIN</span><span className="v">: {i.buyer_gst_no}</span></div>}
               <div className="buyer-kv"><span className="k">PAN No.</span><span className="v">: {i.buyer_pan || '—'}</span></div>
               {!i.buyer_gst_no && <div className="buyer-kv"><span className="k">Aadhar No.</span><span className="v">: {i.buyer_aadhar || '—'}</span></div>}
@@ -779,7 +779,7 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
 
         <div className="footer-row">
           <div className="footer-addr">
-            <div>📍 {rto_address
+            <div>📍 {!mfg && rto_address
               ? rto_address.split('\n').map((l, idx, arr) => (
                   <span key={idx}>{l}{idx < arr.length - 1 && <br />}</span>
                 ))
@@ -887,7 +887,7 @@ export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose
     };
     return (
       <Overlay onClose={onClose} extraActions={extraActions} title="Manufacturing Invoice">
-        <InvoiceBody data={mfg} banner="MANUFACTURING INVOICE" />
+        <InvoiceBody data={mfg} banner="MANUFACTURING INVOICE" mfg />
       </Overlay>
     );
   }

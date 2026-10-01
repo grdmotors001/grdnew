@@ -1204,6 +1204,12 @@ function ensureTaxInvoiceVehicleNoColumn():Promise<void>{
   if(!tiVehNoReady)tiVehNoReady=pool.query("ALTER TABLE tax_invoice ADD COLUMN IF NOT EXISTS vehicle_reg_no text").then(()=>{}).catch(e=>{tiVehNoReady=null;throw e});
   return tiVehNoReady;
 }
+let tiRecordReady:Promise<void>|null=null;
+function ensureTaxInvoiceRecordColumns():Promise<void>{
+  // Accounts > Record tab: four hand-filled reference fields kept on the Tax Invoice row.
+  if(!tiRecordReady)tiRecordReady=pool.query("ALTER TABLE tax_invoice ADD COLUMN IF NOT EXISTS vehicle_reg_no text,ADD COLUMN IF NOT EXISTS chassis_record_no text,ADD COLUMN IF NOT EXISTS ledger_no text,ADD COLUMN IF NOT EXISTS voucher_no text").then(()=>{}).catch(e=>{tiRecordReady=null;throw e});
+  return tiRecordReady;
+}
 let chassisReady:Promise<void>|null=null;
 function ensureChassisMasterSchema():Promise<void>{
   if(!chassisReady)chassisReady=(async()=>{
@@ -2366,7 +2372,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const x=r.rows[0];
       if(!["APPROVED","BILLED"].includes(String(x.status||"")))return Response.json({error:"Proforma Invoice sirf Approved Sale ka banta hai."},{status:403});
       if(["OLD RICKSHAW","BATTERY"].includes(String(x.sale_type||"").toUpperCase()))return Response.json({error:"Proforma Invoice sirf New Rickshaw (GST) sale ka banta hai."},{status:409});
-      const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+      const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
       const printBank=await defaultBank(company);
       const taxable=Math.max(0,num(x.gst_sale_amount||x.sale_amount)-num(x.discount)),rate=num(x.gst_rate)||5,gst=taxable*rate/100;
       const intra=(String(x.state_type||"I").trim().toUpperCase()||"I")==="I";
@@ -2591,6 +2597,15 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       w.push("COALESCE(ti.cancelled,false)=false");
       const r=await pool.query("SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,ti.chassis_no,ti.dealer_name,ti.product_name,COALESCE(ti.vehicle_reg_no,'') AS vehicle_reg_no FROM tax_invoice ti WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC LIMIT 5000",args);
       return Response.json({rows:r.rows,invoices:r.rows});
+    }
+    // Accounts > Record: one row per live Tax Invoice. Only chassis_record_no / ledger_no / voucher_no / vehicle_reg_no are editable (PUT sale-record/:id).
+    if(p==="sale-record"){
+      await ensureTaxInvoiceRecordColumns();
+      const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
+      if(search){args.push("%"+search+"%");const n=args.length;w.push("(COALESCE(ti.bill_no,'') ILIKE $"+n+" OR COALESCE(ti.buyer_name,'') ILIKE $"+n+" OR COALESCE(ti.chassis_no,'') ILIKE $"+n+" OR COALESCE(ti.dealer_name,'') ILIKE $"+n+" OR COALESCE(ti.product_name,'') ILIKE $"+n+" OR COALESCE(ti.vehicle_reg_no,'') ILIKE $"+n+" OR COALESCE(ti.ledger_no,'') ILIKE $"+n+" OR COALESCE(ti.voucher_no,'') ILIKE $"+n+" OR COALESCE(ti.chassis_record_no,'') ILIKE $"+n+")");}
+      w.push("COALESCE(ti.cancelled,false)=false");
+      const r=await pool.query("SELECT ti.id,ti.date,ti.dealer_name,ti.bill_no,ti.product_name,ti.chassis_no,COALESCE(ti.remarks,'') AS other,ti.buyer_name,COALESCE(ti.sale_amount,0) AS sale_amount,COALESCE(ti.hypothecation_amount,0) AS loan_amount,COALESCE(ti.amount_received,0) AS amount_received,COALESCE(ti.sale_amount,0)-COALESCE(ti.hypothecation_amount,0)-COALESCE(ti.amount_received,0) AS balance,COALESCE(ti.financer_name,'') AS financer_name,COALESCE(ti.chassis_record_no,'') AS chassis_record_no,COALESCE(ti.ledger_no,'') AS ledger_no,COALESCE(ti.voucher_no,'') AS voucher_no,COALESCE(ti.vehicle_reg_no,'') AS vehicle_reg_no,COALESCE(NULLIF(to_jsonb(ti)->>'salesman',''),NULLIF(to_jsonb(ti)->>'salesman_name',''),(SELECT NULLIF(to_jsonb(dc)->>'salesman','') FROM delivery_challan dc WHERE dc.id=ti.delivery_challan_id),'') AS salesman FROM tax_invoice ti WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC LIMIT 5000",args);
+      return Response.json({rows:r.rows});
     }
     if(p==="reports/sale-register"||p==="reports/gst-register"||p==="reports/hypothecation-register"||p==="reports/subsidy"){
       const u=new URL(req.url),args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
@@ -3279,7 +3294,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(from){args.push(from);w.push("ti.date >= $"+args.length+"::date")}
       if(to){args.push(to);w.push("ti.date <= $"+args.length+"::date")}
       if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(ti.dealer_name,'') ILIKE $"+args.length+")")}
-      const rr=await pool.query("SELECT ti.* FROM tax_invoice ti WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC",args);
+      await ensureTaxInvoiceRecordColumns();
+      // Salesman is not stored on tax_invoice itself: take it from the delivery challan, else from the dealer master.
+      const rr=await pool.query("SELECT ti.*,COALESCE(NULLIF(to_jsonb(ti)->>'salesman',''),NULLIF(to_jsonb(dc)->>'salesman',''),NULLIF(to_jsonb(d)->>'salesman','')) AS sale_salesman FROM tax_invoice ti LEFT JOIN delivery_challan dc ON dc.id=ti.delivery_challan_id LEFT JOIN dealer d ON d.id=ti.dealer_id WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC",args);
       let rows=rr.rows.map((x:any)=>{
         const value=num(x.sale_amount);
         const loan=num(x.hypothecation_amount);
@@ -3287,14 +3304,18 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const balance=value-loan-received;
         return {...x,dealer_name:x.dealer_name||"",bill_no:x.bill_no||"",model:x.product_name||x.model_name||"",chassis_no:x.chassis_no||"",
           customer:x.buyer_name||"",mobile_no:x.buyer_mobile||x.customer_phone||"",value_amt:value,loan_amt:loan,amt_recd:received,balance,
-          financer:x.financer_name||"",rto:x.rto||x.rto_name||"",vehicle_no:x.vehicle_reg_no||"",salesman:x.salesman||"",
+          financer:x.financer_name||"",rto:x.rto||x.rto_name||"",vehicle_no:x.vehicle_reg_no||"",salesman:x.sale_salesman||"",chassis_record:x.chassis_record_no||"",ledger:x.ledger_no||"",voucher_no:x.voucher_no||"",other:x.remarks||"",
           incentive_amount:num(x.incentive_amount),incentive_voucher_no:x.incentive_voucher_no||"",incentive_date:x.incentive_date||null,
           expense_total:num(x.expense_total),expense_details:Array.isArray(x.expense_details)?x.expense_details:[]};
       });
       if(!showAll)rows=rows.filter((x:any)=>x.balance>0);
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||50)),start=(page-1)*per;
       const totals=rows.reduce((a:any,x:any)=>(a.value+=x.value_amt,a.loan+=x.loan_amt,a.received+=x.amt_recd,a.balance+=x.balance,a),{value:0,loan:0,received:0,balance:0});
-      if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Payment_Receivable_Report.csv");
+      if(u.searchParams.get("export")==="csv"){
+        // Export = exactly the screen's columns (one Ledger column), not a dump of every raw tax_invoice column.
+        const d10=(v:any)=>v?String(v instanceof Date?v.toISOString():v).slice(0,10):"";
+        return csvResponse(rows.map((x:any,i:number)=>({"Sr.No.":i+1,"Date":d10(x.date),"Dealer Name":x.dealer_name,"Bill No.":x.bill_no,"Model":x.model,"Chassis No.":x.chassis_no,"Other":x.other,"Customer":x.customer,"Mobile No.":x.mobile_no,"Value Amt.":x.value_amt,"Loan Amt.":x.loan_amt,"Amt.Recd.":x.amt_recd,"Balance":x.balance,"Financer":x.financer,"RTO":x.rto,"Chassis Record":x.chassis_record,"Ledger":x.ledger,"Voucher No.":x.voucher_no,"Cheque No.":x.cheque_no||"","Vehicle No.":x.vehicle_no,"Salesman":x.salesman,"Incentive Amount":x.incentive_amount,"Incentive Voucher":x.incentive_voucher_no,"Incentive Date":d10(x.incentive_date),"All Expenses":x.expense_total})),"Payment_Receivable_Report.csv");
+      }
       return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),totals});
     }
     if(p==="products"){
@@ -3526,7 +3547,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(to_jsonb(d)->>'salesman','') AS dealer_salesman,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
       const x=r.rows[0],challan={...x,product_name:x.product_name||x.vehicle_model_name,chassis_no:x.chassis_no||x.vehicle_chassis_no,motor_no:x.motor_no||x.vehicle_motor_no,colour:x.colour||x.vehicle_colour,salesman:x.salesman||x.dealer_salesman||""};
-      const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+      const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
       {const lg=await productLogo(challan.product_name,x.vehicle_model_name||"");(challan as any).umrn_code=lg.umrn_code||challan.umrn_code||"";(challan as any).logo_keys=lg.logo_keys;}
       return Response.json({challan,company});
     }
@@ -3536,7 +3557,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const r=await pool.query("SELECT ti.*,d.name AS joined_dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,d.address1 AS dealer_address1,d.address2 AS dealer_address2,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(v)->>'colour_code','') AS colour_code FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
       const x=r.rows[0],invoice={...x,dealer_name:x.dealer_name||x.joined_dealer_name||"",dealer_code:x.dealer_code||"",dealer_mobile:x.dealer_mobile||"",dealer_gst_no:x.dealer_gst_no||"",dealer_address1:x.dealer_address1||"",dealer_address2:x.dealer_address2||"",product_name:x.product_name||x.vehicle_model_name||"",chassis_no:x.chassis_no||x.vehicle_chassis_no||"",motor_no:x.motor_no||x.vehicle_motor_no||"",colour:x.colour||x.vehicle_colour||"",battery_maker:x.battery_maker||"",battery_no1:x.battery_no1||"",battery_no2:x.battery_no2||"",battery_no3:x.battery_no3||"",battery_no4:x.battery_no4||"",umrn_code:x.umrn_code||"",colour_code:x.colour_code||""};
-      const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+      const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
       const pd=await pool.query("SELECT (SELECT pv.date::text FROM production_voucher pv WHERE lower(btrim(pv.chassis_no))=lower(btrim($1)) ORDER BY pv.id DESC LIMIT 1) AS d",[invoice.chassis_no||""]).catch(()=>({rows:[] as any[]}));
       (invoice as any).production_date=String(pd.rows[0]?.d||"").slice(0,10);
       const printBank=await defaultBank(company);
@@ -4873,7 +4894,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!b.dealer_name&&num(b.dealer_id)){const dn=await pool.query("SELECT name FROM dealer WHERE id=$1",[num(b.dealer_id)]);b.dealer_name=dn.rows[0]?.name||null;}
       const customerId=num(b.customer_id)||await upsertBillingCustomer(b);
       const grossTaxable=num(b.gst_sale_amount||b.sale_amount),discount=Math.max(0,num(b.discount)),taxable=Math.max(0,grossTaxable-discount),rate=num(b.gst_rate);
-      const companyState=await pool.query("SELECT state_code FROM company ORDER BY id LIMIT 1");
+      const companyState=await pool.query("SELECT state_code FROM company ORDER BY id DESC LIMIT 1");
       const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim(),buyerStateCode=String(b.buyer_state_code||"").trim(),stateType=String(b.state_type||"").trim().toUpperCase();
       const sameState=stateType==="I"||stateType==="INTRA"||(!stateType&&!!sellerStateCode&&sellerStateCode===buyerStateCode),gst=taxable*rate/100;
       const cols=await columns("tax_invoice");
@@ -5573,6 +5594,23 @@ async function mutation(req:Request,params:any,method:string){
       }catch(e){await dc.query("ROLLBACK").catch(()=>{});throw e;}finally{dc.release();}
       await audit(a,"hypothecation-receipts","delete",id,old,null,null,old.chassis_no||old.cheque_no);
       return Response.json({success:true});
+    }
+    if(path[0]==="sale-record"&&(method==="PUT"||method==="PATCH")){
+      const id=idOf(path[1]);if(!id)return Response.json({error:"Invoice id required."},{status:400});
+      const b:any=await json(req);
+      await ensureTaxInvoiceRecordColumns();
+      // Only these four fields can be changed from the Record tab; anything else in the body is ignored.
+      const clean=(k:string,v:any)=>k==="vehicle_reg_no"?String(v??"").toUpperCase().replace(/[\s-]+/g,""):String(v??"").trim();
+      const sets:string[]=[],vals:any[]=[];
+      for(const k of ["chassis_record_no","ledger_no","voucher_no","vehicle_reg_no"]){
+        if(Object.prototype.hasOwnProperty.call(b,k)){vals.push(clean(k,b[k])||null);sets.push(k+"=$"+vals.length);}
+      }
+      if(!sets.length)return Response.json({error:"Koi editable field nahi mili."},{status:400});
+      vals.push(id);
+      const r=await pool.query("UPDATE tax_invoice SET "+sets.join(",")+" WHERE id=$"+vals.length+" RETURNING id,chassis_record_no,ledger_no,voucher_no,vehicle_reg_no",vals);
+      if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
+      const x=r.rows[0];
+      return Response.json({success:true,row:{id:x.id,chassis_record_no:x.chassis_record_no||"",ledger_no:x.ledger_no||"",voucher_no:x.voucher_no||"",vehicle_reg_no:x.vehicle_reg_no||""}});
     }
     if(path[0]==="vehicle-no-register"&&(method==="PUT"||method==="PATCH")){
       const id=idOf(path[1]);if(!id)return Response.json({error:"Invoice id required."},{status:400});

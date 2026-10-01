@@ -42,7 +42,7 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){
   const x=r.rows[0],d=x.dealer_json||{},v=x.vehicle_json||{};
   const invoice={...x,dealer_name:pick(x,"dealer_name")||d.name||"",dealer_code:d.code||"",dealer_mobile:d.mobile||"",dealer_gst_no:d.gst_no||"",dealer_address1:d.address1||"",dealer_address2:d.address2||"",product_name:pick(x,"product_name")||v.model_name||"",chassis_no:pick(x,"chassis_no")||v.chassis_no||"",motor_no:pick(x,"motor_no")||v.motor_no||"",colour:pick(x,"colour")||v.colour||"",battery_maker:v.battery_maker||"",battery_no1:v.battery_no1||"",battery_no2:v.battery_no2||"",battery_no3:v.battery_no3||"",battery_no4:v.battery_no4||"",umrn_code:"",colour_code:v.colour_code||""};
   const logo=await productLogo(invoice.product_name,v.model_name||"");invoice.umrn_code=logo.umrn_code||v.umrn_code||"";(invoice as any).logo_keys=logo.logo_keys;
-  const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+  const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
   // Manufacturing Invoice date = date of production (Production Voucher for this chassis, else the vehicle record's date).
   const pd=await pool.query("SELECT (SELECT pv.date::text FROM production_voucher pv WHERE lower(btrim(pv.chassis_no))=lower(btrim($1)) ORDER BY pv.id DESC LIMIT 1) AS d",[invoice.chassis_no||""]).catch(()=>({rows:[] as any[]}));
   (invoice as any).production_date=String(pd.rows[0]?.d||v.date||"").slice(0,10);

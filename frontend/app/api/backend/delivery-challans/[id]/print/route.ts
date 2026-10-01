@@ -20,7 +20,7 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){
   const x=r.rows[0],d=x.dealer_json||{},v=x.vehicle_json||{};
   const challan={...x,dealer_name:x.dealer_name||d.name||"",dealer_code:d.code||"",dealer_mobile:d.mobile||"",dealer_gst_no:d.gst_no||"",dealer_address1:d.address1||"",dealer_address2:d.address2||"",product_name:x.product_name||v.model_name||"",chassis_no:x.chassis_no||v.chassis_no||"",motor_no:x.motor_no||v.motor_no||"",colour:x.colour||v.colour||"",controller_no:x.controller_no||"",other:x.other||"",remarks1:x.remarks1||"",remarks2:x.remarks2||"",destination:x.destination||"",salesman:x.salesman||d.salesman||"",formula_name:x.formula_name||"",battery_maker:v.battery_maker||x.battery_maker||"",battery_no1:v.battery_no1||x.battery_no1||"",battery_no2:v.battery_no2||x.battery_no2||"",battery_no3:v.battery_no3||x.battery_no3||"",battery_no4:v.battery_no4||x.battery_no4||"",umrn_code:"",colour_code:v.colour_code||"",dealer_page_no:x.dealer_page_no||""};
   const logo=await productLogo(challan.product_name,v.model_name||"");challan.umrn_code=logo.umrn_code||v.umrn_code||"";(challan as any).logo_keys=logo.logo_keys;
-  const company=(await pool.query("SELECT * FROM company ORDER BY id LIMIT 1")).rows[0]||{};
+  const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
   return Response.json({challan,company});
  }catch(e:any){console.error("[delivery-challan-print]",e);return Response.json({error:e.message||"Unable to load Delivery Challan print."},{status:500})}
 }

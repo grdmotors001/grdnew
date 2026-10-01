@@ -49,3 +49,23 @@ export function useInvoiceMasters() {
   const defaultBank = banks.find((b) => b.is_default === true || b.is_default === 't' || b.is_default === 1 || String(b.is_default).toLowerCase() === 'true') || null;
   return { rtos, banks, defaultBank };
 }
+
+// RTO Name dropdown fed by the RTO Master. Stores the RTO name on the sale; the
+// invoice print then looks up that RTO's Address Line 1 + 2 for the footer.
+export function RtoSelect({ label = 'RTO Name', value, onChange }) {
+  const { rtos } = useInvoiceMasters();
+  const names = rtos.map((r) => r.name).filter(Boolean);
+  const opts = value && !names.includes(value) ? [value, ...names] : names;
+  const sel = rtos.find((r) => r.name === value);
+  const lines = sel ? [sel.address, sel.address2].filter((l) => String(l || '').trim()) : [];
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select className="input" value={value || ''} onChange={(e) => onChange(e.target.value)}>
+        <option value="">— Select RTO —</option>
+        {opts.map((n) => <option key={n} value={n}>{n}</option>)}
+      </select>
+      {lines.length > 0 && <small className="muted">{lines.join(' / ')}</small>}
+    </label>
+  );
+}

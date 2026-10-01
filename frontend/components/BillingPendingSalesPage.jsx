@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, Money } from './ui';
 import { ProformaInvoicePrintView } from './PrintDocs';
-import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters } from './invoiceHelpers';
+import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, RtoSelect } from './invoiceHelpers';
 
 // Old Rickshaw / Battery sales are not GST sales: no Tax Invoice, they are completed after approval.
 const isNonGst=t=>['OLD RICKSHAW','BATTERY'].includes(String(t||'').toUpperCase());
@@ -311,7 +311,7 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
         <Input label="Buyer State Code" value={form.buyer_state_code} onChange={e=>set('buyer_state_code',e.target.value)}/>
         <label className="field"><span>Intra / Inter State</span><select className="input" value={form.state_type} onChange={e=>set('state_type',e.target.value)}><option value="I">Intra-state (CGST + SGST)</option><option value="O">Inter-state (IGST)</option></select></label>
         <Input label="Mode / Term" value={form.mode_term} onChange={e=>set('mode_term',e.target.value)}/><Input label="Bank Name" value={form.bank_name} onChange={e=>set('bank_name',e.target.value)}/><Input label="Bank Account No." value={form.bank_account_no} onChange={e=>set('bank_account_no',e.target.value)}/><Input label="Bank IFSC" value={form.bank_ifsc} onChange={e=>set('bank_ifsc',e.target.value)}/>
-        <Input label="RTO Name" value={form.rto_name} onChange={e=>set('rto_name',e.target.value)}/><Input label="Despatch Through" value={form.despatch_through} onChange={e=>set('despatch_through',e.target.value)}/><Input label="E-Way Bill No." value={form.eway_bill_no} onChange={e=>set('eway_bill_no',e.target.value)}/><Input label="License No." value={form.license_no} onChange={e=>set('license_no',e.target.value)}/><Input label="CVR No." value={form.cvr_no} onChange={e=>set('cvr_no',e.target.value)}/><Input label="Cancelled Cheque No." value={form.cancelled_cheque_no} onChange={e=>set('cancelled_cheque_no',e.target.value)}/><Text label="Remarks" value={form.remarks} onChange={e=>set('remarks',e.target.value)} style={{gridColumn:'1 / -1'}}/>
+        <RtoSelect value={form.rto_name} onChange={v=>set('rto_name',v)}/><Input label="Despatch Through" value={form.despatch_through} onChange={e=>set('despatch_through',e.target.value)}/><Input label="E-Way Bill No." value={form.eway_bill_no} onChange={e=>set('eway_bill_no',e.target.value)}/><Input label="License No." value={form.license_no} onChange={e=>set('license_no',e.target.value)}/><Input label="CVR No." value={form.cvr_no} onChange={e=>set('cvr_no',e.target.value)}/><Input label="Cancelled Cheque No." value={form.cancelled_cheque_no} onChange={e=>set('cancelled_cheque_no',e.target.value)}/><Text label="Remarks" value={form.remarks} onChange={e=>set('remarks',e.target.value)} style={{gridColumn:'1 / -1'}}/>
       </div>}
       {readOnly&&<h3 style={{margin:'18px 0 6px'}}>2. Internal</h3>}
       {(readOnly||step===1)&&<div className="formgrid">
