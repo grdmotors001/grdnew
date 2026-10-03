@@ -25,6 +25,15 @@ function Row({ label, children }) {
 }
 
 export function DealerProfilePage({ dealer }) {
+  return (
+    <div style={S.wrap}>
+      <DealerProfileForm dealer={dealer} />
+      <DealerPasswordCard />
+    </div>
+  );
+}
+
+function DealerProfileForm({ dealer }) {
   const [form, setForm] = useState({ ...EMPTY });
   const [kind, setKind] = useState(dealer?.is_salesman ? 'salesman' : 'dealer');
   const [editable, setEditable] = useState(false);
@@ -55,10 +64,10 @@ export function DealerProfilePage({ dealer }) {
     e.preventDefault();
     setSaving(true); setMessage(''); setError('');
     try {
-      await post('/dealer/profile', {
+      await post('/dealer/profile', editable ? {
         full_name: form.full_name || '', mobile: form.mobile || '', email: form.email || '',
         address: form.address || '', date_of_birth: form.date_of_birth || '',
-      });
+      } : { address: form.address || '', date_of_birth: form.date_of_birth || '' });
       setMessage('Profile updated successfully.');
     } catch (err) {
       setError(err?.message || 'Could not update profile.');
@@ -66,10 +75,10 @@ export function DealerProfilePage({ dealer }) {
   };
 
   const ro = (v) => ({ ...S.input, ...S.ro, value: v ?? '', readOnly: true });
-  const inp = (k, type = 'text') => ({ style: { ...S.input, ...(editable ? null : S.ro) }, type, value: form[k] ?? '', onChange: set(k), readOnly: !editable });
+  const inp = (k, type = 'text', force = false) => { const can = editable || force; return { style: { ...S.input, ...(can ? null : S.ro) }, type, value: form[k] ?? '', onChange: set(k), readOnly: !can }; };
 
   return (
-    <div style={S.wrap}>
+    <>
       <div style={S.card}>
         <h2 style={S.h}>My Profile</h2>
         <p style={S.sub}>{kind === 'salesman' ? 'Update your personal details.' : 'Dealer details are managed by the office. Contact admin to change them.'}</p>
@@ -93,18 +102,23 @@ export function DealerProfilePage({ dealer }) {
                 <Row label="Category"><input {...ro(form.dealer_category)} style={{ ...S.input, ...S.ro }} /></Row>
                 {form.mobile ? <Row label="Mobile No."><input {...ro(form.mobile)} style={{ ...S.input, ...S.ro }} /></Row> : null}
                 {form.email ? <Row label="Email"><input {...ro(form.email)} style={{ ...S.input, ...S.ro }} /></Row> : null}
-                {form.address ? <Row label="Address"><textarea rows={3} {...ro(form.address)} style={{ ...S.input, ...S.ro }} /></Row> : null}
+                <Row label="Date of Birth"><input {...inp('date_of_birth', 'date', true)} /></Row>
+                <Row label="Address"><textarea rows={3} {...inp('address', 'text', true)} /></Row>
               </>
             )}
           </div>
-          {editable && <button className="btn primary" style={S.btn} disabled={loading || saving}>{saving ? 'Saving…' : 'Save Profile'}</button>}
+          <button className="btn primary" style={S.btn} disabled={loading || saving}>{saving ? 'Saving…' : 'Save Profile'}</button>
         </form>
       </div>
-    </div>
+    </>
   );
 }
 
 export function DealerPasswordPage() {
+  return <div style={S.wrap}><DealerPasswordCard /></div>;
+}
+
+function DealerPasswordCard() {
   const [pw, setPw] = useState({ current_password: '', new_password: '', confirm_password: '' });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -128,8 +142,8 @@ export function DealerPasswordPage() {
   const f = (k) => ({ type: 'password', required: true, style: S.input, autoComplete: k === 'current_password' ? 'current-password' : 'new-password', value: pw[k], onChange: (e) => setPw({ ...pw, [k]: e.target.value }) });
 
   return (
-    <div style={S.wrap}>
-      <div style={{ ...S.card, maxWidth: 480 }}>
+    <>
+      <div style={S.card}>
         <h2 style={S.h}>Change Password</h2>
         <p style={S.sub}>Enter your current password, then choose a new one.</p>
         {error && <div style={S.err}>{error}</div>}
@@ -143,6 +157,6 @@ export function DealerPasswordPage() {
           <button className="btn primary" style={S.btn} disabled={saving}>{saving ? 'Updating…' : 'Update Password'}</button>
         </form>
       </div>
-    </div>
+    </>
   );
 }

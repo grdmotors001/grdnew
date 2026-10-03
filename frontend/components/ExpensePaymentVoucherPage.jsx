@@ -4,6 +4,8 @@ import { get, post } from '../lib/api';
 
 const money=v=>`₹${Number(v||0).toLocaleString('en-IN',{maximumFractionDigits:2})}`;
 const today=()=>new Date().toISOString().slice(0,10);
+// Voucher ki chassis list: lines se, warna chassis_no (purane records me "A, B, C" ek string hoti hai) ko todkar.
+const chassisList=r=>{const raw=Array.isArray(r.chassis_nos)&&r.chassis_nos.length?r.chassis_nos:(r.chassis_no?[r.chassis_no]:[]);return raw.flatMap(x=>String(x).split(',')).map(x=>x.trim()).filter(Boolean);};
 
 export function ExpensePaymentVoucherPage(){
   const EMPTY_MASTERS={expense_types:[],account_heads:[],pay_to_types:[],dealers:[],staff:[],mechanics:[],fabricators:[]};
@@ -11,6 +13,7 @@ export function ExpensePaymentVoucherPage(){
   const [partyMasters,setPartyMasters]=useState([]);
   const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[bookingRows,setBookingRows]=useState([]),[partyRickshaws,setPartyRickshaws]=useState([]),[selected,setSelected]=useState([]);
   const [rows,setRows]=useState([]),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
+  const [viewRow,setViewRow]=useState(null),[copied,setCopied]=useState(false);
   const [error,setError]=useState(''),[msg,setMsg]=useState(''),[statusFilter,setStatusFilter]=useState('');
   const [form,setForm]=useState({date:today(),pay_to_type:'dealer',pay_to_name:'',dealer_id:'',staff_name:'',expense_type:'office_exp',account_head:'',vehicle_id:'',vehicle_ids:[],payment_mode:'cash',amount:'',bill_no:'',attachment_url:'',remarks:'',work_model_name:'',work_qty:1,rate_per_unit:''});
 
@@ -66,7 +69,7 @@ export function ExpensePaymentVoucherPage(){
   useEffect(()=>{
     const want=HEAD_DEFAULT[form.expense_type];
     if(!want||form.account_head)return;
-    const h=masters.account_heads.find(x=>want.includes(normHead(x.name)));
+    const h=masters.account_heads.find(x=>x.expense_type===form.expense_type&&want.includes(normHead(x.name)));
     if(h)setForm(x=>x.expense_type===form.expense_type&&!x.account_head?{...x,account_head:h.name}:x);
   },[form.expense_type,masters.account_heads,form.account_head]);
   const onExpenseType=v=>{
@@ -108,7 +111,8 @@ export function ExpensePaymentVoucherPage(){
         payload={...form,pay_to_type:'other',amount:Number(form.work_qty)*Number(form.rate_per_unit)};
       }else if(form.expense_type==='incentive'){
         if(!selected.length)throw new Error('Select at least one unpaid rickshaw.');
-        payload={...form,vehicle_ids:selected};
+        // ONE voucher for all selected rickshaws (approval + payment dono isi ek voucher se)
+        payload={...form,vehicle_ids:selected,single_voucher:true,per_vehicle_amount:Number(form.amount),amount:Number(form.amount)*selected.length};
       }else if(form.expense_type==='insurance'||form.expense_type==='rto_expense'){
         if(!form.pay_to_name.trim())throw new Error(form.expense_type==='insurance'?'Enter Insurance Provider.':'Enter RTO Passing Person / Provider.');
         // No rickshaw selected = ON-ACCOUNT payment to the party (Insurance / RTO registers show the balance).
@@ -131,12 +135,8 @@ export function ExpensePaymentVoucherPage(){
 
   async function approval(id,action){
     let reason='';if(action==='reject'){reason=window.prompt('Enter rejection reason')||'';if(!reason)return}
-    try{setError('');setMsg('');const r=await post('/expense-payment-voucher/'+id+'/approval',{action,reason});setRows(x=>x.map(v=>v.id===id?r.voucher:v));setMsg(action==='approve'?'Voucher approved — entry Cash Book me post ho gayi':'Voucher rejected');}
+    try{setError('');setMsg('');const r=await post('/expense-payment-voucher/'+id+'/approval',{action,reason});setRows(x=>x.map(v=>v.id===id?r.voucher:v));setMsg(action==='approve'?'Voucher approved — ab Cashier tab se Paid mark hoga (tabhi Cash Book entry banegi)':'Voucher rejected');}
     catch(e){setError(e.message||'Could not update approval')}
-  }
-  async function markPaid(id){
-    try{const r=await post('/expense-payment-voucher/'+id+'/mark-paid',{});setRows(x=>x.map(v=>v.id===id?r.voucher:v));}
-    catch(e){setError(e.message||'Could not mark Paid')}
   }
 
   const et=form.expense_type;
@@ -149,7 +149,7 @@ export function ExpensePaymentVoucherPage(){
       <div className="grid">
         <input className="input" type="date" value={form.date} onChange={e=>set('date',e.target.value)} required/>
         <select className="input" value={form.expense_type} onChange={e=>onExpenseType(e.target.value)}>{masters.expense_types.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>
-        <select className="input" value={form.account_head} onChange={e=>set('account_head',e.target.value)} required={HEAD_REQUIRED.includes(et)}><option value="">{HEAD_REQUIRED.includes(et)?'Select Account Head':'Account Head (optional)'}</option>{masters.account_heads.map(h=><option key={h.id} value={h.name}>{h.name} — {h.sub_category}</option>)}</select>
+        <select className="input" value={form.account_head} onChange={e=>set('account_head',e.target.value)} required={HEAD_REQUIRED.includes(et)}><option value="">{HEAD_REQUIRED.includes(et)?'Select Account Head':'Account Head (optional)'}</option>{masters.account_heads.filter(h=>h.expense_type===et).map(h=><option key={h.id} value={h.name}>{h.name} — {h.sub_category}</option>)}</select>
         {et==='assembly'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}} required><option value="">Select Assembler / Mechanic</option>{masters.mechanics.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
         {et==='fabrication'&&<select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required><option value="">Select Fabricator</option>{masters.fabricators.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
         {et!=='assembly'&&et!=='fabrication'&&<select className="input" value={form.pay_to_type} onChange={e=>set('pay_to_type',e.target.value)}><option value="dealer">Dealer</option><option value="staff">Staff / Salesman</option><option value="other">Other</option></select>}
@@ -159,9 +159,9 @@ export function ExpensePaymentVoucherPage(){
           et==='insurance'||et==='rto_expense'
             ? <select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required>
                 <option value="">Select {et==='insurance'?'Insurance Provider / Agent':'RTO Passing Person / Provider'}</option>
-                {partyMasters.filter(p=>String(p.sub_category||'').toLowerCase()===(et==='insurance'?'insurance':'rto')).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
+                {partyMasters.filter(p=>p.expense_type?p.expense_type===et:String(p.sub_category||'').toLowerCase()===(et==='insurance'?'insurance':'rto')).map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
               </select>
-            : <input className="input" placeholder="Pay To Name" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)}/>
+            : <><input className="input" list="epv-party-list" placeholder="Pay To Name" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)}/><datalist id="epv-party-list">{partyMasters.filter(p=>p.expense_type===et).map(p=><option key={p.id} value={p.name}/>)}</datalist></>
         )}
         {et==='fabrication'&&<><input className="input" placeholder="Model Name" value={form.work_model_name} onChange={e=>set('work_model_name',e.target.value)} required/><input className="input" type="number" min="1" step="1" placeholder="Qty (rickshaws)" value={form.work_qty} onChange={e=>set('work_qty',e.target.value)} required/><input className="input" type="number" min="0.01" step="0.01" placeholder="Rate per Rickshaw" value={form.rate_per_unit} onChange={e=>set('rate_per_unit',e.target.value)} required/></>}
         {et==='assembly'&&<input className="input" type="number" min="0.01" step="0.01" placeholder="Rate per Rickshaw" value={form.rate_per_unit} onChange={e=>set('rate_per_unit',e.target.value)} required/>}
@@ -203,8 +203,16 @@ export function ExpensePaymentVoucherPage(){
 
     <div className="card"><div className="actions" style={{justifyContent:'space-between',flexWrap:'wrap'}}><h2 style={{margin:0}}>Payment / Work Register</h2>
       <div className="actions"><button className={'btn '+(!statusFilter?'primary':'')} onClick={()=>setStatusFilter('')}>All</button><button className={'btn '+(statusFilter==='unpaid'?'primary':'')} onClick={()=>setStatusFilter('unpaid')}>Unpaid</button><button className={'btn '+(statusFilter==='paid'?'primary':'')} onClick={()=>setStatusFilter('paid')}>Paid</button></div></div>
-      {loading?<div className="muted">Loading…</div>:<div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Work / Expense</th><th>Pay To</th><th>Account Head</th><th>Model</th><th>Chassis</th><th>Qty</th><th>Rate</th><th>Amount</th><th>Status</th><th>Payment</th><th>Action</th></tr></thead>
-      <tbody>{rows.map(r=><tr key={r.id}><td>{r.date}</td><td><b>{r.voucher_no}</b></td><td>{r.expense_type_name}</td><td>{r.pay_to_name}</td><td>{r.account_head||'—'}</td><td>{r.work_model_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.work_qty||'—'}</td><td>{r.rate_per_unit?money(r.rate_per_unit):'—'}</td><td>{money(r.amount)}</td><td>{r.status}</td><td><b>{r.payment_status}</b>{r.paid_at?' · '+r.paid_at:''}</td><td>{r.status==='pending'?<><button type="button" className="btn" onClick={()=>approval(r.id,'approve')} style={{marginRight:5}}>Approve</button><button type="button" className="btn" onClick={()=>approval(r.id,'reject')}>Reject</button></>:r.status==='approved'&&!r.paid_at?<button type="button" className="btn primary" onClick={()=>markPaid(r.id)}>Mark Paid</button>:'—'}</td></tr>)}{!rows.length&&<tr><td colSpan="13" className="muted">No vouchers found.</td></tr>}</tbody></table></div>}
+      {loading?<div className="muted">Loading…</div>:<div className="tablewrap"><table className="table"><thead><tr><th>Date</th><th>Voucher</th><th>Work / Expense</th><th>Pay To</th><th>Account Head</th><th>Model</th><th>Chassis</th><th>Qty</th><th>Rate</th><th>Amount</th><th>Created By</th><th>Status</th><th>Approved By</th><th>Payment</th><th>Paid By</th><th>Action</th></tr></thead>
+      <tbody>{rows.map(r=><tr key={r.id}><td>{r.date}</td><td><b>{r.voucher_no}</b></td><td>{r.expense_type_name}</td><td>{r.pay_to_name}</td><td>{r.account_head||'—'}</td><td>{r.work_model_name||'—'}</td><td style={{maxWidth:260}}>{(()=>{const list=chassisList(r);if(!list.length)return '—';if(list.length===1)return list[0];return <div style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}><span style={{overflow:'hidden',textOverflow:'ellipsis',maxWidth:150}} title={list.join(', ')}>{list[0]}</span><b>+{list.length-1}</b><button type="button" className="btn" onClick={()=>{setCopied(false);setViewRow(r)}}>View</button></div>})()}</td><td>{r.work_qty||'—'}</td><td>{r.rate_per_unit?money(r.rate_per_unit):'—'}</td><td>{money(r.amount)}</td><td>{r.created_by||'—'}</td><td>{r.status}</td><td>{r.approved_by||'—'}</td><td><b>{r.payment_status}</b>{r.paid_at?' · '+r.paid_at:''}</td><td>{r.paid_by||'—'}</td><td>{r.can_approve?<><button type="button" className="btn" onClick={()=>approval(r.id,'approve')} style={{marginRight:5}}>Approve</button><button type="button" className="btn" onClick={()=>approval(r.id,'reject')}>Reject</button></>:r.status==='pending'?<span className="muted">{r.own_voucher?'Doosra approver / Admin approve karega':'Approval pending'}</span>:r.status==='approved'&&r.payment_status!=='paid'?<span className="muted">Cashier tab se Paid hoga</span>:'—'}</td></tr>)}{!rows.length&&<tr><td colSpan="16" className="muted">No vouchers found.</td></tr>}</tbody></table></div>}
     </div>
+    {viewRow&&(()=>{const list=chassisList(viewRow);const vs=Array.isArray(viewRow.vehicles)&&viewRow.vehicles.length>1?viewRow.vehicles:list.map(c=>({chassis_no:c}));return <div className="modal" onMouseDown={e=>{if(e.target===e.currentTarget)setViewRow(null)}}><div className="modalbox" style={{maxWidth:900}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div><h2 style={{margin:0}}>Chassis List ({list.length})</h2><div className="muted" style={{marginTop:4}}>{viewRow.voucher_no} · {viewRow.expense_type_name} · {viewRow.pay_to_name} · Total {money(viewRow.amount)}</div></div>
+        <div className="actions"><button type="button" className="btn" onClick={()=>{navigator.clipboard?.writeText(list.join('\n')).then(()=>setCopied(true)).catch(()=>{})}}>{copied?'Copied ✓':'Copy Chassis'}</button><button type="button" className="btn primary" onClick={()=>setViewRow(null)}>Close</button></div>
+      </div>
+      <div className="tablewrap" style={{marginTop:12}}><table className="table"><thead><tr><th>#</th><th>Chassis</th><th>Customer</th><th>Bill No.</th><th>Model</th><th>Amount</th></tr></thead>
+      <tbody>{vs.map((v,i)=><tr key={i}><td>{i+1}</td><td><b>{v.chassis_no||'—'}</b></td><td>{v.customer_name||'—'}</td><td>{v.bill_no||'—'}</td><td>{v.model_name||'—'}</td><td>{v.amount!=null&&v.amount!==''?money(v.amount):'—'}</td></tr>)}</tbody></table></div>
+    </div></div>})()}
   </div>
 }

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { get } from '../lib/api';
 import { Money } from './ui';
 
@@ -63,8 +64,10 @@ function Overlay({ onClose, children, extraActions, title = 'Print / View Docume
     setTimeout(() => window.print(), 80);
   };
 
-  return (
+  const overlay = (
     <div className="printOverlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      {/* A4 page, no browser margins — sirf jab tak print overlay khula hai (baaki pages ke print par asar nahi) */}
+      <style>{'@page{size:A4;margin:0}'}</style>
       <div className="printPanel">
         <div className="printHeader noprint">
           <h3>{title}</h3>
@@ -102,6 +105,8 @@ function Overlay({ onClose, children, extraActions, title = 'Print / View Docume
       </div>
     </div>
   );
+  // Body ke direct child me render: print me baaki app (hidden) page ki extra blank pages nahi banata.
+  return typeof document === 'undefined' ? overlay : createPortal(overlay, document.body);
 }
 
 // Converts a rupee amount to words (Indian numbering: lakh/crore), for the
@@ -182,8 +187,8 @@ const TI_STYLES = `
 .tiw .decl-box ol{ margin:0; padding-left:18px; }
 .tiw .sign-box{ flex:1; padding:14px; display:flex; flex-direction:column; justify-content:flex-end; text-align:right; }
 .tiw .sign-box .for{ font-weight:700; margin-bottom:36px; }
-.tiw .sign-box .line{ border-top:1px dashed #999; font-size:11px; color:#666; padding-top:4px; }
-.tiw .footer-row{ display:flex; gap:14px; align-items:flex-start; margin-bottom:0; }
+.tiw .sign-box .line{ border-top:none; font-size:11px; color:#666; padding-top:4px; }
+.tiw .footer-row{ display:flex; gap:14px; align-items:flex-start; margin-bottom:0; margin-top:auto; padding-top:10px; }
 .tiw .footer-addr{ flex:1; font-size:11.5px; line-height:1.9; color:#333; }
 .tiw .footer-addr div{ display:flex; align-items:flex-start; gap:6px; }
 .tiw .footer-side{ display:flex; gap:14px; align-items:center; flex-shrink:0; }
@@ -270,7 +275,7 @@ const DC_STYLES = `
 .dcw .decl-text{ font-size:12px; line-height:1.5; flex:1; }
 .dcw .decl-note{ flex:1.6; font-size:12px; line-height:1.6; }
 .dcw .sig-row{ display:flex; gap:14px; }
-.dcw .sig-box{ flex:1; border:1.5px solid var(--navy); border-radius:6px; padding:10px 12px; }
+.dcw .sig-box{ flex:1; border:1.5px solid var(--navy); border-radius:6px; padding:10px 12px; min-height:62px; }
 .dcw .sig-title{ display:flex; align-items:center; gap:8px; font-weight:700; font-size:12.5px; margin-bottom:10px; }
 .dcw .sig-icon{ width:26px; height:26px; border-radius:50%; background:var(--navy); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; }
 .dcw .sig-line{ border-bottom:1px dashed #999; text-align:center; color:#999; font-size:11px; padding-bottom:2px; }
@@ -518,15 +523,12 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
         <div className="sig-row">
           <div className="sig-box">
             <div className="sig-title"><span className="sig-icon">✓</span>CHECKED BY :</div>
-            <div className="sig-line">.......................................</div>
           </div>
           <div className="sig-box">
             <div className="sig-title"><span className="sig-icon">🖊</span>APPROVED BY :</div>
-            <div className="sig-line">.......................................</div>
           </div>
           <div className="sig-box">
             <div className="sig-title"><span className="sig-icon">📋</span>RECEIVED BY :</div>
-            <div className="sig-line">.......................................</div>
           </div>
         </div>
       </div>
@@ -571,7 +573,7 @@ function Form22Body({ data }) {
           </div>
         </div>
 
-        <div className="box" style={{ padding: '12px 18px', marginBottom: 14 }}>
+        <div className="box" style={{ padding: '12px 0', marginBottom: 14, border: 'none' }}>
           <div style={{ fontSize: 12, marginBottom: 8 }}>[To be issued by manufacturer]</div>
           <table style={{ fontSize: 13, borderCollapse: 'collapse' }}><tbody>
             {row('Brand name of the vehicle', brand)}
@@ -583,7 +585,7 @@ function Form22Body({ data }) {
         </div>
 
         <div className="decl-row" style={{ justifyContent: 'flex-end' }}>
-          <div className="box sign-box" style={{ flex: '0 0 46%' }}>
+          <div className="box sign-box" style={{ flex: '0 0 46%', border: 'none' }}>
             <div className="for">For {company?.name || 'G.R.D. MOTORS'}</div>
             <div className="line">Authorised Signatory</div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
@@ -608,6 +610,12 @@ function Form22Body({ data }) {
   );
 }
 
+// Manufacturing Invoice date (production date) -> MM/YYYY
+const mfgMonthYear = (d) => {
+  const x = d ? new Date(d) : null;
+  return x && !isNaN(x) ? `${String(x.getMonth() + 1).padStart(2, '0')}/${x.getFullYear()}` : 'MM/YYYY';
+};
+
 function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.', showCharges = true, mfg = false }) {
   const i = data.invoice, company = data.company;
   const { rto_address, print_bank_name, print_bank_account_no, print_bank_ifsc } = data;
@@ -615,8 +623,8 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
   const gstHalf = (i.gst_rate || 0) / 2;
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
   const umrn = p.umrn_code;
-  const regAmt = showCharges ? (Number(i.registration_amount) || 0) : 0;
-  const insAmt = showCharges ? (Number(i.insurance_amount) || 0) : 0;
+  const regAmt = showCharges && !mfg ? (Number(i.registration_amount) || 0) : 0;
+  const insAmt = showCharges && !mfg ? (Number(i.insurance_amount) || 0) : 0;
   const batteryNos = [i.battery_no1, i.battery_no2, i.battery_no3, i.battery_no4]
     .map((x) => String(x ?? '').trim()).filter((x) => x && x !== '0');
 
@@ -645,9 +653,7 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
               {(i.buyer_relation || i.buyer_father_name) && (
                 <div className="buyer-addr" style={{ marginBottom: 2 }}><b>{[i.buyer_relation, i.buyer_father_name].filter(Boolean).join(' ')}</b></div>
               )}
-              <div className="buyer-addr">{mfg && rto_address
-                ? rto_address.split('\n').map((l, idx) => <div key={idx}>{l}</div>)
-                : i.buyer_address}</div>
+              <div className="buyer-addr">{i.buyer_address}{i.buyer_pincode && !String(i.buyer_address || '').includes(i.buyer_pincode) ? ' - ' + i.buyer_pincode : ''}</div>
               {i.buyer_gst_no && <div className="buyer-kv"><span className="k">GSTIN/UIN</span><span className="v">: {i.buyer_gst_no}</span></div>}
               <div className="buyer-kv"><span className="k">PAN No.</span><span className="v">: {i.buyer_pan || '—'}</span></div>
               {!i.buyer_gst_no && <div className="buyer-kv"><span className="k">Aadhar No.</span><span className="v">: {i.buyer_aadhar || '—'}</span></div>}
@@ -678,11 +684,11 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
 
         <div className="info-strip">
           <div className="info-cell">
-            <div className="lbl"><span className="dot" />DEALER</div>
-            <div className="val">{i.dealer_name || '—'}</div>
+            <div className="lbl"><span className="dot" />{mfg ? 'MANUFACTURING' : 'DEALER'}</div>
+            <div className="val">{mfg ? mfgMonthYear(i.date) : (i.dealer_name || '—')}</div>
           </div>
           <div className="info-cell">
-            <div className="lbl"><span className="dot" />CUSTOMER'S OTHERS INFO.</div>
+            <div className="lbl"><span className="dot" />HYPOTHECATION</div>
             <div className="val">{i.financer_name || '—'}</div>
           </div>
           <div className="info-cell">
@@ -690,12 +696,8 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
             <div className="val">{i.mode_term || '—'}</div>
           </div>
           <div className="info-cell">
-            <div className="lbl"><span className="dot" />VEHICLE REG. NO.</div>
+            <div className="lbl"><span className="dot" />{mfg ? 'TEMP NO.' : 'VEHICLE REG. NO.'}</div>
             <div className="val">{i.vehicle_reg_no || '\u00a0'}</div>
-          </div>
-          <div className="info-cell">
-            <div className="lbl"><span className="dot" />DESPATCHED THROUGH</div>
-            <div className="val">{i.despatch_through || '\u00a0'}</div>
           </div>
         </div>
 
@@ -724,20 +726,6 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
               <td className="center">{i.discount ? <Money value={i.discount} noSymbol /> : '-'}</td>
               <td className="num"><Money value={i.taxable_value} /></td>
             </tr>
-            {regAmt > 0 && (
-              <tr>
-                <td className="center">2</td><td><div className="item-name">Registration Charges</div></td>
-                <td className="center">—</td><td className="center">—</td><td className="num"><Money value={regAmt} noSymbol /></td>
-                <td className="center">—</td><td className="center">-</td><td className="num"><Money value={regAmt} /></td>
-              </tr>
-            )}
-            {insAmt > 0 && (
-              <tr>
-                <td className="center">{regAmt > 0 ? 3 : 2}</td><td><div className="item-name">Insurance Charges</div></td>
-                <td className="center">—</td><td className="center">—</td><td className="num"><Money value={insAmt} noSymbol /></td>
-                <td className="center">—</td><td className="center">-</td><td className="num"><Money value={insAmt} /></td>
-              </tr>
-            )}
             <tr><td colSpan={8}>&nbsp;</td></tr>
           </tbody>
         </table>
@@ -875,14 +863,27 @@ export function TaxInvoicePrintView({ invoiceId, initialDoc = 'invoice', onClose
     const taxable = Math.max(0, (Number(i.taxable_value) || 0) - MFG_LESS);
     const gst = taxable * (Number(i.gst_rate) || 0) / 100;
     const inter = (Number(i.igst_amount) || 0) > 0;
+    const co = data.company || {};
+    const coGst = String(co.gst_no || '').trim();
     const mfg = {
       ...data,
       invoice: {
         ...i,
+        // Billed To: Manufacturing Invoice me hamesha GRD Motors (Company Master) ka naam/address
+        buyer_name: co.name || 'G.R.D. MOTORS',
+        buyer_relation: '', buyer_father_name: '',
+        buyer_address: [co.address1, co.address2].map((x) => String(x || '').trim()).filter(Boolean).join(', '),
+        buyer_pincode: '',
+        buyer_gst_no: coGst,
+        buyer_pan: co.pan || (coGst.length >= 12 ? coGst.slice(2, 12) : ''),
+        buyer_aadhar: '',
+        buyer_mobile: co.mobile || '',
+        buyer_state: co.state || 'DELHI',
+        buyer_state_code: co.state_code || (coGst.slice(0, 2) || '07'),
         date: i.production_date || i.date,
         taxable_value: taxable,
         cgst_amount: inter ? 0 : gst / 2, sgst_amount: inter ? 0 : gst / 2, igst_amount: inter ? gst : 0,
-        bill_total: taxable + gst + (Number(i.insurance_amount) || 0) + (Number(i.registration_amount) || 0),
+        bill_total: taxable + gst, // Manufacturing Invoice me Registration/Insurance charges nahi
       },
     };
     return (

@@ -335,6 +335,8 @@ export function ProductPage() {
       // Screen par Full Chassis No. Length 17 dikhta hai (default), par form me save nahi hota tha -> DB me blank reh jata tha.
       // Finished product ke liye wo dikhne wali value ab hamesha save hoti hai.
       const payload = { ...form };
+      // Khali Purchase Price DB me '' (numeric error) ki jagah NULL jaye.
+      payload.purchase_price = String(payload.purchase_price ?? '').trim() === '' ? null : Number(payload.purchase_price);
       if (String(payload.fro || 'F') === 'F' && (payload.chassis_length_digits === undefined || payload.chassis_length_digits === null || payload.chassis_length_digits === '')) {
         payload.chassis_length_digits = 17;
       }
@@ -370,7 +372,7 @@ export function ProductPage() {
       {filtered.length === 0 ? <EmptyState text={search ? 'No products match your search.' : undefined} /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Code</th><th>Name</th><th>Sub Group</th><th>Type</th><th>Unit</th><th>GST %</th><th>HSN</th><th>Chassis Item Code</th><th>Logo</th></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Sub Group</th><th>Type</th><th>Unit</th><th>GST %</th><th>HSN</th><th>Purchase Price</th><th>Chassis Item Code</th><th>Logo</th></tr></thead>
             <tbody>
               {filtered.map((p) => (
                 <tr key={p.id}>
@@ -382,7 +384,7 @@ export function ProductPage() {
                   </td>
                   <td>{p.sub_group_name || 'Primary'}</td>
                   <td>{String(p.category || p.product_category || '').toUpperCase() === 'DISPATCH' ? 'Dispatch' : String(p.category || p.product_category || '').toUpperCase() === 'FINISHED' ? 'Finished' : 'Raw Material'}</td>
-                  <td>{p.unit}</td><td>{p.gst_rate}</td><td>{p.hsn_code}</td><td>{p.chassis_item_code}</td>
+                  <td>{p.unit}</td><td>{p.gst_rate}</td><td>{p.hsn_code}</td><td>{Number(p.purchase_price) > 0 ? Number(p.purchase_price).toLocaleString('en-IN') : '—'}</td><td>{p.chassis_item_code}</td>
                   <td><LogoStatusCell umrnCode={p.umrn_code} fro={p.fro} /></td>
                 </tr>
               ))}
@@ -416,6 +418,7 @@ export function ProductPage() {
               <Field label="Unit" value={form.unit} onChange={(v) => setForm({ ...form, unit: v })} />
               <Field label="GST Rate %" type="number" value={form.gst_rate} onChange={(v) => setForm({ ...form, gst_rate: v })} />
               <Field label="HSN Code" value={form.hsn_code} onChange={(v) => setForm({ ...form, hsn_code: v })} />
+              <Field label="Purchase Price / Cost Rate (₹, GST ke bina)" type="number" min="0" step="0.01" value={form.purchase_price ?? ''} onChange={(v) => setForm({ ...form, purchase_price: v })} />
               {form.fro === 'F' && (
                 <>
                   <Field label="Chassis First Fix" value={form.chassis_first_fix ?? form.chassis_item_code ?? ''}

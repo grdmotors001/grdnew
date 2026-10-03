@@ -2,11 +2,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 import { Money } from './ui';
-import { relationOptionsFor, RtoSelect } from './invoiceHelpers';
+import { relationOptionsFor, RtoSelect, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
 
 const today=()=>new Date().toISOString().slice(0,10);
 const initial={dealer_id:'',delivery_challan_id:'',application_id:'',date:today(),
-  buyer_name:'',buyer_mobile:'',buyer_relation:'',buyer_father_name:'',buyer_address:'',buyer_gst_no:'',buyer_pan:'',buyer_aadhar:'',buyer_dob:'',buyer_state:'',buyer_state_code:'',
+  buyer_name:'',buyer_mobile:'',buyer_relation:'',buyer_father_name:'',buyer_address:'',buyer_gst_no:'',buyer_pan:'',buyer_aadhar:'',buyer_dob:'',buyer_state:'',buyer_state_code:'',buyer_pincode:'',
   state_type:'I',mode_term:'',bank_name:'',bank_account_no:'',bank_ifsc:'',rto_name:'',despatch_through:'',eway_bill_no:'',license_no:'',cvr_no:'',cancelled_cheque_no:'',remarks:'',
   dealer_page_no:'',sale_amount:'',amount_received:'',financer_name:'',hypothecation_amount:'',vehicle_reg_no:'',ledger_no:'',chassis_record_no:'',voucher_no:'',subsidy_amount:'',
   gst_sale_amount:'',gst_rate:5,insurance_amount:'',registration_amount:'',discount:'',
@@ -30,6 +30,7 @@ export function DealerPendingSalesPage(){
   useEffect(()=>{load()},[]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
+  const {locked:stateTypeLocked}=useAutoStateType(form,set);
   const vehicle=useMemo(()=>data.vehicles.find(v=>String(v.challan_id)===String(form.delivery_challan_id)),[data.vehicles,form.delivery_challan_id]);
   const loan=useMemo(()=>data.applications.find(v=>String(v.id)===String(form.application_id)),[data.applications,form.application_id]);
   const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.hypothecation_amount||form.loan_amount||0)-Number(form.amount_received||0));
@@ -57,9 +58,11 @@ export function DealerPendingSalesPage(){
       if(!form.dealer_id)throw new Error('Dealer select karo.');
       if(!form.delivery_challan_id)throw new Error('Chassis / Delivery Challan select karo.');
       if(!form.buyer_name.trim())throw new Error('Customer Name required hai.');
+      if(!form.buyer_state)throw new Error(STATE_REQUIRED_MSG);
+      {const pinErr=pincodeError(form);if(pinErr)throw new Error(pinErr)}
       if(Number(form.hypothecation_amount||0)>Number(form.sale_amount||0))throw new Error('Hypothecation/Loan Amount Sale Amount se zyada nahi ho sakta.');
       await post('/billing/pending-sales/create',{...form,dealer_id:Number(form.dealer_id),delivery_challan_id:Number(form.delivery_challan_id),application_id:form.application_id?Number(form.application_id):null,
-        customer_name:form.buyer_name,customer_phone:form.buyer_mobile,customer_address:form.buyer_address,customer_state:form.buyer_state,
+        customer_name:form.buyer_name,customer_phone:form.buyer_mobile,customer_address:form.buyer_address,customer_state:form.buyer_state,buyer_state_code:buyerStateCode(form),
         sale_amount:Number(form.sale_amount||0),loan_amount:Number(form.hypothecation_amount||0),description:form.internal_sale_details||'Internal Sale'});
       setOpen(false);await load();
     }catch(e2){setError(e2.message||'Could not save Pending Sale');}
@@ -99,16 +102,16 @@ export function DealerPendingSalesPage(){
             <Input label="Buyer PAN" value={form.buyer_pan} onChange={e=>set('buyer_pan',e.target.value)}/>
             <Input label="Buyer Aadhar" value={form.buyer_aadhar} onChange={e=>set('buyer_aadhar',e.target.value)}/>
             <Input label="Buyer Date of Birth" type="date" value={form.buyer_dob} onChange={e=>set('buyer_dob',e.target.value)}/>
-            <Input label="Buyer State" value={form.buyer_state} onChange={e=>set('buyer_state',e.target.value)}/>
-            <Input label="Buyer State Code" value={form.buyer_state_code} onChange={e=>set('buyer_state_code',e.target.value)}/>
-            <label className="field"><span>Intra / Inter State</span><select className="input" value={form.state_type} onChange={e=>set('state_type',e.target.value)}><option value="I">Intra-state (CGST + SGST)</option><option value="O">Inter-state (IGST)</option></select></label>
+            <Input label="Buyer Pin Code *" inputMode="numeric" maxLength={6} placeholder="6 digit pin code" value={form.buyer_pincode||''} onChange={e=>set('buyer_pincode',normPincode(e.target.value))}/>
+            <label className="field"><span>Buyer State *</span><select className="input" value={stateValueFor(form.buyer_state)} onChange={e=>setForm(f=>({...f,...stateFields(e.target.value)}))}><option value="">— Select State —</option>{stateOptionsFor(form.buyer_state).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+            <Input label="Buyer State Code (auto)" value={buyerStateCode(form)} readOnly/>
+            <label className="field"><span>Intra / Inter State{stateTypeLocked?' (auto from state)':''}</span><select className="input" value={form.state_type} onChange={e=>set('state_type',e.target.value)} disabled={stateTypeLocked}>{STATE_TYPE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
             <Input label="Mode / Term" value={form.mode_term} onChange={e=>set('mode_term',e.target.value)}/>
             <Input label="Bank Name" value={form.bank_name} onChange={e=>set('bank_name',e.target.value)}/>
             <Input label="Bank Account No." value={form.bank_account_no} onChange={e=>set('bank_account_no',e.target.value)}/>
             <Input label="Bank IFSC" value={form.bank_ifsc} onChange={e=>set('bank_ifsc',e.target.value)}/>
             <RtoSelect value={form.rto_name} onChange={v=>set('rto_name',v)}/>
             <Input label="Despatch Through" value={form.despatch_through} onChange={e=>set('despatch_through',e.target.value)}/>
-            <Input label="E-Way Bill No." value={form.eway_bill_no} onChange={e=>set('eway_bill_no',e.target.value)}/>
             <Input label="License No." value={form.license_no} onChange={e=>set('license_no',e.target.value)}/>
             <Input label="CVR No." value={form.cvr_no} onChange={e=>set('cvr_no',e.target.value)}/>
             <Input label="Cancelled Cheque No." value={form.cancelled_cheque_no} onChange={e=>set('cancelled_cheque_no',e.target.value)}/>

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Pill, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
@@ -23,13 +23,13 @@ const blankAccessories = () => ({
   mat: true, stapney: false, front_glass: false, h_lock: false,
 });
 
-function VehicleDetails({ vehicle }) {
+function VehicleDetails({ vehicle, formulaName }) {
   if (!vehicle) return null;
   return (
     <div className="dcVeh">
       {[
         ['Model Name', vehicle.model_name],
-        ['Formula Name', vehicle.formula_name],
+        ['Formula Name', formulaName || vehicle.formula_name],
         ['Motor No.', vehicle.motor_no],
         ['Chassis No.', vehicle.chassis_no],
       ].map(([label, value]) => (
@@ -69,11 +69,17 @@ export function DeliveryChallanPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
+  const reqId = useRef(0);
+  const firstSearch = useRef(true);
+  const [searching, setSearching] = useState(false);
 
   const load = (p = page, s = search) => {
     const params = new URLSearchParams({ page: p, per_page: 50 });
-    if (s) params.set('search', s);
+    if (s.trim()) params.set('search', s.trim());
+    const myReq = ++reqId.current;
+    setSearching(true);
     get(`/delivery-challans?${params}`).then((d) => {
+      if (myReq !== reqId.current) return; // purana (late aaya) response ignore
       const safe = {
         ...d,
         challans: Array.isArray(d?.challans) ? d.challans : (Array.isArray(d?.rows) ? d.rows : []),
@@ -83,8 +89,16 @@ export function DeliveryChallanPage() {
         total: Number(d?.total || 0), total_pages: Number(d?.total_pages || 1),
       };
       setData(safe); setDispatchItems(safe.dispatch_items);
-    }).catch((e) => setError(e.message));
+    }).catch((e) => { if (myReq === reqId.current) setError(e.message); })
+      .finally(() => { if (myReq === reqId.current) setSearching(false); });
   };
+
+  // Type karte hi filter (300ms debounce)
+  useEffect(() => {
+    if (firstSearch.current) { firstSearch.current = false; return; }
+    const t = setTimeout(() => { setPage(1); load(1, search); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     load(1, search);
@@ -195,7 +209,7 @@ export function DeliveryChallanPage() {
       controller_no: vehicle?.controller_no || '',
       differential_no: vehicle?.differential_no || '',
       colour: vehicle?.colour || '',
-      formula_name: formulaName,
+      formula_name: formulaName || vehicle?.formula_name || '',
       battery_maker: vehicle?.battery_maker || '',
       battery_no1: vehicle?.battery_no1 || '',
       battery_no2: vehicle?.battery_no2 || '',
@@ -270,14 +284,17 @@ export function DeliveryChallanPage() {
       <ErrorBanner message={!open && !editRow ? error : ''} />
 
       <form onSubmit={runSearch} className="actions" style={{ marginBottom: 12 }}>
-        <input className="input" placeholder="Search challan no. or chassis no."
-               value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 320 }} />
-        <button className="btn" type="submit">Search</button>
+        <input className="input" type="search" autoComplete="off"
+               placeholder="Search challan no, chassis, motor, dealer, model, colour, date..."
+               value={search} onChange={(e) => setSearch(e.target.value)}
+               onKeyDown={(e) => { if (e.key === 'Escape') setSearch(''); }}
+               style={{ maxWidth: 420, width: '100%' }} />
         {search && (
-          <button type="button" className="btn" onClick={() => { setSearch(''); setPage(1); load(1, ''); }}>
-            Clear
-          </button>
+          <button type="button" className="btn" onClick={() => setSearch('')}>Clear</button>
         )}
+        <span className="muted" style={{ alignSelf: 'center' }}>
+          {searching ? 'Searching...' : `${data.total} challan${data.total === 1 ? '' : 's'}`}
+        </span>
       </form>
 
       {data.challans.length === 0 ? <EmptyState /> : (
@@ -327,7 +344,7 @@ export function DeliveryChallanPage() {
             <div className="dcSec">
               <div className="dcSecTitle">Challan &amp; Dealer</div>
               <div className="dcGrid c4">
-                <Field label="Challan No." value={form.challan_no} onChange={(v) => setForm({ ...form, challan_no: v })} />
+                <Field label="Challan No. (auto on save)" value={form.challan_no} onChange={(v) => setForm({ ...form, challan_no: v })} />
                 <Field label="Date" type="date" value={form.date} onChange={(v) => setForm({ ...form, date: v })} />
                 <div style={{ gridColumn: 'span 2' }}>
                   <Field label="Dealer" type="combo" value={form.dealer_name || dealerById(form.dealer_id)?.name || ''}
@@ -361,7 +378,7 @@ export function DeliveryChallanPage() {
                   </div>
                 </div>
               </div>
-              <VehicleDetails vehicle={selectedVehicle} />
+              <VehicleDetails vehicle={selectedVehicle} formulaName={form.formula_name} />
             </div>
 
             <div className="dcSec">
@@ -450,7 +467,7 @@ export function DeliveryChallanPage() {
                 <input value={editRow.colour||''} readOnly style={{background:'var(--surface-2)',flex:1}} />
               </div></div>
               <Field label="Motor No." value={editRow.motor_no} readOnly />
-              <Field label="Formula Name" value={formVehicle?.formula_name} readOnly />
+              <Field label="Formula Name" value={editRow?.formula_name || formVehicle?.formula_name || ''} readOnly />
                <div style={{ gridColumn: '1 / -1' }} className="muted">
                  Battery details are locked after Challan creation. Battery changes will be recorded only through Battery Withdrawal / Swap / Fit.
                </div>

@@ -5,7 +5,14 @@ import { SIMPLE_MASTERS } from '../lib/menu';
 import { Field, Card, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
 export function SimpleMasterPage({ kind, setActive }) {
-  const baseMeta = SIMPLE_MASTERS[kind] || { label: kind, fields: [['name', 'Name', 'text']] };
+  // Account Head Master / Party Master me "Expense Type" dropdown Expense Type Master se aata hai.
+  const [etOpts, setEtOpts] = useState(null);
+  useEffect(() => {
+    if (kind !== 'expense-head' && kind !== 'party') return;
+    get('/expense-payment-voucher/masters').then((m) => setEtOpts((m.expense_types || []).map((t) => ({ value: t.id, label: t.name })))).catch(() => {});
+  }, [kind]);
+  const rawMeta = SIMPLE_MASTERS[kind] || { label: kind, fields: [['name', 'Name', 'text']] };
+  const baseMeta = etOpts ? { ...rawMeta, fields: rawMeta.fields.map((fd) => fd[0] === 'expense_type' ? [fd[0], fd[1], fd[2], etOpts] : fd) } : rawMeta;
   // Party Master: Party Type me "Vendor / Supplier" option jodo; khali type bhi Vendor / Supplier maana jayega.
   const VENDOR = { value: 'vendor', label: 'Vendor / Supplier' };
   const typeKey = kind === 'party' ? (baseMeta.fields.find(([f, l]) => /party\s*type/i.test(l) || f === 'sub_category') || [])[0] : null;
@@ -25,7 +32,7 @@ export function SimpleMasterPage({ kind, setActive }) {
   const [form, setForm] = useState({});
   const { busy, error, setError, run } = useAsyncAction();
 
-  const load = () => get(`/masters/${kind}`).then((d) => setRows(Array.isArray(d) ? d : (d.masters || d.rows || d.data || []))).catch((e) => setError(e.message));
+  const load = () => (kind === 'expense-type' ? get('/expense-payment-voucher/masters').catch(() => null) : Promise.resolve()).then(() => get(`/masters/${kind}`)).then((d) => setRows(Array.isArray(d) ? d : (d.masters || d.rows || d.data || []))).catch((e) => setError(e.message));
   useEffect(() => { load(); setSearch(''); }, [kind]);
 
   const filteredRows = rows.filter((r) => {
@@ -104,7 +111,7 @@ export function SimpleMasterPage({ kind, setActive }) {
                         <a onClick={() => isPaymentMaster ? openPayments(r) : openEdit(r)} style={{ color: 'var(--accent)', cursor: 'pointer' }}>
                           {String(r[f] ?? '')}
                         </a>
-                      ) : f === 'is_default' ? (r[f] ? 'Yes' : '') : f === 'is_double_tone' ? (r[f] ? 'Yes' : 'No') : f === 'color_hex' ? (
+                      ) : f === 'is_default' ? (r[f] ? 'Yes' : '') : f === 'inactive' ? (r[f] ? 'Band' : 'Chalu') : f === 'expense_type' ? ((etOpts || []).find((o) => o.value === r[f])?.label || String(r[f] ?? '')) : f === 'is_double_tone' ? (r[f] ? 'Yes' : 'No') : f === 'color_hex' ? (
                         <span style={{display:'inline-flex',alignItems:'center',gap:7}}>
                           <span style={{width:24,height:16,borderRadius:4,border:'1px solid var(--border)',background:r.color_hex||'transparent',display:'inline-block'}} />
                           {r.color_hex||'—'}

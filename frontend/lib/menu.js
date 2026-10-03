@@ -16,7 +16,7 @@ export const MENU = {
     ['production-formula', 'Production Formula'],
     ['mechanic', 'Mechanic Master'],
     ['user', 'User Master'],
-    ['option-setting', 'User wise Option Setting'], ['expense-head', 'Account Head Master'],
+    ['option-setting', 'User wise Option Setting'], ['expense-head', 'Account Head Master'], ['expense-type', 'Expense Type Master'],
     ['bank', 'Bank Details'],
     ['colour', 'Colour Master'],
   ],
@@ -127,9 +127,10 @@ export const NAV_GROUPS = {
     ['v-contra', 'F4 · Contra'],
     ['v-payment', 'F5 · Payment'],
     ['v-receipt', 'F6 · Receipt'],
-    ['v-journal', 'F7 · Journal'],
+    ['v-journal', 'F7 · Stock Journal'],
     ['v-sales', 'F8 · Sales'],
     ['v-purchase', 'F9 · Purchase'],
+    ['v-f10', 'F10 · Journal'],
     ['v-credit-note', 'F1 · Credit Note'],
     ['v-debit-note', 'F2 · Debit Note'],
     ['v-production', 'F3 · Production'],
@@ -152,11 +153,15 @@ export const NAV_GROUPS = {
     ['rto', 'RTO Master'], ['financer', 'Financer Master'],
   ],
   Expenses: [
-    ['expense-head', 'Account Head Master'],
-    ['expense-payment-voucher', 'Expense Payment Voucher'],
+    ['expense-type', 'Expense Type Master'], ['expense-head', 'Account Head Master'],
+    ['expense-payment-voucher', 'Expense Payment Voucher'], ['rc-fee-voucher', 'RC Fee Voucher & RC Register'],
     ['cash-at-dealer', 'Showroom Cash'],
     ['showroom-stock', 'Showroom Stock'],
     ['insurance-rto', 'Insurance Register'], ['rto-expense', 'RTO Expense Register'],
+  ],
+  Cashier: [
+    ['cashier-pending', 'Pending'], ['cashier-approved', 'Approved'], ['cashier-paid', 'Paid'],
+    ['cashier-handover', 'Cash Handover'], ['cashier-all-receipts', 'All Receipts (Cash)'], ['cashier-receipt', 'F6 · Receipt (Cash)'],
   ],
   Accounts: [
     ['ledger', 'Ledger'], ['ledger-v', 'Ledger V'], ['gst-register', 'GST Register'], ['day-book', 'Bank & Cash'],
@@ -190,7 +195,7 @@ export const NAV_GROUPS = {
 // (used for permission check: a user who may open Tax Invoice may open F8 Sales).
 export const VOUCHER_SHORTCUTS = {
   F4: 'v-contra', F5: 'v-payment', F6: 'v-receipt', F7: 'v-journal',
-  F8: 'v-sales', F9: 'v-purchase', F1: 'v-credit-note', F2: 'v-debit-note', F3: 'v-production',
+  F8: 'v-sales', F9: 'v-purchase', F10: 'v-f10', F1: 'v-credit-note', F2: 'v-debit-note', F3: 'v-production',
 };
 export const VOUCHER_PAGE_FOR = {
   // Showroom Stock ka permission Showroom Cash (cash-at-dealer) jaisa hi hai.
@@ -359,8 +364,15 @@ export function labelFor(key) {
 
 // Simple masters, keyed exactly like backend SIMPLE_KINDS, with the field
 // lists from menu_config.py's per-module `fields`.
+export const EXPENSE_TYPE_OPTIONS = [
+  ['office_exp', 'Office Expense'], ['commission', 'Commission'], ['incentive', 'Incentive'],
+  ['assembly', 'Assembly Work'], ['fabrication', 'Fabrication Work'], ['passing_exp', 'Passing Expense'],
+  ['insurance', 'Insurance'], ['rto_expense', 'RTO Expense'], ['dl_exp', 'DL Expense'],
+  ['ll_exp', 'LL Expense'], ['pcc_cvr_exp', 'PCC/CVR Expense'], ['fitness', 'Fitness Expense'], ['other', 'Other Expense']
+].map(([value, label]) => ({ value, label }));
+
 export const SIMPLE_MASTERS = {
-  party: { label: 'Party Master', fields: [['name', 'Name', 'text'], ['sub_category', 'Party Type', 'select', [{ value: 'insurance', label: 'Insurance Provider / Agent' }, { value: 'rto', label: 'RTO Passing Person / Provider' }]], ['address', 'Address', 'text'], ['mobile', 'Mobile No.', 'text'], ['extra', 'GSTIN', 'text']] },
+  party: { label: 'Party Master', fields: [['name', 'Name', 'text'], ['sub_category', 'Party Type', 'select', [{ value: 'insurance', label: 'Insurance Provider / Agent' }, { value: 'rto', label: 'RTO Passing Person / Provider' }]], ['address', 'Address', 'text'], ['mobile', 'Mobile No.', 'text'], ['extra', 'GSTIN', 'text'], ['expense_type', 'Expense Head (kis expense ke under)', 'select', EXPENSE_TYPE_OPTIONS]] },
   'battery-maker': { label: 'Battery Maker Master', fields: [['name', 'Battery Maker Name', 'text']] },
   rto: { label: 'RTO Master', fields: [['name', 'RTO Name', 'text'], ['code', 'RTO Code', 'text'], ['address', 'Address Line 1', 'text'], ['address2', 'Address Line 2', 'text']] },
   financer: { label: 'Financer Master', fields: [['name', 'Name', 'text'], ['address', 'Address', 'text']] },
@@ -376,7 +388,16 @@ export const SIMPLE_MASTERS = {
         'Current Asset', 'Fixed Asset', 'Other / Non-Current Asset',
         'Current Liability', 'Long Term Liability', 'Capital & Reserves',
         'Direct Expense', 'Indirect Expense', 'Direct Income', 'Indirect Income'
-      ].map(v => ({ value: v, label: v }))]
+      ].map(v => ({ value: v, label: v }))],
+      ['expense_type', 'Expense Type (Expense Payment Voucher me kis type ke under dikhe)', 'select', EXPENSE_TYPE_OPTIONS]
+    ]
+  },
+  'expense-type': {
+    label: 'Expense Type Master',
+    fields: [
+      ['name', 'Expense Type Name', 'text'],
+      ['sub_category', 'Category (P&L me kahan dikhe)', 'select', ['Direct Expense', 'Indirect Expense'].map(v => ({ value: v, label: v }))],
+      ['inactive', 'Band (naye voucher me na dikhe)', 'checkbox']
     ]
   },
   colour: { label: 'Colour Master', fields: [['name', 'Colour', 'text'], ['code', 'Colour Code', 'text'], ['color_hex', 'RGB / HEX', 'color'], ['color_hex2', 'Second Tone RGB / HEX', 'color'], ['is_double_tone', 'Double Tone', 'checkbox']] },

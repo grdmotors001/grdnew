@@ -14,15 +14,32 @@ function useReport(path, extraParams = {}) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [extra, setExtra] = useState(extraParams);
+  const [loading, setLoading] = useState(false);
+  const reqId = useRef(0);
+  const firstRun = useRef(true);
+
+  // Search/date badalne par page 1 par wapas (warna page 3 par khali result dikhta tha)
+  const setSearchReset = (v) => { setSearch(v); setExtra((x) => (x && x.page && x.page !== 1 ? { ...x, page: 1 } : x)); };
 
   useEffect(() => {
     const q = new URLSearchParams({
-      ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}), ...extra,
+      ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search.trim() ? { search: search.trim() } : {}), ...extra,
     });
-    get(`${path}?${q}`).then(setData).catch((e) => setError(e.message));
+    const myReq = ++reqId.current;
+    const run = () => {
+      setLoading(true);
+      get(`${path}?${q}`)
+        .then((d) => { if (myReq === reqId.current) { setData(d); setError(''); } }) // late aaya purana response ignore
+        .catch((e) => { if (myReq === reqId.current) setError(e.message); })
+        .finally(() => { if (myReq === reqId.current) setLoading(false); });
+    };
+    // Pehli load turant; baad me typing par 300ms debounce
+    if (firstRun.current) { firstRun.current = false; run(); return undefined; }
+    const t = setTimeout(run, 300);
+    return () => clearTimeout(t);
   }, [path, from, to, search, JSON.stringify(extra)]);
 
-  return { from, setFrom, to, setTo, search, setSearch, data, error, extra, setExtra };
+  return { from, setFrom, to, setTo, search, setSearch: setSearchReset, data, error, extra, setExtra, loading };
 }
 
 // Export Excel ke liye current filters ka query string (backend export=csv me pagination ignore karta hai).
@@ -38,7 +55,7 @@ function FilterBar({ r, showSearch = true, children }) {
     <div className="toolbar">
       <Field label="From" type="date" value={r.from} onChange={r.setFrom} />
       <Field label="To" type="date" value={r.to} onChange={r.setTo} />
-      {showSearch && <Field label="Search" value={r.search} onChange={r.setSearch} />}
+      {showSearch && <Field label={r.loading ? 'Search (searching...)' : 'Search'} value={r.search} onChange={r.setSearch} />}
       {children}
     </div>
   );
@@ -196,11 +213,11 @@ export function ProductionRegisterPage() {
       {rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th><th>Mechanic</th>{costVisible && <th style={{ textAlign: 'right' }}>Avg Cost (₹)</th>}<th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Vou. No.</th><th>Product</th><th>Formula Name</th><th>Qty</th><th>Chassis No.</th><th>Motor No.</th><th>Mechanic</th>{costVisible && <th style={{ textAlign: 'right' }}>Avg Cost (₹)</th>}<th>Status</th><th></th></tr></thead>
             <tbody>{rows.map((v) => {
               const status = v.stage || 'In Factory Stock';
               return <tr key={v.id}>
-                <td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.quantity}</td>
+                <td>{formatDate(v.date)}</td><td>{v.vou_no}</td><td>{v.product_name}</td><td>{v.formula_name || '—'}</td><td>{v.quantity}</td>
                 <td>{v.chassis_no}</td><td>{v.motor_no}</td><td>{String(v.machnic || '').trim()}</td>
                 {costVisible && (
                   <td style={{ textAlign: 'right' }}
@@ -314,7 +331,7 @@ export function DeliveryChallanRegisterPage() {
             <thead>
               <tr>
                 <th>Date</th><th>Challan No.</th><th>Party Name</th>
-                <th>Chassis No.</th><th>Model</th><th>Colour</th><th>Other</th>
+                <th>Chassis No.</th><th>Model</th><th>Formula Name</th><th>Colour</th><th>Other</th>
                 <th>Sale Bill No.</th><th>Sale Value</th><th>Salesman</th>
                 <th>Battery Make</th><th>Battery No.</th><th>Old Battery Make</th><th>Old Battery No.</th>
                 {showRemarks && <><th>Remarks (1)</th><th>Remarks (2)</th></>}<th></th>
@@ -333,6 +350,7 @@ export function DeliveryChallanRegisterPage() {
                   <td><button type="button" onClick={() => setDetailRow(c)} title="Open Delivery Challan" style={{border:0,background:"none",padding:0,color:"var(--primary,#1976d2)",textDecoration:"underline",fontWeight:600,cursor:"pointer"}}>{c.dealer_name}</button></td>
                   <td><button type="button" onClick={() => setDetailRow(c)} title="Open Delivery Challan" style={{border:0,background:"none",padding:0,color:"var(--primary,#1976d2)",textDecoration:"underline",fontWeight:600,cursor:"pointer"}}>{c.chassis_no}</button></td>
                   <td>{c.product_name || '—'}</td>
+                  <td>{c.formula_name || '—'}</td>
                   <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}>
                     <span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)||'transparent'}} />
                     {c.colour||'—'}
@@ -1118,7 +1136,7 @@ const escHtml = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;'
 // Bank & Cash Book — cash (day_book) + bank (bank_ledger_entry) ek hi report me.
 // voucher = 'RECEIPT' | 'PAYMENT' -> Vouchers tab (F6 / F5): same Bank & Cash book, but header shows only that voucher's button
 // and the list is limited to that kind. Without the prop it is the normal full Bank & Cash book.
-export function DayBookPage({ voucher } = {}) {
+export function DayBookPage({ voucher, payMode } = {}) {
   const [data,setData]=useState(null);           // /day-book
   const [bankData,setBankData]=useState(null);   // /bank-ledger
   const [from,setFrom]=useState('');
@@ -1179,9 +1197,11 @@ export function DayBookPage({ voucher } = {}) {
   const showIn=voucher!=='PAYMENT',showOut=voucher!=='RECEIPT';
   const q=search.trim().toLowerCase();
   const modeOk=b=>!mode||(mode==='CASH'?b==='Cash':b===mode);
+  // payMode: 'cash' = sirf Cash entries (Cashier F6), 'bank' = sirf Bank entries (Vouchers F6).
+  const limitOk=b=>payMode==='cash'?b==='Cash':payMode==='bank'?b!=='Cash':true;
   const inRange=d=>(!from||d>=from)&&(!to||d<=to);
   const rows=unified
-    .filter(x=>modeOk(x.bank)&&inRange(x.date)&&(!kindEff||(kindEff==='IN'?x.receipt>0:x.payment>0))
+    .filter(x=>modeOk(x.bank)&&limitOk(x.bank)&&inRange(x.date)&&(!kindEff||(kindEff==='IN'?x.receipt>0:x.payment>0))
       &&(!q||[x.no,x.party,x.narration,x.bank,x.receipt||'',x.payment||''].join(' ').toLowerCase().includes(q)))
     .sort((a,b)=>b.date.localeCompare(a.date)||(b.src===a.src?Number(b.id)-Number(a.id):(a.src==='bank'?1:-1)));
   const susShown=suspense.filter(r=>modeOk(r.bank_name||'Bank')&&inRange(ymd10(r.entry_date))&&(!q||[r.bank_name,r.cheque_no,r.upi_ref,r.narration,r.amount].join(' ').toLowerCase().includes(q)));
@@ -1281,6 +1301,8 @@ export function DayBookPage({ voucher } = {}) {
     e.preventDefault();
     if(!String(form.dealer_name||'').trim()){setError('Party ka naam select/likhna zaroori hai.');return;}
     const {party_type,kind,...payload}=form;
+    if(payMode==='cash')payload.bank_id=null;
+    if(payMode==='bank'&&!payload.bank_id){setError('Bank select karna zaroori hai (is voucher me Cash nahi hota).');return;}
     if(kind==='RECEIPT'){payload.debit_paid=0;if(!(Number(payload.credit_received)>0)){setError('Receipt amount daalein.');return;}}
     if(kind==='PAYMENT'){payload.credit_received=0;if(!(Number(payload.debit_paid)>0)){setError('Payment amount daalein.');return;}}
     try{
@@ -1307,7 +1329,7 @@ export function DayBookPage({ voucher } = {}) {
   const kpi={flex:'1 1 200px'};
   return <div>
     <div className="pageHeader">
-      <div><h1>{voucher==='RECEIPT'?'Receipt Voucher':voucher==='PAYMENT'?'Payment Voucher':'Bank & Cash Book'}</h1><p className="muted">{voucher?'G.R.D. Motors · '+(voucher==='RECEIPT'?'paisa aaya (Cash / Bank) — naya Receipt yahin se banaye':'paisa gaya (Cash / Bank) — naya Payment yahin se banaye'):'G.R.D. Motors · saari receipts aur payments (Cash + Bank) ek jagah'}</p></div>
+      <div><h1>{voucher==='RECEIPT'?'Receipt Voucher'+(payMode==='cash'?' — Cash':payMode==='bank'?' — Bank':''):voucher==='PAYMENT'?'Payment Voucher':'Bank & Cash Book'}</h1><p className="muted">{voucher?'G.R.D. Motors · '+(voucher==='RECEIPT'?'paisa aaya ('+(payMode==='cash'?'sirf Cash':payMode==='bank'?'sirf Bank':'Cash / Bank')+') — naya Receipt yahin se banaye':'paisa gaya (Cash / Bank) — naya Payment yahin se banaye'):'G.R.D. Motors · saari receipts aur payments (Cash + Bank) ek jagah'}</p></div>
       <div className="actions" style={{flexWrap:'wrap'}}>
         {showIn&&<button className="btn primary" onClick={()=>openNew('RECEIPT')}>+ Receipt</button>}
         {showOut&&<button className="btn" onClick={()=>openNew('PAYMENT')} style={{borderColor:'var(--red)',color:'var(--red)',fontWeight:700}}>+ Payment</button>}
@@ -1330,7 +1352,7 @@ export function DayBookPage({ voucher } = {}) {
     <div className="toolbar">
       <Field label="From" type="date" value={from} onChange={setFrom}/>
       <Field label="To" type="date" value={to} onChange={setTo}/>
-      <Field label="Bank / Cash" type="select" value={mode} options={[{value:'',label:'All (Cash + Bank)'},{value:'CASH',label:'Cash only'},...bankOptions.map(n=>({value:n,label:n}))]} onChange={setMode}/>
+      {payMode!=='cash'&&<Field label={payMode==='bank'?'Bank':'Bank / Cash'} type="select" value={mode} options={[{value:'',label:payMode==='bank'?'All Banks':'All (Cash + Bank)'},...(payMode==='bank'?[]:[{value:'CASH',label:'Cash only'}]),...bankOptions.map(n=>({value:n,label:n}))]} onChange={setMode}/>}
       {!voucher&&<Field label="Type" type="select" value={kind} options={[{value:'',label:'Receipts + Payments'},{value:'IN',label:'Receipts only'},{value:'OUT',label:'Payments only'}]} onChange={setKind}/>}
       <Field label="Search" value={search} onChange={setSearch}/>
       <button className="btn" style={{alignSelf:'flex-end'}} onClick={()=>{setFrom('');setTo('');setMode('');setKind('');setSearch('')}}>Clear</button>
@@ -1382,7 +1404,9 @@ export function DayBookPage({ voucher } = {}) {
         {(form.party_type||'DEALER')==='DEALER'&&<Field label="Dealer Name" type="select" value={form.dealer_name} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.name,label:d.name}))]} onChange={v=>setForm({...form,dealer_name:v})} required/>}
         {form.party_type==='FINANCER'&&<Field label="Financer Name" type="select" value={form.dealer_name} options={[{value:'',label:'Select Financer'},...financers.map(f=>({value:f.name,label:f.name}))]} onChange={v=>setForm({...form,dealer_name:v})} required/>}
         {form.party_type==='OTHER'&&<Field label="Other Party Name" value={form.dealer_name} onChange={v=>setForm({...form,dealer_name:v})} required/>}
-        <Field label="Bank (khali = Cash)" type="select" value={form.bank_id||''} options={[{value:'',label:'Cash (No Bank)'},...banks.map(b=>({value:b.id,label:`${b.name}${b.account_no?` — ${b.account_no}`:''}`}))]} onChange={v=>setForm({...form,bank_id:v||null})}/>
+        {payMode==='cash'
+          ?<Field label="Mode" value="Cash" readOnly/>
+          :<Field label={payMode==='bank'?'Bank':'Bank (khali = Cash)'} type="select" value={form.bank_id||''} options={[{value:'',label:payMode==='bank'?'Select Bank':'Cash (No Bank)'},...banks.map(b=>({value:b.id,label:`${b.name}${b.account_no?` — ${b.account_no}`:''}`}))]} onChange={v=>setForm({...form,bank_id:v||null})} required={payMode==='bank'}/>}
         {form.kind!=='PAYMENT'&&<Field label="Receipt Amount (Credit Received)" type="number" value={form.credit_received} onChange={v=>setForm({...form,credit_received:v})} required={form.kind==='RECEIPT'}/>}
         {form.kind!=='RECEIPT'&&<Field label="Payment Amount (Debit Paid)" type="number" value={form.debit_paid} onChange={v=>setForm({...form,debit_paid:v})} required={form.kind==='PAYMENT'}/>}
         <Field label="Narration" value={form.narration} onChange={v=>setForm({...form,narration:v})}/>

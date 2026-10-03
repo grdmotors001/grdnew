@@ -128,24 +128,22 @@
   .printFooterActions{justify-content:flex-end}
 }
 @media print{
+  /* Print overlay body ka direct child hai -> baaki poora app hide (display:none) taaki blank extra pages na bane */
+  body:has(> .printOverlay) > :not(.printOverlay){display:none !important}
+  html,body{margin:0 !important;padding:0 !important;height:auto !important;background:#fff !important}
   body *{visibility:hidden}
   .printSheet,.printSheet *{visibility:visible}
-  .printOverlay{position:absolute;inset:0;background:#fff;padding:0;display:block}
-  .printPanel{width:100%;height:auto;box-shadow:none;animation:none;background:#fff}
-  .printBody{padding:0;overflow:visible}
-  .printSheet{box-shadow:none;padding:0;max-width:none;position:static}
+  .printOverlay{position:static;inset:auto;background:#fff;padding:0;display:block;width:210mm}
+  .printPanel{width:210mm;height:auto;box-shadow:none;animation:none;background:#fff;display:block}
+  .printBody{padding:0;overflow:visible;background:#fff}
+  /* A4 (210 x 297mm): ek page, content upar se, footer bilkul niche */
+  .printSheet{width:210mm;min-height:296mm;box-sizing:border-box;margin:0;padding:8mm 10mm;max-width:none;border-radius:0;box-shadow:none;position:static;
+    display:flex;flex-direction:column;overflow:hidden;break-inside:avoid;page-break-after:avoid}
+  .printSheet > .tiw,.printSheet > .dcw{flex:1 1 auto;display:flex;flex-direction:column}
+  .printSheet *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .copyBadge{display:none}
   .noprint{display:none !important}
 }
-
-
-
-
-
-
-
-
-
 
 /* Tax Invoice "New Tax Invoice" modal — wide, fixed header + fixed footer,
    scrollable stepped body in between (Applicant Details / Internal / Amount-Tax) */

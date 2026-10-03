@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, Money } from './ui';
 import { ProformaInvoicePrintView } from './PrintDocs';
-import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, RtoSelect } from './invoiceHelpers';
+import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, RtoSelect, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
 
 // Old Rickshaw / Battery sales are not GST sales: no Tax Invoice, they are completed after approval.
 const isNonGst=t=>['OLD RICKSHAW','BATTERY'].includes(String(t||'').toUpperCase());
@@ -46,7 +46,7 @@ export function BillingPendingSalesPage(){
 
   return <div className="page">
     <div className="pageHeader">
-      <div><h2>Pending Bills / Billing</h2><p className="muted">Pending Sales → Open for Approve → Approved Sales → Create Sale → bill Tax Invoice menu me aata hai (Bill No. sirf New Rickshaw par).</p></div>
+      <div><h2>Pending Bills / Billing</h2><p className="muted">Pending Sales (Print Proforma) → Open for Approve → Approved Sales → Create Sale → bill Tax Invoice menu me aata hai (Bill No. sirf New Rickshaw par).</p></div>
       <div style={{display:'flex',gap:8}}><button className="btn primary" onClick={()=>setCreateOpen(true)}>+ Create Pending Sale</button><button className="btn" onClick={load}>↻ Refresh</button></div>
     </div>
     <ErrorBanner message={error}/>
@@ -65,12 +65,13 @@ export function BillingPendingSalesPage(){
         <td>{isNonGst(r.sale_type)&&<b>{r.sale_type} · </b>}{r.description||'—'}</td><td><Money value={r.sale_amount}/></td>
         <td><b>{r.status}</b></td>
         <td><div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {r.status==='PENDING'&&!isNonGst(r.sale_type)&&<button className="btn" onClick={()=>setProformaId(r.id)}>🖨 Print Proforma</button>}
             {r.status==='PENDING'&&canApprove&&<>
               <button className="btn primary" onClick={()=>setSheet({mode:'view',sale:r})}>Open for Approve</button>
               <button className="btn" onClick={()=>setSheet({mode:'edit',sale:r})}>Edit</button>
               <button className="btn" onClick={()=>removeSale(r)}>Delete</button></>}
             {r.status==='APPROVED'&&<button className="btn" onClick={()=>setSheet({mode:'view',sale:r})}>View</button>}
-            {r.status==='APPROVED'&&!isNonGst(r.sale_type)&&<button className="btn" onClick={()=>setProformaId(r.id)}>🖨 Print Proforma</button>}
+            {r.status==='APPROVED'&&canApprove&&<button className="btn" onClick={()=>setSheet({mode:'edit',sale:r})}>Edit</button>}
             {r.status==='APPROVED'&&canApprove&&(isNonGst(r.sale_type)
               ?<button className="btn primary" onClick={()=>completeSale(r.id)}>Complete Sale (No Bill)</button>
               :<button className="btn primary" onClick={()=>openSale(r.id)}>Create Sale</button>)}
@@ -82,7 +83,7 @@ export function BillingPendingSalesPage(){
     </div>
     {createOpen&&<CreatePendingSale canPickFinancer={canApprove} onClose={()=>setCreateOpen(false)} onSaved={()=>{setCreateOpen(false);load()}}/>}
     {sheet&&<CreatePendingSale key={sheet.mode+'-'+sheet.sale.id} sale={sheet.sale} mode={sheet.mode} canPickFinancer={canApprove}
-      canApprove={canApprove&&sheet.sale.status==='PENDING'} onApprove={async()=>{if(await approve(sheet.sale.id))setSheet(null)}}
+      canApprove={canApprove&&sheet.sale.status==='PENDING'} canEditApproved={canApprove&&sheet.sale.status==='APPROVED'} onApprove={async()=>{if(await approve(sheet.sale.id))setSheet(null)}}
       onEdit={()=>setSheet({mode:'edit',sale:sheet.sale})}
       onClose={()=>setSheet(null)} onSaved={()=>{setSheet(null);load()}}/>}
     {proformaId&&<ProformaInvoicePrintView saleId={proformaId} onClose={()=>setProformaId(null)}/>}
@@ -107,11 +108,14 @@ const KINDS=[
   {key:'BATTERY',title:'Battery',sub:'Non-GST · alag form · Tax Invoice nahi banega'},
 ];
 
-function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='create',canApprove=false,onApprove,onEdit}){
+function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='create',canApprove=false,canEditApproved=false,onApprove,onEdit}){
   const editing=mode!=='create',readOnly=mode==='view';
+  // Approved sale: Customer Name, Father Name (+Relation), Sale Amount and Loan Amount stay locked; everything else (Ledger No., Chassis Record No., Voucher No., Subsidy, RTO, Address, Amount / Tax ...) is editable.
+  const lockedApproved=editing&&sale?.status==='APPROVED';
+  const strict=!sale||sale.status==='PENDING';
   const initial={
     dealer_id:'',application_id:null,dealer_cash_customer_id:'',vehicle_id:'',buyer_name:'',buyer_mobile:'',buyer_relation:'',buyer_father_name:'',buyer_address:'',
-    buyer_gst_no:'',buyer_pan:'',buyer_aadhar:'',buyer_dob:'',buyer_state:'',buyer_state_code:'',state_type:'I',
+    buyer_gst_no:'',buyer_pan:'',buyer_aadhar:'',buyer_dob:'',buyer_state:'',buyer_state_code:'',buyer_pincode:'',state_type:'I',
     mode_term:'',bank_name:'',bank_account_no:'',bank_ifsc:'',rto_name:'',despatch_through:'',eway_bill_no:'',license_no:'',
     cvr_no:'',cancelled_cheque_no:'',remarks:'',dealer_page_no:'',sale_amount:'',amount_received:'',financer_name:'',
     hypothecation_amount:'',vehicle_reg_no:'',ledger_no:'',chassis_record_no:'',voucher_no:'',subsidy_amount:'',
@@ -168,6 +172,7 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
   const vehicle=vehicles.find(v=>String(v.challan_id)===String(form.vehicle_id));
   const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.hypothecation_amount||0)-Number(form.amount_received||0));
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const {locked:stateTypeLocked}=useAutoStateType(form,set,!readOnly&&kind==='NEW');
   const chooseKind=k=>{setChassisText('');setKind(k);setError('');setStep(0);setForm(initial);setStock({loading:false,error:'',rows:[]});setPeople({loading:false,error:'',loans:[],customers:[]});seq.current++};
 
   // 2) that dealer's stock, 3) then that dealer's customers / approved loans. New Rickshaw only.
@@ -244,11 +249,15 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
       if(!form.buyer_name.trim())throw new Error('Customer Name required hai.');
       if(Number(form.hypothecation_amount||0)>Number(form.sale_amount||0))throw new Error('Hypothecation/Loan Amount Sale Amount se zyada nahi ho sakta.');
       const common={...form,sale_category:kind,application_id:form.application_id?Number(form.application_id):null,dealer_cash_customer_id:form.dealer_cash_customer_id?Number(form.dealer_cash_customer_id):null,dealer_id:Number(form.dealer_id),
-        customer_name:form.buyer_name,customer_phone:form.buyer_mobile,customer_address:form.buyer_address,customer_state:form.buyer_state,
+        customer_name:form.buyer_name,customer_phone:form.buyer_mobile,customer_address:form.buyer_address,customer_state:form.buyer_state,buyer_state_code:buyerStateCode(form),
         sale_amount:Number(form.sale_amount||0),loan_amount:Number(form.hypothecation_amount||0)};
       let payload;
       if(kind==='NEW'){
         if(!editing&&!form.vehicle_id)throw new Error('Chassis / Delivery Challan select karo.');
+        if(strict){
+          if(!form.buyer_state)throw new Error(STATE_REQUIRED_MSG);
+          const pinErr=pincodeError(form);if(pinErr)throw new Error(pinErr);
+        }
         payload={...common,vehicle_id:Number(form.vehicle_id)||null,delivery_challan_id:Number(form.vehicle_id)||null};
       }else if(kind==='OLD'){
         if(!form.vehicle_reg_no.trim())throw new Error('Old Rickshaw ka Vehicle Reg. No. required hai.');
@@ -268,7 +277,7 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
 
   const dealerSelect=editing?<Input label="Dealer" value={sale?.dealer_name||('#'+form.dealer_id)} readOnly disabled/>:<label className="field"><span>Dealer</span><select className="input" value={form.dealer_id} onChange={e=>selectDealer(e.target.value)} disabled={dealersLoading} required><option value="">{dealersLoading?'Loading dealers…':'Select Dealer First'}</option>{dealers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label>;
   const financerRow=<><FinancerSelect value={form.financer_name} onChange={v=>set('financer_name',v)} financers={financers} canPick={canPickFinancer}/>
-      <Input label={'Hypothecation / Loan Amount'+(form.application_id?' (approved loan se)':'')} type="number" min="0" value={form.hypothecation_amount} onChange={e=>set('hypothecation_amount',e.target.value)} readOnly={!!form.application_id}/></>;
+      <Input label={'Hypothecation / Loan Amount'+(lockedApproved?' · locked':form.application_id?' (approved loan se)':'')} type="number" min="0" value={form.hypothecation_amount} onChange={e=>set('hypothecation_amount',e.target.value)} readOnly={!!form.application_id||lockedApproved} disabled={lockedApproved}/></>;
   const balanceField=<label className="field"><span>Balance</span><input className="input" value={balance.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})} readOnly/></label>;
   const kindTitle=KINDS.find(k=>k.key===kind)?.title;
 
@@ -278,15 +287,15 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
   </div>;
   const viewActions=<div className="actions" style={{marginTop:16,justifyContent:'flex-end'}}>
     <button className="btn" onClick={onClose}>Close</button>
-    {canApprove&&<button className="btn" onClick={onEdit}>Edit</button>}
+    {(canApprove||canEditApproved)&&<button className="btn" onClick={onEdit}>Edit</button>}
     {canApprove&&<button className="btn primary" onClick={onApprove}>Approve</button>}
   </div>;
   const actions=readOnly?viewActions:editActions;
 
   return <div className="modal"><div className="modalbox" style={{maxWidth:1000}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-      <div><h2 style={{margin:0}}>{readOnly?'View Sale':editing?'Edit Pending Sale':'Create Pending Sale'}{kind?' · '+kindTitle:''}</h2>
-        <p className="muted" style={{margin:'6px 0'}}>{readOnly?(canApprove?<>Saari details check karo, phir <b>Approve</b> dabao. Approve ke baad Sale Amount / Loan Amount change nahi honge aur sale delete nahi hogi.</>:sale?.status==='PENDING'?<>Sale abhi Pending hai.</>:<>Yeh sale <b>{sale?.status}</b> hai — Sale Amount / Loan Amount locked hain, delete nahi ho sakti.</>):kind==='NEW'?<>Dealer → Vehicle → Customer → (optional) Approved Loan, phir Internal details bharo. <b>Bill No. nahi hai</b>.</>:kind?<>{kindTitle} sale (GST nahi). Approve ke baad <b>Complete Sale (No GST)</b> hoga.</>:'Pehle batao kis cheez ki sale hai.'}</p></div>
+      <div><h2 style={{margin:0}}>{readOnly?'View Sale':lockedApproved?'Edit Approved Sale':editing?'Edit Pending Sale':'Create Pending Sale'}{kind?' · '+kindTitle:''}</h2>
+        <p className="muted" style={{margin:'6px 0'}}>{readOnly?(canApprove?<>Saari details check karo, phir <b>Approve</b> dabao. Approve ke baad Sale Amount / Loan Amount change nahi honge aur sale delete nahi hogi.</>:sale?.status==='PENDING'?<>Sale abhi Pending hai.</>:<>Yeh sale <b>{sale?.status}</b> hai — Customer Name, Father Name, Sale Amount / Loan Amount locked hain, delete nahi ho sakti. Ledger No., Chassis Record No., Voucher No., Subsidy Amount, RTO aur Address edit ho sakte hain.</>):kind==='NEW'?<>Dealer → Vehicle → Customer → (optional) Approved Loan, phir Internal details bharo. <b>Bill No. nahi hai</b>.</>:kind?<>{kindTitle} sale (GST nahi). Approve ke baad <b>Complete Sale (No GST)</b> hoga.</>:'Pehle batao kis cheez ki sale hai.'}</p></div>
       <div style={{display:'flex',gap:6}}>{kind&&!editing&&<button className="btn" onClick={()=>setKind(null)}>← Change type</button>}<button className="btn" onClick={onClose}>×</button></div>
     </div>
     <ErrorBanner message={error}/>
@@ -318,24 +327,25 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
       {readOnly&&<h3 style={{margin:'14px 0 6px'}}>1. Applicant Details</h3>}
       {(readOnly||step===0)&&<div className="formgrid">
         <Input label="Dealer Page No." value={form.dealer_page_no} onChange={e=>set('dealer_page_no',e.target.value)}/>
-        <Input label="Customer Name" value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required/>
-        <label className="field"><span>Relation (S/O, D/O, C/O)</span><select className="input" value={form.buyer_relation||''} onChange={e=>set('buyer_relation',e.target.value)}><option value="">— (Firm / none)</option>{relationOptionsFor(form.buyer_relation).filter(o=>o.value).map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-        <Input label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={e=>set('buyer_father_name',e.target.value)}/>
+        <Input label={'Customer Name'+(lockedApproved?' · locked':'')} value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required disabled={lockedApproved}/>
+        <label className="field"><span>Relation (S/O, D/O, C/O){lockedApproved?' · locked':''}</span><select className="input" disabled={lockedApproved} value={form.buyer_relation||''} onChange={e=>set('buyer_relation',e.target.value)}><option value="">— (Firm / none)</option>{relationOptionsFor(form.buyer_relation).filter(o=>o.value).map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
+        <Input label={'Buyer Father/Husband Name'+(lockedApproved?' · locked':'')} value={form.buyer_father_name} onChange={e=>set('buyer_father_name',e.target.value)} disabled={lockedApproved}/>
         <Input label="Buyer Address" value={form.buyer_address} onChange={e=>set('buyer_address',e.target.value)}/>
+        <Input label="Buyer Pin Code *" inputMode="numeric" maxLength={6} placeholder="6 digit pin code" value={form.buyer_pincode||''} onChange={e=>set('buyer_pincode',normPincode(e.target.value))}/>
+        <label className="field"><span>Buyer State *</span><select className="input" value={stateValueFor(form.buyer_state)} onChange={e=>setForm(f=>({...f,...stateFields(e.target.value)}))}><option value="">— Select State —</option>{stateOptionsFor(form.buyer_state).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+        <Input label="Buyer State Code (auto)" value={buyerStateCode(form)} readOnly/>
+        <label className="field"><span>Intra / Inter State{stateTypeLocked?' (auto from state)':''}</span><select className="input" value={form.state_type} onChange={e=>set('state_type',e.target.value)} disabled={stateTypeLocked}>{STATE_TYPE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
         <Input label="Buyer Mobile" value={form.buyer_mobile} onChange={e=>set('buyer_mobile',e.target.value)}/>
         <Input label="Buyer GSTIN" value={form.buyer_gst_no} onChange={e=>set('buyer_gst_no',e.target.value)}/>
         <Input label="Buyer PAN" value={form.buyer_pan} onChange={e=>set('buyer_pan',e.target.value)}/>
         <Input label="Buyer Aadhar" value={form.buyer_aadhar} onChange={e=>set('buyer_aadhar',e.target.value)}/>
         <Input label="Buyer Date of Birth" type="date" value={form.buyer_dob} onChange={e=>set('buyer_dob',e.target.value)}/>
-        <Input label="Buyer State" value={form.buyer_state} onChange={e=>set('buyer_state',e.target.value)}/>
-        <Input label="Buyer State Code" value={form.buyer_state_code} onChange={e=>set('buyer_state_code',e.target.value)}/>
-        <label className="field"><span>Intra / Inter State</span><select className="input" value={form.state_type} onChange={e=>set('state_type',e.target.value)}><option value="I">Intra-state (CGST + SGST)</option><option value="O">Inter-state (IGST)</option></select></label>
         <Input label="Mode / Term" value={form.mode_term} onChange={e=>set('mode_term',e.target.value)}/><Input label="Bank Name" value={form.bank_name} onChange={e=>set('bank_name',e.target.value)}/><Input label="Bank Account No." value={form.bank_account_no} onChange={e=>set('bank_account_no',e.target.value)}/><Input label="Bank IFSC" value={form.bank_ifsc} onChange={e=>set('bank_ifsc',e.target.value)}/>
-        <RtoSelect value={form.rto_name} onChange={v=>set('rto_name',v)}/><Input label="Despatch Through" value={form.despatch_through} onChange={e=>set('despatch_through',e.target.value)}/><Input label="E-Way Bill No." value={form.eway_bill_no} onChange={e=>set('eway_bill_no',e.target.value)}/><Input label="License No." value={form.license_no} onChange={e=>set('license_no',e.target.value)}/><Input label="CVR No." value={form.cvr_no} onChange={e=>set('cvr_no',e.target.value)}/><Input label="Cancelled Cheque No." value={form.cancelled_cheque_no} onChange={e=>set('cancelled_cheque_no',e.target.value)}/><Text label="Remarks" value={form.remarks} onChange={e=>set('remarks',e.target.value)} style={{gridColumn:'1 / -1'}}/>
+        <RtoSelect value={form.rto_name} onChange={v=>set('rto_name',v)}/><Input label="Despatch Through" value={form.despatch_through} onChange={e=>set('despatch_through',e.target.value)}/><Input label="License No." value={form.license_no} onChange={e=>set('license_no',e.target.value)}/><Input label="CVR No." value={form.cvr_no} onChange={e=>set('cvr_no',e.target.value)}/><Input label="Cancelled Cheque No." value={form.cancelled_cheque_no} onChange={e=>set('cancelled_cheque_no',e.target.value)}/><Text label="Remarks" value={form.remarks} onChange={e=>set('remarks',e.target.value)} style={{gridColumn:'1 / -1'}}/>
       </div>}
       {readOnly&&<h3 style={{margin:'18px 0 6px'}}>2. Internal</h3>}
       {(readOnly||step===1)&&<div className="formgrid">
-        <Input label="Sale Amount (Internal)" type="number" min="0" value={form.sale_amount} onChange={e=>set('sale_amount',e.target.value)} required/>
+        <Input label={'Sale Amount (Internal)'+(lockedApproved?' · locked':'')} type="number" min="0" value={form.sale_amount} onChange={e=>set('sale_amount',e.target.value)} required disabled={lockedApproved}/>
         <Input label="Amount Received" type="number" min="0" value={form.amount_received} onChange={e=>set('amount_received',e.target.value)}/>
         {financerRow}{balanceField}
         <Input label="Vehicle Reg. No." value={form.vehicle_reg_no} onChange={e=>set('vehicle_reg_no',e.target.value)}/><Input label="Ledger No." value={form.ledger_no} onChange={e=>set('ledger_no',e.target.value)}/><Input label="Chassis Record No." value={form.chassis_record_no} onChange={e=>set('chassis_record_no',e.target.value)}/><Input label="Voucher No." value={form.voucher_no} onChange={e=>set('voucher_no',e.target.value)}/><Input label="Subsidy Amount" type="number" min="0" value={form.subsidy_amount} onChange={e=>set('subsidy_amount',e.target.value)}/><Input label="DO No." value={form.do_no} onChange={e=>set('do_no',e.target.value)}/><Text label="Internal Sale Details" value={form.internal_sale_details} onChange={e=>set('internal_sale_details',e.target.value)} style={{gridColumn:'1 / -1'}}/>
@@ -354,13 +364,13 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
       <div className="formgrid" style={{marginTop:12}}>
         {dealerSelect}
         <Input label="Dealer Page No." value={form.dealer_page_no} onChange={e=>set('dealer_page_no',e.target.value)}/>
-        <Input label="Customer Name" value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required/>
+        <Input label={'Customer Name'+(lockedApproved?' · locked':'')} value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required disabled={lockedApproved}/>
         <Input label="Customer Mobile" value={form.buyer_mobile} onChange={e=>set('buyer_mobile',e.target.value)}/>
         <Input label="Customer Address" value={form.buyer_address} onChange={e=>set('buyer_address',e.target.value)}/>
         <Input label="Vehicle Reg. No. (Old Rickshaw)" value={form.vehicle_reg_no} onChange={e=>set('vehicle_reg_no',e.target.value)} required/>
         <Input label="Model" value={form.item_model} onChange={e=>set('item_model',e.target.value)}/>
         <Input label="Colour" value={form.item_colour} onChange={e=>set('item_colour',e.target.value)}/>
-        <Input label="Sale Amount" type="number" min="0" value={form.sale_amount} onChange={e=>set('sale_amount',e.target.value)} required/>
+        <Input label={'Sale Amount'+(lockedApproved?' · locked':'')} type="number" min="0" value={form.sale_amount} onChange={e=>set('sale_amount',e.target.value)} required disabled={lockedApproved}/>
         <Input label="Amount Received" type="number" min="0" value={form.amount_received} onChange={e=>set('amount_received',e.target.value)}/>
         {financerRow}{balanceField}
         <Input label="Ledger No." value={form.ledger_no} onChange={e=>set('ledger_no',e.target.value)}/>
@@ -376,12 +386,12 @@ function CreatePendingSale({canPickFinancer,onClose,onSaved,sale=null,mode='crea
       <div className="formgrid" style={{marginTop:12}}>
         {dealerSelect}
         <Input label="Dealer Page No." value={form.dealer_page_no} onChange={e=>set('dealer_page_no',e.target.value)}/>
-        <Input label="Customer Name" value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required/>
+        <Input label={'Customer Name'+(lockedApproved?' · locked':'')} value={form.buyer_name} onChange={e=>set('buyer_name',e.target.value)} required disabled={lockedApproved}/>
         <Input label="Customer Mobile" value={form.buyer_mobile} onChange={e=>set('buyer_mobile',e.target.value)}/>
         <Input label="Battery Maker" value={form.battery_maker} onChange={e=>set('battery_maker',e.target.value)}/>
         <Input label="Qty" type="number" min="1" value={form.battery_qty} onChange={e=>set('battery_qty',e.target.value)}/>
         <Input label="Battery No(s). (comma se alag)" value={form.battery_nos} onChange={e=>set('battery_nos',e.target.value)}/>
-        <Input label="Sale Amount" type="number" min="0" value={form.sale_amount} onChange={e=>set('sale_amount',e.target.value)} required/>
+        <Input label={'Sale Amount'+(lockedApproved?' · locked':'')} type="number" min="0" value={form.sale_amount} onChange={e=>set('sale_amount',e.target.value)} required disabled={lockedApproved}/>
         <Input label="Amount Received" type="number" min="0" value={form.amount_received} onChange={e=>set('amount_received',e.target.value)}/>
         {balanceField}
         <Input label="Ledger No." value={form.ledger_no} onChange={e=>set('ledger_no',e.target.value)}/>
@@ -400,32 +410,37 @@ function TaxInvoiceModal({data,onClose,onSaved}){
   const rtoNames=rtos.map(r=>r.name).filter(Boolean);
   const rtoOpts=(rtoNames.includes(form.rto_name)||!form.rto_name?rtoNames:[form.rto_name,...rtoNames]).map(n=>({value:n,label:n}));
   const b2c=isB2C(form);
+  const {locked:stateTypeLocked}=useAutoStateType(form,set);
   // Default bank from Bank Details master auto-fills when the invoice has no bank yet.
   useEffect(()=>{if(defaultBank)setForm(f=>f.bank_name?f:{...f,bank_name:defaultBank.name||'',bank_account_no:defaultBank.account_no||'',bank_ifsc:defaultBank.ifsc||''})},[defaultBank]);
   const save=async()=>{setSaving(true);setError('');try{
     if(!String(form.rto_name||'').trim())throw new Error('RTO Name select karo — Bill No. banne se pehle RTO zaroori hai.');
+    if(!String(form.buyer_state||'').trim())throw new Error(STATE_REQUIRED_MSG);
+    {const pinErr=pincodeError(form);if(pinErr)throw new Error(pinErr)}
     const idErr=b2cIdError(form);if(idErr)throw new Error(idErr);
-    await post('/billing/pending-sales/'+data.id+'/save-invoice',{invoice:form});onSaved()}catch(e){setError(e.message)}finally{setSaving(false)}};
+    await post('/billing/pending-sales/'+data.id+'/save-invoice',{invoice:{...form,buyer_state_code:buyerStateCode(form)}});onSaved()}catch(e){setError(e.message)}finally{setSaving(false)}};
   const F=(label,k,extra={})=><Field key={k} label={label} value={form[k]??''} onChange={v=>set(k,v)} {...extra}/>;
   const locked={readOnly:true};
   const h=t=><h3 style={{margin:'18px 0 6px'}}>{t}</h3>;
   return <div className="modal"><div className="modalbox" style={{maxWidth:1000}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><h2>Create Sale · Tax Invoice</h2><p className="muted">Pending Sale ki saari details pre-filled hain. Save karte hi Bill No. generate hoga. <b>Sale Amount aur Loan Amount locked hain.</b></p></div><button className="btn" onClick={onClose}>×</button></div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><h2>Create Sale · Tax Invoice</h2><p className="muted">Pending Sale ki saari details pre-filled hain. Save karte hi Bill No. generate hoga. <b>Dealer, Chassis, Customer Name, Father Name, Sale Amount aur Loan Amount locked hain</b> — baaki (Address, State, RTO, Ledger / Chassis Record / Voucher No., Subsidy, Amount / Tax) edit ho sakta hai. E-Way Bill e-Invoice ke baad activate hoga.</p></div><button className="btn" onClick={onClose}>×</button></div>
     <ErrorBanner message={error}/>
     {h('Invoice / Vehicle')}
     <div className="formgrid">
       {F('RTO Name (select first) *','rto_name',{type:'select',options:rtoOpts})}
-      {F('Invoice Date','date',{type:'date'})}{F('Dealer','dealer_name')}{F('Dealer Page No.','dealer_page_no')}
-      {F('Model','product_name')}{F('Chassis No.','chassis_no')}{F('Motor No.','motor_no')}{F('Controller No.','controller_no')}{F('Colour','colour')}
+      {F('Invoice Date','date',{type:'date'})}{F('Dealer · locked','dealer_name',locked)}{F('Dealer Page No.','dealer_page_no')}
+      {F('Model','product_name')}{F('Chassis No. · locked','chassis_no',locked)}{F('Motor No.','motor_no')}{F('Controller No.','controller_no')}{F('Colour','colour')}
     </div>
     {h('1. Applicant Details')}
     <div className="formgrid">
-      {F('Customer Name','buyer_name')}{F('Relation (S/O, D/O, C/O)','buyer_relation',{type:'select',options:relationOptionsFor(form.buyer_relation).filter(o=>o.value)})}{F('Buyer Father/Husband Name','buyer_father_name')}{F('Buyer Address','buyer_address')}
+      {F('Customer Name · locked','buyer_name',locked)}{F('Relation (S/O, D/O, C/O) · locked','buyer_relation',{type:'select',options:relationOptionsFor(form.buyer_relation).filter(o=>o.value),...locked})}{F('Buyer Father/Husband Name · locked','buyer_father_name',locked)}{F('Buyer Address','buyer_address')}
+      {F('Buyer Pin Code *','buyer_pincode',{onChange:v=>set('buyer_pincode',normPincode(v))})}
+      {F('Buyer State *','buyer_state',{type:'select',options:stateOptionsFor(form.buyer_state),value:stateValueFor(form.buyer_state),onChange:v=>setForm(f=>({...f,...stateFields(v)}))})}{F('Buyer State Code (auto)','buyer_state_code',{value:buyerStateCode(form),...locked})}
+      {F('Intra/Inter State'+(stateTypeLocked?' (auto from state)':''),'state_type',{type:'select',options:STATE_TYPE_OPTIONS,readOnly:stateTypeLocked})}
       {F('Buyer Mobile','buyer_mobile')}{F('Buyer GSTIN (if any)','buyer_gst_no')}{F('Buyer PAN'+(b2c?' * (required, no GSTIN)':''),'buyer_pan')}{F('Buyer Aadhar'+(b2c?' * (required, no GSTIN)':''),'buyer_aadhar')}
-      {F('Buyer Date of Birth','buyer_dob',{type:'date'})}{F('Buyer State','buyer_state')}{F('Buyer State Code','buyer_state_code')}
-      {F('Intra/Inter State','state_type',{type:'select',options:[{value:'I',label:'Intra-state (CGST+SGST)'},{value:'O',label:'Inter-state (IGST)'}]})}
+      {F('Buyer Date of Birth','buyer_dob',{type:'date'})}
       {F('Mode / Term','mode_term')}{F('Bank Name','bank_name')}{F('Bank Account No.','bank_account_no')}{F('Bank IFSC','bank_ifsc')}
-      {F('Despatch Through','despatch_through')}{F('E-Way Bill No.','eway_bill_no')}{F('License No.','license_no')}
+      {F('Despatch Through','despatch_through')}{F('License No.','license_no')}
       {F('CVR No.','cvr_no')}{F('Cancelled Cheque No.','cancelled_cheque_no')}{F('Remarks','remarks')}
     </div>
     {h('2. Internal')}

@@ -10,8 +10,9 @@ export async function GET(req:Request){
   const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
   if(a.scope!=="dealer")return Response.json({error:"Dealer ledger is only available in dealer portal."},{status:403});
   const did=num(a.dealer_id),u=new URL(req.url),from=String(u.searchParams.get("from")||"").trim(),to=String(u.searchParams.get("to")||"").trim(),search=String(u.searchParams.get("search")||"").trim().toLowerCase();
-  const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1 LIMIT 1",[did]);
+  const dr=await pool.query("SELECT id,name,LOWER(COALESCE(dealer_category,'dealer')) AS cat FROM dealer WHERE id=$1 LIMIT 1",[did]);
   if(!dr.rowCount)return Response.json({events:[],rows:[],count:0});
+  if(["showroom","branch"].includes(String(dr.rows[0].cat||"")))return Response.json({error:"Ledger sirf Dealer ke liye hai."},{status:403});
   const dealerName=String(dr.rows[0].name||"").trim().toLowerCase();
   const rr=await pool.query("SELECT * FROM day_book LIMIT 5000");
   const rows=rr.rows.filter((x:any)=>{

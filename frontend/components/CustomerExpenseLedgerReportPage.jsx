@@ -4,8 +4,14 @@ import { useEffect, useState } from 'react';
 import { get, downloadExcel } from '../lib/api';
 import { ErrorBanner, EmptyState, Field, Money } from './ui';
 
+// Negative amount (jaise Insurance Fee) -₹1,000.00 ki tarah dikhega.
+function Amt({ value }) {
+  const n = Number(value || 0);
+  return n < 0 ? <span style={{ color: '#b42318' }}>-<Money value={Math.abs(n)} /></span> : <Money value={n} />;
+}
+
 function ExpenseLine({ label, value }) {
-  return <div className="clExpenseLine"><span>{label}</span><b><Money value={value} /></b></div>;
+  return <div className="clExpenseLine"><span>{label}</span><b><Amt value={value} /></b></div>;
 }
 
 function Detail({ row, onClose }) {
@@ -103,6 +109,78 @@ function Detail({ row, onClose }) {
             </div>
           </div>
 
+          {Array.isArray(row.dealer_expenses) && row.dealer_expenses.length > 0 && (
+            <div className="clCard" style={{marginTop:14}}>
+              <h4>Dealer Cash Book Expenses</h4>
+              <table className="clTable">
+                <thead><tr><th>Date</th><th>Expense No.</th><th>Category</th><th>Paid To</th><th>Remarks</th><th style={{textAlign:'right'}}>Amount</th></tr></thead>
+                <tbody>
+                  {row.dealer_expenses.map((e, i) => (
+                    <tr key={i}>
+                      <td>{e.date || '—'}</td>
+                      <td>{e.expense_no || '—'}</td>
+                      <td>{e.category || e.type || 'Other'}</td>
+                      <td>{e.paid_to || '—'}</td>
+                      <td>{e.remarks || '—'}</td>
+                      <td style={{textAlign:'right'}}><b><Money value={e.amount} /></b></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {Array.isArray(row.rto_expenses) && row.rto_expenses.length > 0 && (
+            <div className="clCard" style={{marginTop:14}}>
+              <h4>RTO Expenses (RTO Register)</h4>
+              <table className="clTable">
+                <thead><tr><th>Date</th><th>RTO Agent</th><th>Work</th><th>Type</th><th>Remarks</th><th style={{textAlign:'right'}}>Amount</th></tr></thead>
+                <tbody>
+                  {row.rto_expenses.map((e, i) => (
+                    <tr key={i}><td>{e.date || '—'}</td><td>{e.agent || '—'}</td><td>{e.work_type || '—'}</td><td>{e.rto_type || '—'}</td><td>{e.remarks || '—'}</td><td style={{textAlign:'right'}}><b><Amt value={e.amount} /></b></td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {Array.isArray(row.insurance_expenses) && row.insurance_expenses.length > 0 && (
+            <div className="clCard" style={{marginTop:14}}>
+              <h4>Insurance Expenses (Insurance Register)</h4>
+              <table className="clTable">
+                <thead><tr><th>Date</th><th>Insurer</th><th>Type</th><th>Total Premium</th><th>Remarks</th><th style={{textAlign:'right'}}>Insurance Fee</th></tr></thead>
+                <tbody>
+                  {row.insurance_expenses.map((e, i) => (
+                    <tr key={i}><td>{e.date || '—'}</td><td>{e.insurer || '—'}</td><td>{e.insurance_type || '—'}</td><td><Money value={e.total_premium} /></td><td>{e.remarks || '—'}</td><td style={{textAlign:'right'}}><b><Amt value={e.amount} /></b></td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {Array.isArray(row.dealer_receipts) && row.dealer_receipts.length > 0 && (
+            <div className="clCard" style={{marginTop:14}}>
+              <h4>Dealer Receipts</h4>
+              <table className="clTable">
+                <thead><tr><th>Date</th><th>Receipt No.</th><th>Type</th><th>Mode</th><th>Reference No.</th><th>Remarks</th><th style={{textAlign:'right'}}>Amount</th></tr></thead>
+                <tbody>
+                  {row.dealer_receipts.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.date || '—'}</td>
+                      <td>{r.receipt_no || '—'}</td>
+                      <td>{r.receipt_type || '—'}</td>
+                      <td>{r.payment_mode || '—'}</td>
+                      <td>{r.reference_no || '—'}</td>
+                      <td>{r.remarks || '—'}</td>
+                      <td style={{textAlign:'right'}}><b><Money value={r.amount} /></b></td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr><td colSpan={6}><b>Total Dealer Receipts</b></td><td style={{textAlign:'right'}}><b><Money value={row.dealer_receipt_total} /></b></td></tr></tfoot>
+              </table>
+            </div>
+          )}
+
           <div className="clCard" style={{marginTop:14}}>
             <h4>Document / Record References</h4>
             <table className="clTable">
@@ -111,6 +189,7 @@ function Detail({ row, onClose }) {
                 <tr><td>Record No.</td><td>{row.record_no || '—'}</td><td>Page No.</td><td>{row.page_no || '—'}</td></tr>
                 <tr><td>DO No.</td><td>{row.do_no || '—'}</td><td>Ledger No.</td><td>{row.ledger_no || '—'}</td></tr>
                 <tr><td>Chassis Record No.</td><td>{row.chassis_record_no || '—'}</td><td>Challan No.</td><td>{row.challan_no || '—'}</td></tr>
+                <tr><td>Incentive Voucher No.</td><td>{row.incentive_voucher_no || '—'}</td><td>Incentive Status</td><td>{row.incentive_status || '—'}{row.incentive_voucher_date ? ' · ' + row.incentive_voucher_date : ''}</td></tr>
               </tbody>
             </table>
           </div>
@@ -168,7 +247,7 @@ export function CustomerExpenseLedgerReportPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Customer</th><th>Chassis No.</th><th>Dealer</th><th>Vehicle No.</th><th>Sale Value</th><th>Loan Value</th><th>Expenses</th><th>Record No.</th><th>Print</th>
+                <th>Customer</th><th>Chassis No.</th><th>Dealer</th><th>Vehicle No.</th><th>Sale Value</th><th>Loan Value</th><th>Incentive</th><th>Expenses</th><th>Record No.</th><th>Print</th>
               </tr>
             </thead>
             <tbody>
@@ -180,7 +259,8 @@ export function CustomerExpenseLedgerReportPage() {
                   <td>{r.vehicle_no || '—'}</td>
                   <td><Money value={r.sale_value} /></td>
                   <td><Money value={r.loan_value} /></td>
-                  <td><Money value={r.expense_total} /></td>
+                  <td><Money value={r.incentive_amount} />{r.incentive_status ? <div className="muted" style={{fontSize:11}}>{r.incentive_voucher_no} · {r.incentive_status}</div> : null}</td>
+                  <td><Amt value={r.expense_total} /></td>
                   <td>{r.record_no || '—'}</td>
                   <td><button className="btn" onClick={() => setDetail(r)}>Print</button></td>
                 </tr>

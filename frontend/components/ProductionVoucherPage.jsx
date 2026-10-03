@@ -159,11 +159,11 @@ export function ProductionVoucherPage() {
       {!data ? <div className="card">Loading…</div> : rows.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Vou. No.</th><th>Model Name</th><th>Chassis No.</th><th>Motor No.</th><th>Colour</th><th>Mechanic</th><th>Raw Material Lines</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Vou. No.</th><th>Model Name</th><th>Formula Name</th><th>Chassis No.</th><th>Motor No.</th><th>Colour</th><th>Mechanic</th><th>Raw Material Lines</th><th></th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td>{formatDate(r.date)}</td><td>{r.vou_no}</td><td>{r.product_name}</td>
+                  <td>{formatDate(r.date)}</td><td>{r.vou_no}</td><td>{r.product_name}</td><td>{r.formula_name || '—'}</td>
                   <td><b>{r.chassis_no}</b></td><td>{r.motor_no}</td><td>{r.colour}</td><td>{mechanicOf(r)}</td>
                   <td>{r.item_count}</td>
                   <td>

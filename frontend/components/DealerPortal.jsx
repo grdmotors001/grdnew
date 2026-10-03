@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { get, post } from '../lib/api';
+import { get, post, put } from '../lib/api';
 import { Palette } from 'lucide-react';
 import { THEMES, useTheme } from '../lib/theme';
 import { formatDate } from '../lib/date';
@@ -20,19 +20,27 @@ import { HelpButton } from './HelpButton';
 import { DealerProfilePage, DealerPasswordPage } from './DealerProfilePage';
 import { Field, ErrorBanner } from './ui';
 
+const DEALER_EXPENSE_CATEGORIES = [
+  ['pcc', 'PCC'], ['ll', 'LL'], ['dl', 'DL'], ['makhi_commission', 'Makkhi / Commission'],
+  ['tea_customer', 'Tea for Customer'], ['tea_staff', 'Tea for Staff'], ['water', 'Water Expense'],
+  ['rent', 'Rent Expense'], ['repairing', 'Repairing Expense'], ['other', 'Other Expense'],
+];
+
 const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Rickshaw Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
-  {label:'Report', items:[['challans','Delivery Challan'],['invoices','Tax Invoice'],['ledger','Ledger'],['loan-status','Loan Status'],['incentive','Incentive Record'],['expenses-reports','Expenses Reports']]},
-  {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['expenses-create','Expenses Create'],['handover-create','Cash Handover'],['payments','Online Payment']]},
-  {label:'Pending Sales', items:[['pending-sales','Pending Sales'],['old-rickshaw-sales','Old Rickshaw Sale']]},
+  {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['handover-create','Cash Handover'],['payments','Online Payment']]},
+  {label:'Pending', items:[['balance-pending','Balance Pending']]},
+  {label:'All Sale', items:[['invoices','Tax Invoice'],['old-rickshaw-sales','Old Rickshaw Sale'],['battery-sales','Battery Sale'],['challans','Delivery Challan'],['incentive','Incentive Record']]},
+  {label:'Loan Status', items:[['loan-status','All'],['loan-pending','Pending'],['loan-approved','Approved'],['loan-billed','Billed']]},
   {label:'Battery Adjustment', items:[['battery-stock','Battery Stock'],['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
 ];
 
 const dealerHeaderSectionByTab = {
-  stock:'Stock','battery-stock':'Stock','seized-vehicles':'Stock',
-  challans:'Report',invoices:'Report',ledger:'Report','loan-status':'Report',incentive:'Report','expenses-reports':'Report',
-  cashbook:'Bahikhata','all-customers':'Bahikhata','all-receipt':'Bahikhata','all-expenses':'Bahikhata','expenses-create':'Bahikhata','handover-create':'Bahikhata','cash-handover':'Bahikhata',payments:'Bahikhata',
-  'pending-sales':'Pending Sales','old-rickshaw-sales':'Pending Sales',
+  stock:'Stock','old-stock':'Stock','battery-stock':'Stock','seized-vehicles':'Stock',
+  cashbook:'Bahikhata','all-customers':'Bahikhata','all-receipt':'Bahikhata','all-expenses':'Bahikhata','handover-create':'Bahikhata','cash-handover':'Bahikhata',payments:'Bahikhata',
+  'pending-sales':'Pending','balance-pending':'Pending',
+  invoices:'All Sale','old-rickshaw-sales':'All Sale','battery-sales':'All Sale',challans:'All Sale',incentive:'All Sale',
+  'loan-status':'Loan Status','loan-pending':'Loan Status','loan-approved':'Loan Status','loan-billed':'Loan Status',
   'battery-swap':'Battery Adjustment','battery-withdrawal':'Battery Adjustment','battery-addition':'Battery Adjustment'
 };
 
@@ -43,8 +51,10 @@ const nav = [
   ['battery-stock', '🔋', 'Battery Stock'],
   ['challans', '▤', 'Delivery Challans'],
   ['invoices', '▥', 'Tax Invoices'],
-  ['pending-sales', '▤', 'Pending Sales'],
-  ['old-rickshaw-sales', '▥', 'Old Rickshaw Sale'],
+  ['pending-sales', '▤', 'Pending'],
+  ['balance-pending', '₹', 'Balance Pending'],
+  ['expenses-create', '₹', 'Shop Expense'],
+  ['all-sale', '▥', 'All Sale'],
   ['loan-status', '✓', 'Loan Status'],
   ['battery-withdrawal', '↘', 'Battery Withdrawal'],
   ['battery-swap', '⇄', 'Battery Swap / Exchange'],
@@ -70,8 +80,12 @@ const nav = [
 // BATTERY_ADJUSTMENT_KEYS + the sidebarEntries logic below); Battery Stock
 // is also reachable from that same group's top sub-menu.
 // Create Receipt is available directly from the side/mobile menus for showroom dealers.
-const SIDEBAR_HIDDEN_KEYS = new Set(['old-stock', 'battery-stock', 'seized-vehicles', 'battery-withdrawal', 'battery-swap', 'battery-addition', 'receipt-create', 'create-sale']);
-const BATTERY_ADJUSTMENT_KEYS = ['battery-withdrawal', 'battery-swap', 'battery-addition', 'battery-stock'];
+const SIDEBAR_HIDDEN_KEYS = new Set(['challans', 'incentive', 'payments', 'balance-pending', 'expenses-create', 'invoices', 'profile', 'password', 'old-stock', 'battery-stock', 'seized-vehicles', 'battery-withdrawal', 'battery-swap', 'battery-addition', 'receipt-create', 'create-sale']);
+const BATTERY_ADJUSTMENT_KEYS = ['battery-withdrawal', 'battery-swap', 'battery-addition'];
+const STOCK_SECTION_KEYS = ['stock', 'old-stock', 'battery-stock', 'seized-vehicles'];
+const ALL_SALE_KEYS = ['invoices', 'old-rickshaw-sales', 'battery-sales', 'challans', 'incentive'];
+const LOAN_KEYS = ['loan-status', 'loan-pending', 'loan-approved', 'loan-billed'];
+const sidebarKeyOf = (t) => BATTERY_ADJUSTMENT_KEYS.includes(t) ? 'battery-adjustment' : STOCK_SECTION_KEYS.includes(t) ? 'stock' : ALL_SALE_KEYS.includes(t) ? 'all-sale' : LOAN_KEYS.includes(t) ? 'loan-status' : (t === 'balance-pending' || t === 'pending-sales') ? 'pending-sales' : dealerHeaderSectionByTab[t] === 'Bahikhata' ? 'cashbook' : t;
 
 export function DealerPortal({ dealer, onLogout }) {
   const [stock, setStock] = useState(null);
@@ -90,6 +104,10 @@ export function DealerPortal({ dealer, onLogout }) {
   const [chatOpen, setChatOpen] = useState(false);
   const { themeId, changeTheme } = useTheme();
   const [showPalette, setShowPalette] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [cashPos, setCashPos] = useState(null);
+  const [oldSaleRow, setOldSaleRow] = useState(null);
+  const [oldSaleNotice, setOldSaleNotice] = useState('');
   const [pendingTheme, setPendingTheme] = useState(themeId);
   useEffect(() => { setPendingTheme(themeId); }, [themeId]);
   const [selectedPurchase, setSelectedPurchase] = useState(null);
@@ -97,6 +115,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
   const dealerCategory = (dealer.dealer_category || 'dealer').toLowerCase();
   const canCreateSale = ['showroom', 'branch'].includes(dealerCategory);
+  const canLedger = !['showroom', 'branch'].includes(dealerCategory);
   const portalModuleList = Array.isArray(dealer?.portal_modules)
     ? dealer.portal_modules.map((x) => String(x).trim()).filter(Boolean)
     : String(dealer?.portal_modules || '').split(',').map((x) => x.trim()).filter(Boolean);
@@ -112,7 +131,7 @@ export function DealerPortal({ dealer, onLogout }) {
   // and lands on whichever of them is actually enabled for that dealer.
   const canBatteryAdjustment = canBatteryWithdrawal || canBatterySwap || canBatteryAddition;
   const defaultBatteryTab = canBatteryWithdrawal ? 'battery-withdrawal' : canBatterySwap ? 'battery-swap' : 'battery-addition';
-  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'repair-receipt' || canRepairReceipt) && (key !== 'create-sale' || canCreateSale) && (key !== 'old-rickshaw-sales' || canOldRickshawSales));
+  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'repair-receipt' || canRepairReceipt) && (key !== 'create-sale' || canCreateSale) && (key !== 'old-rickshaw-sales' || canOldRickshawSales) && (key !== 'ledger' || canLedger));
   if (canBatteryAdjustment) {
     const batteryEntry = ['battery-adjustment', '🔋', 'Battery Adjustment'];
     const insertAt = sidebarEntries.findIndex(([key]) => key === 'cashbook' || key === 'payments' || key === 'ledger');
@@ -123,16 +142,21 @@ export function DealerPortal({ dealer, onLogout }) {
     (key !== 'incentive' || canCashBook) &&
     (!['cashbook','cash-handover','expenses-create','handover-create'].includes(key) || canCashBook) &&
     (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) &&
-    (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales);
+    (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales) && (key !== 'ledger' || canLedger);
   const dealerSearchItems = [
     ...sidebarEntries.map(([key, , label]) => ({ key, label, group: '' })),
     ...dealerHeaderSections.flatMap((sec) => sec.items.filter(([key]) => searchAllowed(key)).map(([key, label]) => ({ key, label, group: sec.label }))),
     { key: 'newloan', label: 'New Loan', group: 'Dashboard' },
     ...(canCreateSale ? [{ key: 'create-sale', label: 'Create Sale', group: 'Dashboard' }] : []),
     ...(canCashBook ? [{ key: 'receipt-create', label: 'Create Receipt', group: 'Dashboard' }] : []),
+    ...(canCashBook ? [{ key: 'expenses-create', label: 'Shop Expense', group: 'Dashboard' }] : []),
   ];
   const isBatteryAdjustmentActive = BATTERY_ADJUSTMENT_KEYS.includes(tab);
-  const goToSidebarTab = (key) => setTab(key === 'battery-adjustment' ? defaultBatteryTab : key);
+  const goToSidebarTab = (key) => {
+    if (key === 'all-sale') setTab('invoices');
+    else if (key === 'pending-sales') setTab('balance-pending');
+    else setTab(key === 'battery-adjustment' ? defaultBatteryTab : key);
+  };
 
   const loadLoanStatus = async () => {
     try {
@@ -155,6 +179,7 @@ export function DealerPortal({ dealer, onLogout }) {
       ['delivery-challans', () => get('/dealer/delivery-challans').then(r => setChallans(r.challans || []))],
       ['tax-invoices', () => get('/dealer/tax-invoices').then(r => setInvoices(r.invoices || []))],
     ];
+    if (canCashBook) loads.push(['cash-position', () => get('/dealer/cash-position', { noClientCache: true }).then(setCashPos)]);
     loads.forEach(([name, load]) => load().catch((e) => {
       console.warn('[dealer-portal] optional module failed:', name, e);
     }));
@@ -167,6 +192,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const q = search.trim().toLowerCase();
   const filteredStock = (stock?.vehicles || []).filter(v => [v.date,v.chassis_no,v.model_name,v.motor_no,v.colour].join(' ').toLowerCase().includes(q));
   const filteredOldStock = (oldStock?.rickshaws || []).filter(v => [v.sale_date,v.vehicle_reg_no,v.model_name,v.owner_name,v.sp_no].join(' ').toLowerCase().includes(q));
+  const unsoldOldStock = filteredOldStock.filter(v => String(v.status||'').toLowerCase() === 'available');
   const filteredBatteryStock = (batteryStock?.batteries || []).filter(v => [v.date,v.battery_maker,v.battery_no,v.reference_no].join(' ').toLowerCase().includes(q));
   const filteredChallans = challans.filter(v => [v.date,v.challan_no,v.chassis_no,v.product_name,v.destination].join(' ').toLowerCase().includes(q));
   const filteredInvoices = invoices.filter(v => [v.date,v.bill_no,v.chassis_no,v.product_name,v.buyer_name].join(' ').toLowerCase().includes(q));
@@ -185,10 +211,13 @@ export function DealerPortal({ dealer, onLogout }) {
   const standaloneForm =
     (tab === 'create-sale' && canCreateSale) ? <DealerCreateSaleForm dealer={dealer} stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
     tab === 'newloan' ? <DealerNewLoanForm onBack={() => setTab('dashboard')} /> :
+    (tab === 'expenses-create' && canCashBook) ? <div className="dealerPage"><div style={{marginBottom:10}}><button type="button" className="btn" onClick={() => setTab('dashboard')}>← Back</button></div><DealerExpenseCreatePage /></div> :
     (tab === 'battery-withdrawal' && canBatteryWithdrawal) ? <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-swap' && canBatterySwap) ? <DealerBatterySwap dealer={dealer} onBack={() => setTab('dashboard')} /> :
     (tab === 'battery-addition' && canBatteryAddition) ? <DealerBatteryAddition dealer={dealer} onBack={() => setTab('dashboard')} /> :
-    (tab === 'old-rickshaw-sales' && canOldRickshawSales) ? <DealerOldRickshawSales dealer={dealer} onBack={() => setTab('dashboard')} onSold={() => get('/dealer/old-rickshaws').then(setOldStock).catch(() => {})} /> :
+    ALL_SALE_KEYS.includes(tab) ? <DealerAllSale tab={tab} dealer={dealer} invoices={invoices} challans={filteredChallans} canCashBook={canCashBook} canOldRickshawSales={canOldRickshawSales} /> :
+    LOAN_KEYS.includes(tab) ? <DealerLoanStatus tab={tab} rows={loans} onRefresh={loadLoanStatus} /> :
+    (tab === 'ledger' && canLedger) ? <DealerLedgerPage /> :
     (tab === 'customer-invoice' && canPurchase) ? <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} /> :
     null;
 
@@ -269,13 +298,14 @@ export function DealerPortal({ dealer, onLogout }) {
       @media(max-width:620px){.dealerBatteryFormGrid{grid-template-columns:1fr}}
       @media(max-width:700px){.dealerPortalHeaderNav{margin:0 -10px;padding-left:10px;padding-right:10px}.dealerPortalHeaderItem{font-size:9px;padding:6px 8px}.dealerPortalHeaderLabel{font-size:8px}}
       .dealerDashboardStats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.dealerDashStat{border:1px solid #e1e7ef;border-radius:11px;background:#fbfdff;padding:12px;text-align:left;cursor:pointer}.dealerDashStat span{display:block;color:#748297;font-size:10px;font-weight:700}.dealerDashStat b{display:block;margin-top:4px;color:#1f334a;font-size:22px}.dealerDashboardActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.dealerTablePager{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:10px;border-top:1px solid #edf1f5;font-size:11px;color:#66758a}@media(max-width:700px){.dealerDashboardStats{grid-template-columns:1fr 1fr}.dealerTablePager{justify-content:center}}
+      .dealerUserMenuWrap{position:relative}.dealerUserBtn{background:transparent;border:0;color:inherit;font:inherit;cursor:pointer}.dealerUserMenuBackdrop{position:fixed;inset:0;z-index:40}.dealerUserMenu{position:absolute;right:0;top:calc(100% + 8px);z-index:41;min-width:210px;background:var(--card,#fff);color:var(--ink,#172b45);border:1px solid var(--line,#e4e9ef);border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.22);padding:6px;display:flex;flex-direction:column}.dealerUserMenuHead{padding:8px 10px 10px;border-bottom:1px solid var(--line,#e4e9ef);margin-bottom:4px;display:flex;flex-direction:column}.dealerUserMenuHead small{color:var(--muted,#748297);font-size:11px}.dealerUserMenu button{background:transparent;border:0;color:inherit;text-align:left;padding:9px 10px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}.dealerUserMenu button:hover{background:color-mix(in srgb,var(--accent,#0a7) 12%,transparent)}
+      @media(max-width:700px){.dealerUserMenu{position:fixed;right:10px;top:56px}}
     `}</style>
     <aside className="dealerSidebar">
       <div className="dealerBrand"><div className="dealerBrandMark">G</div><div><strong>G.R.D. MOTORS</strong><span>Dealer Portal</span></div></div>
-      <div className="dealerProfileMini"><div className="dealerAvatar">{personName.slice(0,1).toUpperCase()}</div><div><strong>{personName}</strong><span>{isSalesman ? dealerName : dealerCode}</span></div></div>
       <MenuSearch items={dealerSearchItems} onPick={goToSidebarTab} variant="dark" recentKey="grd_dealer_recent_menu" />
       <nav className="dealerSideNav">{sidebarEntries.map(([key,icon,label]) =>
-        <button key={key} className={'dealerNavItem'+((key==='battery-adjustment'?isBatteryAdjustmentActive:tab===key)?' active':'')} onClick={()=>goToSidebarTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
+        <button key={key} className={'dealerNavItem'+(sidebarKeyOf(tab)===key?' active':'')} onClick={()=>goToSidebarTab(key)}><span className="dealerNavIcon">{icon}</span><span>{label}</span></button>
       )}</nav>
       <button className="dealerLogout" onClick={onLogout}><span>↪</span> Log Out</button>
     </aside>
@@ -322,7 +352,7 @@ export function DealerPortal({ dealer, onLogout }) {
             { title: 'Dashboard se jaldi kaam', rows: [
               ['New Loan', 'Naya loan application'],
               ...(canCreateSale ? [['Create Sale', 'Naya sale (Showroom / Branch)']] : []),
-              ...(canCashBook ? [['Create Receipt', 'Cash receipt (Showroom)']] : []),
+              ...(canCashBook ? [['Create Receipt', 'Cash receipt (Showroom)'], ['Shop Expense', 'Shop ka kharcha (Showroom)']] : []),
             ] },
           ]} />
           <button type="button" className="grdHeaderIcon" title="Office Chat" aria-label="Office Chat" onClick={()=>{ if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen(v=>!v); }}>💬</button>
@@ -341,21 +371,32 @@ export function DealerPortal({ dealer, onLogout }) {
               />)}
             </div>}
           </div>
-          <div className="grdHeaderUser"><div className="grdHeaderAvatar">{personName.slice(0,1).toUpperCase()}</div><strong>{personName}</strong><span>⌄</span></div>
+          <div className="dealerUserMenuWrap">
+            <button type="button" className="grdHeaderUser dealerUserBtn" onClick={()=>setShowUserMenu(v=>!v)} aria-haspopup="menu" aria-expanded={showUserMenu}><div className="grdHeaderAvatar">{personName.slice(0,1).toUpperCase()}</div><strong>{personName}</strong><span>⌄</span></button>
+            {showUserMenu && <>
+              <div className="dealerUserMenuBackdrop" onClick={()=>setShowUserMenu(false)} />
+              <div className="dealerUserMenu" role="menu">
+                <div className="dealerUserMenuHead"><strong>{personName}</strong><small>{isSalesman ? dealerName : dealerCode}</small></div>
+                <button type="button" role="menuitem" onClick={()=>{setTab('profile');setShowUserMenu(false)}}>👤 My Profile</button>
+                <button type="button" role="menuitem" onClick={()=>{setTab('password');setShowUserMenu(false)}}>🔑 Change Password</button>
+                <button type="button" role="menuitem" onClick={()=>{setShowUserMenu(false);onLogout()}}>↪ Log Out</button>
+              </div>
+            </>}
+          </div>
           <button className="btn dealerLogoutTop" onClick={onLogout}>Log Out</button>
         </div>
       </header>
       {mobileNav && (() => {
         const GROUPS = [
-          ['Roz ka kaam', ['dashboard','stock','challans','invoices','pending-sales']],
+          ['Roz ka kaam', ['dashboard','stock','pending-sales','all-sale']],
           ['Paisa / Hisab', ['cashbook','payments','ledger','incentive','repair-receipt']],
-          ['Aur options', ['battery-adjustment','old-rickshaw-sales','loan-status','profile','password']],
+          ['Aur options', ['battery-adjustment','loan-status','profile','password']],
         ];
-        const byKey = new Map(sidebarEntries.map((e) => [e[0], e]));
+        const byKey = new Map([...sidebarEntries, ...nav.filter(([k]) => k === 'profile' || k === 'password')].map((e) => [e[0], e]));
         const used = new Set(GROUPS.flatMap(([, ks]) => ks));
         const extra = sidebarEntries.filter((e) => !used.has(e[0])).map((e) => e[0]);
         const groups = GROUPS.map(([label, ks]) => [label, (label === 'Aur options' ? [...ks, ...extra] : ks).map((k) => byKey.get(k)).filter(Boolean)]).filter(([, es]) => es.length);
-        const activeKey = isBatteryAdjustmentActive ? 'battery-adjustment' : tab;
+        const activeKey = sidebarKeyOf(tab);
         const current = groups.find(([, es]) => es.some((e) => e[0] === activeKey))?.[0] || groups[0]?.[0];
         const opened = openGroup || current;
         return <div className="dealerMobileNav">
@@ -371,8 +412,8 @@ export function DealerPortal({ dealer, onLogout }) {
       {error && <div className="error dealerError">{error}</div>}
 
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
-        {nav.filter(x=>['dashboard','stock','challans'].includes(x[0])).map(([key,icon,label])=>
-          <button type="button" key={key} className={tab===key?'active':''} onClick={()=>{setTab(key);setMobileNav(false)}}>
+        {nav.filter(x=>['dashboard','stock','pending-sales'].includes(x[0])).map(([key,icon,label])=>
+          <button type="button" key={key} className={sidebarKeyOf(tab)===key?'active':''} onClick={()=>{goToSidebarTab(key);setMobileNav(false)}}>
             <span>{icon}</span><small>{label}</small>
           </button>
         )}
@@ -381,7 +422,7 @@ export function DealerPortal({ dealer, onLogout }) {
       </nav>
       <MobileSearchSheet open={searchOpen} onClose={()=>setSearchOpen(false)} items={dealerSearchItems} onPick={goToSidebarTab} recentKey="grd_dealer_recent_menu" />
       {standaloneForm || <>
-      {tab==='dashboard' && <DealerDashboard dealerName={personName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={setTab} canCashBook={canCashBook} canCreateSale={canCreateSale}/>} 
+      {tab==='dashboard' && <DealerDashboard dealerName={personName} stockCount={stock?.count} challanCount={challans.length} invoiceCount={invoices.length} loanCount={loans.length} latest={latest} onNewLoan={()=>setTab('newloan')} onOpen={goToSidebarTab} cashPos={cashPos} canCashBook={canCashBook} canCreateSale={canCreateSale}/>} 
       {tab==='profile' && <DealerProfilePage dealer={dealer}/>}
       {tab==='password' && <DealerPasswordPage/>}
       {tab!=='dashboard' && tab!=='profile' && tab!=='password' && <>
@@ -390,7 +431,7 @@ export function DealerPortal({ dealer, onLogout }) {
           {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
         </div>
         {tab==='cashbook' && canCashBook && <DealerCashBook/>}
-        {tab==='all-expenses' && canCashBook && <DealerAllExpenses/>}
+        {tab==='all-expenses' && canCashBook && <DealerAllExpenses dealer={dealer}/>}
         {tab==='incentive' && canCashBook && <DealerIncentiveRegister dealer={dealer}/>}
         {tab==='receipt-create' && canCashBook && <DealerCashReceiptPage dealer={dealer}/>}
         {tab==='repair-receipt' && canRepairReceipt && <DealerRepairReceiptPage dealer={dealer}/>}
@@ -399,19 +440,16 @@ export function DealerPortal({ dealer, onLogout }) {
           return <><td>{formatDate(v.date)}</td><td><b>{v.challan_no}</b></td><td>{v.product_name||'—'}</td><td>{v.chassis_no||'—'}</td>
             <td>{invoiced?<span className="muted">Invoiced</span>:<button className="btn primary" onClick={()=>{setSelectedPurchase(v);setTab('customer-invoice')}}>Create Invoice</button>}</td></>}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
-        {tab==='ledger' && <DealerLedgerPage/>}
         {tab==='pending-sales' && <DealerPendingSalesPage/>}
+        {tab==='balance-pending' && <DealerBalancePending/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
-{tab==='old-stock' && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div><div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Total</span><b>{filteredOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='available').length}</b></div><div className="dealerOldStockStat"><span>Sold</span><b>{filteredOldStock.filter(v=>String(v.status||'').toLowerCase()==='sold').length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody>{filteredOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{v.pending_sale_id?'PENDING SALE':String(v.status||'available').toUpperCase()}</span></td></tr>)}{!filteredOldStock.length&&<tr><td colSpan="6"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div></div>}
+{tab==='old-stock' && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div>{oldSaleNotice&&<div className="muted" style={{margin:'0 0 10px',color:'#15803d',fontWeight:700}}>{oldSaleNotice}</div>}<div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Unsold Stock</span><b>{unsoldOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{unsoldOldStock.filter(v=>!v.pending_sale_id).length}</b></div><div className="dealerOldStockStat"><span>Pending Sale</span><b>{unsoldOldStock.filter(v=>v.pending_sale_id).length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{unsoldOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{v.pending_sale_id?'PENDING SALE':String(v.status||'available').toUpperCase()}</span></td><td data-label="Action">{canOldRickshawSales&&!v.pending_sale_id?<button type="button" className="btn primary" onClick={()=>{setOldSaleNotice('');setOldSaleRow(v)}}>Create Sale</button>:<span className="muted">—</span>}</td></tr>)}{!unsoldOldStock.length&&<tr><td colSpan="7"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div>{oldSaleRow&&<OldRickshawSaleModal row={oldSaleRow} onClose={()=>setOldSaleRow(null)} onDone={(msg)=>{setOldSaleRow(null);setOldSaleNotice(msg);get('/dealer/old-rickshaws').then(setOldStock).catch(()=>{})}}/>}</div>}
         {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
-        {tab==='invoices' && <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={filteredInvoices} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>}
         {tab==='all-receipt' && <DealerAllReceiptsPage dealer={dealer} />}
         {tab==='all-customers' && <DealerAllCustomersPage />}
-        {tab==='expenses-create' && <DealerExpenseCreatePage />}
         {tab==='handover-create' && <DealerHandoverCreatePage />}
-        {!['cashbook','receipt-create','repair-receipt','expenses-create','handover-create','cash-handover','all-receipt','all-customers','purchases','payments','ledger','pending-sales','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
-        {tab==='loan-status' && <DealerLoanStatusTable rows={loans} onRefresh={loadLoanStatus}/>}
+        {!['cashbook','receipt-create','repair-receipt','expenses-create','handover-create','cash-handover','all-receipt','all-customers','purchases','payments','ledger','pending-sales','balance-pending','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
         {tab==='seized-vehicles' && <div className="dealerPage"><div className="dealerPanel" style={{marginBottom:14}}><div className="dealerPanelHead"><div><h3>Seized Vehicles</h3><p>Vehicles physically parked at your dealer. CHFPL will release them for sale when applicable.</p></div><span className="pill d">HOLD</span></div>{!seizedVehicles.length?<div className="dealerEmpty">No seized vehicles are currently parked at this dealer.</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Repo Date</th><th>Loan</th><th>Vehicle</th><th>Model</th><th>Colour</th><th>Battery</th><th>RC</th><th>Charger</th><th>Status</th></tr></thead><tbody>{seizedVehicles.map(v=>{const loan=v.loan_applications||{};const customer=loan.customer_profiles||{};return <tr key={v.id}><td>{formatDate(v.repo_date)}</td><td><b>{loan.loan_account_no||loan.application_no||'—'}</b><div className="muted">{customer.full_name||'—'}</div></td><td><b>{v.vehicle_no||'—'}</b></td><td>{v.model_name||loan.grd_model_name||'—'}</td><td>{v.colour||'—'}</td><td>{v.battery_available?v.battery_no||'Yes':'No'}</td><td>{v.rc_available?'Yes':'No'}</td><td>{v.charger_available?'Yes':'No'}</td><td><span className="pill d">HOLD</span></td></tr>})}</tbody></table></div>}</div></div>}
       </>}
       </>}
@@ -420,12 +458,13 @@ export function DealerPortal({ dealer, onLogout }) {
   </div>);
 }
 
-function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook,canCreateSale}) {
+function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook,canCreateSale,cashPos}) {
   const cards = [
     ['New Stock', stockCount ?? 0, 'stock'],
     ['Delivery Challans', challanCount ?? 0, 'challans'],
     ['Tax Invoices', invoiceCount ?? 0, 'invoices'],
     ['Loan Applications', loanCount ?? 0, 'loan-status'],
+    ...(canCashBook ? [['Cash in Hand', cashPos ? '₹ '+Number(cashPos.cash_at_dealer||0).toLocaleString('en-IN',{maximumFractionDigits:2}) : '—', 'cashbook']] : []),
   ];
   return <div className="dealerPage">
     <div className="dealerPanel" style={{marginBottom:14}}>
@@ -435,6 +474,7 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
           <button type="button" className="btn primary" onClick={onNewLoan}>＋ New Loan</button>
           {canCreateSale && <button type="button" className="btn primary" onClick={()=>onOpen('create-sale')}>＋ Create Sale</button>}
           {canCashBook && <button type="button" className="btn primary" onClick={()=>onOpen('receipt-create')}>🧾 Create Receipt</button>}
+          {canCashBook && <button type="button" className="btn primary" onClick={()=>onOpen('expenses-create')}>💸 Shop Expense</button>}
         </div>
       </div>
       <div className="dealerDashboardStats">
@@ -473,14 +513,25 @@ function DealerTable({headers,rows,row,pageSize=35}) {
   </div>;
 }
 
-function DealerLoanStatusTable({rows,onRefresh}) {
+function DealerLoanStatusTable({rows,onRefresh,title='Loan Status',description='Dealer loan applications and their current status.',empty='No loan applications found.'}) {
   return <div className="dealerPage"><div className="dealerPanel">
-    <div className="dealerPanelHead"><div><h3>Loan Status</h3><p>Dealer loan applications and their current status.</p></div><button type="button" className="btn" onClick={onRefresh}>↻ Refresh</button></div>
-    {!rows?.length ? <div className="dealerEmpty">No loan applications found.</div> :
+    <div className="dealerPanelHead"><div><h3>{title}</h3><p>{description}</p></div><button type="button" className="btn" onClick={onRefresh}>↻ Refresh</button></div>
+    {!rows?.length ? <div className="dealerEmpty">{empty}</div> :
       <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Application</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead><tbody>
-        {rows.map((r,i)=><tr key={r.id ?? r.application_no ?? i}><td><b>{r.application_no||r.loan_account_no||'—'}</b></td><td>{r.customer_name||r.name||'—'}</td><td>{r.loan_amount!=null ? '₹ '+Number(r.loan_amount).toLocaleString('en-IN') : '—'}</td><td>{r.status||'—'}</td></tr>)}
+        {rows.map((r,i)=><tr key={r.id ?? r.application_no ?? i}><td data-label="Application"><b>{r.application_no||r.loan_account_no||'—'}</b></td><td data-label="Customer">{r.customer_name||r.name||'—'}</td><td data-label="Amount">{r.loan_amount!=null ? '₹ '+Number(r.loan_amount).toLocaleString('en-IN') : '—'}</td><td data-label="Status">{String(r.status||'—').replaceAll('_',' ')}</td></tr>)}
       </tbody></table></div>}
   </div></div>;
+}
+function DealerLoanStatus({tab,rows,onRefresh}) {
+  // Loan Status (upar red strip): All / Pending / Approved / Billed.
+  // Approved = approved loans jinki sale/bill abhi banni hai (pehle ka "Pending Sales" page yahin hai).
+  const st=(r)=>String(r.status||'').trim().toLowerCase();
+  const isApproved=(r)=>st(r)==='approved';
+  const isBilled=(r)=>st(r)==='disbursed'||st(r)==='billed';
+  if(tab==='loan-approved') return <div className="dealerPage"><DealerPendingSalesPage/></div>;
+  if(tab==='loan-pending') return <DealerLoanStatusTable rows={(rows||[]).filter(r=>!isApproved(r)&&!isBilled(r))} onRefresh={onRefresh} title="Pending Loans" description="Jin loans ka process abhi chal raha hai." empty="Koi pending loan nahi hai."/>;
+  if(tab==='loan-billed') return <DealerLoanStatusTable rows={(rows||[]).filter(isBilled)} onRefresh={onRefresh} title="Billed Loans" description="Bill ban chuke / disbursed loans." empty="Koi billed loan nahi hai."/>;
+  return <DealerLoanStatusTable rows={rows} onRefresh={onRefresh} title="All Loans" description="Dealer loan applications and their current status."/>;
 }
 
 function BatteryAdjustmentShell({title,description,onBack,children}) {
@@ -573,29 +624,14 @@ function DealerBatterySwap({dealer,onBack}) {
     </form>
   </BatteryAdjustmentShell>;
 }
-function DealerOldRickshawSales({dealer,onBack,onSold}) {
-  // Dealer ke apne Old Rickshaw stock se sale banata hai. Sale pehle Pending Sales me jaati hai;
+function OldRickshawSaleModal({row,onClose,onDone}) {
+  // Old Rickshaw Stock se Create Sale. Sale pehle Pending Sales me jaati hai;
   // Billing approval ke baad gaadi Sold hoti hai aur sale data CHFPL ko jata hai.
   const todayStr=()=>new Date().toISOString().slice(0,10);
-  const [rows,setRows]=useState([]);
-  const [loading,setLoading]=useState(true);
+  const [form,setForm]=useState({sale_date:todayStr(),customer_id:'',customer_name:'',sale_amount:'',loan_amount:'0',do_number:''});
   const [error,setError]=useState('');
-  const [notice,setNotice]=useState('');
-  const [row,setRow]=useState(null);
-  const [form,setForm]=useState({});
   const [busy,setBusy]=useState(false);
-  const [search,setSearch]=useState('');
   const [customers,setCustomers]=useState([]);
-
-  const load=async()=>{
-    try{
-      setError('');
-      const r=await get('/dealer/old-rickshaws',{noClientCache:true});
-      setRows(r.rickshaws||[]);
-    }catch(e){setError(e.message||'Could not load Old Rickshaw stock.')}
-    finally{setLoading(false)}
-  };
-  useEffect(()=>{load()},[]);
   // Booking customers (Create Sale wali list). Sirf Old Rickshaw booking wale customers dropdown me aate hain.
   useEffect(()=>{
     (async()=>{
@@ -613,13 +649,8 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
   const selCust=customers.find(x=>String(x.id)===String(form.customer_id));
   const paidAmt=Number(selCust?.paid_amount||0);
   const custLabel=c=>[c.page_no?('Page: '+c.page_no):'',c.name,c.phone].filter(Boolean).join(' · ');
-
   const setF=(k,v)=>setForm(x=>({...x,[k]:v}));
   const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0)-paidAmt);
-  const openSale=(r)=>{
-    setNotice('');setError('');setRow(r);
-    setForm({sale_date:todayStr(),customer_id:'',customer_name:'',sale_amount:'',loan_amount:'0',do_number:''});
-  };
   const save=async(e)=>{
     e.preventDefault();
     if(!selCust){setError('Customer select karo.');return}
@@ -632,91 +663,105 @@ function DealerOldRickshawSales({dealer,onBack,onSold}) {
         sale_amount:Number(form.sale_amount||0),loan_amount:Number(form.loan_amount||0),hypothecation_amount:Number(form.loan_amount||0),
         amount_received:paidAmt,do_no:form.do_number||'',ledger_no:''
       },{timeoutMs:60000});
-      setNotice('Sale Pending Sales me bhej di gayi: '+(row.vehicle_reg_no||'Old Rickshaw')+' → '+form.customer_name+'. Approval ke baad Sold hogi.');
-      setRow(null);
-      await load();
-      if(onSold)onSold();
+      onDone('Sale Pending Sales me bhej di gayi: '+(row.vehicle_reg_no||'Old Rickshaw')+' → '+form.customer_name+'. Approval ke baad Sold hogi.');
     }catch(err){setError(err.message||'Could not create Old Rickshaw sale.')}
     finally{setBusy(false)}
   };
-
-  const q=search.trim().toLowerCase();
-  const list=rows.filter(v=>!q||[v.vehicle_reg_no,v.model_name,v.challan_no,v.sp_no,v.customer_name].join(' ').toLowerCase().includes(q));
-  const available=list.filter(v=>String(v.status||'').toLowerCase()==='available'&&!v.pending_sale_id);
-  const pendingList=list.filter(v=>String(v.status||'').toLowerCase()==='available'&&v.pending_sale_id);
-  const sold=list.filter(v=>String(v.status||'').toLowerCase()==='sold');
-
-  return <div className="dealerPage">
-    <div className="dealerPanel" style={{marginBottom:14}}>
-      <div className="dealerPanelHead">
-        <div><h3>Old Rickshaw Sale</h3><p>Apne Old Rickshaw stock me se gaadi select karke sale banayein.</p></div>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <input className="input" style={{maxWidth:220}} placeholder="Search vehicle / model…" value={search} onChange={e=>setSearch(e.target.value)} />
-          <button type="button" className="btn" onClick={load}>↻ Refresh</button>
-          <button type="button" className="btn" onClick={onBack}>Back</button>
-        </div>
-      </div>
-      {!row&&error&&<ErrorBanner message={error}/>}
-      {notice&&<div className="muted" style={{margin:'0 0 10px',color:'#15803d',fontWeight:700}}>{notice}</div>}
-      {loading?<div className="dealerEmpty">Loading…</div>:!available.length?<div className="dealerEmpty">Sale ke liye koi Available Old Rickshaw nahi hai.</div>:
-      <div className="tablewrap dealerTable"><table className="table">
-        <thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Colour</th><th>Challan No.</th><th>SP No.</th><th>Action</th></tr></thead>
-        <tbody>{available.map(v=><tr key={v.id}>
-          <td>{formatDate(v.date||v.challan_date)}</td>
-          <td><b>{v.vehicle_reg_no||'—'}</b></td>
-          <td>{v.model_name||'—'}</td>
-          <td>{v.colour||'—'}</td>
-          <td>{v.challan_no||'—'}</td>
-          <td>{v.sp_no||'—'}</td>
-          <td><button type="button" className="btn primary" onClick={()=>openSale(v)}>Create Sale</button></td>
-        </tr>)}</tbody>
-      </table></div>}
-      {pendingList.length>0&&<div className="muted" style={{marginTop:12}}><b>Pending Sale (approval baaki):</b> {pendingList.map(v=>v.vehicle_reg_no||v.sp_no).filter(Boolean).join(', ')}</div>}
+  return <div className="modal"><form className="modalbox" onSubmit={save}>
+    <h2>Create Old Rickshaw Sale</h2>
+    {error&&<ErrorBanner message={error}/>}
+    <div className="muted" style={{marginBottom:8}}>Sale pehle Pending Sales me jayegi. Approval ke baad hi Sold hogi.</div>
+    <div className="formgrid">
+      <Field label="SP No." value={row.sp_no||'—'} readOnly/>
+      <Field label="Sale Date" type="date" value={form.sale_date} onChange={v=>setF('sale_date',v)} required/>
+      <label className="field"><span>Customer (booking)</span>
+        <select className="input" value={form.customer_id||''} onChange={e=>pickCustomer(e.target.value)} required>
+          <option value="">{customers.length?'Select Customer':'Koi Old Rickshaw booking customer nahi hai'}</option>
+          {customers.map(c=><option key={c.id} value={c.id}>{custLabel(c)}</option>)}
+        </select>
+      </label>
+      <Field label="Sale Amount" type="number" value={form.sale_amount} readOnly/>
+      <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF("loan_amount",v)}/>
+      <Field label="Amount Received (booking)" type="number" value={paidAmt} readOnly/>
+      <Field label="Balance" type="number" value={balance} readOnly/>
+      <Field label="DO No. (Optional)" value={form.do_number} onChange={v=>setF('do_number',v)}/>
+      <Field label="Vehicle No." value={row.vehicle_reg_no||'—'} readOnly/>
+      <Field label="Model" value={row.model_name||'—'} readOnly/>
     </div>
-
-    {sold.length>0&&<div className="dealerPanel">
-      <div className="dealerPanelHead"><div><h3>Sold Old Rickshaw</h3><p>Aapke dwara becchi gayi gaadiyan.</p></div><span className="pill t">{sold.length} Sold</span></div>
-      <div className="tablewrap dealerTable"><table className="table">
-        <thead><tr><th>Sale Date</th><th>Vehicle No.</th><th>Model</th><th>Customer</th><th>Sale Amt.</th><th>Loan</th><th>Balance</th></tr></thead>
-        <tbody>{sold.map(v=><tr key={v.id}>
-          <td>{formatDate(v.sale_date||v.date)}</td>
-          <td><b>{v.vehicle_reg_no||'—'}</b></td>
-          <td>{v.model_name||'—'}</td>
-          <td>{v.customer_name||v.out_name||v.owner_name||'—'}</td>
-          <td>{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td>
-          <td>{v.loan_amount?'₹ '+Number(v.loan_amount).toLocaleString('en-IN'):'—'}</td>
-          <td>{v.balance_amount?'₹ '+Number(v.balance_amount).toLocaleString('en-IN'):'—'}</td>
-        </tr>)}</tbody>
-      </table></div>
-    </div>}
-
-    {row&&<div className="modal"><form className="modalbox" onSubmit={save}>
-      <h2>Create Old Rickshaw Sale</h2>
-      {error&&<ErrorBanner message={error}/>}
-      <div className="muted" style={{marginBottom:8}}>Sale pehle Pending Sales me jayegi. Approval ke baad hi Sold hogi.</div>
-      <div className="formgrid">
-        <Field label="SP No." value={row.sp_no||'—'} readOnly/>
-        <Field label="Sale Date" type="date" value={form.sale_date} onChange={v=>setF('sale_date',v)} required/>
-        <label className="field"><span>Customer (booking)</span>
-          <select className="input" value={form.customer_id||''} onChange={e=>pickCustomer(e.target.value)} required>
-            <option value="">{customers.length?'Select Customer':'Koi Old Rickshaw booking customer nahi hai'}</option>
-            {customers.map(c=><option key={c.id} value={c.id}>{custLabel(c)}</option>)}
-          </select>
-        </label>
-        <Field label="Sale Amount" type="number" value={form.sale_amount} readOnly/>
-        <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF("loan_amount",v)}/>
-        <Field label="Amount Received (booking)" type="number" value={paidAmt} readOnly/>
-        <Field label="Balance" type="number" value={balance} readOnly/>
-        <Field label="DO No. (Optional)" value={form.do_number} onChange={v=>setF('do_number',v)}/>
-        <Field label="Vehicle No." value={row.vehicle_reg_no||'—'} readOnly/>
-        <Field label="Model" value={row.model_name||'—'} readOnly/>
-      </div>
-      <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
-        <button type="button" className="btn" onClick={()=>setRow(null)}>Cancel</button>
-        <button className="btn primary" disabled={busy||!selCust||!(Number(form.sale_amount||0)>0)||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
-      </div>
-    </form></div>}
+    <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
+      <button type="button" className="btn" onClick={onClose}>Cancel</button>
+      <button className="btn primary" disabled={busy||!selCust||!(Number(form.sale_amount||0)>0)||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
+    </div>
+  </form></div>;
+}
+function DealerOldRickshawSold() {
+  // All Sale > Old Rickshaw Sale: sirf becchi gayi (Sold) gaadiyan. Stock / Create Sale ab My Stock > Old Rickshaw Stock me hai.
+  const [rows,setRows]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [search,setSearch]=useState('');
+  const load=async()=>{
+    try{setError('');const r=await get('/dealer/old-rickshaws',{noClientCache:true});setRows(r.rickshaws||[]);}
+    catch(e){setError(e.message||'Could not load Old Rickshaw sales.')}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{load()},[]);
+  const q=search.trim().toLowerCase();
+  const sold=rows.filter(v=>String(v.status||'').toLowerCase()==='sold'&&(!q||[v.vehicle_reg_no,v.model_name,v.challan_no,v.sp_no,v.customer_name,v.out_name,v.owner_name].join(' ').toLowerCase().includes(q)));
+  const money=(n)=>n?'₹ '+Number(n).toLocaleString('en-IN'):'—';
+  return <div className="dealerPanel">
+    <div className="dealerPanelHead"><div><h3>Old Rickshaw Sale</h3><p>Aapke dwara becchi gayi gaadiyan.</p></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><span className="pill t">{sold.length} Sold</span><input className="input dealerSearch" placeholder="Search vehicle / model…" value={search} onChange={e=>setSearch(e.target.value)}/><button type="button" className="btn" onClick={load}>↻ Refresh</button></div></div>
+    {error&&<ErrorBanner message={error}/>}
+    {loading?<div className="dealerEmpty">Loading…</div>:!sold.length?<div className="dealerEmpty">Abhi koi Old Rickshaw sale nahi hui.</div>:
+    <div className="tablewrap dealerTable"><table className="table">
+      <thead><tr><th>Sale Date</th><th>Vehicle No.</th><th>Model</th><th>Customer</th><th>Sale Amt.</th><th>Loan</th><th>Balance</th></tr></thead>
+      <tbody>{sold.map(v=><tr key={v.id}>
+        <td data-label="Sale Date">{formatDate(v.sale_date||v.date)}</td>
+        <td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td>
+        <td data-label="Model">{v.model_name||'—'}</td>
+        <td data-label="Customer">{v.customer_name||v.out_name||v.owner_name||'—'}</td>
+        <td data-label="Sale Amt.">{money(v.sale_amount)}</td>
+        <td data-label="Loan">{money(v.loan_amount)}</td>
+        <td data-label="Balance">{money(v.balance_amount)}</td>
+      </tr>)}</tbody>
+    </table></div>}
   </div>;
+}
+function DealerBalancePending() {
+  // Pending > Balance Pending: Billed customers jinka balance amount abhi baaki hai.
+  const [rows,setRows]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [search,setSearch]=useState('');
+  const load=async()=>{
+    try{setError('');const r=await get('/dealer/cash-book/customers?status=BILLED&payable_only=1',{noClientCache:true,timeoutMs:60000});setRows(r.customers||[]);}
+    catch(e){setError(e.message||'Could not load balance pending customers.')}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{load()},[]);
+  const q=search.trim().toLowerCase();
+  const list=rows.filter(c=>Number(c.balance||0)>0&&(!q||[c.page_no,c.name,c.phone,c.vehicle_no].join(' ').toLowerCase().includes(q)));
+  const total=list.reduce((t,c)=>t+Number(c.balance||0),0);
+  const money=(n)=>'₹ '+Number(n||0).toLocaleString('en-IN');
+  return <div className="dealerPage"><div className="dealerPanel">
+    <div className="dealerPanelHead"><div><h3>Balance Pending</h3><p>Billed customers jinka balance amount abhi baaki hai.</p></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><input className="input dealerSearch" placeholder="Search page no. / name / mobile…" value={search} onChange={e=>setSearch(e.target.value)}/><button type="button" className="btn" onClick={load}>↻ Refresh</button></div></div>
+    {error&&<ErrorBanner message={error}/>}
+    {!loading&&<div className="dealerDashboardStats" style={{marginBottom:12,gridTemplateColumns:'repeat(2,minmax(0,1fr))'}}>
+      <div className="dealerDashStat" style={{cursor:'default'}}><span>Customers</span><b>{list.length}</b></div>
+      <div className="dealerDashStat" style={{cursor:'default'}}><span>Total Balance Pending</span><b>{money(total)}</b></div>
+    </div>}
+    {loading?<div className="dealerEmpty">Loading…</div>:!list.length?<div className="dealerEmpty">Kisi Billed customer ka balance pending nahi hai.</div>:
+    <div className="tablewrap dealerTable"><table className="table">
+      <thead><tr><th>Date</th><th>Page No.</th><th>Customer</th><th>Mobile</th><th>Vehicle No.</th><th>Sale Amt.</th><th>Loan</th><th>Received</th><th>Balance</th></tr></thead>
+      <tbody>{list.map(c=><tr key={c.id}>
+        <td data-label="Date">{formatDate(c.date)}</td><td data-label="Page No.">{c.page_no||'—'}</td><td data-label="Customer"><b>{c.name||'—'}</b></td><td data-label="Mobile">{c.phone||'—'}</td>
+        <td data-label="Vehicle No.">{c.vehicle_no||'—'}</td><td data-label="Sale Amt.">{money(c.sale_amount)}</td><td data-label="Loan">{money(c.loan_amount)}</td><td data-label="Received">{money(c.paid_amount)}</td><td data-label="Balance"><b>{money(c.balance)}</b></td>
+      </tr>)}</tbody>
+      <tfoot><tr><th colSpan="8">Total</th><th>{money(total)}</th></tr></tfoot>
+    </table></div>}
+  </div></div>;
 }
 function DealerDealerModulePlaceholder({title,description,onBack}) {
   return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{title}</h3><p>{description}</p></div><button type="button" className="btn" onClick={onBack}>Back</button></div><div className="dealerEmpty">Module screen is ready.</div></div></div>;
@@ -957,21 +1002,58 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
   </div>;
 }
 
-function DealerAllExpenses(){
+function DealerAllExpenses({dealer}){
   const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[search,setSearch]=useState(''),[cat,setCat]=useState('');
-  useEffect(()=>{get('/dealer/cash-book/all-expenses').then(r=>setRows(r.expenses||r.rows||[])).catch(e=>setError(e.message||'Could not load expenses')).finally(()=>setLoading(false))},[]);
+  const [editing,setEditing]=useState(null),[saving,setSaving]=useState(false),[verifiedToday,setVerifiedToday]=useState(false);
+  const today=()=>new Date().toISOString().slice(0,10);
+  const load=async()=>{
+    setLoading(true);setError('');
+    try{
+      const r=await get('/dealer/cash-book/all-expenses',{noClientCache:true});
+      setRows(r.expenses||r.rows||[]);
+      setVerifiedToday(Boolean(r.verified_today));
+    }catch(e){setError(e.message||'Could not load expenses')}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{load()},[dealer?.id]);
   const label=r=>r.category_label||r.category||'Other';
   const cats=[...new Set(rows.map(label))].sort();
   const q=search.trim().toLowerCase();
-  const filtered=rows.filter(r=>(!cat||label(r)===cat)&&[r.date,r.expense_no,label(r),r.paid_to,r.remarks].join(' ').toLowerCase().includes(q));
+  const filtered=rows.filter(r=>(!cat||label(r)===cat)&&[r.date,r.expense_no,label(r),r.paid_to,r.remarks,r.customer_name,r.customer_page_no].join(' ').toLowerCase().includes(q));
   const total=filtered.reduce((t,r)=>t+Number(r.amount||0),0);
   const byCat=Object.entries(filtered.reduce((m,r)=>{m[label(r)]=(m[label(r)]||0)+Number(r.amount||0);return m},{})).sort((a,b)=>b[1]-a[1]);
-  const inr=n=>'\u20b9 '+Number(n||0).toLocaleString('en-IN');
-  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>All Expenses</h3><p>Shop expenses \u2014 category wise</p></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><select className="input" value={cat} onChange={e=>setCat(e.target.value)}><option value="">All Categories</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</select><input className="input dealerSearch" placeholder="Search expense no, paid to, remarks\u2026" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
+  const inr=n=>'₹ '+Number(n||0).toLocaleString('en-IN');
+  const canEdit=(r)=>String(r.date||'').slice(0,10)===today()&&!verifiedToday;
+  const openEdit=(r)=>{setError('');if(!canEdit(r)){setError('Aaj ka Cashbook Admin verify hone ke baad expense edit nahi ho sakta.');return}setEditing({...r})};
+  const saveEdit=async()=>{
+    if(!editing)return;
+    if(!canEdit(editing)){setError('Cashbook verify ho chuka hai ya expense aaj ka nahi hai. Edit allowed nahi hai.');return}
+    const amount=Number(editing.amount);
+    if(!Number.isFinite(amount)||amount<=0){setError('Valid expense amount enter karein.');return}
+    setSaving(true);setError('');
+    try{
+      await put('/dealer/cash-book/expenses/'+editing.id,{category:editing.category||'other',category_label:editing.category_label||editing.category||'Other',amount,paid_to:editing.paid_to||'',remarks:editing.remarks||'',folio:editing.folio||''});
+      setEditing(null);await load();
+    }catch(e){setError(e.message||'Could not update expense')}
+    finally{setSaving(false)}
+  };
+  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>All Expenses</h3><p>Shop expenses — category wise</p></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><select className="input" value={cat} onChange={e=>setCat(e.target.value)}><option value="">All Categories</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</select><input className="input dealerSearch" placeholder="Search expense no, customer, page no, remarks…" value={search} onChange={e=>setSearch(e.target.value)}/><button type="button" className="btn" onClick={load}>↻ Refresh</button></div></div>
     {error&&<div className="error">{error}</div>}
-    {!loading&&!!byCat.length&&<div className="grid" style={{margin:'12px 0'}}><div className="card" style={{padding:10}}><small className="muted">Total{cat?' \u2014 '+cat:''}</small><b>{inr(total)}</b></div>{!cat&&byCat.map(([c,v])=><div className="card" key={c} style={{padding:10,cursor:'pointer'}} onClick={()=>setCat(c)}><small className="muted">{c}</small><b>{inr(v)}</b></div>)}</div>}
-    {loading?<div className="dealerEmpty">Loading\u2026</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Expense No.</th><th>Category</th><th>Paid To</th><th>Remarks</th><th>Amount</th></tr></thead><tbody>
-      {filtered.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.expense_no||'\u2014'}</b></td><td>{label(r)}</td><td>{r.paid_to||'\u2014'}</td><td>{r.remarks||'\u2014'}</td><td>{inr(r.amount)}</td></tr>)}{!filtered.length&&<tr><td colSpan="6" className="muted">No expenses found.</td></tr>}</tbody><tfoot><tr><th colSpan="5">Total</th><th>{inr(total)}</th></tr></tfoot></table></div>}
+    {!loading&&<div className="card" style={{marginBottom:12,padding:10,background:verifiedToday?'#fef2f2':'#f0fdf4'}}>{verifiedToday?<><b>🔒 Aaj ka Cashbook Admin verified hai.</b> Ab kisi expense me change nahi ho sakta.</>:<><b>✎ Aaj ke expenses editable hain.</b> Admin verification ke baad edit automatically lock ho jayega.</>}</div>}
+    {!loading&&!!byCat.length&&<div className="grid" style={{margin:'12px 0'}}><div className="card" style={{padding:10}}><small className="muted">Total{cat?' — '+cat:''}</small><b>{inr(total)}</b></div>{!cat&&byCat.map(([c,v])=><div className="card" key={c} style={{padding:10,cursor:'pointer'}} onClick={()=>setCat(c)}><small className="muted">{c}</small><b>{inr(v)}</b></div>)}</div>}
+    {loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Expense No.</th><th>Category</th><th>Customer</th><th>Paid To</th><th>Remarks</th><th>Amount</th><th>Action</th></tr></thead><tbody>
+      {filtered.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.expense_no||'—'}</b></td><td>{label(r)}</td><td>{r.customer_name?<><b>Pg {r.customer_page_no||'—'}</b> · {r.customer_name}</>:'—'}</td><td>{r.paid_to||'—'}</td><td>{r.remarks||'—'}</td><td>{inr(r.amount)}</td><td>{canEdit(r)?<button type="button" className="btn" onClick={()=>openEdit(r)}>Edit</button>:<span className="muted">🔒 Locked</span>}</td></tr>)}{!filtered.length&&<tr><td colSpan="8" className="muted">No expenses found.</td></tr>}</tbody><tfoot><tr><th colSpan="7">Total</th><th>{inr(total)}</th></tr></tfoot></table></div>}
+    {editing&&<div className="modal" style={{zIndex:10000}} onMouseDown={e=>{if(e.target===e.currentTarget&&!saving)setEditing(null)}}><div className="modalbox" style={{maxWidth:560}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}><div><h3 style={{margin:0}}>Edit Expense</h3><p className="muted" style={{margin:'4px 0 0'}}>{editing.expense_no} · {formatDate(editing.date)}</p></div><button type="button" className="btn" onClick={()=>setEditing(null)}>✕</button></div>
+      <div className="grid" style={{marginTop:14}}>
+        <select className="input" value={editing.category||'other'} onChange={e=>setEditing({...editing,category:e.target.value,category_label:(DEALER_EXPENSE_CATEGORIES.find(x=>x[0]===e.target.value)||[])[1]||e.target.value})}>{DEALER_EXPENSE_CATEGORIES.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}</select>
+        <input className="input" type="number" min="0.01" step="0.01" placeholder="Amount" value={editing.amount??''} onChange={e=>setEditing({...editing,amount:e.target.value})}/>
+        <input className="input" placeholder="Paid To" value={editing.paid_to||''} onChange={e=>setEditing({...editing,paid_to:e.target.value})}/>
+        <input className="input" placeholder="Remarks" value={editing.remarks||''} onChange={e=>setEditing({...editing,remarks:e.target.value})}/>
+      </div>
+      <div className="muted" style={{marginTop:10}}>Date change nahi ki ja sakti. Sirf aaj ke, Admin verification se pehle ke expenses edit honge.</div>
+      <div className="actions" style={{marginTop:16}}><button type="button" className="btn" disabled={saving} onClick={()=>setEditing(null)}>Cancel</button><button type="button" className="btn primary" disabled={saving} onClick={saveEdit}>{saving?'Saving…':'Save Changes'}</button></div>
+    </div></div>}
   </div></div>
 }
 
@@ -996,4 +1078,62 @@ function DealerIncentiveRegister({dealer}){
       {!rows.length&&<tr><td colSpan="9" className="muted">No incentive records found.</td></tr>}
     </tbody></table></div>}
   </div></div>
+}
+function DealerAllSale({tab,dealer,invoices,challans,canCashBook,canOldRickshawSales}) {
+  // All Sale (upar red strip): Tax Invoice, Old Rickshaw Sale, Battery Sale, Delivery Challan, Incentive Record.
+  return <div className="dealerPage">
+    {tab==='invoices'&&<DealerSaleInvoices invoices={invoices}/>}
+    {tab==='old-rickshaw-sales'&&canOldRickshawSales&&<DealerOldRickshawSold/>}
+    {tab==='battery-sales'&&<DealerBatterySales/>}
+    {tab==='challans'&&<DealerSaleChallans challans={challans}/>}
+    {tab==='incentive'&&canCashBook&&<DealerIncentiveRegister dealer={dealer}/>}
+  </div>;
+}
+function DealerSaleInvoices({invoices}) {
+  const [search,setSearch]=useState('');
+  const q=search.trim().toLowerCase();
+  const rows=(invoices||[]).filter(v=>!q||[v.date,v.bill_no,v.chassis_no,v.product_name,v.buyer_name].join(' ').toLowerCase().includes(q));
+  return <div className="dealerPanel">
+    <div className="dealerPanelHead"><div><h3>Tax Invoices</h3><p>New Rickshaw ke bane hue tax invoice.</p></div><input className="input dealerSearch" placeholder="Search bill, chassis, buyer…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+    <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={rows} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>
+  </div>;
+}
+function DealerBatterySales() {
+  const [rows,setRows]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [search,setSearch]=useState('');
+  const load=async()=>{
+    try{setError('');const r=await get('/dealer/battery-sales',{noClientCache:true});setRows(r.sales||[]);}
+    catch(e){setError(e.message||'Could not load battery sales.')}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{load()},[]);
+  const q=search.trim().toLowerCase();
+  const list=rows.filter(v=>!q||[v.customer_name,v.description,v.page_no].join(' ').toLowerCase().includes(q));
+  const money=(n)=>'₹ '+Number(n||0).toLocaleString('en-IN');
+  const statusLabel=(s)=>s==='PENDING'?'PENDING':s==='APPROVED'?'APPROVED':'SOLD';
+  return <div className="dealerPanel">
+    <div className="dealerPanelHead"><div><h3>Battery Sale</h3><p>Aapke dwara ki gayi battery sales.</p></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><input className="input dealerSearch" placeholder="Search customer…" value={search} onChange={e=>setSearch(e.target.value)}/><button type="button" className="btn" onClick={load}>↻ Refresh</button></div></div>
+    {error&&<ErrorBanner message={error}/>}
+    {loading?<div className="dealerEmpty">Loading…</div>:!list.length?<div className="dealerEmpty">Koi Battery Sale nahi mili.</div>:
+    <div className="tablewrap dealerTable"><table className="table">
+      <thead><tr><th>Date</th><th>Customer</th><th>Details</th><th>Sale Amt.</th><th>Received</th><th>Status</th></tr></thead>
+      <tbody>{list.map(v=><tr key={v.id}>
+        <td data-label="Date">{formatDate(v.date)}</td><td data-label="Customer"><b>{v.customer_name||'—'}</b></td><td data-label="Details">{v.description||'—'}</td>
+        <td data-label="Sale Amt.">{money(v.sale_amount)}</td><td data-label="Received">{money(v.amount_received)}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(v.status==='PENDING'?'available':'sold')}>{statusLabel(v.status)}</span></td>
+      </tr>)}</tbody>
+    </table></div>}
+  </div>;
+}
+
+function DealerSaleChallans({challans}) {
+  const [search,setSearch]=useState('');
+  const q=search.trim().toLowerCase();
+  const rows=(challans||[]).filter(v=>!q||[v.date,v.challan_no,v.chassis_no,v.product_name,v.destination].join(' ').toLowerCase().includes(q));
+  return <div className="dealerPanel">
+    <div className="dealerPanelHead"><div><h3>Delivery Challans</h3><p>Aapko mile hue delivery challan.</p></div><input className="input dealerSearch" placeholder="Search challan, chassis, model…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+    <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={rows} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>
+  </div>;
 }

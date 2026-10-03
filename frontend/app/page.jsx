@@ -20,6 +20,8 @@ import { CreditNotePage } from '../components/CreditNotePage';
 import { PurchaseBillPage } from '../components/PurchaseBillPage';
 import { OldRickshawPage, BatterySwapVoucherPage, BatteryWithdrawalPage, BatteryDeliveryChallanPage, BatteryAdditionPage, BatteryFitPage, JournalStockPage } from '../components/MinorVoucherPages';
 import { ExpensePaymentVoucherPage } from '../components/ExpensePaymentVoucherPage';
+import { CashierVouchersPage } from '../components/CashierVouchersPage';
+import { CashierAllReceiptsPage } from '../components/CashierAllReceiptsPage';
 import { RepairServiceVoucherPage } from '../components/RepairServiceVoucherPage';
 import { IncentiveRegisterPage } from '../components/IncentiveRegisterPage';
 import { InsuranceRtoRegisterPage } from '../components/InsuranceRtoRegisterPage';
@@ -28,6 +30,7 @@ import { BankLedgerPage } from '../components/BankLedgerPage';
 import { BillingPendingSalesPage } from '../components/BillingPendingSalesPage';
 import { VahanInventoryPage } from '../components/VahanInventoryPage';
 import { OldRickshawChallanVoucherPage } from '../components/OldRickshawChallanVoucherPage';
+import { RcFeeVoucherPage } from '../components/RcFeeVoucherPage';
 import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { ShowroomStockPage } from '../components/ShowroomStockPage';
 import { CashHandoverApprovalPage } from '../components/CashHandoverApprovalPage';
@@ -42,6 +45,7 @@ import { FactoryCheckReportPage } from '../components/FactoryCheckReportPage';
 import { DailyRawMaterialChecklistPage } from '../components/DailyRawMaterialChecklistPage';
 import { DebitNotePage } from '../components/DebitNotePage';
 import { ContraVoucherPage } from '../components/ContraVoucherPage';
+import { JournalVoucherPage } from '../components/JournalVoucherPage';
 import { OldRickshawInventoryPage } from '../components/OldRickshawInventoryPage';
 import { SeizedStockPage } from '../components/SeizedStockPage';
 import { DealerPortal } from '../components/DealerPortal';
@@ -59,8 +63,9 @@ import { SIMPLE_MASTERS, keyForPath, routeForKey, VOUCHER_PAGE_FOR } from '../li
 const CUSTOM_PAGES = {
   // Vouchers tab (F4 / F5 / F6): Contra is its own module; Payment & Receipt reuse the Bank & Cash book in voucher mode.
   'v-contra': () => <ContraVoucherPage key="v-contra" />,
+  'v-f10': () => <JournalVoucherPage key="v-f10" />,
   'v-payment': () => <DayBookPage key="v-payment" voucher="PAYMENT" />,
-  'v-receipt': () => <DayBookPage key="v-receipt" voucher="RECEIPT" />,
+  'v-receipt': () => <DayBookPage key="v-receipt" voucher="RECEIPT" payMode="bank" />,
   'showroom-new-stock': () => <ClosingStockPremisesPage />,
   'showroom-old-stock': () => <OldRickshawPage />,
   'showroom-battery-stock': () => <ShowroomBatteryStockPage />,
@@ -69,7 +74,7 @@ const CUSTOM_PAGES = {
   'showroom-all-receipt': () => <DealerCashReceiptPage />,
   'showroom-expenses-reports': () => <ShowroomExpensesReportsPage />,
   'showroom-cashbook': () => <DayBookPage />,
-  'showroom-cash-handover': () => <><CashHandoverApprovalPage /><CashAtDealerPage /></>,
+  'showroom-cash-handover': () => <CashAtDealerPage />,
   'showroom-online-payment': () => <PlaceholderPage label="Online Payment" />,
   company: () => <CompanyMasterPage />,
   dealer: () => <DealerPage />,
@@ -84,7 +89,7 @@ const CUSTOM_PAGES = {
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
   'vahan-inventory': () => <VahanInventoryPage />,
-  'cash-at-dealer': () => <><CashHandoverApprovalPage /><CashAtDealerPage /></>,
+  'cash-at-dealer': () => <CashAtDealerPage />,
   'showroom-stock': () => <ShowroomStockPage />,
   'dealer-cash-receipt': () => <DealerCashReceiptPage />,
   'production-voucher': () => <ProductionVoucherPage />,
@@ -105,6 +110,13 @@ const CUSTOM_PAGES = {
   'daily-raw-material-checklist': () => <DailyRawMaterialChecklistPage />,
   'journal-stock': () => <JournalStockPage />,
   'expense-payment-voucher': () => <ExpensePaymentVoucherPage />,
+  'cashier-pending': () => <CashierVouchersPage tab="pending" />,
+  'cashier-approved': () => <CashierVouchersPage tab="approved" />,
+  'cashier-paid': () => <CashierVouchersPage tab="paid" />,
+  'cashier-handover': () => <CashHandoverApprovalPage pendingOnly />,
+  'cashier-all-receipts': () => <CashierAllReceiptsPage />,
+  'cashier-receipt': () => <DayBookPage key="cashier-receipt" voucher="RECEIPT" payMode="cash" />,
+  'rc-fee-voucher': () => <RcFeeVoucherPage />,
   'repair-service-voucher': () => <RepairServiceVoucherPage />,
   'old-rickshaw-challan': () => <OldRickshawChallanVoucherPage />,
   'seized-stock': () => <SeizedStockPage scope="factory" />,
@@ -122,7 +134,7 @@ const CUSTOM_PAGES = {
   'delivery-challan-register': () => <DeliveryChallanRegisterPage />,
   'sale-register': () => <SaleRegisterPage />,
   'gst-register': () => <GstRegisterPage />,
-  'sale-record': () => <SaleRecordPage />,
+  'sale-record': (ctx) => <SaleRecordPage user={ctx.user} />,
   'hypothecation-register': () => <HypothecationRegisterPage />,
   'vehicle-no-register': () => <VehicleNoRegisterPage />,
   'payment-receivable-report': () => <PaymentReceivablePage />,

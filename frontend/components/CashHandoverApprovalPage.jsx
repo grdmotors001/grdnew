@@ -8,7 +8,7 @@ const statusText = s => s === 'accepted' ? 'Accepted ✓' : s === 'rejected' ? '
 
 // Head Office (admin): showroom / branch dealers ke cash handover accept ya reject karta hai.
 // Accept hone par dealer ke cashbook me OUT hota hai aur admin Day Book me IN entry ban jati hai.
-export function CashHandoverApprovalPage() {
+export function CashHandoverApprovalPage({ pendingOnly = false } = {}) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null);
@@ -60,7 +60,7 @@ export function CashHandoverApprovalPage() {
         <td><div className="actions"><button className="btn primary" disabled={busy === h.id} onClick={() => act(h, 'accept')}>{busy === h.id ? '…' : 'Accept'}</button><button className="btn" disabled={busy === h.id} onClick={() => act(h, 'reject')}>Reject</button></div></td></tr>)}
       {!loading && !pending.length && <tr><td colSpan="7" className="muted">Koi pending handover nahi hai.</td></tr>}
     </tbody></table></div>
-    {done.length > 0 && <>
+    {!pendingOnly && done.length > 0 && <>
       <h4 style={{ margin: '16px 0 8px' }}>Recent Accepted / Rejected</h4>
       <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Handover No.</th><th>Dealer</th><th>Amount</th><th>Status</th><th>By</th></tr></thead><tbody>
         {done.map(h => <tr key={h.id}><td>{fmtDate(h.date)}</td><td>{h.handover_no}</td><td>{h.dealer_name || '—'}</td><td><Money value={h.amount} /></td><td>{statusText(String(h.status).toLowerCase())}{h.reject_reason ? ' — ' + h.reject_reason : ''}</td><td>{h.accepted_by || '—'}</td></tr>)}

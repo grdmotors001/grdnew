@@ -21,7 +21,11 @@ const norm = (k, v) => (k === 'vehicle_reg_no'
   ? String(v ?? '').toUpperCase().replace(/[\s-]+/g, '')
   : String(v ?? '').trim());
 
-export function SaleRecordPage() {
+export function SaleRecordPage({ user }) {
+  const isAdmin = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
+  const [amtEdit, setAmtEdit] = useState(null); // row being edited in the popup
+  const [amtForm, setAmtForm] = useState({ sale_amount: '', loan_amount: '' });
+  const [amtBusy, setAmtBusy] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [search, setSearch] = useState('');
@@ -116,6 +120,29 @@ export function SaleRecordPage() {
     (async () => { for (const [id, changes] of perRow) await saveRow(id, changes); })();
   };
 
+  // Admin only: double-click chassis no. opens a popup to fill a BLANK (0) sale / loan amount. Filled amounts stay locked.
+  const openAmtEdit = (r) => {
+    if (!isAdmin) return;
+    const saleBlank = !Number(r.sale_amount || 0), loanBlank = !Number(r.loan_amount || 0);
+    if (!saleBlank && !loanBlank) { setError('Sale amount aur loan amount dono bhare hue hain - edit nahi ho sakta.'); return; }
+    setError(''); setAmtForm({ sale_amount: '', loan_amount: '' }); setAmtEdit(r);
+  };
+  const saveAmt = async () => {
+    const r = amtEdit; if (!r) return;
+    const body = {};
+    if (!Number(r.sale_amount || 0) && String(amtForm.sale_amount).trim() !== '') body.sale_amount = Number(amtForm.sale_amount);
+    if (!Number(r.loan_amount || 0) && String(amtForm.loan_amount).trim() !== '') body.loan_amount = Number(amtForm.loan_amount);
+    if (!Object.keys(body).length) { setAmtEdit(null); return; }
+    if (Object.values(body).some((v) => !Number.isFinite(v) || v < 0)) { setError('Amount sahi number me daalein.'); return; }
+    setAmtBusy(true); setError('');
+    try {
+      const res = await put(`/sale-record/${r.id}`, body);
+      const saved = res?.row || {};
+      setRows((rs) => rs.map((x) => (x.id === r.id ? { ...x, ...saved } : x)));
+      setAmtEdit(null);
+    } catch (e) { setError(e.message); } finally { setAmtBusy(false); }
+  };
+
   return (
     <>
       <div className="toolbar">
@@ -148,7 +175,7 @@ export function SaleRecordPage() {
                     <td>{r.dealer_name || '--'}</td>
                     <td>{r.bill_no}</td>
                     <td>{r.product_name || '--'}</td>
-                    <td>{r.chassis_no || '--'}</td>
+                    <td onDoubleClick={() => openAmtEdit(r)} style={isAdmin ? { cursor: 'pointer' } : undefined} title={isAdmin ? 'Double click: blank sale / loan amount edit' : undefined}>{r.chassis_no || '--'}</td>
                     <td>{r.other || '--'}</td>
                     <td>{r.buyer_name || '--'}</td>
                     <td><Money value={r.sale_amount} noSymbol /></td>
@@ -196,6 +223,26 @@ export function SaleRecordPage() {
             </tbody>
             <tfoot><tr><td colSpan={19}><b>{rows.length}</b> records</td></tr></tfoot>
           </table>
+        </div>
+      )}
+      {amtEdit && (
+        <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) setAmtEdit(null); }}>
+          <div className="modalbox" style={{ maxWidth: 420 }}>
+            <h3 style={{ marginTop: 0 }}>Edit Amount</h3>
+            <p className="muted" style={{ marginTop: 0 }}>{amtEdit.chassis_no} &middot; {amtEdit.buyer_name || '--'} &middot; {amtEdit.bill_no}</p>
+            <div className="formgrid">
+              {!Number(amtEdit.sale_amount || 0)
+                ? <Field label="Sale Amount" type="number" value={amtForm.sale_amount} onChange={(v) => setAmtForm((f) => ({ ...f, sale_amount: v }))} />
+                : <Field label="Sale Amount (locked)" value={String(amtEdit.sale_amount)} readOnly onChange={() => {}} />}
+              {!Number(amtEdit.loan_amount || 0)
+                ? <Field label="Loan Amount" type="number" value={amtForm.loan_amount} onChange={(v) => setAmtForm((f) => ({ ...f, loan_amount: v }))} />
+                : <Field label="Loan Amount (locked)" value={String(amtEdit.loan_amount)} readOnly onChange={() => {}} />}
+            </div>
+            <div className="actions" style={{ marginTop: 12 }}>
+              <button className="btn primary" disabled={amtBusy} onClick={saveAmt}>{amtBusy ? 'Saving...' : 'Save'}</button>{' '}
+              <button className="btn" disabled={amtBusy} onClick={() => setAmtEdit(null)}>Cancel</button>
+            </div>
+          </div>
         </div>
       )}
     </>

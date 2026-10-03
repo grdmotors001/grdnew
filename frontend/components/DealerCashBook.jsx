@@ -34,7 +34,7 @@ export function DealerCashBook(){
     </div>
     <DayBookPreview date={from} dealerLabel="Showroom Branch"
       receipts={(data.receipts||[]).filter(r=>r.payment_mode==='cash').map(r=>({id:r.id,no:r.receipt_no,date:r.date,particulars:r.customer_name||'Customer Receipt',folio:r.dealer_register_page_no||'',amount:r.amount}))}
-      payments={[...(data.expenses||[]).map(e=>({id:'e'+e.id,no:e.expense_no,date:e.date,particulars:e.category_label||e.category,folio:e.folio||'',amount:e.amount})),...(data.handovers||[]).map(h=>({id:'h'+h.id,no:h.handover_no,date:h.date,particulars:h.sent_to||'Head Office',folio:h.folio||'',amount:h.amount}))]}
+      payments={[...(data.expenses||[]).map(e=>({id:'e'+e.id,no:e.expense_no,date:e.date,particulars:(e.category_label||e.category)+(e.customer_name?' - '+e.customer_name:''),folio:e.folio||'',amount:e.amount})),...(data.handovers||[]).map(h=>({id:'h'+h.id,no:h.handover_no,date:h.date,particulars:h.sent_to||'Head Office',folio:h.folio||'',amount:h.amount}))]}
       openingBalance={opening} closingBalance={closing}
       onDateChange={d=>{setFrom(d);setTo(d)}}
       onPrev={()=>{const x=new Date(from+'T00:00:00');x.setDate(x.getDate()-1);const d=x.toISOString().slice(0,10);setFrom(d);setTo(d)}}

@@ -4,7 +4,7 @@ import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { TaxInvoicePrintView } from './PrintDocs';
-import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters } from './invoiceHelpers';
+import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -36,7 +36,7 @@ export function TaxInvoicePage() {
       buyer_father_name: c.father_name || '', buyer_address: c.address || '', buyer_mobile: c.mobile || '',
       buyer_gst_no: c.gst_no || '', buyer_pan: c.pan || '', buyer_aadhar: c.aadhar || '',
       buyer_dob: c.dob ? String(c.dob).slice(0, 10) : '', buyer_state: c.state || '',
-      buyer_state_code: c.state_code || '', license_no: c.license_no || '',
+      buyer_state_code: c.state_code || '', buyer_pincode: c.pincode || '', license_no: c.license_no || '',
     }));
   };
   const searchPendingLoans = async (value='') => {
@@ -58,6 +58,7 @@ export function TaxInvoicePage() {
   const rtoNames = rtos.map((r) => r.name).filter(Boolean);
   const rtoOptions = (cur) => (cur && !rtoNames.includes(cur) ? [cur, ...rtoNames] : rtoNames).map((n) => ({ value: n, label: n }));
   const b2c = isB2C(form);
+  const { locked: stateTypeLocked } = useAutoStateType(form, (k, v) => setForm((f) => ({ ...f, [k]: v })), open && !editingId);
 
   // New invoice: pre-fill the bank that is ticked "Default" in Bank Details.
   useEffect(() => {
@@ -173,11 +174,15 @@ export function TaxInvoicePage() {
       // Checks apply to new invoices only, so the 16,000+ old invoices stay editable.
       if (!editingId && form.bill_no !== 'GRD/1000X') {
         if (!String(form.rto_name || '').trim()) { setStep(0); throw new Error('Select the RTO Name before creating the invoice.'); }
+        if (!String(form.buyer_state || '').trim()) { setStep(0); throw new Error(STATE_REQUIRED_MSG); }
+        const pinErr = pincodeError(form);
+        if (pinErr) { setStep(0); throw new Error(pinErr); }
         const idErr = b2cIdError(form);
         if (idErr) { setStep(0); throw new Error(idErr); }
       }
-      if (editingId) await put(`/tax-invoices/${editingId}`, form);
-      else await post('/tax-invoices', form);
+      const body = { ...form, buyer_state_code: buyerStateCode(form) || form.buyer_state_code };
+      if (editingId) await put(`/tax-invoices/${editingId}`, body);
+      else await post('/tax-invoices', body);
       setOpen(false);
       setEditingId(null);
       load(page, search, true);
@@ -383,15 +388,17 @@ export function TaxInvoicePage() {
                          onChange={(v) => setForm({ ...form, buyer_relation: v })} />
                   <Field label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={(v) => setForm({ ...form, buyer_father_name: v })} />
                   <Field label="Buyer Address" value={form.buyer_address} onChange={(v) => setForm({ ...form, buyer_address: v })} />
+                  <Field label="Buyer Pin Code *" value={form.buyer_pincode} onChange={(v) => setForm({ ...form, buyer_pincode: normPincode(v) })} />
                   <Field label="Buyer Mobile" value={form.buyer_mobile} onChange={(v) => setForm({ ...form, buyer_mobile: v })} />
                   <Field label="Buyer GSTIN (if any)" value={form.buyer_gst_no} onChange={(v) => setForm({ ...form, buyer_gst_no: v })} />
                   <Field label={'Buyer PAN' + (b2c ? ' * (required, no GSTIN)' : '')} value={form.buyer_pan} onChange={(v) => setForm({ ...form, buyer_pan: v.toUpperCase() })} />
                   <Field label={'Buyer Aadhar' + (b2c ? ' * (required, no GSTIN)' : '')} value={form.buyer_aadhar} onChange={(v) => setForm({ ...form, buyer_aadhar: v })} />
                   <Field label="Buyer Date of Birth" type="date" value={form.buyer_dob} onChange={(v) => setForm({ ...form, buyer_dob: v })} />
-                  <Field label="Buyer State" value={form.buyer_state} onChange={(v) => setForm({ ...form, buyer_state: v })} />
-                  <Field label="Buyer State Code" value={form.buyer_state_code} onChange={(v) => setForm({ ...form, buyer_state_code: v })} />
-                  <Field label="Intra/Inter State" type="select" value={form.state_type}
-                         options={[{ value: 'I', label: 'Intra-state (CGST+SGST)' }, { value: 'O', label: 'Inter-state (IGST)' }]}
+                  <Field label="Buyer State *" type="select" value={stateValueFor(form.buyer_state)} options={stateOptionsFor(form.buyer_state)}
+                         onChange={(v) => setForm({ ...form, ...stateFields(v) })} />
+                  <Field label="Buyer State Code (auto)" value={buyerStateCode(form)} readOnly onChange={() => {}} />
+                  <Field label={'Intra/Inter State' + (stateTypeLocked && !editingId ? ' (auto from state)' : '')} type="select" value={form.state_type}
+                         options={STATE_TYPE_OPTIONS} readOnly={stateTypeLocked && !editingId}
                          onChange={(v) => setForm({ ...form, state_type: v })} />
                   <Field label="Mode / Term" value={form.mode_term} onChange={(v) => setForm({ ...form, mode_term: v })} />
                   <Field label="Bank Name" value={form.bank_name} onChange={(v) => setForm({ ...form, bank_name: v })} />
