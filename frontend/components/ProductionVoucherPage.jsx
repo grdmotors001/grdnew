@@ -17,7 +17,11 @@ export function ProductionVoucherPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ date: today(), quantity: 1 });
-  const [bomPreview, setBomPreview] = useState(null);
+  const [bomPreview, setBomPreview] = useState(null);      // working list (editable)
+  const [formulaLines, setFormulaLines] = useState(null);    // formula ki original lines (compare / reset ke liye)
+  const [rawMaterials, setRawMaterials] = useState([]);
+  const [addName, setAddName] = useState('');
+  const [addQty, setAddQty] = useState('1');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
@@ -33,6 +37,26 @@ export function ProductionVoucherPage() {
   const batteryNos = [1, 2, 3, 4, 5].map((n) => form[`battery_no${n}`] || '');
   const batteryCount = batteryNos.filter((v) => String(v).trim()).length;
 
+  // ---- Formula items me kami / zyadati ----
+  const lk = (n) => String(n || '').trim().toLowerCase();
+  const normLine = (l) => ({ raw_item_name: String(l.raw_item_name || l.item_name || '').trim(), unit: l.unit || 'PCS', qty: Number(l.qty) || 0 });
+  const sig = (a) => JSON.stringify((a || []).map((l) => [lk(l.raw_item_name), Number(l.qty) || 0]).sort());
+  const bomModified = !!bomPreview && !!formulaLines && sig(bomPreview) !== sig(formulaLines);
+  const formulaQty = (name) => { const f = (formulaLines || []).find((x) => lk(x.raw_item_name) === lk(name)); return f ? Number(f.qty) || 0 : null; };
+  const setLineQty = (i, v) => setBomPreview((a) => a.map((l, j) => (j === i ? { ...l, qty: v } : l)));
+  const removeLine = (i) => setBomPreview((a) => a.filter((_, j) => j !== i));
+  const resetBom = () => setBomPreview((formulaLines || []).map((l) => ({ ...l })));
+  const addLine = () => {
+    const name = String(addName || '').trim();
+    const q = Number(addQty);
+    if (!name) { setError('Add karne ke liye Raw Material select karein.'); return; }
+    if (!(q > 0)) { setError('Qty 0 se zyada honi chahiye.'); return; }
+    if ((bomPreview || []).some((l) => lk(l.raw_item_name) === lk(name))) { setError(`"${name}" list me pehle se hai - uski Qty badal lein.`); return; }
+    setError('');
+    setBomPreview((a) => [...(a || []), { raw_item_name: name, unit: 'PCS', qty: q }]);
+    setAddName(''); setAddQty('1');
+  };
+
   // 17,000+ production vouchers (and 500,000+ BOM item rows total) exist
   // in production -- fetch one page at a time (backend paginates and no
   // longer sends full item lists in the list view) instead of everything
@@ -45,7 +69,7 @@ export function ProductionVoucherPage() {
   useEffect(() => {
     load(1, search);
     get('/products?fro=F&category=FINISHED&page=1&per_page=1000').then((d) => setProducts(d.products || []));
-    get('/production-formulas').then((d) => setFormulas(d.grouped || []));
+    get('/production-formulas').then((d) => { setFormulas(d.grouped || []); setRawMaterials((d.raw_materials || []).map((x) => x.name).filter(Boolean)); });
     get('/masters/colour').then((d) => setColours(d.masters || d || [])).catch(() => {});
     get('/masters/battery-maker').then((d) => setBatteryMakers(d.masters || d || [])).catch(() => {});
     get('/masters/mechanic').then((d) => setMechanics(d.masters || d || [])).catch(() => {});
@@ -56,14 +80,21 @@ export function ProductionVoucherPage() {
 
   const rows = data?.vouchers || [];
 
-  const openNew = () => { setEditingId(null); setForm({ date: today(), quantity: 1, formula_name: '', battery_no1: '', battery_no2: '', battery_no3: '', battery_no4: '', battery_no5: '' }); setBomPreview(null); setOpen(true); };
+  const openNew = () => { setEditingId(null); setForm({ date: today(), quantity: 1, formula_name: '', battery_no1: '', battery_no2: '', battery_no3: '', battery_no4: '', battery_no5: '' }); setBomPreview(null); setFormulaLines(null); setOpen(true); };
   const openEdit = async (id) => {
     try {
       const d = await get(`/production-vouchers/${id}`);
+      const v = d.voucher || d;
       setEditingId(id);
-      setForm(d.voucher || d);
-      setBomPreview(null);
+      setForm(v);
+      setBomPreview(null); setFormulaLines(null);
       setOpen(true);
+      // Formula ki original lines + (agar is voucher par pehle se change save hua ho to) wahi list dikhao.
+      let base = [];
+      try { base = await fetchFormulaLines(v.product_name, v.formula_name); } catch (e) { /* formula na mile to bhi edit chale */ }
+      setFormulaLines(base);
+      const saved = Array.isArray(v.bom_lines) && v.bom_lines.length ? v.bom_lines.map(normLine) : null;
+      setBomPreview(saved || base.map((l) => ({ ...l })));
     } catch (e) { setError(e.message); }
   };
 
@@ -101,14 +132,19 @@ export function ProductionVoucherPage() {
   const chassisLen = chassisLenFor(form.product_name);
   const chassisNow = String(form.chassis_no || '').trim();
 
+  const fetchFormulaLines = async (productName, formulaName) => {
+    const q = new URLSearchParams({ product_name: productName });
+    if (formulaName) q.set('formula_name', formulaName);
+    const lines = await get(`/production-formulas/lines?${q}`);
+    const arr = Array.isArray(lines) ? lines : (lines.lines || []);
+    return arr.map(normLine);
+  };
   const previewBom = async (productName = form.product_name, formulaName = form.formula_name) => {
     if (!productName) { setError('Choose a product first.'); return; }
     try {
-      const q = new URLSearchParams({ product_name: productName });
-      if (formulaName) q.set('formula_name', formulaName);
-      const lines = await get(`/production-formulas/lines?${q}`);
-      setBomPreview(Array.isArray(lines) ? lines : (lines.lines || []));
-      if (!Array.isArray(lines) && !lines.lines) setError('BOM preview response is invalid.');
+      const base = await fetchFormulaLines(productName, formulaName);
+      setFormulaLines(base);
+      setBomPreview(base.map((l) => ({ ...l })));
     } catch (e) { setError(e.message); }
   };
 
@@ -120,14 +156,29 @@ export function ProductionVoucherPage() {
     if (!String(form.colour || '').trim()) { setError('Colour select karna zaroori hai.'); return; }
     if (!String(form.machnic || '').trim()) { setError('Mechanic select karna zaroori hai.'); return; }
     if (formulasForProduct.length > 0 && !form.formula_name) { setError('Formula Name select karein — is model ke formula ke hisaab se raw material stock se kategi.'); return; }
+    // Formula items me change hua ho to final list bhejo (null = formula jaisa hi).
+    let bomPayload = null;
+    if (bomModified) {
+      if (!bomPreview.length) { setError('Kam se kam ek raw material line chahiye.'); return; }
+      const seen = new Set();
+      for (const l of bomPreview) {
+        const k = lk(l.raw_item_name);
+        if (!k) { setError('Raw Material line me item ka naam khali hai.'); return; }
+        if (seen.has(k)) { setError(`"${l.raw_item_name}" list me do baar hai.`); return; }
+        seen.add(k);
+        if (!(Number(l.qty) > 0)) { setError(`"${l.raw_item_name}" ki Qty 0 se zyada honi chahiye (item hatana ho to ✕ dabayein).`); return; }
+      }
+      bomPayload = bomPreview.map((l) => ({ raw_item_name: l.raw_item_name, unit: l.unit || 'PCS', qty: Number(l.qty) }));
+    }
     run(async () => {
       // Duplicate chassis: same chassis no. pehle se kisi voucher me ho to save nahi hoga.
       const dq = await get(`/production-vouchers?${new URLSearchParams({ search: ch, page: 1, per_page: 50 })}`, { timeoutMs: 90000 });
       const dup = (dq.vouchers || []).find((v) => String(v.id) !== String(editingId || '')
         && String(v.chassis_no || '').trim().toLowerCase() === ch.toLowerCase());
       if (dup) throw new Error(`Chassis No. "${ch}" pehle se Vou. No. ${dup.vou_no || '-'} me bana hua hai. Duplicate chassis nahi ban sakta.`);
-      if (editingId) await put(`/production-vouchers/${editingId}`, form, { timeoutMs: 120000 });
-      else await post('/production-vouchers', form, { timeoutMs: 120000 });
+      const payload = { ...form, bom_lines: bomPayload };
+      if (editingId) await put(`/production-vouchers/${editingId}`, payload, { timeoutMs: 120000 });
+      else await post('/production-vouchers', payload, { timeoutMs: 120000 });
       setOpen(false);
       load();
     });
@@ -137,6 +188,8 @@ export function ProductionVoucherPage() {
     if (!confirm('Delete this Production Voucher? The chassis record will also be removed if still in Manufacturing.')) return;
     run(async () => { await del(`/production-vouchers/${id}`); load(); });
   };
+
+  const cols = '24px minmax(0,1fr) 42px 74px 58px 30px';
 
   return (
     <>
@@ -303,19 +356,46 @@ export function ProductionVoucherPage() {
                     </div>
                   ) : (
                     <div style={{ border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '30px minmax(0,1fr) 58px 72px', gap: 6, padding: '8px 10px', background: 'rgba(0,0,0,.03)', fontSize: 10, fontWeight: 800 }}>
-                        <span>#</span><span>Item Name</span><span>Unit</span><span style={{ textAlign: 'right' }}>Total Qty</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, padding: '8px 10px', background: 'rgba(0,0,0,.03)', fontSize: 10, fontWeight: 800 }}>
+                        <span>#</span><span>Item Name</span><span>Unit</span><span style={{ textAlign: 'right' }}>Qty / Vehicle</span><span style={{ textAlign: 'right' }}>Total</span><span></span>
                       </div>
-                      <div style={{ maxHeight: 430, overflowY: 'auto' }}>
-                        {bomPreview.map((l, i) => (
-                          <div key={l.id || i} style={{ display: 'grid', gridTemplateColumns: '30px minmax(0,1fr) 58px 72px', gap: 6, padding: '8px 10px', borderTop: '1px solid var(--line)', fontSize: 11 }}>
-                            <span className="muted">{i + 1}</span>
-                            <span>{l.raw_item_name}</span>
-                            <span>{l.unit || '—'}</span>
-                            <b style={{ textAlign: 'right' }}>{Number(l.qty || 0) * Number(form.quantity || 1)}</b>
-                          </div>
-                        ))}
+                      <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                        {bomPreview.map((l, i) => {
+                          const fq = formulaQty(l.raw_item_name);
+                          const added = formulaLines && fq === null;
+                          const changed = !added && fq !== null && Number(l.qty) !== fq;
+                          return (
+                            <div key={i} style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, alignItems: 'center', padding: '6px 10px', borderTop: '1px solid var(--line)', fontSize: 11, background: added ? 'rgba(0,160,80,.08)' : changed ? 'rgba(255,170,0,.12)' : undefined }}>
+                              <span className="muted">{i + 1}</span>
+                              <span>{l.raw_item_name}{added && <b style={{ color: 'var(--green)', marginLeft: 6, fontSize: 9 }}>NEW</b>}{changed && <span className="muted" style={{ marginLeft: 6, fontSize: 9 }}>(formula: {fq})</span>}</span>
+                              <span>{l.unit || '—'}</span>
+                              <input className="input" type="number" min="0" step="any" value={l.qty} onChange={(e) => setLineQty(i, e.target.value)} style={{ padding: '4px 6px', fontSize: 11, textAlign: 'right', width: '100%' }} />
+                              <b style={{ textAlign: 'right' }}>{Math.round((Number(l.qty) || 0) * Number(form.quantity || 1) * 10000) / 10000}</b>
+                              <button type="button" className="btn danger" title="Is item ko hatao" onClick={() => removeLine(i)} style={{ padding: '2px 6px', fontSize: 11 }}>✕</button>
+                            </div>
+                          );
+                        })}
                       </div>
+                    </div>
+                  )}
+
+                  {bomPreview && (
+                    <div style={{ marginTop: 10, padding: 10, border: '1px dashed var(--line)', borderRadius: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 6 }}>+ Item add karein</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 70px auto', gap: 6 }}>
+                        <select className="input" value={addName} onChange={(e) => setAddName(e.target.value)} style={{ fontSize: 11 }}>
+                          <option value="">Raw Material select karein</option>
+                          {rawMaterials.filter((n) => !(bomPreview || []).some((l) => lk(l.raw_item_name) === lk(n))).map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                        <input className="input" type="number" min="0" step="any" value={addQty} onChange={(e) => setAddQty(e.target.value)} style={{ fontSize: 11, textAlign: 'right' }} />
+                        <button type="button" className="btn" onClick={addLine} style={{ fontSize: 11 }}>Add</button>
+                      </div>
+                      {bomModified && (
+                        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                          <span style={{ color: '#b45309' }}><b>Formula se alag</b> - stock isi list ke hisaab se katega.</span>
+                          <button type="button" className="btn" onClick={resetBom} style={{ fontSize: 11 }}>Formula par wapas</button>
+                        </div>
+                      )}
                     </div>
                   )}
 

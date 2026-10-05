@@ -11,7 +11,7 @@ function parseItems(v:any){if(Array.isArray(v))return v;if(typeof v==="string"){
 
 let pvSchemaReady:Promise<void>|null=null;
 export function ensureProductionVoucherSchema():Promise<void>{
-  if(!pvSchemaReady){pvSchemaReady=pool.query("ALTER TABLE production_voucher ADD COLUMN IF NOT EXISTS formula_name text").then(()=>{}).catch((e:any)=>{pvSchemaReady=null;throw e});}
+  if(!pvSchemaReady){pvSchemaReady=pool.query("ALTER TABLE production_voucher ADD COLUMN IF NOT EXISTS formula_name text").then(()=>pool.query("ALTER TABLE production_voucher ADD COLUMN IF NOT EXISTS bom_lines jsonb")).then(()=>{}).catch((e:any)=>{pvSchemaReady=null;throw e});}
   return pvSchemaReady;
 }
 // Formula Name: voucher me saved ho to wahi; khali ho to us product ka akela formula (ek hi hai to) -> warna blank.
@@ -46,9 +46,36 @@ async function rawStockBalance(client:any,name:string){
 }
 // Production voucher ke formula ke hisab se raw material OUT entries. Stock kam ho to poora transaction fail (throw).
 // Jo item is voucher ke liye pehle se kata hua hai use dobara nahi katta.
-async function consumeProductionStock(client:any,v:{vou_no:string,date:string|null,product_name:string,formula_name:string,quantity:any}){
+// Voucher par formula ke items me kami/zyadati (qty change, item hatana, naya item) - per-vehicle lines [{raw_item_name,unit,qty}].
+// null/undefined = formula jaisa hai (koi change nahi). Array = yahi final list (formula ignore).
+function normBomLines(v:any):any[]|null{
+  if(v===null||v===undefined||v==="")return null;
+  const arr=parseItems(v);
+  return Array.isArray(v)||typeof v==="string"?arr:null;
+}
+async function cleanBomLines(client:any,v:any):Promise<any[]|null>{
+  const arr=normBomLines(v);
+  if(arr===null)return null;
+  if(!arr.length)throw new Error("Kam se kam ek raw material line chahiye. Poori list khali nahi ho sakti.");
+  const seen=new Set<string>(),out:any[]=[];
+  for(const l of arr){
+    const name=String(l?.raw_item_name||l?.item_name||"").trim(),qty=num(l?.qty),unit=String(l?.unit||"PCS").trim()||"PCS";
+    if(!name)throw new Error("Har line me Raw Material ka naam zaroori hai.");
+    if(!(qty>0))throw new Error("\""+name+"\" ki Qty 0 se zyada honi chahiye (item hatana ho to line delete karein).");
+    const k=name.toLowerCase();
+    if(seen.has(k))throw new Error("\""+name+"\" list me do baar hai. Ek hi line rakhein.");
+    seen.add(k);
+    const raw=await client.query("SELECT name FROM product WHERE COALESCE(fro,'')='R' AND lower(btrim(name))=lower(btrim($1)) ORDER BY id LIMIT 1",[name]);
+    if(!raw.rowCount)throw new Error("\""+name+"\" Product Master ke Raw Material me nahi hai.");
+    out.push({raw_item_name:String(raw.rows[0].name).trim(),unit,qty});
+  }
+  return out;
+}
+async function consumeProductionStock(client:any,v:{vou_no:string,date:string|null,product_name:string,formula_name:string,quantity:any,lines?:any[]|null}){
   const qty=Math.max(1,Math.trunc(num(v.quantity)||1)),ref=String(v.vou_no);
-  const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[v.product_name||"",String(v.formula_name||"")]);
+  const formula:any=Array.isArray(v.lines)
+    ?{rows:v.lines.map((l:any)=>({raw_item_name:l.raw_item_name,qty:l.qty,unit:l.unit||"PCS"})),rowCount:v.lines.length}
+    :await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[v.product_name||"",String(v.formula_name||"")]);
   const done=await client.query("SELECT lower(btrim(item_name)) AS k FROM journal_stock WHERE batch_ref=$1 AND reason='Production Consumption'",[ref]);
   const doneSet=new Set(done.rows.map((r:any)=>r.k));
   const need=new Map<string,{name:string,qty:number}>();
@@ -261,18 +288,28 @@ export async function productionGet(req:Request,path:string[],a:any):Promise<Res
         const production=await pool.query("SELECT product_name,COALESCE(formula_name,'') AS formula_name,COALESCE(SUM(quantity),0) AS production_qty FROM production_voucher WHERE date=$1 GROUP BY product_name,formula_name ORDER BY product_name,formula_name",[date]);
         const totalQty=production.rows.reduce((s:any,x:any)=>s+num(x.production_qty),0);
         await pool.query("UPDATE daily_raw_material_checklist SET production_qty=$1,updated_at=NOW() WHERE id=$2",[totalQty,report.id]);
-        const lines=await pool.query(`SELECT pv.product_name,COALESCE(pv.formula_name,'') AS formula_name,
-          COALESCE(SUM(pv.quantity),0) AS production_qty,pf.id AS formula_line_id,pf.raw_item_name,
-          pf.qty AS formula_qty_per_unit,pf.unit,
-          COALESCE(SUM(pv.quantity*pf.qty),0) AS required_qty
-          FROM production_voucher pv
-          JOIN production_formula pf ON pf.product_name=pv.product_name
-            AND COALESCE(pf.formula_name,'')=COALESCE(pv.formula_name,'')
-          WHERE pv.date=$1
-          GROUP BY pv.product_name,COALESCE(pv.formula_name,''),pf.id,pf.raw_item_name,pf.qty,pf.unit
-          ORDER BY pv.product_name,COALESCE(pv.formula_name,''),pf.id`,[date]);
-        for(const line of lines.rows){
-          const sourceKey=String(line.product_name||"")+"::"+String(line.formula_name||"")+"::"+String(line.formula_line_id||"");
+        // Required qty: jis voucher par formula ke items badle gaye (bom_lines) uski list se, baaki vouchers formula x qty se.
+        await ensureProductionVoucherSchema();
+        const pvs=await pool.query("SELECT product_name,COALESCE(formula_name,'') AS formula_name,quantity,bom_lines FROM production_voucher WHERE date=$1",[date]);
+        const prodNames=[...new Set(pvs.rows.map((x:any)=>String(x.product_name||"")))];
+        const pfl=prodNames.length?await pool.query("SELECT id,product_name,COALESCE(formula_name,'') AS formula_name,raw_item_name,qty,unit FROM production_formula WHERE product_name=ANY($1::text[]) ORDER BY id",[prodNames]):{rows:[]};
+        const agg=new Map<string,any>();
+        const addLine=(v:any,f:any,vq:number,perQty:number,rawName:string,unit:string)=>{
+          const key=String(v.product_name||"")+"::"+String(v.formula_name||"")+"::"+(f?String(f.id):"x:"+rawName.trim().toLowerCase());
+          let g=agg.get(key);
+          if(!g){g={key,product_name:v.product_name,formula_name:v.formula_name,raw_item_name:rawName,unit:unit||"PCS",formula_line_id:f?Number(f.id):null,formula_qty:f?num(f.qty):perQty,production_qty:0,required:0};agg.set(key,g);}
+          g.production_qty+=vq;g.required+=vq*perQty;
+        };
+        for(const v of pvs.rows){
+          const vq=num(v.quantity),flines=pfl.rows.filter((f:any)=>f.product_name===v.product_name&&f.formula_name===v.formula_name),custom=normBomLines(v.bom_lines);
+          if(custom===null){for(const f of flines)addLine(v,f,vq,num(f.qty),String(f.raw_item_name),f.unit);}
+          else for(const c of custom){
+            const f=flines.find((x:any)=>String(x.raw_item_name||"").trim().toLowerCase()===String(c.raw_item_name||"").trim().toLowerCase());
+            addLine(v,f||null,vq,num(c.qty),String(f?f.raw_item_name:c.raw_item_name),String(f?f.unit:c.unit));
+          }
+        }
+        for(const g of agg.values()){
+          if(g.formula_line_id===null&&g.production_qty>0)g.formula_qty=g.required/g.production_qty;
           await pool.query(`INSERT INTO daily_raw_material_checklist_item
             (checklist_id,source_key,product_name,formula_name,production_qty,raw_item_name,formula_qty_per_unit,required_qty,issued_qty,difference,unit,formula_line_id)
             VALUES($1,$2,$3,$4,$5,$6,$7,$8,0,-$8,$9,$10)
@@ -280,9 +317,14 @@ export async function productionGet(req:Request,path:string[],a:any):Promise<Res
               product_name=EXCLUDED.product_name,formula_name=EXCLUDED.formula_name,
               production_qty=EXCLUDED.production_qty,raw_item_name=EXCLUDED.raw_item_name,
               formula_qty_per_unit=EXCLUDED.formula_qty_per_unit,required_qty=EXCLUDED.required_qty,
+              difference=daily_raw_material_checklist_item.issued_qty-EXCLUDED.required_qty,
               unit=EXCLUDED.unit,formula_line_id=EXCLUDED.formula_line_id,updated_at=NOW()`,
-            [report.id,sourceKey,line.product_name,line.formula_name,num(line.production_qty),line.raw_item_name,num(line.formula_qty_per_unit),num(line.required_qty),line.unit||"PCS",num(line.formula_line_id)]);
+            [report.id,g.key,g.product_name,g.formula_name,g.production_qty,g.raw_item_name,g.formula_qty,g.required,g.unit,g.formula_line_id]);
         }
+        // Jo line ab kisi voucher me nahi (item hata diya / voucher delete): khali ho to hata do, warna required 0 karke dikhao (entered issue/remark na udein).
+        const keys=[...agg.keys()];
+        await pool.query("DELETE FROM daily_raw_material_checklist_item WHERE checklist_id=$1 AND NOT (source_key=ANY($2::text[])) AND COALESCE(issued_qty,0)=0 AND NOT verified AND COALESCE(remarks,'')=''",[report.id,keys]);
+        await pool.query("UPDATE daily_raw_material_checklist_item SET required_qty=0,production_qty=0,difference=COALESCE(issued_qty,0),updated_at=NOW() WHERE checklist_id=$1 AND NOT (source_key=ANY($2::text[]))",[report.id,keys]);
         report=(await pool.query("SELECT * FROM daily_raw_material_checklist WHERE id=$1",[report.id])).rows[0];
       }
       const items=await pool.query("SELECT * FROM daily_raw_material_checklist_item WHERE checklist_id=$1 ORDER BY product_name,formula_name,raw_item_name,id",[report.id]);
@@ -526,7 +568,8 @@ export async function productionPost(req:Request,path:string[],b:any,a:any):Prom
         const pv=await client.query("SELECT * FROM production_voucher WHERE id=$1 FOR UPDATE",[pvId]);if(!pv.rowCount)throw new Error("Production Voucher not found.");
         const existing=await client.query("SELECT id FROM factory_check_report WHERE production_voucher_id=$1",[pvId]);if(existing.rowCount){await client.query("COMMIT");return Response.json({success:true,id:existing.rows[0].id,already_exists:true});}
         const qty=Math.max(1,num(pv.rows[0].quantity)||1);
-        const formula=await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[pv.rows[0].product_name||"",String(pv.rows[0].formula_name||"")]);
+        const customBom=normBomLines(pv.rows[0].bom_lines);
+        const formula:any=customBom!==null?{rows:customBom.map((l:any)=>({raw_item_name:l.raw_item_name,qty:l.qty,unit:l.unit||"PCS"}))}:await client.query("SELECT raw_item_name,qty,unit FROM production_formula WHERE product_name=$1 AND ($2='' OR formula_name=$2) ORDER BY id",[pv.rows[0].product_name||"",String(pv.rows[0].formula_name||"")]);
         const report=await client.query("INSERT INTO factory_check_report (production_voucher_id,date,product_name,quantity,status,remarks) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,'PENDING',$5) RETURNING *",[pvId,pv.rows[0].date||null,pv.rows[0].product_name||"",qty,"Checklist created from Production Formula. Approval is informational and does not block production."]);
         for(const line of formula.rows)await client.query("INSERT INTO factory_check_item (report_id,raw_item_name,expected_qty,consumed_qty,unit,additional,status) VALUES ($1,$2,$3,$4,$5,false,'PENDING')",[report.rows[0].id,line.raw_item_name,num(line.qty)*qty,num(line.qty)*qty,line.unit||"PCS"]);
         await client.query("COMMIT");return Response.json({success:true,report:report.rows[0]},{status:201});
@@ -579,17 +622,18 @@ export async function productionPost(req:Request,path:string[],b:any,a:any):Prom
         if(!String(b.colour||"").trim())throw new Error("Colour select karna zaroori hai.");
         if(!String(b.machnic||"").trim())throw new Error("Mechanic select karna zaroori hai.");
         const qty=Math.max(1,Math.trunc(num(b.quantity)||1));
+        const bomLines=await cleanBomLines(client,b.bom_lines);
         // Ek model ke 2-3 formula ho sakte hain: formula chune bina sab formulas ka stock ek saath kat jata, isliye zaroori.
         if(!String(b.formula_name||"").trim()){
           const fc=await client.query("SELECT COUNT(DISTINCT formula_name)::int AS n FROM production_formula WHERE product_name=$1",[b.product_name||""]);
           if(Number(fc.rows[0]?.n||0)>1)throw new Error("Is model ke ek se zyada formula hain. Formula Name select karein.");
         }
-        const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,formula_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()) RETURNING *",
-          [String(b.vou_no||""),b.date||null,b.product_name||"",String(b.formula_name||""),qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null]);
+        const r=await client.query("INSERT INTO production_voucher (vou_no,date,product_name,formula_name,quantity,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,other,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4,machnic,bom_lines,created_at) VALUES (COALESCE(NULLIF($1,''),'PV-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,NOW()) RETURNING *",
+          [String(b.vou_no||""),b.date||null,b.product_name||"",String(b.formula_name||""),qty,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.other||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null,b.machnic||null,bomLines?JSON.stringify(bomLines):null]);
         if(chassis)await client.query("INSERT INTO vehicle (date,model_name,chassis_no,motor_no,controller_no,differential_no,colour,colour_code,stage,battery_maker,battery_no1,battery_no2,battery_no3,battery_no4) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,'Manufacturing',$9,$10,$11,$12,$13) ON CONFLICT (chassis_no) DO UPDATE SET stage='Manufacturing',model_name=EXCLUDED.model_name,battery_maker=EXCLUDED.battery_maker,battery_no1=EXCLUDED.battery_no1,battery_no2=EXCLUDED.battery_no2,battery_no3=EXCLUDED.battery_no3,battery_no4=EXCLUDED.battery_no4",
           [b.date||null,b.product_name||null,chassis,b.motor_no||null,b.controller_no||null,b.differential_no||null,b.colour||null,b.colour_code||null,b.battery_maker||null,b.battery_no1||null,b.battery_no2||null,b.battery_no3||null,b.battery_no4||null]);
         // Stock check + raw material OUT: kam stock par poora voucher (vehicle samet) rollback ho jata hai.
-        const formula=await consumeProductionStock(client,{vou_no:String(b.vou_no||r.rows[0].vou_no),date:b.date||null,product_name:b.product_name||"",formula_name:String(b.formula_name||""),quantity:qty});
+        const formula=await consumeProductionStock(client,{vou_no:String(b.vou_no||r.rows[0].vou_no),date:b.date||null,product_name:b.product_name||"",formula_name:String(b.formula_name||""),quantity:qty,lines:bomLines});
         await ensureFactoryCheckSchema();
         const check=await client.query("INSERT INTO factory_check_report (production_voucher_id,date,product_name,quantity,status,remarks) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,$4,'PENDING',$5) ON CONFLICT (production_voucher_id) DO NOTHING RETURNING id",[r.rows[0].id,b.date||null,b.product_name||"",qty,"Auto-created from Production Formula. Approval is for audit/checking only and does not block production."]);
         if(check.rowCount){
@@ -635,7 +679,8 @@ export async function productionMutation(req:Request,path:string[],method:string
     if((method==="PUT"||method==="PATCH") && /^production-vouchers\/\d+$/.test(p)){
       await ensureProductionVoucherSchema();await ensureFactoryCheckSchema();
       const id=idOf(path[1]),cols=await columns("production_voucher"),input:any={};
-      for(const [k,v] of Object.entries(body||{})){const c=snake(k);if(cols.has(c)&&c!=="id"&&c!=="created_at")input[c]=v;}
+      for(const [k,v] of Object.entries(body||{})){const c=snake(k);if(cols.has(c)&&c!=="id"&&c!=="created_at"&&c!=="bom_lines")input[c]=v;}
+      const hasBom=!!body&&Object.prototype.hasOwnProperty.call(body,"bom_lines");
       if("quantity" in input)input.quantity=Math.max(1,Math.trunc(num(input.quantity)||1));
       const client=await pool.connect();
       try{
@@ -644,6 +689,8 @@ export async function productionMutation(req:Request,path:string[],method:string
         if(!pv.rowCount){await client.query("ROLLBACK");return Response.json({error:"Production Voucher not found."},{status:404});}
         const old=pv.rows[0],keys=Object.keys(input);
         if(!keys.length)throw new Error("No valid fields supplied.");
+        // Formula items me change (qty/add/remove). null = wapas formula jaisa.
+        const newBom=hasBom?await cleanBomLines(client,body.bom_lines):normBomLines(old.bom_lines);
         if("chassis_no" in input){
           const newCh=String(input.chassis_no||"").trim(),oldCh=String(old.chassis_no||"").trim();
           input.chassis_no=newCh;
@@ -660,14 +707,16 @@ export async function productionMutation(req:Request,path:string[],method:string
         }
         const up=await client.query('UPDATE production_voucher SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1)+" RETURNING *, to_char(date,'YYYY-MM-DD') AS date_s",[...keys.map(k=>input[k]),id]);
         const nv=up.rows[0];
+        const bomChanged=hasBom&&JSON.stringify(newBom||null)!==JSON.stringify(normBomLines(old.bom_lines)||null);
+        if(bomChanged){await client.query("UPDATE production_voucher SET bom_lines=$1::jsonb WHERE id=$2",[newBom?JSON.stringify(newBom):null,id]);nv.bom_lines=newBom;}
         // Sirf Mechanic / Colour / Motor No. jaisi cheezein badli hon (product, formula, quantity, date same) to stock dobara nahi kata/lauta -
         // purane imported vouchers me mechanic bharte waqt "Insufficient stock" na aaye.
         const sameVal=(k:string,f:(x:any)=>string)=>!(k in input)||f(input[k])===f(old[k]);
-        const stockChanged=!(sameVal("product_name",x=>String(x||"").trim())&&sameVal("formula_name",x=>String(x||"").trim())&&sameVal("quantity",x=>String(Math.max(1,Math.trunc(num(x)||1))))&&sameVal("date",x=>ymd(x)||""));
+        const stockChanged=!(sameVal("product_name",x=>String(x||"").trim())&&sameVal("formula_name",x=>String(x||"").trim())&&sameVal("quantity",x=>String(Math.max(1,Math.trunc(num(x)||1))))&&sameVal("date",x=>ymd(x)||""))||bomChanged;
         let formula:any={rows:[]};
         if(stockChanged){
           await reverseProductionStock(client,String(old.vou_no));
-          formula=await consumeProductionStock(client,{vou_no:String(nv.vou_no),date:nv.date_s||null,product_name:String(nv.product_name||""),formula_name:String(nv.formula_name||""),quantity:nv.quantity});
+          formula=await consumeProductionStock(client,{vou_no:String(nv.vou_no),date:nv.date_s||null,product_name:String(nv.product_name||""),formula_name:String(nv.formula_name||""),quantity:nv.quantity,lines:newBom});
         }
         const rep=await client.query("SELECT id,status FROM factory_check_report WHERE production_voucher_id=$1 FOR UPDATE",[id]);
         if(stockChanged&&rep.rowCount&&String(rep.rows[0].status).toUpperCase()!=="APPROVED"){

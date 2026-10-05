@@ -151,12 +151,12 @@ export function DailyRawMaterialChecklistPage() {
                       <td><b>{item.raw_item_name}</b><div className="muted" style={{ fontSize: 11 }}>{item.unit}</div></td>
                       <td>{item.product_name}<div className="muted" style={{ fontSize: 11 }}>{item.formula_name || 'Default Formula'}</div></td>
                       <td>{item.production_qty}</td>
-                      <td><b>{item.required_qty}</b><div className="muted" style={{ fontSize: 11 }}>{item.formula_qty_per_unit} / vehicle</div></td>
+                      <td><b>{item.required_qty}</b><div className="muted" style={{ fontSize: 11 }}>{item.formula_qty_per_unit} / vehicle</div>{!item.formula_line_id ? <div style={{ fontSize: 10, color: '#15803d' }}>Voucher me add kiya</div> : Math.abs(Number(item.required_qty || 0) - Number(item.production_qty || 0) * Number(item.formula_qty_per_unit || 0)) > 0.000001 ? <div style={{ fontSize: 10, color: '#b45309' }}>Voucher me qty badli hai</div> : null}</td>
                       <td><input type="number" min="0" step="any" disabled={locked} value={item.issued_qty ?? 0}
                         onChange={e => updateItem(item.id, { issued_qty: e.target.value, difference: Number(e.target.value || 0) - Number(item.required_qty || 0) })} style={{ width: 95 }} /></td>
                       <td><b>{diff > 0 ? '+' : ''}{diff}</b></td>
                       <td><input type="checkbox" disabled={locked} checked={Boolean(item.verified)} onChange={e => updateItem(item.id, { verified: e.target.checked })} /></td>
-                      <td><button className="btn" disabled={locked} onClick={() => openFormula(item)}>Update Formula</button></td>
+                      <td>{item.formula_line_id ? <button className="btn" disabled={locked} onClick={() => openFormula(item)}>Update Formula</button> : <span className="muted" style={{ fontSize: 11 }}>Formula me nahi</span>}</td>
                       <td><input disabled={locked} value={item.remarks || ''} onChange={e => updateItem(item.id, { remarks: e.target.value })} placeholder={Math.abs(diff) > 0.000001 ? 'Mismatch reason required' : 'Optional'} /></td>
                     </tr>
                   );

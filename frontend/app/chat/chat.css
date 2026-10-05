@@ -17,3 +17,4 @@
 .chatWidgetPanel .oc:has(.oc-main .oc-head) .oc-listpane{display:none}
 .chatWidgetPanel .oc:has(.oc-main .oc-head) .oc-main{display:flex}
 @media(max-width:700px){.chatWidgetToggle,.chatWidgetPanel{display:none}}
+.oc-presence{cursor:default}.oc-avatar{position:relative}.oc-dot{position:absolute;right:0;bottom:0;width:12px;height:12px;border-radius:50%;background:#9ca3af;border:2px solid #fff}.oc-dot.on{background:#22c55e}.oc-kind{font-style:normal;font-weight:400;font-size:11px;color:#718096;background:#eef2f7;border-radius:6px;padding:1px 6px;margin-left:4px}
