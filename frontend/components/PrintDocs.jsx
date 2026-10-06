@@ -26,7 +26,7 @@ const COPY_TYPES = [
 // actions, footer with copy-type selector + share/print actions.
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB') : '';
 
-function Overlay({ onClose, children, extraActions, title = 'Print / View Document' }) {
+export function Overlay({ onClose, children, extraActions, title = 'Print / View Document' }) {
   const [copyType, setCopyType] = useState('original');
   const [copied, setCopied] = useState(false);
 

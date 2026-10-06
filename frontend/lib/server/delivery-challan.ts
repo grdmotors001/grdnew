@@ -88,7 +88,16 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
         // Har word alag match (AND); challan/chassis/motor/model/colour/dealer/battery/destination/salesman/date me kahin bhi.
         for(const tok of search.split(/\s+/).filter(Boolean).slice(0,6)){
           args.push("%"+tok+"%");const ix="$"+args.length;
-          w.push("(COALESCE(dc.challan_no,'') ILIKE "+ix+" OR COALESCE(dc.chassis_no,'') ILIKE "+ix+" OR COALESCE(dc.product_name,'') ILIKE "+ix+" OR COALESCE(d.name,'') ILIKE "+ix+" OR COALESCE(NULLIF(v.battery_maker,''),to_jsonb(dc)->>'battery_maker','') ILIKE "+ix+" OR COALESCE(to_jsonb(dc)->>'motor_no',v.motor_no,'') ILIKE "+ix+" OR COALESCE(to_jsonb(dc)->>'colour',v.colour,'') ILIKE "+ix+" OR COALESCE(to_jsonb(dc)->>'destination','') ILIKE "+ix+" OR COALESCE(to_jsonb(dc)->>'salesman','') ILIKE "+ix+" OR to_char(dc.date,'DD-MM-YYYY') ILIKE "+ix+" OR to_char(dc.date,'YYYY-MM-DD') ILIKE "+ix+")");
+          const fields=[
+            "dc.challan_no","dc.chassis_no","v.chassis_no","dc.product_name","v.model_name","d.name","d.code",
+            "NULLIF(v.battery_maker,'')","to_jsonb(dc)->>'battery_maker'",
+            "v.battery_no1","v.battery_no2","v.battery_no3","v.battery_no4",
+            "to_jsonb(dc)->>'battery_no1'","to_jsonb(dc)->>'battery_no2'","to_jsonb(dc)->>'battery_no3'","to_jsonb(dc)->>'battery_no4'",
+            "to_jsonb(dc)->>'motor_no'","v.motor_no","to_jsonb(dc)->>'controller_no'","to_jsonb(dc)->>'colour'","v.colour",
+            "to_jsonb(dc)->>'destination'","to_jsonb(dc)->>'salesman'","to_jsonb(dc)->>'remarks1'","to_jsonb(dc)->>'remarks2'",
+            "to_char(dc.date,'DD-MM-YYYY')","to_char(dc.date,'YYYY-MM-DD')"
+          ];
+          w.push("("+fields.map(f=>"COALESCE("+f+"::text,'') ILIKE "+ix).join(" OR ")+")");
         }
       }
       const dealer=String(u.searchParams.get("dealer")||"ALL"),product=String(u.searchParams.get("product")||"ALL"),salesman=String(u.searchParams.get("salesman")||"ALL"),battery=String(u.searchParams.get("battery")||"ALL");
@@ -151,7 +160,7 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
         // Har word alag match hota hai (AND); ek word challan/chassis/motor/model/colour/dealer/destination/date me kahin bhi mil jaye.
         for(const tok of search.split(/\s+/).filter(Boolean).slice(0,6)){
           const terms:string[]=[];args.push("%"+tok+"%");const ix="$"+args.length;
-          for(const col of ["challan_no","chassis_no","motor_no","product_name","colour","destination"]){if(dcCols.has(col))terms.push("dc."+col+" ILIKE "+ix);}
+          for(const col of ["challan_no","chassis_no","motor_no","product_name","colour","destination","battery_maker","battery_no1","battery_no2","battery_no3","battery_no4"]){if(dcCols.has(col))terms.push("dc."+col+" ILIKE "+ix);}
           if(dcCols.has("date"))terms.push("to_char(dc.date,'DD-MM-YYYY') ILIKE "+ix+" OR to_char(dc.date,'YYYY-MM-DD') ILIKE "+ix);
           if(dealerCols.has("name")&&dcCols.has("dealer_id"))terms.push("d.name ILIKE "+ix);
           if(terms.length)where.push("("+terms.join(" OR ")+")");
@@ -162,7 +171,7 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
       const dealerExpr=dcCols.has("dealer_name")&&dealerCols.has("name") ? "COALESCE(NULLIF(dc.dealer_name,''),d.name)" : (dealerCols.has("name")&&dcCols.has("dealer_id")?"d.name":"''");
       const joinDealer=dcCols.has("dealer_id")&&dealerCols.has("id")?" LEFT JOIN dealer d ON d.id=dc.dealer_id":"";
       const invoiceExpr=invoiceCols.has("delivery_challan_id") ? "EXISTS (SELECT 1 FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id AND "+(invoiceCols.has("cancelled")?"COALESCE(ti.cancelled,false)=false":"TRUE")+") AS invoiced,(SELECT ti.bill_no FROM tax_invoice ti WHERE ti.delivery_challan_id=dc.id ORDER BY ti.id DESC LIMIT 1) AS bill_no" : "false AS invoiced,'' AS bill_no";
-      const bmExpr=vehicleCols.has("battery_maker")&&dcCols.has("vehicle_id")?"COALESCE(NULLIF(v.battery_maker,''),'')":"''";const joinVeh=vehicleCols.has("battery_maker")&&dcCols.has("vehicle_id")?" LEFT JOIN vehicle v ON v.id=dc.vehicle_id":"";const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,"+bmExpr+" AS battery_maker,"+invoiceExpr+" FROM delivery_challan dc"+joinDealer+joinVeh+whereSql+" ORDER BY "+(dcCols.has("date")?"dc.date DESC,dc.id DESC":"dc.id DESC")+" LIMIT "+per+" OFFSET "+((page-1)*per),args);
+      const vehBm=vehicleCols.has("battery_maker")&&dcCols.has("vehicle_id");const bmExpr="COALESCE("+(vehBm?"NULLIF(v.battery_maker,''),":"")+"NULLIF(to_jsonb(dc)->>'battery_maker',''),'')";const joinVeh=vehBm?" LEFT JOIN vehicle v ON v.id=dc.vehicle_id":"";const rows=await pool.query("SELECT dc.*,"+dealerExpr+" AS dealer_name,"+bmExpr+" AS battery_maker,"+invoiceExpr+" FROM delivery_challan dc"+joinDealer+joinVeh+whereSql+" ORDER BY "+(dcCols.has("date")?"dc.date DESC,dc.id DESC":"dc.id DESC")+" LIMIT "+per+" OFFSET "+((page-1)*per),args);
       const stageCol=vehicleCols.has("stage");
       await ensureProductionVoucherSchema();try{await ensureProductionFormulaSchema()}catch(e){console.error("[dc formula schema]",e)}
       const availSql="SELECT v.*,"+formulaNameSql("pvl","v.model_name")+" AS formula_name FROM vehicle v LEFT JOIN LATERAL (SELECT p.formula_name FROM production_voucher p WHERE lower(btrim(p.chassis_no))=lower(btrim(v.chassis_no)) ORDER BY p.id DESC LIMIT 1) pvl ON true WHERE "+(stageCol?"v.stage":"COALESCE(to_jsonb(v)->>'stage','')")+"='Manufacturing' ORDER BY v.id DESC LIMIT 2000";

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 import { ErrorBanner, Field, EmptyState } from './ui';
 import { formatDate } from '../lib/date';
+import { ManualChallanSection, ManualChallanPreview } from './ManualChallanSection';
 
 // Old Rickshaw Challan Voucher (Factory).
 // GRD Old Rickshaw Inventory ki "Available for Sale" gaadi se, Dealer ke naam voucher banta hai.
@@ -22,6 +23,8 @@ export function OldRickshawChallanVoucherPage() {
   const [form, setForm] = useState(blank());
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('');
+  const [slip, setSlip] = useState(null);
+  const [pick, setPick] = useState(false), [manualSignal, setManualSignal] = useState(0);
 
   const load = async () => {
     try { setError(''); setData(await get('/factory/old-rickshaw-challans')); }
@@ -80,23 +83,39 @@ export function OldRickshawChallanVoucherPage() {
         </div>
         <div className="actions">
           <span className="muted">Voucher pending: <b>{vehicles.length}</b></span>
-          <button className="btn primary" onClick={openForm} disabled={!vehicles.length}>+ New Voucher</button>
+          <button className="btn primary" onClick={() => setPick(true)}>+ New Voucher</button>
         </div>
       </div>
     </div>
     {!open && <ErrorBanner message={error} />}
     {notice && <div className="muted" style={{ margin: '0 0 10px', fontWeight: 700, color: '#15803d' }}>{notice}</div>}
-    {!vehicles.length && <div className="muted" style={{ margin: '0 0 10px' }}>Voucher ke liye koi Available for Sale gaadi nahi hai (Inventory me pehle Available for Sale karein).</div>}
+    <ManualChallanSection openSignal={manualSignal} />
 
     {!rows.length ? <EmptyState text="Abhi koi Old Rickshaw Challan Voucher nahi bana." /> :
       <div className="card"><div className="tablewrap"><table className="table">
-        <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Salesman</th><th>Vehicle No.</th><th>Chassis</th><th>Battery</th><th>Charger</th><th>Ledger Date</th><th>Status</th></tr></thead>
+        <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Salesman</th><th>Vehicle No.</th><th>Chassis</th><th>Battery</th><th>Charger</th><th>Ledger Date</th><th>Status</th><th></th></tr></thead>
         <tbody>{rows.map(c => <tr key={c.id}>
           <td>{formatDate(c.date)}</td><td><b>{c.challan_no}</b></td><td>{c.dealer_name || '—'}</td><td>{c.salesman || '—'}</td>
           <td>{c.vehicle_no || '—'}</td><td>{c.chassis_no || '—'}</td><td>{c.battery_name || '—'}</td><td>{c.charger || '—'}</td>
           <td>{c.ledger_date ? formatDate(c.ledger_date) : '—'}</td><td>{c.status}</td>
+          <td><button className="btn" onClick={() => setSlip({ sno: c.challan_no, date: c.date, dealer_name: c.dealer_name, chassis_no: c.chassis_no, vehicle_no: c.vehicle_no, model_name: c.model_name, toolkit: c.toolkit_yn === 'YES' ? 'OK' : 'NO', keys: '', charger: c.charger, colour: c.colour_yn === 'YES' ? 'OK' : c.colour_yn === 'NO' ? 'NO' : (c.colour || ''), mat: c.mat_yn === 'YES' ? 'OK' : 'NO', stepney: c.stepney_yn === 'YES' ? 'OK' : 'NO', battery: c.battery_name, extra_items: ['Jack ' + (c.jack_yn === 'YES' ? 'OK' : 'NO'), 'Centre Lock ' + (c.centre_lock_yn === 'YES' ? 'OK' : 'NO'), 'Big Mirror ' + (c.big_mirror_yn === 'YES' ? 'OK' : 'NO')].join(', ') })}>Preview / Print</button></td>
         </tr>)}</tbody>
       </table></div></div>}
+
+    {pick && <div className="modal" onMouseDown={e => { if (e.target === e.currentTarget) setPick(false); }}><div className="modalbox" style={{ maxWidth: 520 }}>
+      <h2 style={{ marginTop: 0 }}>New Voucher — kaunsa banana hai?</h2>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <button className="btn primary" style={{ padding: 14, textAlign: 'left' }} onClick={() => { setPick(false); setManualSignal(n => n + 1); }}>
+          <b>New Rickshaw — Manual Challan (Factory Slip)</b><br /><span style={{ fontWeight: 400 }}>Haath wale slip jaisa form, Preview / Print ke saath. Inventory ki zarurat nahi.</span>
+        </button>
+        <button className="btn" style={{ padding: 14, textAlign: 'left' }} disabled={!vehicles.length} onClick={() => { setPick(false); openForm(); }}>
+          <b>Old Rickshaw Challan Voucher</b><br /><span style={{ fontWeight: 400 }}>{vehicles.length ? 'Available for Sale gaadi ' + vehicles.length + ' hai — Dealer ke naam voucher.' : 'Abhi koi Available for Sale gaadi nahi hai (Inventory me pehle Available for Sale karein).'}</span>
+        </button>
+      </div>
+      <div className="actions" style={{ marginTop: 14, justifyContent: 'flex-end' }}><button className="btn" onClick={() => setPick(false)}>Close</button></div>
+    </div></div>}
+
+    {slip && <ManualChallanPreview c={slip} company={{}} onClose={() => setSlip(null)} />}
 
     {open && <div className="modal"><form className="modalbox" onSubmit={save}>
       <h2>Old Rickshaw Challan Voucher</h2><ErrorBanner message={error} />

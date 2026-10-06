@@ -1,118 +1,129 @@
 'use client';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { get, post, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
+import { CreatePendingSale } from './BillingPendingSalesPage';
+import { Overlay } from './PrintDocs';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+// Old Rickshaw ka read-only Detail + Print (Overlay ka Print / Download PDF button browser print dialog kholta hai).
+function OldRickshawDetailView({ row: r, info: i, onClose }) {
+  const sale = r._sale || {};
+  const v = x => (x === undefined || x === null || String(x).trim() === '' ? '—' : String(x));
+  const inr = n => '\u20b9' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const batt = [r.battery_no1, r.battery_no2, r.battery_no3, r.battery_no4].map(x => String(x ?? '').trim()).filter(x => x && x !== '0').join(', ');
+  const Sec = ({ title, rows }) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ background: '#e5e7eb', color: '#111', fontWeight: 700, padding: '4px 8px', fontSize: 12, border: '1px solid #000' }}>{title}</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, color: '#000' }}><tbody>
+        {rows.map((pair, k) => <tr key={k}>{pair.map(([l, val], j) => <React.Fragment key={j}>
+          <td style={{ border: '1px solid #000', padding: '4px 8px', width: '17%', fontWeight: 600, background: '#f8fafc' }}>{l}</td>
+          <td style={{ border: '1px solid #000', padding: '4px 8px', width: '33%' }}>{val}</td></React.Fragment>)}</tr>)}
+      </tbody></table>
+    </div>);
+  return (
+    <Overlay onClose={onClose} title="Old Rickshaw Detail">
+      <div style={{ color: '#000', background: '#fff', padding: 16, fontFamily: 'Arial, sans-serif' }}>
+        <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: 8, marginBottom: 12 }}>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>G.R.D. MOTORS</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>OLD RICKSHAW — DETAIL</div>
+        </div>
+        <Sec title="VEHICLE" rows={[
+          [['SP No.', v(r.sp_no)], ['Factory S. No.', v(r.vou_no)]],
+          [['Vehicle No.', v(r.vehicle_reg_no)], ['Chassis No.', v(r.chassis_no)]],
+          [['Model', v(r.model_name)], ['Status', v(r.status)]],
+          [['Date', v(formatDate(r.date))], ['Dealer', v(r.dealer_name)]],
+          [['Battery Make', v(r.battery_maker)], ['Battery No.', v(batt)]],
+        ]} />
+        <Sec title="SALE" rows={[
+          [['Customer', v(i.customer)], ['Sale Date', v((r.sale_date || r.resale_date) ? formatDate(r.sale_date || r.resale_date) : '')]],
+          [['Sale Value', inr(i.sale)], ['Loan', inr(i.loan)]],
+          [['Received', inr(i.received)], ['Balance', inr(i.balance)]],
+          [['Ledger No.', v(i.ledger)], ['Ledger Date', v(r.ledger_date ? formatDate(r.ledger_date) : '')]],
+          [['DO No.', v(r.do_number)], ['Sale Status', v(sale.status)]],
+        ]} />
+        <Sec title="ACCESSORIES" rows={[
+          [['Charger', v(r.charger)], ['Mat', v(r.mat)]],
+          [['Jack', v(r.jack)], ['Centre Lock', v(r.centre_lock)]],
+          [['Big Mirror', v(r.big_mirror)], ['Toolkit', v(r.toolkit)]],
+          [['Stepney', v(r.stepney)], ['Colour', v(r.colour)]],
+        ]} />
+        {(r.remarks1 || r.remarks2) && <div style={{ fontSize: 12, marginBottom: 14 }}><b>Remarks:</b> {[r.remarks1, r.remarks2].filter(Boolean).join(' | ')}</div>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 50, fontSize: 12 }}>
+          <div style={{ borderTop: '1px solid #000', paddingTop: 3, width: 160, textAlign: 'center' }}>Customer Signature</div>
+          <div style={{ borderTop: '1px solid #000', paddingTop: 3, width: 160, textAlign: 'center' }}>For G.R.D. Motors</div>
+        </div>
+      </div>
+    </Overlay>
+  );
+}
+
 export function OldRickshawPage() {
   const [data,setData]=useState(null),[dealers,setDealers]=useState([]);
-  const [open,setOpen]=useState(false),[saleOpen,setSaleOpen]=useState(false),[saleRow,setSaleRow]=useState(null);
+  const [open,setOpen]=useState(false),[full,setFull]=useState(false),[pendingOpen,setPendingOpen]=useState(false),[filter,setFilter]=useState(''),[saleSheet,setSaleSheet]=useState(null),[canApprove,setCanApprove]=useState(false),[sales,setSales]=useState({}),[detailRow,setDetailRow]=useState(null);
   const emptyForm={date:today(),source:'manual',record_no:'',vou_no:'',chfpl_ref_no:'',party_name:'',purchase_ref_no:'',
     vehicle_reg_no:'',model_name:'',owner_name:'',salesman:'',purchase_amount:'',file_charge:'',
     battery_maker:'',battery_no1:'',battery_no2:'',battery_no3:'',battery_no4:'',sp_no:'',dealer_page_no:'',
     dealer_id:'',challan_no:'',ledger_date:'',sale_type:'',do_number:'',chassis_no:'',charger:'',mat:'',jack:'',
     centre_lock:'',big_mirror:'',colour:'',toolkit:'',stepney:'',out_name:'',remarks1:'',remarks2:''};
-  const emptySale={sale_date:today(),dealer_id:'',sale_amount:'',file_charge:'',loan_amount:'',down_payment:'',
-    dealer_page_no:'',sp_no:'',sale_ref_no:'',sale_type:'',do_number:'',out_name:'',receipt_amount:'',
-    receipt_no:'',ledger:'',resale_date:'',resale_ledger:''};
-  const [form,setForm]=useState(emptyForm),[sale,setSale]=useState(emptySale);
+  const [form,setForm]=useState(emptyForm);
   const {busy,error,setError,run}=useAsyncAction();
 
-  const load=()=>get('/old-rickshaws').then(setData).catch(e=>setError(e.message));
+  const load=()=>{
+    get('/old-rickshaws').then(setData).catch(e=>setError(e.message));
+    // Pending / Approved sales se customer, sale value, loan, ledger (billing access na ho to register ka apna data dikhega).
+    get('/billing/pending-sales').then(l=>{const m={};(l.applications||[]).forEach(x=>{if(x.old_rickshaw_id)m[String(x.old_rickshaw_id)]=x});setSales(m)}).catch(()=>setSales({}));
+  };
   useEffect(()=>{load();get('/dealers').then(d=>setDealers(d.dealers||[])).catch(()=>{});},[]);
 
   const openNew=()=>{setForm({...emptyForm,date:today(),record_no:data?.suggested_record_no||'',vou_no:data?.suggested_vou_no||''});setOpen(true);};
   const save=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaws',form);setOpen(false);load();});};
-  const openSale=r=>{setSaleRow(r);setSale({...emptySale,sale_date:today(),sale_amount:r.sale_amount||r.purchase_amount||'',file_charge:r.file_charge||'',dealer_page_no:r.dealer_page_no||'',sp_no:r.sp_no||'',receipt_amount:r.receipt_amount||'',receipt_no:r.receipt_no||'',ledger:r.ledger||'',resale_date:r.resale_date||'',resale_ledger:r.resale_ledger||'',sale_type:r.sale_type||'',do_number:r.do_number||'',out_name:r.out_name||''});setSaleOpen(true);};
-  const saveSale=e=>{e.preventDefault();run(async()=>{await post('/old-rickshaws/sale',{...sale,id:saleRow.id});setSaleOpen(false);setSaleRow(null);load();});};
-  const remove=id=>{if(!confirm('Delete this record?'))return;run(async()=>{await del('/old-rickshaws/'+id);load();});};
+
+  // Vehicle par click: active sale (pending/approved) ho to Edit form, sold ho (sale complete/billed) to Detail + Print,
+  // warna naya Sale form (vehicle pehle se chuni hui).
+  const openVehicle=r=>{run(async()=>{
+    let sale=null,can=false;
+    try{const l=await get('/billing/pending-sales');can=Boolean(l.can_approve);sale=(l.applications||[]).find(x=>String(x.old_rickshaw_id)===String(r.id))||null;}catch(e){if(String(r.status).toLowerCase()!=='sold')throw e;}
+    if(sale){setCanApprove(can);setSaleSheet({mode:'edit',sale});return;}
+    if(String(r.status).toLowerCase()==='sold'){setDetailRow({...r,_sale:null});return;}
+    setSaleSheet({mode:'create',row:r});
+  }).catch(()=>{});};
+
+  const num=v=>Number(v)||0;
+  const info=r=>{const x=sales[String(r.id)];
+    if(x){const sv=num(x.sale_amount),ln=num(x.hypothecation_amount),rc=num(x.amount_received);
+      return {customer:x.customer_name||'',sale:sv,loan:ln,received:rc,ledger:x.ledger_no||r.ledger_no||r.ledger||'',balance:Math.max(0,sv-ln-rc)}}
+    return {customer:r.customer_name||r.out_name||r.sold_to||'',sale:num(r.sale_amount||r.sold_amount),loan:num(r.loan_amount),received:num(r.receipt_amount),ledger:r.ledger_no||r.ledger||'',balance:num(r.balance_amount)};};
+  const isSold=r=>String(r.status||'').toLowerCase()==='sold';
+  const hasBal=r=>info(r).balance>0;
+  const counts={sold:data?data.records.filter(isSold).length:0,unsold:data?data.records.filter(r=>!isSold(r)).length:0,balance:data?data.records.filter(hasBal).length:0};
+  const shownRows=!data?[]:data.records.filter(r=>filter==='sold'?isSold(r):filter==='unsold'?!isSold(r):filter==='balance'?hasBal(r):true);
 
   if(!data)return <div className="card">Loading…</div>;
   return <>
     <div className="actions" style={{marginBottom:14}}>
-      <button className="btn primary" onClick={openNew}>+ Purchase / Available Old Rickshaw</button>
-      <span className="muted" style={{alignSelf:'center'}}>Old Rickshaw register: Excel/legacy fields are available for both opening and sale entries.</span>
+      <button className="btn primary" onClick={()=>setPendingOpen(true)}>+ Create Pending Sale</button>
+      {[['sold','Sold'],['unsold','Unsold'],['balance','Balance']].map(([k,l])=><button key={k} className={'btn '+(filter===k?'primary':'')} onClick={()=>setFilter(filter===k?'':k)}>{l} ({counts[k]})</button>)}
+      <button className="btn" onClick={()=>setFull(v=>!v)}>{full?'Hide Full Detail':'Show Full Detail'}</button>
     </div>
-    <ErrorBanner message={!open&&!saleOpen?error:''}/>
-    {data.records.length===0?<EmptyState text="No Old Rickshaw currently available in GRD stock."/>:
+    <ErrorBanner message={!pendingOpen&&!saleSheet?error:''}/>
+    {shownRows.length===0?<EmptyState text={filter?'Is filter me koi Old Rickshaw nahi hai.':'No Old Rickshaw currently available in GRD stock.'}/>:
       <div className="tablewrap"><table className="table"><thead><tr>
-        <th>Record No.</th><th>Date</th><th>Ledger Date</th><th>Vou. No.</th><th>Status</th><th>Source</th><th>Dealer</th><th>Reg. No.</th><th>Owner</th><th>Model</th><th>Sales Man</th><th>Sale Type</th><th>DO No.</th><th>Chassis No.</th><th>Battery</th><th>Colour</th><th>Purchase Amt.</th><th>Sale Value</th><th>Loan Amt.</th><th>Received</th><th>Balance</th><th>SP No.</th><th>Out Name</th><th>Action</th>
-      </tr></thead><tbody>{data.records.map(r=><tr key={r.id}>
-        <td>{r.record_no}</td><td>{formatDate(r.date)}</td><td>{r.ledger_date?formatDate(r.ledger_date):'—'}</td><td>{r.vou_no||'—'}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td><td>{r.dealer_name||'—'}</td>
-        <td><b>{r.vehicle_reg_no||'—'}</b></td><td>{r.owner_name||'—'}</td><td>{r.model_name||'—'}</td><td>{r.salesman||'—'}</td><td>{r.sale_type||'—'}</td><td>{r.do_number||'—'}</td><td>{r.chassis_no||'—'}</td>
-        <td>{r.has_battery?'Yes':'No'}</td><td>{r.colour||'—'}</td><td><Money value={r.purchase_amount}/></td><td><b><Money value={r.sale_amount||r.sold_amount}/></b></td><td><Money value={r.loan_amount}/></td><td><Money value={r.receipt_amount}/></td><td><Money value={r.balance_amount}/></td><td>{r.sp_no||'—'}</td><td>{r.out_name||r.sold_to||'—'}</td>
-        <td>{r.status==='available'&&<button className="btn primary" onClick={()=>openSale(r)}>Sale to Dealer</button>} <button className="btn danger" onClick={()=>remove(r.id)}>Delete</button></td>
+        <th>SP No.</th><th>Factory S. No.</th><th>Date</th><th>Dealer</th><th>Vehicle No.</th><th>Battery Make</th><th>Customer Name</th><th>Sale Value</th><th>Loan</th><th>Ledger No.</th><th>Balance</th><th className="noprint">Detail</th>
+        {full&&<><th>Chassis No.</th><th>Status</th><th>Source</th><th>Ledger Date</th><th>Vou. No.</th><th>Model</th><th>DO No.</th><th>Battery</th><th>Charger</th><th>Mat</th><th>Jack</th><th>Centre Lock</th><th>Big Mirror</th><th>Toolkit</th><th>Stepney</th><th>Sale Date</th><th>Received</th></>}
+      </tr></thead><tbody>{shownRows.map(r=><tr key={r.id}>
+        <td><b>{r.sp_no||'—'}</b></td><td>{r.vou_no||'—'}</td><td>{formatDate(r.date)}</td><td>{r.dealer_name||'—'}</td><td><b style={{cursor:'pointer',textDecoration:'underline'}} title={isSold(r)?'Sale edit karo':'Sale form kholo'} onClick={()=>openVehicle(r)}>{r.vehicle_reg_no||'—'}</b></td><td>{r.battery_maker||'—'}</td>{(()=>{const i=info(r);return <><td>{i.customer||'—'}</td><td><b><Money value={i.sale}/></b></td><td><Money value={i.loan}/></td><td>{i.ledger||'—'}</td><td><b><Money value={i.balance}/></b></td><td><button className="btn" onClick={()=>setDetailRow({...r,_sale:sales[String(r.id)]||null})}>🖨 View</button></td></>})()}
+        {full&&<><td>{r.chassis_no||'—'}</td><td>{r.status}</td><td>{r.source==='chfpl'?'CHFPL':'Manual'}</td><td>{r.ledger_date?formatDate(r.ledger_date):'—'}</td><td>{r.vou_no||'—'}</td><td>{r.model_name||'—'}</td><td>{r.do_number||'—'}</td><td>{r.has_battery?'Yes':'No'}</td>
+          <td>{r.charger||'—'}</td><td>{r.mat||'—'}</td><td>{r.jack||'—'}</td><td>{r.centre_lock||'—'}</td><td>{r.big_mirror||'—'}</td><td>{r.toolkit||'—'}</td><td>{r.stepney||'—'}</td>
+          <td>{(r.sale_date||r.resale_date)?formatDate(r.sale_date||r.resale_date):'—'}</td><td><Money value={info(r).received}/></td></>}
       </tr>)}</tbody></table></div>}
 
-    {open&&<div className="modal"><form className="modalbox" onSubmit={save}>
-      <h2>Old Rickshaw Purchase / Excel Register Entry</h2><ErrorBanner message={error}/>
-      <div className="formgrid">
-        <Field label="Record No." value={form.record_no} onChange={v=>setForm({...form,record_no:v})}/>
-        <Field label="Vou. No." value={form.vou_no} onChange={v=>setForm({...form,vou_no:v})}/>
-        <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-        <Field label="Ledger Date" type="date" value={form.ledger_date} onChange={v=>setForm({...form,ledger_date:v})}/>
-        <Field label="Purchase Source" type="select" value={form.source} options={[{value:'manual',label:'Manual Purchase'},{value:'chfpl',label:'CHFPL Available for Sale'}]} onChange={v=>setForm({...form,source:v})}/>
-
-        <Field label="Dealer" type="select" value={form.dealer_id} options={[{value:'',label:'Select Dealer'},...dealers.map(d=>({value:d.id,label:d.name}))]} onChange={v=>setForm({...form,dealer_id:Number(v)})}/>        <Field label="CHFPL / Purchase Ref No." value={form.chfpl_ref_no||form.purchase_ref_no||''} onChange={v=>setForm({...form,chfpl_ref_no:v,purchase_ref_no:v})}/>
-        <Field label="Party Name" value={form.party_name} onChange={v=>setForm({...form,party_name:v})}/>
-        <Field label="Vehicle Reg. No." value={form.vehicle_reg_no} onChange={v=>setForm({...form,vehicle_reg_no:v})} required/>
-        <Field label="Chassis No." value={form.chassis_no} onChange={v=>setForm({...form,chassis_no:v})}/>
-        <Field label="Model Name" value={form.model_name} onChange={v=>setForm({...form,model_name:v})}/>
-        <Field label="Previous Owner" value={form.owner_name} onChange={v=>setForm({...form,owner_name:v})}/>
-        <Field label="Sales Man" value={form.salesman} onChange={v=>setForm({...form,salesman:v})}/>
-        <Field label="Challan No." value={form.challan_no} onChange={v=>setForm({...form,challan_no:v})}/>
-        <Field label="Sale Type" type="select" value={form.sale_type} options={[{value:'cash',label:'Cash'},{value:'finance',label:'Finance'}]} onChange={v=>setForm({...form,sale_type:v})}/>
-        <Field label="DO Number" value={form.do_number} onChange={v=>setForm({...form,do_number:v})}/>
-        <Field label="Purchase Amount" type="number" value={form.purchase_amount} onChange={v=>setForm({...form,purchase_amount:v})}/>
-        <Field label="File Charge" type="number" value={form.file_charge} onChange={v=>setForm({...form,file_charge:v})}/>
-        <Field label="Battery Maker / Name" value={form.battery_maker} onChange={v=>setForm({...form,battery_maker:v})}/>
-        <Field label="Battery No. 1" value={form.battery_no1} onChange={v=>setForm({...form,battery_no1:v})}/>
-        <Field label="Battery No. 2" value={form.battery_no2} onChange={v=>setForm({...form,battery_no2:v})}/>
-        <Field label="Battery No. 3" value={form.battery_no3} onChange={v=>setForm({...form,battery_no3:v})}/>
-        <Field label="Battery No. 4" value={form.battery_no4} onChange={v=>setForm({...form,battery_no4:v})}/>
-        <Field label="Charger" value={form.charger} onChange={v=>setForm({...form,charger:v})}/>
-        <Field label="Mat" value={form.mat} onChange={v=>setForm({...form,mat:v})}/>
-        <Field label="Jack" value={form.jack} onChange={v=>setForm({...form,jack:v})}/>
-        <Field label="Centre Lock" value={form.centre_lock} onChange={v=>setForm({...form,centre_lock:v})}/>
-        <Field label="Big Mirror" value={form.big_mirror} onChange={v=>setForm({...form,big_mirror:v})}/>
-        <Field label="Colour" value={form.colour} onChange={v=>setForm({...form,colour:v})}/>
-        <Field label="Toolkit" value={form.toolkit} onChange={v=>setForm({...form,toolkit:v})}/>
-        <Field label="Stepney" value={form.stepney} onChange={v=>setForm({...form,stepney:v})}/>
-        <Field label="SP No. (Old Register)" value={form.sp_no} onChange={v=>setForm({...form,sp_no:v})}/>
-        <Field label="Dealer Page No." value={form.dealer_page_no} onChange={v=>setForm({...form,dealer_page_no:v})}/>
-        <Field label="Out Name" value={form.out_name} onChange={v=>setForm({...form,out_name:v})}/>
-        <Field label="Remarks 1" value={form.remarks1} onChange={v=>setForm({...form,remarks1:v})}/>
-        <Field label="Remarks 2" value={form.remarks2} onChange={v=>setForm({...form,remarks2:v})}/>
-      </div>
-      <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save'}</button></div>
-    </form></div>}
-
-    {saleOpen&&<div className="modal"><form className="modalbox" onSubmit={saveSale}>
-      <h2>Old Rickshaw Sale — No Tax Invoice</h2><ErrorBanner message={error}/>
-      <p className="muted">This sale updates dealer stock. No Tax Invoice is generated.</p>
-      <div className="formgrid">
-        <Field label="Sale Date" type="date" value={sale.sale_date} onChange={v=>setSale({...sale,sale_date:v})}/>
-        <Field label="Dealer" type="select" value={sale.dealer_id} options={dealers.map(d=>({value:d.id,label:d.name}))} onChange={v=>setSale({...sale,dealer_id:Number(v)})} required/>
-        <Field label="Sale Value" type="number" value={sale.sale_amount} onChange={v=>setSale({...sale,sale_amount:v})}/>
-        <Field label="Sale Type" type="select" value={sale.sale_type} options={[{value:'cash',label:'Cash'},{value:'finance',label:'Finance'}]} onChange={v=>setSale({...sale,sale_type:v})}/>
-        <Field label="Loan Amount" type="number" value={sale.loan_amount} onChange={v=>setSale({...sale,loan_amount:v})}/>
-        <Field label="Down Payment" type="number" value={sale.down_payment} onChange={v=>setSale({...sale,down_payment:v})}/>
-        <Field label="File Charge" type="number" value={sale.file_charge} onChange={v=>setSale({...sale,file_charge:v})}/>
-        <Field label="Dealer Page No." value={sale.dealer_page_no} onChange={v=>setSale({...sale,dealer_page_no:v})}/>
-        <Field label="SP No. (Old Register)" value={sale.sp_no} onChange={v=>setSale({...sale,sp_no:v})}/>
-        <Field label="Sale Ref No." value={sale.sale_ref_no} onChange={v=>setSale({...sale,sale_ref_no:v})}/>
-        <Field label="DO Number" value={sale.do_number} onChange={v=>setSale({...sale,do_number:v})}/>
-        <Field label="Out Name" value={sale.out_name} onChange={v=>setSale({...sale,out_name:v})}/>
-        <Field label="Receipt Amount" type="number" value={sale.receipt_amount} onChange={v=>setSale({...sale,receipt_amount:v})}/>
-        <Field label="Receipt No." value={sale.receipt_no} onChange={v=>setSale({...sale,receipt_no:v})}/>
-        <Field label="Ledger" value={sale.ledger} onChange={v=>setSale({...sale,ledger:v})}/>
-        <Field label="Resale Date" type="date" value={sale.resale_date} onChange={v=>setSale({...sale,resale_date:v})}/>
-        <Field label="Resale Ledger" value={sale.resale_ledger} onChange={v=>setSale({...sale,resale_ledger:v})}/>
-      </div>
-      <div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setSaleOpen(false)}>Cancel</button><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save Sale'}</button></div>
-    </form></div>}
+    {detailRow&&<OldRickshawDetailView row={detailRow} info={info(detailRow)} onClose={()=>setDetailRow(null)}/>}
+    {pendingOpen&&<CreatePendingSale initialKind="OLD" onClose={()=>setPendingOpen(false)} onSaved={()=>{setPendingOpen(false);load()}}/>}
+    {saleSheet?.mode==='create'&&<CreatePendingSale initialKind="OLD" prefill={{dealer_id:saleSheet.row.dealer_id,old_rickshaw_id:saleSheet.row.id}} onClose={()=>setSaleSheet(null)} onSaved={()=>{setSaleSheet(null);load()}}/>}
+    {saleSheet?.mode==='edit'&&<CreatePendingSale key={saleSheet.sale.id} sale={saleSheet.sale} mode="edit" canPickFinancer={canApprove} canEditApproved={canApprove&&saleSheet.sale.status==='APPROVED'} onClose={()=>setSaleSheet(null)} onSaved={()=>{setSaleSheet(null);load()}}/>}
   </>;
 }
 

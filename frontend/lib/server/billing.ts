@@ -2,6 +2,7 @@
 // Endpoints: billing/pending-sales*, billing/vehicle-inventory*, dealer/pending-sales*.
 // ensureBillingSalesSchema / upsertBillingCustomer dusre modules (tax-invoice, delivery-challan, cashbook) bhi use karte hain, isliye export hain.
 import { addColumns, columns, idOf, json, num, pool } from "./common";
+import { healManualChallanStock } from "./manual-challan";
 import { actionAllowed, billingStaff } from "./permissions";
 import { enrichCashCustomers, ensureDealerCashSchema } from "./dealer-cashbook";
 import { ensureTaxInvoiceRecordColumns } from "./reports-sales";
@@ -145,6 +146,17 @@ export async function billingGet(req:Request,path:string[],a:any,deps:BillingDep
               AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.vehicle_id=dc.vehicle_id AND s.status IN ('PENDING','APPROVED','BILLED'))
             ORDER BY dc.date DESC,dc.id DESC LIMIT 1000`,[did]);
           return Response.json({vehicles:vr.rows,can_approve:billingStaff(a)});
+        }
+        if(part==="old_rickshaws"){
+          // Dealer ke Old Rickshaw stock me wahi gaadi jiska Challan Voucher dealer ke naam ban chuka hai, available hai aur jis par Pending/Approved sale nahi.
+          await ensureBillingSalesSchema();await deps.ensureOldRickshawLegacySchema();
+          await healManualChallanStock(did).catch(()=>{});
+          const orr=await pool.query(`SELECT o.id,o.vehicle_reg_no,o.model_name,o.colour,o.chassis_no,o.challan_no,o.sp_no,o.date
+            FROM old_rickshaw o
+            WHERE o.dealer_id=$1 AND LOWER(COALESCE(o.status,''))='available'
+              AND NOT EXISTS (SELECT 1 FROM grd_billing_sale s WHERE s.old_rickshaw_id=o.id AND s.status IN ('PENDING','APPROVED'))
+            ORDER BY o.date DESC NULLS LAST,o.id DESC LIMIT 1000`,[did]);
+          return Response.json({rickshaws:orr.rows,can_approve:billingStaff(a)});
         }
         if(part==="customers"){
           await ensureBillingSalesSchema();await ensureDealerCashSchema();
