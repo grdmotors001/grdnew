@@ -37,6 +37,39 @@ export function ensureChallanShiftSchema():Promise<void>{
   }
   return challanShiftSchemaReady;
 }
+
+// ---- Delivery Challan Register speed helpers ----
+// Register query tax_invoice / production_voucher / production_formula par lookup karti hai; indexes na hone se full scan hota tha.
+let registerIndexesReady:Promise<void>|null=null;
+export function ensureRegisterIndexes():Promise<void>{
+  if(!registerIndexesReady){
+    registerIndexesReady=(async()=>{
+      const stmts=[
+        "CREATE INDEX IF NOT EXISTS tax_invoice_dc_idx ON tax_invoice(delivery_challan_id,id DESC)",
+        "CREATE INDEX IF NOT EXISTS production_voucher_chassis_idx ON production_voucher(lower(btrim(chassis_no)),id DESC)",
+        "CREATE INDEX IF NOT EXISTS production_formula_prod_idx ON production_formula(lower(btrim(product_name)))",
+        "CREATE INDEX IF NOT EXISTS delivery_challan_date_idx ON delivery_challan(date DESC,id DESC)",
+        "CREATE INDEX IF NOT EXISTS delivery_challan_vehicle_idx ON delivery_challan(vehicle_id)",
+        "CREATE INDEX IF NOT EXISTS delivery_challan_dealer_idx ON delivery_challan(dealer_id)",
+      ];
+      for(const q of stmts){try{await pool.query(q)}catch(e){console.error("[register index]",q,e)}}
+    })();
+  }
+  return registerIndexesReady;
+}
+let registerFilterCache:{t:number,v:any}|null=null;
+async function registerFilterLists(){
+  if(registerFilterCache&&Date.now()-registerFilterCache.t<60000)return registerFilterCache.v;
+  const live="COALESCE(dc.cancelled,false)=false";
+  const pr=await pool.query("SELECT DISTINCT btrim(COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name)) AS n FROM delivery_challan dc LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE "+live);
+  const dl=await pool.query("SELECT DISTINCT d.id,d.name FROM delivery_challan dc JOIN dealer d ON d.id=dc.dealer_id WHERE "+live+" ORDER BY d.name");
+  const sm=await pool.query("SELECT DISTINCT btrim(to_jsonb(dc)->>'salesman') AS n FROM delivery_challan dc WHERE "+live);
+  const bt=await pool.query("SELECT DISTINCT btrim(COALESCE(NULLIF(v.battery_maker,''),to_jsonb(dc)->>'battery_maker','')) AS n FROM delivery_challan dc LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE "+live);
+  const names=(r:any)=>r.rows.map((x:any)=>String(x.n||"").trim()).filter(Boolean).sort();
+  const v={product:names(pr),dealer:dl.rows.map((x:any)=>({id:x.id,name:x.name})),salesman:names(sm),battery:names(bt)};
+  registerFilterCache={t:Date.now(),v};
+  return v;
+}
 export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:any):Promise<Response|null>{
   const p=path.join("/");
   const {ensureBatteryFitSchema,ensureBillingSalesSchema,ensureDispatchSchema,productLogo}=deps||({} as any);
@@ -46,6 +79,7 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
     }
     if(p==="reports/delivery-challan-register"){
       await ensureBatteryFitSchema();try{await ensureBillingSalesSchema()}catch(e){console.error("[register billing schema]",e)}
+      void ensureRegisterIndexes();
       const u=new URL(req.url),args:any[]=[],w:string[]=["COALESCE(dc.cancelled,false)=false"];
       const from=u.searchParams.get("from"),to=u.searchParams.get("to"),search=String(u.searchParams.get("search")||"").trim();
       if(from){args.push(from);w.push("dc.date >= $"+args.length+"::date");}
@@ -60,22 +94,28 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
       const dealer=String(u.searchParams.get("dealer")||"ALL"),product=String(u.searchParams.get("product")||"ALL"),salesman=String(u.searchParams.get("salesman")||"ALL"),battery=String(u.searchParams.get("battery")||"ALL");
       // Sold = has a live (non-cancelled) Tax Invoice; Unsold = none. `ti` is the lateral Tax Invoice join in the query below.
       const soldStatus=String(u.searchParams.get("status")||"all").toLowerCase();
-      if(soldStatus==="sold")w.push("ti.id IS NOT NULL");else if(soldStatus==="unsold")w.push("ti.id IS NULL");
+      const tiEx="EXISTS (SELECT 1 FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false)";
+      if(soldStatus==="sold")w.push(tiEx);else if(soldStatus==="unsold")w.push("NOT "+tiEx);
       if(dealer!=="ALL"){args.push(dealer);w.push("d.id=$"+args.length);}
       if(product!=="ALL"){args.push(product);w.push("LOWER(COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name,''))=LOWER($"+args.length);}
       if(salesman!=="ALL"){args.push(salesman);w.push("LOWER(COALESCE(to_jsonb(dc)->>'salesman',''))=LOWER($"+args.length);}
       if(battery!=="ALL"){args.push(battery);w.push("LOWER(COALESCE(NULLIF(v.battery_maker,''),to_jsonb(dc)->>'battery_maker',''))=LOWER($"+args.length);}
-      const base="SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name) AS product_name,COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(to_jsonb(dc)->>'motor_no',''),v.motor_no) AS motor_no,COALESCE(NULLIF(to_jsonb(dc)->>'colour',''),v.colour) AS colour,COALESCE(to_jsonb(dc)->>'controller_no','') AS controller_no,COALESCE(to_jsonb(dc)->>'other','') AS other,COALESCE(to_jsonb(dc)->>'remarks1','') AS remarks1,COALESCE(to_jsonb(dc)->>'remarks2','') AS remarks2,COALESCE(to_jsonb(dc)->>'destination','') AS destination,COALESCE(to_jsonb(dc)->>'salesman','') AS salesman,COALESCE(NULLIF(btrim(to_jsonb(dc)->>'formula_name'),''),(SELECT "+formulaNameSql("pvx","COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name)")+" FROM (SELECT p.formula_name FROM production_voucher p WHERE lower(btrim(p.chassis_no))=lower(btrim(COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no))) ORDER BY p.id DESC LIMIT 1) pvx),'') AS formula_name,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_maker ELSE to_jsonb(dc)->>'battery_maker' END AS battery_maker,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no1 ELSE to_jsonb(dc)->>'battery_no1' END AS battery_no1,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no2 ELSE to_jsonb(dc)->>'battery_no2' END AS battery_no2,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no3 ELSE to_jsonb(dc)->>'battery_no3' END AS battery_no3,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no4 ELSE to_jsonb(dc)->>'battery_no4' END AS battery_no4,bf.old_battery_maker,bf.old_battery_no1,bf.old_battery_no2,bf.old_battery_no3,bf.old_battery_no4,bf.battery_change_date,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(dc)->>'dealer_page_no','') AS dealer_page_no,ti.bill_no,COALESCE(ti.sale_amount,0) AS sale_value FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id LEFT JOIN LATERAL (SELECT f.old_battery_maker,f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4,f.fit_date AS battery_change_date FROM battery_fit_log f WHERE f.challan_id=dc.id AND (COALESCE(f.old_battery_no1,'')<>'' OR COALESCE(f.old_battery_maker,'')<>'') AND (COALESCE(f.old_battery_maker,'')<>COALESCE(f.battery_maker,'') OR concat_ws('|',f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4)<>concat_ws('|',f.battery_no1,f.battery_no2,f.battery_no3,f.battery_no4)) ORDER BY f.id DESC LIMIT 1) bf ON true LEFT JOIN LATERAL (SELECT * FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false ORDER BY x.id DESC LIMIT 1) ti ON true";
-      const all=await pool.query(base+" WHERE "+w.join(" AND ")+" ORDER BY dc.date DESC,dc.id DESC",args);
-      const rows=all.rows.map((x:any)=>({...x,battery_name:[x.battery_maker,x.battery_no1,x.battery_no2,x.battery_no3,x.battery_no4].filter(Boolean).join(" ")}));
-      const products=[...new Set(rows.map((x:any)=>String(x.product_name||"").trim()).filter(Boolean))].sort();
-      const dealerPairs:Array<[string,{id:any,name:any}]>=rows.map((x:any)=>[String(x.dealer_id||"")+"::"+String(x.dealer_name||""),{id:x.dealer_id,name:x.dealer_name}] as [string,{id:any,name:any}]).filter((pair:[string,{id:any,name:any}])=>Boolean(pair[1].id||pair[1].name));
-      const dealers=Array.from(new Map<string,{id:any,name:any}>(dealerPairs).values()).sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
-      const salesmen=[...new Set(rows.map((x:any)=>String(x.salesman||"").trim()).filter(Boolean))].sort();
-      const batteries=[...new Set(rows.map((x:any)=>String(x.battery_maker||"").trim()).filter(Boolean))].sort();
+      const base="SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name) AS product_name,COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(to_jsonb(dc)->>'motor_no',''),v.motor_no) AS motor_no,COALESCE(NULLIF(to_jsonb(dc)->>'colour',''),v.colour) AS colour,COALESCE(to_jsonb(dc)->>'controller_no','') AS controller_no,COALESCE(to_jsonb(dc)->>'other','') AS other,COALESCE(to_jsonb(dc)->>'remarks1','') AS remarks1,COALESCE(to_jsonb(dc)->>'remarks2','') AS remarks2,COALESCE(to_jsonb(dc)->>'destination','') AS destination,COALESCE(to_jsonb(dc)->>'salesman','') AS salesman,COALESCE(NULLIF(btrim(to_jsonb(dc)->>'formula_name'),''),(SELECT "+formulaNameSql("pvx","COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name)")+" FROM (SELECT p.formula_name FROM production_voucher p WHERE lower(btrim(p.chassis_no))=lower(btrim(COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no))) ORDER BY p.id DESC LIMIT 1) pvx),'') AS formula_name,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_maker ELSE to_jsonb(dc)->>'battery_maker' END AS battery_maker,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no1 ELSE to_jsonb(dc)->>'battery_no1' END AS battery_no1,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no2 ELSE to_jsonb(dc)->>'battery_no2' END AS battery_no2,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no3 ELSE to_jsonb(dc)->>'battery_no3' END AS battery_no3,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no4 ELSE to_jsonb(dc)->>'battery_no4' END AS battery_no4,bf.old_battery_maker,bf.old_battery_no1,bf.old_battery_no2,bf.old_battery_no3,bf.old_battery_no4,bf.battery_change_date,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(dc)->>'dealer_page_no','') AS dealer_page_no,ti.bill_no,COALESCE(ti.sale_amount,0) AS sale_value FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id LEFT JOIN LATERAL (SELECT f.old_battery_maker,f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4,f.fit_date AS battery_change_date FROM battery_fit_log f WHERE f.challan_id=dc.id AND (COALESCE(f.old_battery_no1,'')<>'' OR COALESCE(f.old_battery_maker,'')<>'') AND (COALESCE(f.old_battery_maker,'')<>COALESCE(f.battery_maker,'') OR concat_ws('|',f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4)<>concat_ws('|',f.battery_no1,f.battery_no2,f.battery_no3,f.battery_no4)) ORDER BY f.id DESC LIMIT 1) bf ON true LEFT JOIN LATERAL (SELECT x.id,x.bill_no,x.sale_amount FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false ORDER BY x.id DESC LIMIT 1) ti ON true";
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||100)),start=(page-1)*per;
-      if(u.searchParams.get("export")==="csv")return csvResponse(rows,"Delivery_Challan_Register.csv");
-      return Response.json({rows:rows.slice(start,start+per),page,per_page:per,total:rows.length,total_pages:Math.max(1,Math.ceil(rows.length/per)),filters:{product:products,dealer:dealers,salesman:salesmen,battery:batteries}});
+      const isCsv=u.searchParams.get("export")==="csv";
+      // Step 1: sirf ids + count (halka query; join sirf wahi jo filter ko chahiye)
+      const joinsA=(search||dealer!=="ALL"?" LEFT JOIN dealer d ON d.id=dc.dealer_id":"")+(search||product!=="ALL"||battery!=="ALL"?" LEFT JOIN vehicle v ON v.id=dc.vehicle_id":"");
+      const idSql="SELECT dc.id,COUNT(*) OVER() AS total FROM delivery_challan dc"+joinsA+" WHERE "+w.join(" AND ")+" ORDER BY dc.date DESC,dc.id DESC"+(isCsv?"":" LIMIT "+per+" OFFSET "+start);
+      const idr=await pool.query(idSql,args);
+      let total=Number(idr.rows[0]?.total||0);
+      if(!idr.rows.length&&start>0){const c=await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc"+joinsA+" WHERE "+w.join(" AND "),args);total=Number(c.rows[0]?.n||0);}
+      // Step 2: bhaari columns (formula/battery/jsonb) sirf is page ki rows ke liye
+      const ids=idr.rows.map((x:any)=>x.id);
+      const det=ids.length?await pool.query(base+" WHERE dc.id=ANY($1::bigint[]) ORDER BY dc.date DESC,dc.id DESC",[ids]):{rows:[] as any[]};
+      const rows=det.rows.map((x:any)=>({...x,battery_name:[x.battery_maker,x.battery_no1,x.battery_no2,x.battery_no3,x.battery_no4].filter(Boolean).join(" ")}));
+      if(isCsv)return csvResponse(rows,"Delivery_Challan_Register.csv");
+      const filters=await registerFilterLists();
+      return Response.json({rows,page,per_page:per,total,total_pages:Math.max(1,Math.ceil(total/per)),filters});
     }
     if(p==="challan-shift"){
       await ensureChallanShiftSchema();

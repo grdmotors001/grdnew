@@ -121,7 +121,8 @@ export function DealerPage() {
   const filteredDealers = dealers.filter((d) => {
  const q = search.trim().toLowerCase();
  if (!q) return true;
- return [d.code, d.name, d.mobile, d.gst_no, d.login_id].join(' ').toLowerCase().includes(q);
+ const hay = [d.code, d.name, d.mobile, d.gst_no, d.login_id, d.salesman, d.state, d.category].join(' ').toLowerCase();
+ return q.split(/\s+/).filter(Boolean).every((t) => hay.includes(t));
  });
 
  const openNew = () => { setEditingId(null); setForm({ code: suggestedCode, state_code: '07', registration_type: 'registered', sub_group_name: 'Primary' }); setOpen(true); };
@@ -140,7 +141,7 @@ export function DealerPage() {
   return (
     <>
       <div className="actions" style={{ marginBottom: 14 }}>
-        <div className="actions"><input className="input" placeholder="Search dealer name, code, mobile…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 320 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}<button className="btn primary" onClick={openNew}>+ Add Dealer</button></div>
+        <div className="actions"><input className="input" placeholder="Search dealer name, code, mobile, salesman…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 320 }} />{search && <button className="btn" onClick={() => setSearch('')}>Clear</button>}<button className="btn primary" onClick={openNew}>+ Add Dealer</button></div>
       </div>
       <ErrorBanner message={!open ? error : ''} />
       {dealers.length === 0 ? <EmptyState /> : filteredDealers.length === 0 ? <EmptyState text="No dealers match your search." /> : (

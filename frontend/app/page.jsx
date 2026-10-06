@@ -159,7 +159,7 @@ function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserI
   if (CUSTOM_PAGES[rawActive] && rawActive.startsWith('v-')) return CUSTOM_PAGES[rawActive]({ setActive, optionUserId, setOptionUserId, user });
   const active = VOUCHER_PAGE_FOR[rawActive] || rawActive;
   if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
-  if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} />;
+  if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} setOptionUserId={setOptionUserId} />;
   const render = CUSTOM_PAGES[active];
   if (render) return render({ setActive, optionUserId, setOptionUserId, user });
   return <PlaceholderPage label={active} />;

@@ -188,6 +188,7 @@ export const NAV_GROUPS = {
   System: [
     ['profile', 'My Profile'], ['password', 'Password'],
     ['nav-settings', 'Menu / Tabs Settings'],
+    ['backup-restore', 'Backup / Restore'],
   ],
 };
 

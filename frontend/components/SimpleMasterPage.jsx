@@ -4,7 +4,8 @@ import { get, post, put, del } from '../lib/api';
 import { SIMPLE_MASTERS } from '../lib/menu';
 import { Field, Card, ErrorBanner, EmptyState, useAsyncAction } from './ui';
 
-export function SimpleMasterPage({ kind, setActive }) {
+export function SimpleMasterPage({ kind, setActive, setOptionUserId }) {
+  const isSalesman = kind === 'salesman';
   // Account Head Master / Party Master me "Expense Type" dropdown Expense Type Master se aata hai.
   const [etOpts, setEtOpts] = useState(null);
   useEffect(() => {
@@ -100,7 +101,7 @@ export function SimpleMasterPage({ kind, setActive }) {
         <div className="tablewrap">
           <table className="table">
             <thead>
-              <tr>{meta.fields.map(([f, l]) => <th key={f}>{l}</th>)}</tr>
+              <tr>{meta.fields.map(([f, l]) => <th key={f}>{l}</th>)}{isSalesman && <><th>Login ID</th><th>Modules</th><th></th></>}</tr>
             </thead>
             <tbody>
               {filteredRows.map((r) => (
@@ -124,6 +125,11 @@ export function SimpleMasterPage({ kind, setActive }) {
                       ) : f === typeKey ? typeLabel(r[f]) : String(r[f] ?? '')}
                     </td>
                   ))}
+                  {isSalesman && <>
+                    <td>{r.login_id || <span className="muted">No login</span>}</td>
+                    <td>{r.has_login ? `${r.modules_count} modules` : '—'}</td>
+                    <td>{r.user_id && setOptionUserId ? <button className="btn" onClick={() => { setOptionUserId(r.user_id); setActive?.('option-setting'); }}>Permissions</button> : null}</td>
+                  </>}
                 </tr>
               ))}
             </tbody>
@@ -172,6 +178,13 @@ export function SimpleMasterPage({ kind, setActive }) {
                 <Field key={f} label={l} type={type} options={options} value={form[f]} onChange={(v) => setForm({ ...form, [f]: v })} required={f === 'name'} />
               
               ))}
+              {isSalesman && <>
+                <Field label="Login ID (blank = salesman name)" value={form.login_id} onChange={(v) => setForm({ ...form, login_id: v })} />
+                <Field label={form.has_login ? 'Password (blank = keep current)' : 'Password'} type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
+                <div className="muted" style={{ gridColumn: '1 / -1', fontSize: 12 }}>
+                  Login yahin se banta hai (User Master me bhi dikhega). Module / action permissions ke liye save ke baad list me "Permissions" dabayen. Dealer access Dealer Master → Salesman se automatic judta hai.
+                </div>
+              </>}
             </div>
             {kind === 'colour' && <div className="card" style={{gridColumn:'1 / -1',padding:12}}>
                 <b>Colour Preview</b>

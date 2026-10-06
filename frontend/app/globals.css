@@ -624,3 +624,37 @@
 .dealerPerms label:hover{border-color:var(--accent)}
 .dealerPerms label:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--input-bg))}
 @media(max-width:700px){.dealerPerms{grid-template-columns:1fr}}
+
+/* ===== Midnight dark: --accent (= primary #0F172A) text-colour ke roop me dark-on-dark ho jata tha (Dealer/Party/Product Master ke naam links, chips, badges).
+   Sidebar/button backgrounds --accent par hi rehte hain; sirf text/link/border-highlight ko bright theme accent (sky blue) milta hai. ===== */
+[data-theme="midnight-dark"] [style*="color: var(--accent)"],
+[data-theme="midnight-dark"] [style*="color:var(--accent)"],
+[data-theme="midnight-dark"] .permProgress,
+[data-theme="midnight-dark"] .permGroupToggle,
+[data-theme="midnight-dark"] .permChip.on,
+[data-theme="midnight-dark"] .navOptionsCount,
+[data-theme="midnight-dark"] .navOptionsBulk button:hover,
+[data-theme="midnight-dark"] .navOptionsGroupMeta button,
+[data-theme="midnight-dark"] .dealerOldSaleKicker,
+[data-theme="midnight-dark"] .dealerOldStockKicker,
+[data-theme="midnight-dark"] .dealerFormEyebrow,
+[data-theme="midnight-dark"] .dealerBackBtn,
+[data-theme="midnight-dark"] .dealerDealSummary strong,
+[data-theme="midnight-dark"] .dealerSummaryTotal strong,
+[data-theme="midnight-dark"] .dealerDraftBadge,
+[data-theme="midnight-dark"] .dealerKpiIcon,
+[data-theme="midnight-dark"] .quickIcon,
+[data-theme="midnight-dark"] .dealerSectionIcon,
+[data-theme="midnight-dark"] .dcSecTitle,
+[data-theme="midnight-dark"] .adminModuleTileBody span,
+[data-theme="midnight-dark"] .lineLabel.active,
+[data-theme="midnight-dark"] .dealerThemeToggle:hover{color:var(--theme-accent)!important}
+[data-theme="midnight-dark"] .adminModuleTileIcon{color:var(--theme-accent)!important;background:color-mix(in srgb,var(--theme-accent) 14%,var(--card))!important}
+/* Primary buttons / active filter buttons: dark-on-dark the, ab bright. */
+[data-theme="midnight-dark"] .btn.primary{background:var(--theme-accent)!important;color:#0B1220!important;border-color:var(--theme-accent)!important}
+[data-theme="midnight-dark"] .btn.primary:hover{filter:brightness(1.1)}
+[data-theme="midnight-dark"] .btn.danger{background:#3b0d0d!important;color:#fecaca!important;border-color:#7f1d1d!important}
+/* Table links hover + row hover readable */
+[data-theme="midnight-dark"] .table tbody tr:hover{background:color-mix(in srgb,var(--theme-accent) 10%,var(--card))}
+[data-theme="midnight-dark"] .table td a{text-decoration:none}
+[data-theme="midnight-dark"] .table td a:hover{text-decoration:underline}

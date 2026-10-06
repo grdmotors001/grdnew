@@ -1,3 +1,4 @@
+import { salesmanMasterList, salesmanMasterWrite } from "../../../lib/server/salesman-master";
 import { types } from "pg";
 import { pool, secret, auth, num, idOf, ymd, columns, addColumns, dateWhere, json, normKey, rowGetter, importDate, importAmount } from "../../../lib/server/common";
 import { ensureTaxInvoiceRecordColumns, saleRegisterReport, paymentReceivableReport } from "../../../lib/server/reports-sales";
@@ -890,6 +891,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const has_next=r.rows.length>per,records=r.rows.slice(0,per);
       return Response.json({records,rows:records,page,per_page:per,has_next,suggested_vou_no:"JS-"+Date.now()});
     }
+    if(p==="masters/salesman"&&a.scope==="staff")return salesmanMasterList();
     if(p==="masters/colour"){
       const r=await pool.query("SELECT * FROM simple_master WHERE lower(kind) IN ('colour','color') ORDER BY id DESC");
       return Response.json({masters:r.rows,rows:r.rows,data:r.rows});
@@ -1378,6 +1380,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
     if(p==="expense-payment-voucher"||p.startsWith("expense-payment-voucher/")){const evp=await expenseVoucherPost(path,b,a);if(evp)return evp;}
     { const cm=await chassisMasterWrite(path,"POST",b);if(cm)return cm; }
+    if(p==="masters/salesman")return salesmanMasterWrite("POST",path,b,saveUserRecord);
     if(p==="users")return saveUserRecord(b);
     {const pp=await productionPost(req,path,b,a);if(pp)return pp;}
     if(p==="hr/employees"){
@@ -1619,6 +1622,7 @@ async function mutation(req:Request,params:any,method:string){
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
     const bodyForScope=(method==="DELETE"?{}:await json(req));
     const scopeGuard=await enforceDealerScope(a,table,idOf(path[path.length-1]),bodyForScope); if(scopeGuard)return scopeGuard;
+    if(path[0]==="masters"&&path[1]==="salesman"&&path.length===3&&a.scope==="staff")return salesmanMasterWrite(method,path,bodyForScope,saveUserRecord);
     if(path[0]==="expense-payment-voucher"&&path.length===2&&method==="DELETE")return expenseVoucherDelete(path,a);
     {const x=await batteryMutation(req,path,method,a);if(x)return x;}
     {const x=await bankLedgerMutation(req,path,method,a,bodyForScope);if(x)return x;}
