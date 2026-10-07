@@ -1,6 +1,6 @@
 'use client';
 import React, { useEffect, useState } from 'react';
-import { get, post, del } from '../lib/api';
+import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { CreatePendingSale } from './BillingPendingSalesPage';
@@ -9,8 +9,18 @@ import { Overlay } from './PrintDocs';
 const today = () => new Date().toISOString().slice(0, 10);
 
 // Old Rickshaw ka read-only Detail + Print (Overlay ka Print / Download PDF button browser print dialog kholta hai).
-function OldRickshawDetailView({ row: r, info: i, onClose }) {
+function OldRickshawDetailView({ row: r, info: i, onClose, onReceived }) {
   const sale = r._sale || {};
+  const payable = Math.max(0, Number(i.sale || 0) - Number(i.loan || 0));
+  const canEditReceived = String(r.status || '').toLowerCase() === 'sold' && payable > 0 && Number(i.received || 0) < payable && !!onReceived;
+  const [recv, setRecv] = useState(String(Number(i.received || 0)));
+  const [recvBusy, setRecvBusy] = useState(false), [recvErr, setRecvErr] = useState('');
+  const saveRecv = async () => {
+    setRecvBusy(true); setRecvErr('');
+    try { await put('/old-rickshaws/' + r.id + '/received', { amount: Number(recv || 0) }); onReceived(); }
+    catch (e) { setRecvErr(e.message || 'Save failed'); }
+    finally { setRecvBusy(false); }
+  };
   const v = x => (x === undefined || x === null || String(x).trim() === '' ? '—' : String(x));
   const inr = n => '\u20b9' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const batt = [r.battery_no1, r.battery_no2, r.battery_no3, r.battery_no4].map(x => String(x ?? '').trim()).filter(x => x && x !== '0').join(', ');
@@ -44,6 +54,14 @@ function OldRickshawDetailView({ row: r, info: i, onClose }) {
           [['Ledger No.', v(i.ledger)], ['Ledger Date', v(r.ledger_date ? formatDate(r.ledger_date) : '')]],
           [['DO No.', v(r.do_number)], ['Sale Status', v(sale.status)]],
         ]} />
+        {canEditReceived && <div className="noprint" style={{ border: '1px solid #000', padding: 8, marginBottom: 14, fontSize: 12, background: '#fffbeb' }}>
+          <b>Received Amount edit</b> (max ₹{payable.toLocaleString('en-IN')} — dealer ledger me adjust hoga)
+          <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+            <input type="number" min="0" max={payable} value={recv} onChange={e => setRecv(e.target.value)} style={{ padding: 4, border: '1px solid #000', width: 160 }} />
+            <button className="btn primary" disabled={recvBusy} onClick={saveRecv}>{recvBusy ? 'Saving…' : 'Save Received'}</button>
+            {recvErr && <span style={{ color: '#b91c1c' }}>{recvErr}</span>}
+          </div>
+        </div>}
         <Sec title="ACCESSORIES" rows={[
           [['Charger', v(r.charger)], ['Mat', v(r.mat)]],
           [['Jack', v(r.jack)], ['Centre Lock', v(r.centre_lock)]],
@@ -120,7 +138,7 @@ export function OldRickshawPage() {
           <td>{(r.sale_date||r.resale_date)?formatDate(r.sale_date||r.resale_date):'—'}</td><td><Money value={info(r).received}/></td></>}
       </tr>)}</tbody></table></div>}
 
-    {detailRow&&<OldRickshawDetailView row={detailRow} info={info(detailRow)} onClose={()=>setDetailRow(null)}/>}
+    {detailRow&&<OldRickshawDetailView row={detailRow} info={info(detailRow)} onClose={()=>setDetailRow(null)} onReceived={()=>{setDetailRow(null);load()}}/>}
     {pendingOpen&&<CreatePendingSale initialKind="OLD" onClose={()=>setPendingOpen(false)} onSaved={()=>{setPendingOpen(false);load()}}/>}
     {saleSheet?.mode==='create'&&<CreatePendingSale initialKind="OLD" prefill={{dealer_id:saleSheet.row.dealer_id,old_rickshaw_id:saleSheet.row.id}} onClose={()=>setSaleSheet(null)} onSaved={()=>{setSaleSheet(null);load()}}/>}
     {saleSheet?.mode==='edit'&&<CreatePendingSale key={saleSheet.sale.id} sale={saleSheet.sale} mode="edit" canPickFinancer={canApprove} canEditApproved={canApprove&&saleSheet.sale.status==='APPROVED'} onClose={()=>setSaleSheet(null)} onSaved={()=>{setSaleSheet(null);load()}}/>}

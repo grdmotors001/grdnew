@@ -117,33 +117,37 @@ export function LoanApplicationViewPage({ user }) {
       <style>{`
         .loanApplicationViewPage{padding:2px 0 40px}
         .loanApplicationViewHead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:14px}
-        .loanApplicationViewKicker{font-size:10px;font-weight:900;letter-spacing:1px;color:#8b1638;text-transform:uppercase}
-        .loanApplicationViewHead h2{margin:2px 0 4px;color:#5d0925;font-size:25px}
-        .loanApplicationViewHead p{margin:0;color:#748297;font-size:12px}
+        .loanApplicationViewKicker{font-size:10px;font-weight:900;letter-spacing:1px;color:var(--theme-accent);text-transform:uppercase}
+        .loanApplicationViewHead h2{margin:2px 0 4px;color:var(--ink);font-size:25px}
+        .loanApplicationViewHead p{margin:0;color:var(--muted);font-size:12px}
         .loanApplicationViewActions{display:flex;gap:8px;align-items:center}
-        .loanApplicationViewTabs{display:flex;gap:0;border:1px solid #ead8d4;border-radius:12px;background:#fff7f5;overflow:hidden;margin-bottom:14px}
-        .loanApplicationViewTab{border:0;background:transparent;padding:12px 18px;color:#531126;font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap}
-        .loanApplicationViewTab.active{background:#86183a;color:#fff;border-radius:9px;margin:3px}
-        .loanApplicationViewCard{background:#fff;border-radius:14px;box-shadow:0 5px 18px rgba(31,55,79,.07);overflow:hidden}
-        .loanApplicationViewToolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid #edf1f5}
-        .loanApplicationViewToolbar h3{margin:0;color:#5d0925;font-size:15px}
-        .loanApplicationViewToolbar p{margin:3px 0 0;color:#7b8898;font-size:11px}
-        .loanApplicationViewSearch{width:min(290px,100%);min-height:38px;border:1px solid #e7d7d3;border-radius:8px;padding:8px 11px;box-sizing:border-box}
+        .loanApplicationViewTabs{display:flex;gap:0;border:1px solid var(--line);border-radius:12px;background:var(--strip-bg);overflow:hidden;margin-bottom:14px}
+        .loanApplicationViewTab{border:0;background:transparent;padding:12px 18px;color:var(--ink);font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap}
+        .loanApplicationViewTab.active{background:var(--accent);color:#fff;border-radius:9px;margin:3px}
+        .loanApplicationViewCard{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+        .loanApplicationViewToolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+        .loanApplicationViewToolbar h3{margin:0;color:var(--ink);font-size:15px}
+        .loanApplicationViewToolbar p{margin:3px 0 0;color:var(--muted);font-size:11px}
+        .loanApplicationViewSearch{width:min(290px,100%);min-height:38px;border:1px solid var(--line);border-radius:8px;padding:8px 11px;box-sizing:border-box;background:var(--input-bg);color:var(--ink)}
         .loanApplicationViewTableWrap{overflow-x:auto}
         .loanApplicationViewTable{min-width:980px}
-        .loanApplicationViewTable th{background:#fde9df;color:#6c102b;font-size:9px;text-transform:uppercase}
+        .loanApplicationViewTable th{background:var(--th-bg);color:var(--ink);font-size:9px;text-transform:uppercase}
         .loanApplicationViewTable td{font-size:11px}
         .loanApplicationViewStatus{display:inline-flex;padding:5px 8px;border-radius:999px;background:#e8f7ef;color:#19733a;font-size:10px;font-weight:800;white-space:nowrap}
         .loanApplicationViewOpen{white-space:nowrap}
-        .loanApplicationViewEmpty{padding:30px;text-align:center;color:#7b8898;font-size:12px}
+        .loanApplicationViewEmpty{padding:30px;text-align:center;color:var(--muted);font-size:12px}
         .loanApplicationViewModal{z-index:99999}
         .loanApplicationViewModalBox{width:min(820px,100%);max-height:calc(100vh - 32px);overflow:auto}
         .loanApplicationViewSummary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:12px}
-        .loanApplicationViewSummary>div{border:1px solid #e5ebf2;border-radius:9px;padding:10px;background:#fbfdff}
-        .loanApplicationViewSummary span{display:block;font-size:9px;color:#7b8898;text-transform:uppercase}
-        .loanApplicationViewSummary b{display:block;margin-top:3px;font-size:12px;color:#26394f;word-break:break-word}
+        .loanApplicationViewSummary>div{border:1px solid var(--line);border-radius:9px;padding:10px;background:var(--card)}
+        .loanApplicationViewSummary span{display:block;font-size:9px;color:var(--muted);text-transform:uppercase}
+        .loanApplicationViewSummary b{display:block;margin-top:3px;font-size:12px;color:var(--ink);word-break:break-word}
         @media(max-width:800px){.loanApplicationViewHead{display:block}.loanApplicationViewActions{margin-top:10px}.loanApplicationViewTabs{overflow-x:auto}.loanApplicationViewTab{padding:10px 13px}.loanApplicationViewToolbar{display:block}.loanApplicationViewSearch{margin-top:10px;width:100%}.loanApplicationViewSummary{grid-template-columns:1fr 1fr}}
-      `}</style>
+      
+        .loanApplicationViewTable td{color:var(--ink);background:transparent;border-bottom:1px solid var(--line)}
+        .loanApplicationViewTable tbody tr:hover td{background:var(--strip-bg)}
+        .loanApplicationViewTable .muted{color:var(--muted)}
+`}</style>
 
       <div className="loanApplicationViewHead">
         <div>

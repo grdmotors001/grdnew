@@ -644,7 +644,7 @@ export function HypothecationRegisterPage() {
         <button className="btn" style={{ alignSelf: 'flex-end' }} onClick={() => downloadExcel('/reports/hypothecation-register' + qs(r), 'Hypothecation_Register.xlsx')}>Export Excel</button>
       </FilterBar>
       {notice.length > 0 && (
-        <div className="card" style={{ marginBottom: 12, background: '#fffaeb', border: '1px solid #fedf89' }}>
+        <div className="card" style={{ marginBottom: 12, background: 'rgba(239,159,39,.14)', border: '1px solid rgba(239,159,39,.5)', color: 'var(--ink)' }}>
           <b>Receipt save ho gayi, par dhyan dein:</b>
           <ul style={{ margin: '6px 0 8px 18px' }}>{notice.map((n, i) => <li key={i}>{n}</li>)}</ul>
           <button className="btn" onClick={() => setNotice([])}>OK</button>
@@ -713,7 +713,7 @@ export function HypothecationRegisterPage() {
             </div>
             {lookupMsg && <div className="error" style={{ marginTop: 10 }}>{lookupMsg}</div>}
             {found && (
-              <div className="card" style={{ marginTop: 12, background: '#f6fef9', border: '1px solid #abefc6' }}>
+              <div className="card" style={{ marginTop: 12, background: 'rgba(39,157,140,.14)', border: '1px solid rgba(39,157,140,.5)', color: 'var(--ink)' }}>
                 <div><b>Bill {found.bill_no}</b> · {formatDate(found.date)} · {found.buyer_name || '—'} · {found.dealer_name || '—'}</div>
                 <div className="muted" style={{ marginTop: 4 }}>{found.product_name || ''} {found.financer_name ? `· Financer: ${found.financer_name}` : ''}</div>
                 <div style={{ marginTop: 6 }}>Loan <Money value={found.hypothecation_amount} /> · Mila <Money value={found.fin_received} /> · <b>Baaki <Money value={found.balance} /></b></div>
@@ -975,11 +975,12 @@ function DealerLedgerView() {
   // Sale rows (and their linked Hypothecation/direct-received CASH rows)
   // are tinted blue; Day Book receipts are tinted green — so the two kinds
   // of entries are visually distinct at a glance.
-  const rowTint = (e) => (e.vr_type === 'S' ? '#eef4ff' : e.vr_type === 'E' ? '#fff6e5' : '#eafaf1');
-  const groupBorder = '1.5px solid #7d95c9';
+  const rowTint = (e) => (e.vr_type === 'S' ? 'rgba(63,126,219,.14)' : e.vr_type === 'E' ? 'rgba(239,159,39,.16)' : 'rgba(39,157,140,.16)');
+  const groupBorder = '1.5px solid rgba(125,149,201,.8)';
   const groupRowStyle = (e) => ({
     cursor: e.record_type ? 'pointer' : 'default',
     background: rowTint(e),
+    color: 'var(--ink)',
     borderLeft: e._groupSize > 1 ? groupBorder : undefined,
     borderRight: e._groupSize > 1 ? groupBorder : undefined,
     borderTop: e._groupSize > 1 && e._groupPos === 0 ? groupBorder : undefined,

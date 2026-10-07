@@ -525,6 +525,49 @@ export async function billingPost(req:Request,path:string[],b:any,a:any,deps:Bil
 // ---------------- PUT / PATCH / DELETE ----------------
 export async function billingMutation(req:Request,path:string[],method:string,a:any,deps:BillingDeps):Promise<Response|null>{
   const p=path.join("/");
+    // Old Rickshaw (sold) Register se Received Amount edit: Sale / Loan lock; balance pending ho to hi edit, dealer ledger me adjust.
+    if(/^old-rickshaws\/\d+\/received$/.test(p) && method==="PUT"){
+      if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
+      await addColumns("old_rickshaw",{received_day_book_id:"bigint",receipt_amount:"numeric NOT NULL DEFAULT 0"});
+      const id=idOf(path[1]);const b:any=await json(req);const next=num(b.amount);
+      const cl=await pool.connect();
+      try{
+        await cl.query("BEGIN");
+        const o=(await cl.query("SELECT * FROM old_rickshaw WHERE id=$1 FOR UPDATE",[id])).rows[0];
+        if(!o){await cl.query("ROLLBACK");return Response.json({error:"Old Rickshaw not found."},{status:404});}
+        if(String(o.status||"").toLowerCase()!=="sold"){await cl.query("ROLLBACK");return Response.json({error:"Sirf sold gaadi ka Received Amount edit hota hai."},{status:409});}
+        const sale=num(o.sale_amount||o.sold_amount),loan=num(o.loan_amount),payable=Math.max(0,sale-loan),prev=num(o.receipt_amount);
+        if(next<0){await cl.query("ROLLBACK");return Response.json({error:"Received Amount negative nahi ho sakta."},{status:400});}
+        if(next>payable){await cl.query("ROLLBACK");return Response.json({error:"Received Amount balance (Sale - Loan = "+payable+") se zyada nahi ho sakta."},{status:400});}
+        if(next!==prev&&prev>=payable){await cl.query("ROLLBACK");return Response.json({error:"Balance pending nahi hai, Received Amount edit nahi ho sakta."},{status:409});}
+        const linked=(await cl.query("SELECT id,received_day_book_id FROM grd_billing_sale WHERE old_rickshaw_id=$1 AND status IN ('APPROVED','BILLED') ORDER BY id DESC LIMIT 1",[id]).catch(()=>({rows:[]as any[]}))).rows[0];
+        let dbId=o.received_day_book_id||linked?.received_day_book_id||null;
+        const dn=o.dealer_name||(o.dealer_id?(await cl.query("SELECT name FROM dealer WHERE id=$1",[o.dealer_id])).rows[0]?.name:"")||"";
+        const dbc=await columns("day_book");
+        if(dbc.size&&dn){
+          const narr="Old Rickshaw sale received — "+(o.customer_name||o.out_name||"")+(o.vehicle_reg_no?" · "+o.vehicle_reg_no:"")+(o.sp_no?" · "+o.sp_no:"");
+          if(dbId){
+            if(next>0)await cl.query("UPDATE day_book SET credit_received=$1,narration=$2,remarks=$2 WHERE id=$3",[next,narr,dbId]);
+            else{await cl.query("DELETE FROM day_book WHERE id=$1",[dbId]);dbId=null;}
+          }else if(next>0){
+            const vt=(await cl.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='day_book' AND column_name='vr_no'")).rows[0]?.data_type||"";
+            let vrNo:any=null;
+            if(["integer","bigint","smallint","numeric"].includes(vt))vrNo=Number((await cl.query("SELECT COALESCE(MAX(vr_no),0)+1 AS n FROM day_book")).rows[0]?.n||1);
+            else if(vt)vrNo="OR-"+Date.now();
+            const entry:any={date:new Date().toISOString().slice(0,10),vr_no:vrNo,dealer_name:dn,party_name:dn,dealer_id:o.dealer_id||null,credit_received:next,debit_paid:0,payment_mode:"cash",mode:"cash",narration:narr,remarks:narr};
+            const ks=Object.keys(entry).filter(k=>dbc.has(k)&&!(k==="vr_no"&&vrNo==null));
+            const ins=await cl.query('INSERT INTO day_book ('+ks.map(k=>'"'+k+'"').join(",")+') VALUES ('+ks.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',ks.map(k=>entry[k]));
+            dbId=ins.rows[0]?.id||null;
+          }
+        }
+        await cl.query("UPDATE old_rickshaw SET receipt_amount=$1,balance_amount=$2,received_day_book_id=$3,updated_at=now() WHERE id=$4",[next,Math.max(0,payable-next),dbId,id]);
+        await cl.query("UPDATE old_rickshaw_inventory SET balance_amount=$1,updated_at=now() WHERE old_rickshaw_id=$2",[Math.max(0,payable-next),id]).catch(()=>{});
+        if(linked)await cl.query("UPDATE grd_billing_sale SET amount_received=$1,received_day_book_id=$2,updated_at=NOW() WHERE id=$3",[next,dbId,linked.id]).catch(()=>{});
+        await cl.query("COMMIT");
+        return Response.json({success:true,received:next,balance:Math.max(0,payable-next)});
+      }catch(e:any){await cl.query("ROLLBACK").catch(()=>{});return Response.json({error:e?.message||"Save failed."},{status:500});}
+      finally{cl.release();}
+    }
     if(p.startsWith("billing/pending-sales/") && (method==="PUT" || method==="PATCH" || method==="DELETE")){
       await ensureBillingSalesSchema();
       if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
