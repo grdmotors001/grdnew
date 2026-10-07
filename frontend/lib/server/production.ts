@@ -707,6 +707,17 @@ export async function productionMutation(req:Request,path:string[],method:string
         }
         const up=await client.query('UPDATE production_voucher SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+' WHERE id=$'+(keys.length+1)+" RETURNING *, to_char(date,'YYYY-MM-DD') AS date_s",[...keys.map(k=>input[k]),id]);
         const nv=up.rows[0];
+        // Voucher edit par vehicle (Delivery Challan wala model / colour / motor / battery) bhi sync: pehle sirf voucher badalta tha,
+        // isliye challan me purana model naam (jaise CONTROLLER) dikhta tha. Sirf tab jab gaadi abhi Manufacturing stage me hai (dispatch nahi hui).
+        try{
+          const oldCh=String(old.chassis_no||"").trim();
+          if(oldCh){
+            await client.query("SAVEPOINT veh_sync");
+            await client.query("UPDATE vehicle SET model_name=COALESCE(NULLIF(btrim($1),''),model_name),chassis_no=COALESCE(NULLIF(btrim($2),''),chassis_no),motor_no=$3,controller_no=$4,differential_no=$5,colour=$6,colour_code=$7,battery_maker=$8,battery_no1=$9,battery_no2=$10,battery_no3=$11,battery_no4=$12 WHERE upper(btrim(chassis_no))=upper($13) AND lower(COALESCE(stage,'Manufacturing'))='manufacturing'",
+              [nv.product_name||null,nv.chassis_no||null,nv.motor_no||null,nv.controller_no||null,nv.differential_no||null,nv.colour||null,nv.colour_code||null,nv.battery_maker||null,nv.battery_no1||null,nv.battery_no2||null,nv.battery_no3||null,nv.battery_no4||null,oldCh]);
+            await client.query("RELEASE SAVEPOINT veh_sync");
+          }
+        }catch(e){await client.query("ROLLBACK TO SAVEPOINT veh_sync").catch(()=>{});console.error("[production edit -> vehicle sync]",e)}
         const bomChanged=hasBom&&JSON.stringify(newBom||null)!==JSON.stringify(normBomLines(old.bom_lines)||null);
         if(bomChanged){await client.query("UPDATE production_voucher SET bom_lines=$1::jsonb WHERE id=$2",[newBom?JSON.stringify(newBom):null,id]);nv.bom_lines=newBom;}
         // Sirf Mechanic / Colour / Motor No. jaisi cheezein badli hon (product, formula, quantity, date same) to stock dobara nahi kata/lauta -

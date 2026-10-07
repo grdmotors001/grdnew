@@ -55,7 +55,7 @@ function OldRickshawDetailView({ row: r, info: i, onClose, onReceived }) {
           [['DO No.', v(r.do_number)], ['Sale Status', v(sale.status)]],
         ]} />
         {canEditReceived && <div className="noprint" style={{ border: '1px solid #000', padding: 8, marginBottom: 14, fontSize: 12, background: '#fffbeb' }}>
-          <b>Received Amount edit</b> (max ₹{payable.toLocaleString('en-IN')} — dealer ledger me adjust hoga)
+          <b>Received Amount edit</b> (max ₹{payable.toLocaleString('en-IN')} — ledger me entry nahi banegi, sirf balance kam hoga)
           <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
             <input type="number" min="0" max={payable} value={recv} onChange={e => setRecv(e.target.value)} style={{ padding: 4, border: '1px solid #000', width: 160 }} />
             <button className="btn primary" disabled={recvBusy} onClick={saveRecv}>{recvBusy ? 'Saving…' : 'Save Received'}</button>

@@ -89,7 +89,7 @@ async function ensureBillingSalesSchemaOnce(){
     state_type:"text",mode_term:"text",bank_name:"text",bank_account_no:"text",bank_ifsc:"text",rto_name:"text",despatch_through:"text",eway_bill_no:"text",license_no:"text",cvr_no:"text",cancelled_cheque_no:"text",remarks:"text",
     amount_received:"numeric NOT NULL DEFAULT 0",financer_name:"text",hypothecation_amount:"numeric NOT NULL DEFAULT 0",vehicle_reg_no:"text",ledger_no:"text",chassis_record_no:"text",voucher_no:"text",subsidy_amount:"numeric NOT NULL DEFAULT 0",
     gst_sale_amount:"numeric NOT NULL DEFAULT 0",gst_rate:"numeric NOT NULL DEFAULT 5",insurance_amount:"numeric NOT NULL DEFAULT 0",registration_amount:"numeric NOT NULL DEFAULT 0",discount:"numeric NOT NULL DEFAULT 0",dealer_cash_customer_id:"bigint",
-    old_rickshaw_id:"bigint",sp_no:"text",sale_date:"date",delivery_challan_id:"bigint",received_day_book_id:"bigint"
+    old_rickshaw_id:"bigint",sp_no:"text",sale_date:"date",delivery_challan_id:"bigint"
   };
   await addColumns("grd_billing_sale",extra);
   // Ek Old Rickshaw par ek hi Pending/Approved sale ho sakti hai.
@@ -525,10 +525,10 @@ export async function billingPost(req:Request,path:string[],b:any,a:any,deps:Bil
 // ---------------- PUT / PATCH / DELETE ----------------
 export async function billingMutation(req:Request,path:string[],method:string,a:any,deps:BillingDeps):Promise<Response|null>{
   const p=path.join("/");
-    // Old Rickshaw (sold) Register se Received Amount edit: Sale / Loan lock; balance pending ho to hi edit, dealer ledger me adjust.
+    // Old Rickshaw (sold) Register se Received Amount edit: Sale / Loan lock; balance pending ho to hi edit. Sirf balance kam hota hai, ledger entry nahi banti.
     if(/^old-rickshaws\/\d+\/received$/.test(p) && method==="PUT"){
       if(!billingStaff(a))return Response.json({error:"Billing approval rights required."},{status:403});
-      await addColumns("old_rickshaw",{received_day_book_id:"bigint",receipt_amount:"numeric NOT NULL DEFAULT 0"});
+      await addColumns("old_rickshaw",{receipt_amount:"numeric NOT NULL DEFAULT 0"});
       const id=idOf(path[1]);const b:any=await json(req);const next=num(b.amount);
       const cl=await pool.connect();
       try{
@@ -540,29 +540,10 @@ export async function billingMutation(req:Request,path:string[],method:string,a:
         if(next<0){await cl.query("ROLLBACK");return Response.json({error:"Received Amount negative nahi ho sakta."},{status:400});}
         if(next>payable){await cl.query("ROLLBACK");return Response.json({error:"Received Amount balance (Sale - Loan = "+payable+") se zyada nahi ho sakta."},{status:400});}
         if(next!==prev&&prev>=payable){await cl.query("ROLLBACK");return Response.json({error:"Balance pending nahi hai, Received Amount edit nahi ho sakta."},{status:409});}
-        const linked=(await cl.query("SELECT id,received_day_book_id FROM grd_billing_sale WHERE old_rickshaw_id=$1 AND status IN ('APPROVED','BILLED') ORDER BY id DESC LIMIT 1",[id]).catch(()=>({rows:[]as any[]}))).rows[0];
-        let dbId=o.received_day_book_id||linked?.received_day_book_id||null;
-        const dn=o.dealer_name||(o.dealer_id?(await cl.query("SELECT name FROM dealer WHERE id=$1",[o.dealer_id])).rows[0]?.name:"")||"";
-        const dbc=await columns("day_book");
-        if(dbc.size&&dn){
-          const narr="Old Rickshaw sale received — "+(o.customer_name||o.out_name||"")+(o.vehicle_reg_no?" · "+o.vehicle_reg_no:"")+(o.sp_no?" · "+o.sp_no:"");
-          if(dbId){
-            if(next>0)await cl.query("UPDATE day_book SET credit_received=$1,narration=$2,remarks=$2 WHERE id=$3",[next,narr,dbId]);
-            else{await cl.query("DELETE FROM day_book WHERE id=$1",[dbId]);dbId=null;}
-          }else if(next>0){
-            const vt=(await cl.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='day_book' AND column_name='vr_no'")).rows[0]?.data_type||"";
-            let vrNo:any=null;
-            if(["integer","bigint","smallint","numeric"].includes(vt))vrNo=Number((await cl.query("SELECT COALESCE(MAX(vr_no),0)+1 AS n FROM day_book")).rows[0]?.n||1);
-            else if(vt)vrNo="OR-"+Date.now();
-            const entry:any={date:new Date().toISOString().slice(0,10),vr_no:vrNo,dealer_name:dn,party_name:dn,dealer_id:o.dealer_id||null,credit_received:next,debit_paid:0,payment_mode:"cash",mode:"cash",narration:narr,remarks:narr};
-            const ks=Object.keys(entry).filter(k=>dbc.has(k)&&!(k==="vr_no"&&vrNo==null));
-            const ins=await cl.query('INSERT INTO day_book ('+ks.map(k=>'"'+k+'"').join(",")+') VALUES ('+ks.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',ks.map(k=>entry[k]));
-            dbId=ins.rows[0]?.id||null;
-          }
-        }
-        await cl.query("UPDATE old_rickshaw SET receipt_amount=$1,balance_amount=$2,received_day_book_id=$3,updated_at=now() WHERE id=$4",[next,Math.max(0,payable-next),dbId,id]);
+        const linked=(await cl.query("SELECT id FROM grd_billing_sale WHERE old_rickshaw_id=$1 AND status IN ('APPROVED','BILLED') ORDER BY id DESC LIMIT 1",[id]).catch(()=>({rows:[]as any[]}))).rows[0];
+        await cl.query("UPDATE old_rickshaw SET receipt_amount=$1,balance_amount=$2,updated_at=now() WHERE id=$3",[next,Math.max(0,payable-next),id]);
         await cl.query("UPDATE old_rickshaw_inventory SET balance_amount=$1,updated_at=now() WHERE old_rickshaw_id=$2",[Math.max(0,payable-next),id]).catch(()=>{});
-        if(linked)await cl.query("UPDATE grd_billing_sale SET amount_received=$1,received_day_book_id=$2,updated_at=NOW() WHERE id=$3",[next,dbId,linked.id]).catch(()=>{});
+        if(linked)await cl.query("UPDATE grd_billing_sale SET amount_received=$1,updated_at=NOW() WHERE id=$2",[next,linked.id]).catch(()=>{});
         await cl.query("COMMIT");
         return Response.json({success:true,received:next,balance:Math.max(0,payable-next)});
       }catch(e:any){await cl.query("ROLLBACK").catch(()=>{});return Response.json({error:e?.message||"Save failed."},{status:500});}
@@ -626,25 +607,12 @@ export async function billingMutation(req:Request,path:string[],method:string,a:
       const r=await pool.query('UPDATE grd_billing_sale SET '+keys.map((k,i)=>'"'+k+'"=$'+(i+1)).join(",")+',updated_at=NOW() WHERE id=$'+(keys.length+1)+' AND status IN (\'PENDING\',\'APPROVED\') RETURNING *',[...keys.map(k=>patch[k]),id]);
       if(!r.rowCount)return Response.json({error:"Sale could not be updated."},{status:409});
       if(syncReceived){
-        // Dealer ledger (Day Book credit) me Received Amount adjust: sale ki ek hi entry rakhte hain, edit par update hoti hai.
-        const dbc=await columns("day_book");
-        const row=r.rows[0],dn=(await pool.query("SELECT name FROM dealer WHERE id=$1",[row.dealer_id])).rows[0]?.name||"";
-        if(dbc.size&&dn){
-          const narr="Old Rickshaw sale received — "+(row.customer_name||"")+(row.vehicle_reg_no?" · "+row.vehicle_reg_no:"")+(row.sp_no?" · "+row.sp_no:"");
-          const today=new Date().toISOString().slice(0,10);
-          if(row.received_day_book_id){
-            if(syncReceived.amount>0)await pool.query("UPDATE day_book SET credit_received=$1,narration=$2,remarks=$2 WHERE id=$3",[syncReceived.amount,narr,row.received_day_book_id]);
-            else{await pool.query("DELETE FROM day_book WHERE id=$1",[row.received_day_book_id]);await pool.query("UPDATE grd_billing_sale SET received_day_book_id=NULL WHERE id=$1",[id]);}
-          }else if(syncReceived.amount>0){
-            const vt=(await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='day_book' AND column_name='vr_no'")).rows[0]?.data_type||"";
-            let vrNo:any=null;
-            if(["integer","bigint","smallint","numeric"].includes(vt))vrNo=Number((await pool.query("SELECT COALESCE(MAX(vr_no),0)+1 AS n FROM day_book")).rows[0]?.n||1);
-            else if(vt)vrNo="OR-"+Date.now();
-            const entry:any={date:today,vr_no:vrNo,dealer_name:dn,party_name:dn,dealer_id:row.dealer_id,credit_received:syncReceived.amount,debit_paid:0,payment_mode:"cash",mode:"cash",narration:narr,remarks:narr};
-            const ks=Object.keys(entry).filter(k=>dbc.has(k)&&!(k==="vr_no"&&vrNo==null));
-            const ins=await pool.query('INSERT INTO day_book ('+ks.map(k=>'"'+k+'"').join(",")+') VALUES ('+ks.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id',ks.map(k=>entry[k]));
-            await pool.query("UPDATE grd_billing_sale SET received_day_book_id=$1 WHERE id=$2",[ins.rows[0]?.id||null,id]);
-          }
+        // Received Amount sirf marker hai (paisa dealer ledger me receipt voucher se aata hai): koi ledger entry nahi, sirf balance kam hota hai.
+        const row=r.rows[0];
+        if(row.old_rickshaw_id){
+          const payable=Math.max(0,num(row.sale_amount)-num(row.hypothecation_amount));
+          await pool.query("UPDATE old_rickshaw SET receipt_amount=$1,balance_amount=$2,updated_at=now() WHERE id=$3",[syncReceived.amount,Math.max(0,payable-syncReceived.amount),row.old_rickshaw_id]).catch(()=>{});
+          await pool.query("UPDATE old_rickshaw_inventory SET balance_amount=$1,updated_at=now() WHERE old_rickshaw_id=$2",[Math.max(0,payable-syncReceived.amount),row.old_rickshaw_id]).catch(()=>{});
         }
       }
       return Response.json({success:true,sale:r.rows[0]});

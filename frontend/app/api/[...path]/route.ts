@@ -1003,6 +1003,15 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({challans:rows.rows,rows:rows.rows,available_for_sale:available.rows,dealers:dealers.rows,suggested_challan_no:"ORC-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+Date.now()});
     }
     if(a.scope==="dealer"&&p.startsWith("dealer/")){const dg=await dealerCashbookGet(req,path,a,{ensureBillingSalesSchema});if(dg)return dg;}
+    // Closing Stock - Premises: gaadi jo abhi factory/premises me hai (stage = Manufacturing) - Delivery Challan dropdown wali hi stock.
+    // Pehle iska handler nahi tha: request generic journal_stock list par jati thi aur page ko {vehicles,summary} nahi milta tha.
+    if(p==="stock/closing-premises"&&a.scope!=="dealer"){
+      const r=await pool.query("SELECT v.id,v.date,v.chassis_no,v.model_name,v.motor_no,v.colour FROM vehicle v WHERE lower(COALESCE(to_jsonb(v)->>'stage','')) = 'manufacturing' ORDER BY v.date DESC NULLS LAST,v.id DESC LIMIT 5000");
+      const by=new Map<string,any>();
+      for(const v of r.rows){const k=String(v.model_name||"")+"|"+String(v.colour||"");const e=by.get(k)||{model_name:v.model_name||"",colour:v.colour||"",qty:0};e.qty+=1;by.set(k,e);}
+      const summary=[...by.values()].sort((x:any,y:any)=>String(x.model_name).localeCompare(String(y.model_name))||String(x.colour).localeCompare(String(y.colour)));
+      return Response.json({vehicles:r.rows,summary,total:r.rowCount});
+    }
     // Closing Stock - with Dealers (staff/salesman). Was falling through to the generic journal_stock table list, so the page got
     // an array instead of {vehicles,summary} and crashed ("This page couldn't load"). Salesman logins see only their own dealers.
     if(p==="stock/closing-dealers"&&a.scope!=="dealer"){

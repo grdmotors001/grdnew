@@ -408,7 +408,7 @@ export function CreatePendingSale({initialKind=null,prefill=null,canPickFinancer
         <Input label="Model" value={form.item_model} readOnly/>
         <Input label="Colour" value={form.item_colour} readOnly/>
         <Input label={'Sale Amount'+(lockedApproved?' · locked':'')} type="number" min="0" value={form.sale_amount} onChange={e=>set('sale_amount',e.target.value)} required disabled={lockedApproved}/>
-        <Input label={'Amount Received'+(lockedApproved?(oldPayable>0&&oldPrevReceived<oldPayable?' (dealer ledger me adjust hoga)':' · locked (balance nahi hai)'):'')} type="number" min="0" max={lockedApproved?oldPayable:undefined} value={form.amount_received} onChange={e=>set('amount_received',e.target.value)} disabled={lockedApproved&&!(oldPayable>0&&oldPrevReceived<oldPayable)}/>
+        <Input label={'Amount Received'+(lockedApproved?(oldPayable>0&&oldPrevReceived<oldPayable?' (sirf balance kam hoga, ledger entry nahi)':' · locked (balance nahi hai)'):'')} type="number" min="0" max={lockedApproved?oldPayable:undefined} value={form.amount_received} onChange={e=>set('amount_received',e.target.value)} disabled={lockedApproved&&!(oldPayable>0&&oldPrevReceived<oldPayable)}/>
         {loanRow}{balanceField}
         <Input label="Ledger No." value={form.ledger_no} onChange={e=>set('ledger_no',e.target.value)}/>
         <Input label="DO No." value={form.do_no} onChange={e=>set('do_no',e.target.value)}/>

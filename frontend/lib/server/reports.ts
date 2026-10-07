@@ -74,14 +74,24 @@ export async function reportsGet(req:Request,path:string[],a:any,D:any):Promise<
       };
       const textOf=(x:any)=>[x.bill_no,x.voucher_no,x.doc_no,x.party_name,x.dealer_name,x.buyer_name,x.chassis_no,x.narration,x.particulars,x.description].filter(Boolean).join(" ").toLowerCase();
       const inRange=(x:any)=>{const d=ymd(x.date);return (!from||d>=from)&&(!to||d<=to)&&(!search||textOf(x).includes(search));};
+      const inr=(v:any)=>"₹"+Number(v||0).toLocaleString("en-IN");
+      // Old Rickshaw sale (sold): Ledger me sirf Sale - Loan (Received Amount ka yahan koi len-den nahi).
+      let oldSales:any[]=[];
+      try{oldSales=(await pool.query("SELECT id,dealer_id,dealer_name,customer_name,out_name,vehicle_reg_no,sp_no,COALESCE(sale_date,resale_date,date) AS sale_dt,COALESCE(NULLIF(sale_amount,0),sold_amount,0) AS sale_amt,COALESCE(loan_amount,0) AS loan_amt FROM old_rickshaw WHERE lower(COALESCE(status,''))='sold' ORDER BY id LIMIT 20000")).rows;}catch(e){console.error("[ledger old sales]",e)}
       let shopExpenseRows:any[]=[];
       try{await ensureDealerCashSchema();shopExpenseRows=(await pool.query("SELECT * FROM dealer_cash_expense ORDER BY date ASC,id ASC LIMIT 20000")).rows;}catch(e){console.error("[ledger shop expenses]",e)}
       const shopExpenseEvents=(did:number)=>shopExpenseLedgerEvents(shopExpenseRows.filter((x:any)=>Number(x.dealer_id)===did)).filter((x:any)=>inRange(x));
-      const saleEvents=(did:number)=>invoices.filter((x:any)=>dealerMatch(x,did)&&inRange(x)).map((x:any)=>({
+      const taxSaleEvents=(did:number)=>invoices.filter((x:any)=>dealerMatch(x,did)&&inRange(x)).map((x:any)=>({
         record_type:"sale",record_id:x.id,date:x.date,doc_no:x.bill_no||x.voucher_no||"",account:x.buyer_name||"Sale",
-        lines:[x.product_name,x.chassis_no].filter(Boolean),
+        lines:[x.product_name,x.chassis_no,"Sale "+inr(x.sale_amount),"Loan "+inr(x.hypothecation_amount)].filter(Boolean),
         debit:Math.max(0,num(x.sale_amount)-num(x.hypothecation_amount)),credit:0,vr_type:"S"
       }));
+      const oldSaleEvents=(did:number)=>oldSales.map((x:any)=>({...x,date:x.sale_dt})).filter((x:any)=>dealerMatch(x,did)&&inRange(x)&&Math.max(0,num(x.sale_amt)-num(x.loan_amt))>0).map((x:any)=>({
+        record_type:"",record_id:x.id,date:x.sale_dt,doc_no:x.sp_no||"",account:x.customer_name||x.out_name||"Old Rickshaw Sale",
+        lines:["Old Rickshaw",x.vehicle_reg_no,"Sale "+inr(x.sale_amt),"Loan "+inr(x.loan_amt)].filter(Boolean),
+        debit:Math.max(0,num(x.sale_amt)-num(x.loan_amt)),credit:0,vr_type:"S"
+      }));
+      const saleEvents=(did:number)=>[...taxSaleEvents(did),...oldSaleEvents(did)];
       const receiptEvents=(did:number)=>daybook.filter((x:any)=>dealerMatch(x,did)&&inRange(x)).map((x:any)=>({
         record_type:"receipt",record_id:x.id,date:x.date,doc_no:x.voucher_no||x.doc_no||x.bill_no||"",
         account:x.party_name||x.account_name||x.account||dealerNameMap.get(did)||"Day Book",
@@ -113,6 +123,10 @@ export async function reportsGet(req:Request,path:string[],a:any,D:any):Promise<
       const invoices=tiCols.size?(await pool.query("SELECT * FROM tax_invoice WHERE COALESCE(cancelled,false)=false ORDER BY date ASC,id ASC LIMIT 20000")).rows:[];
       const daybook=dbCols.size?(await pool.query("SELECT * FROM day_book ORDER BY date ASC,id ASC LIMIT 20000")).rows:[];
       const dealerNameMap=new Map(dealers.map((d:any)=>[Number(d.id),String(d.name||"").trim().toLowerCase()]));
+      // Old Rickshaw: sale ke time likha Received Amount dealer ke account se adjust (Debit) hota hai.
+      let oldRecv:any[]=[];
+      try{oldRecv=(await pool.query("SELECT id,dealer_id,dealer_name,customer_name,out_name,vehicle_reg_no,sp_no,COALESCE(sale_date,resale_date,date) AS sale_dt,COALESCE(NULLIF(sale_amount,0),sold_amount,0) AS sale_amt,COALESCE(loan_amount,0) AS loan_amt,COALESCE(receipt_amount,0) AS recv FROM old_rickshaw WHERE lower(COALESCE(status,''))='sold' AND COALESCE(receipt_amount,0)>0 ORDER BY id LIMIT 20000")).rows;}catch(e){console.error("[ledger-v old received]",e)}
+      const inr=(v:any)=>"₹"+Number(v||0).toLocaleString("en-IN");
       const match=(x:any,did:number)=>{
         const rid=Number(x.dealer_id||0); if(rid)return rid===did;
         const target=dealerNameMap.get(did)||"";
@@ -126,7 +140,15 @@ export async function reportsGet(req:Request,path:string[],a:any,D:any):Promise<
         for(const x of inv){
           const received=num(x.amount_received);
           if(!received)continue;
-          events.push({date:x.date,doc_no:x.bill_no||"",particulars:"Tax Invoice — "+(x.buyer_name||"Sale"),voucher_no:x.voucher_no||"",bill_no:x.bill_no||"",chassis_no:x.chassis_no||"",customer:x.buyer_name||"",receipt:0,amount_received:received,_kind:"invoice",_id:x.id});
+          events.push({date:x.date,doc_no:x.bill_no||"",particulars:"Tax Invoice — "+(x.buyer_name||"Sale")+" · Sale "+inr(x.sale_amount)+" · Loan "+inr(x.hypothecation_amount),voucher_no:x.voucher_no||"",bill_no:x.bill_no||"",chassis_no:x.chassis_no||"",customer:x.buyer_name||"",receipt:0,amount_received:received,_kind:"invoice",_id:x.id});
+        }
+        for(const x of oldRecv){
+          const dt=x.sale_dt;
+          if(!match({...x,date:dt},did)||(from&&String(dt||"").slice(0,10)<from)||(to&&String(dt||"").slice(0,10)>to))continue;
+          const cust=x.customer_name||x.out_name||"";
+          const part="Old Rickshaw — "+(cust||"Sale")+(x.vehicle_reg_no?" · "+x.vehicle_reg_no:"")+" · Sale "+inr(x.sale_amt)+" · Loan "+inr(x.loan_amt);
+          if(search&&![x.sp_no,part].join(" ").toLowerCase().includes(search))continue;
+          events.push({date:dt,doc_no:x.sp_no||"",particulars:part,voucher_no:"",bill_no:"",chassis_no:"",customer:cust,receipt:0,amount_received:num(x.recv),_kind:"oldrick",_id:x.id});
         }
         for(const x of db){
           const receipt=num(x.credit_received||x.credit||x.cr_amount||x.credit_amount);
@@ -134,10 +156,10 @@ export async function reportsGet(req:Request,path:string[],a:any,D:any):Promise<
           events.push({date:x.date,doc_no:x.voucher_no||x.doc_no||"",particulars:x.narration||x.particulars||"Day Book Receipt",voucher_no:x.voucher_no||"",bill_no:x.bill_no||"",chassis_no:x.chassis_no||"",customer:x.party_name||x.account_name||"",receipt,amount_received:0,_kind:"receipt",_id:x.id});
         }
         events.sort((a,b)=>String(a.date||"").localeCompare(String(b.date||""))||Number(a._id||0)-Number(b._id||0));
-        let running=0; return events.map(e=>({...e,balance:(running+=num(e.amount_received)-num(e.receipt))}));
+        let running=0; return events.map(e=>({...e,balance:(running+=num(e.receipt)-num(e.amount_received))}));
       };
       if(!dealerId){
-        const summary=dealers.map((d:any)=>{const events=build(Number(d.id));return {dealer_id:d.id,dealer_name:d.name,total:events.reduce((s:number,e:any)=>s+num(e.amount_received),0)};});
+        const summary=dealers.map((d:any)=>{const events=build(Number(d.id));return {dealer_id:d.id,dealer_name:d.name,total:events.reduce((s:number,e:any)=>s+num(e.amount_received),0),credit:events.reduce((s:number,e:any)=>s+num(e.receipt),0),balance:events.reduce((s:number,e:any)=>s+num(e.receipt)-num(e.amount_received),0)};});
         return Response.json({summary,dealers,events:[],rows:[],count:summary.length});
       }
       const selected=dealers.find((d:any)=>Number(d.id)===dealerId);

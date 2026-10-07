@@ -164,6 +164,7 @@ export function ClosingStockRawPage() {
   const [rows, setRows] = useState(null);
   const [error, setError] = useState('');
   const [detailItem, setDetailItem] = useState(null); // item name currently drilled into
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     const q = new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) });
@@ -171,16 +172,23 @@ export function ClosingStockRawPage() {
     get(`/stock/closing-raw?${q}`).then(setRows).catch((e) => setError(e.message));
   }, [from, to]);
 
+  const sq = search.trim().toLowerCase();
+  const allRows = rows ? (rows.rows || rows.events || rows).filter((r) => !sq || [r.name, r.hsn, r.code].join(' ').toLowerCase().includes(sq)) : [];
+
   return (
     <>
-      <DateFilterBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <div className="toolbar">
+        <Field label="From" type="date" value={from} onChange={setFrom} />
+        <Field label="To" type="date" value={to} onChange={setTo} />
+        <Field label="Search (item / HSN)" value={search} onChange={setSearch} />
+      </div>
       <ErrorBanner message={error} />
-      {!rows ? <div className="card">Loading…</div> : (rows.rows || rows.events || rows).length === 0 ? <EmptyState /> : (
+      {!rows ? <div className="card">Loading…</div> : allRows.length === 0 ? <EmptyState text={search ? 'No item matches your search.' : undefined} /> : (
         <div className="tablewrap stockTable">
           <table className="table">
             <thead><tr><th>Item</th><th>HSN</th><th>Opening</th><th>Purchased</th><th>Consumed</th><th>Closing</th></tr></thead>
             <tbody>
-              {(rows.rows || rows.events || rows).map((r, i) => (
+              {allRows.map((r, i) => (
                 <tr key={i} onClick={() => setDetailItem(r.name)} style={{ cursor: 'pointer' }} title="Click for item ledger">
                   <td data-label="Item">{r.name}</td><td data-label="HSN">{r.hsn}</td><td data-label="Opening">{r.opening ?? 0}</td><td data-label="Purchased">{r.purchased}</td><td data-label="Consumed">{r.consumed}</td>
                   <td data-label="Closing"><b>{r.closing}</b></td>

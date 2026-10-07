@@ -175,6 +175,7 @@ export const NAV_GROUPS = {
     ['closing-stock-raw', 'Closing Stock - Raw Material'], ['stock-ledger-premises', 'Stock Ledger - Premises'],
     ['stock-ledger-dealers', 'Stock Ledger - Dealers'],
     ['daily-raw-material-checklist', 'Daily Raw Material Issue'],
+    ['production-register', 'Production Register'],
   ],
   HR: [
     ['company', 'Company Details'], ['user', 'User Master'], ['hr-attendance', 'Attendance & Salary'],

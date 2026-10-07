@@ -6,6 +6,7 @@ import { THEMES, useTheme } from '../lib/theme';
 import { ChatWidget } from './ChatWidget';
 import { MenuSearch, MobileSearchSheet } from './MenuSearch';
 import { HelpButton } from './HelpButton';
+import { enableTableSort } from '../lib/tableSort';
 import { Field } from './ui';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
@@ -127,6 +128,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   const [showPalette, setShowPalette] = useState(false);
   const [pendingTheme, setPendingTheme] = useState(themeId);
   const [mobileMenu, setMobileMenu] = useState(false);
+  useEffect(() => enableTableSort(), []);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profile, setProfile] = useState({});

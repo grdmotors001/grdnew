@@ -194,9 +194,9 @@ export function ProductionRegisterPage() {
     <>
       <FilterBar r={r}>
         <div className="actions" style={{ alignSelf: 'flex-end', gap: 6 }}>
-          <button className={`btn ${r.extra.status === 'all' ? 'primary' : ''}`} onClick={() => setStatus('all')}>All</button>
-          <button className={`btn ${r.extra.status === 'delivered' ? 'primary' : ''}`} onClick={() => setStatus('delivered')}>Delivered</button>
-          <button className={`btn ${r.extra.status === 'factory' ? 'primary' : ''}`} onClick={() => setStatus('factory')}>In Factory Stock</button>
+          <button className={`btn ${r.extra.status === 'all' ? 'primary' : ''}`} onClick={() => setStatus('all')}>ALL</button>
+          <button className={`btn ${r.extra.status === 'delivered' ? 'primary' : ''}`} onClick={() => setStatus('delivered')}>DELIVERED</button>
+          <button className={`btn ${r.extra.status === 'factory' ? 'primary' : ''}`} onClick={() => setStatus('factory')}>IN STOCK</button>
         </div>
         <button className="btn" style={{ alignSelf: 'flex-end' }}
                 onClick={() => downloadExcel('/reports/production-register' + qs(r) + `&status=${r.extra.status}&export=csv`, 'Production_Register.xlsx')}>
@@ -1448,6 +1448,20 @@ export function LedgerVPage() {
   const [data, setData] = useState(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
+  const [vSort, setVSort] = useState({ key: '', dir: 'asc' });
+  const toggleV = (key) => setVSort((s) => ({ key, dir: s.key === key && s.dir === 'asc' ? 'desc' : 'asc' }));
+  const vArrow = (key) => (vSort.key === key ? (vSort.dir === 'asc' ? ' ▲' : ' ▼') : ' ↕');
+  const vEvents = (() => {
+    const ev = data?.events || [];
+    if (!vSort.key) return ev;
+    const num = (x) => Number(x) || 0;
+    const val = (e) => (['receipt', 'amount_received', 'balance'].includes(vSort.key) ? num(e[vSort.key]) : vSort.key === 'date' ? String(e.date || '').slice(0, 10) : String(e[vSort.key] ?? '').toLowerCase());
+    return ev.map((e, i) => [e, i]).sort((a, b) => {
+      const x = val(a[0]), y = val(b[0]);
+      const c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true });
+      return (c || a[1] - b[1]) * (vSort.dir === 'asc' ? 1 : -1);
+    }).map((p) => p[0]);
+  })();
 
   useEffect(() => {
     if (dealerId) return;
@@ -1474,12 +1488,12 @@ export function LedgerVPage() {
         {!summary ? <div className="card">Loading…</div> : filteredSummary.length === 0 ? <EmptyState /> : (
           <div className="tablewrap">
             <table className="table">
-              <thead><tr><th>Dealer</th><th>Total Received</th></tr></thead>
+              <thead><tr><th>Dealer</th><th>Total Received (Adjusted)</th><th>Balance</th></tr></thead>
               <tbody>
                 {filteredSummary.map((s) => (
                   <tr key={s.dealer_id} onClick={() => setDealerId(String(s.dealer_id))} style={{ cursor: 'pointer' }} title="Click to view statement">
                     <td><b>{s.dealer_name}</b></td>
-                    <td><b><Money value={s.total} /></b></td>
+                    <td><b><Money value={s.total} /></b></td><td><b><Money value={Math.abs(Number(s.balance) || 0)} /> {Number(s.balance) >= 0 ? 'Cr' : 'Dr'}</b></td>
                   </tr>
                 ))}
               </tbody>
@@ -1506,22 +1520,20 @@ export function LedgerVPage() {
       <h3 style={{ margin: '4px 0 12px' }}>{selectedName}</h3>
       {!data ? <div className="card">Loading…</div> : data.events.length === 0 ? <EmptyState text="No transactions in this range." /> : (
         <div className="tablewrap">
-          <table className="table">
+          <table className="table" data-nosort>
             <thead>
               <tr>
-                <th>Date</th><th>Doc No.</th><th>Particulars</th>
-                <th>Voucher No.</th><th>Bill No.</th><th>Chassis No.</th><th>Customer</th>
-                <th>Receipt (Day Book)</th><th>Amount Received (Invoice)</th><th>Running Total</th>
+                <th onClick={() => toggleV('date')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Date{vArrow('date')}</th><th onClick={() => toggleV('doc_no')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Doc No.{vArrow('doc_no')}</th><th onClick={() => toggleV('particulars')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Particulars{vArrow('particulars')}</th><th onClick={() => toggleV('voucher_no')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Voucher No.{vArrow('voucher_no')}</th><th onClick={() => toggleV('bill_no')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Bill No.{vArrow('bill_no')}</th><th onClick={() => toggleV('chassis_no')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Chassis No.{vArrow('chassis_no')}</th><th onClick={() => toggleV('customer')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Customer{vArrow('customer')}</th><th onClick={() => toggleV('receipt')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Receipt / Cash (Credit){vArrow('receipt')}</th><th onClick={() => toggleV('amount_received')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Received Amount (Adjusted - Debit){vArrow('amount_received')}</th><th onClick={() => toggleV('balance')} style={{ cursor: 'pointer', userSelect: 'none' }} title="Click to sort">Balance{vArrow('balance')}</th>
               </tr>
             </thead>
             <tbody>
-              {data.events.map((e, i) => (
+              {vEvents.map((e, i) => (
                 <tr key={i}>
                   <td>{formatDate(e.date)}</td><td>{e.doc_no}</td><td>{e.particulars}</td>
                   <td>{e.voucher_no}</td><td>{e.bill_no}</td><td>{e.chassis_no}</td><td>{e.customer}</td>
                   <td>{e.receipt ? <Money value={e.receipt} /> : ''}</td>
                   <td>{e.amount_received ? <Money value={e.amount_received} /> : ''}</td>
-                  <td><b><Money value={e.balance} /></b></td>
+                  <td><b><Money value={Math.abs(Number(e.balance) || 0)} /> {Number(e.balance) >= 0 ? 'Cr' : 'Dr'}</b></td>
                 </tr>
               ))}
             </tbody>
