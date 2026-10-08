@@ -505,11 +505,11 @@ export function SaleRegisterPage() {
       {r.data.invoices.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Bill No.</th><th>Buyer</th><th>Product</th><th>Taxable</th><th>Tax</th><th>Total</th></tr></thead>
+            <thead><tr><th>Date</th><th>Bill No.</th><th>Buyer</th><th>State</th><th>Product</th><th>Taxable</th><th>Tax</th><th>Total</th></tr></thead>
             <tbody>
-              {r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td>{i.product_name}</td><td><Money value={i.taxable_value} /></td><td><Money value={i.tax_amount} /></td><td><Money value={i.bill_total} /></td></tr>)}
+              {r.data.invoices.map((i) => <tr key={i.id}><td>{formatDate(i.date)}</td><td>{i.bill_no}</td><td>{i.buyer_name}</td><td>{i.buyer_state || '—'}</td><td>{i.product_name}</td><td><Money value={i.taxable_value} /></td><td><Money value={i.tax_amount} /></td><td><Money value={i.bill_total} /></td></tr>)}
             </tbody>
-            <tfoot><tr><td colSpan={4}><b>All matching totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.tax} /></td><td><Money value={r.data.totals.total} /></td></tr></tfoot>
+            <tfoot><tr><td colSpan={5}><b>All matching totals</b></td><td><Money value={r.data.totals.taxable} /></td><td><Money value={r.data.totals.tax} /></td><td><Money value={r.data.totals.total} /></td></tr></tfoot>
           </table>
         </div>
       )}

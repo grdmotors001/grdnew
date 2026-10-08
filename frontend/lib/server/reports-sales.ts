@@ -12,13 +12,13 @@ export function ensureTaxInvoiceRecordColumns():Promise<void>{
 // Sale Register / GST / Hypothecation / Subsidy ki common tax_invoice rows (date + search filter, cancelled hata ke).
 export async function taxInvoiceReportRows(u:URL):Promise<any[]>{
   const args:any[]=[]; const {w,search}=dateWhere("ti",u,args);
-  if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+")");}
+  if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_state,'') ILIKE $"+args.length+")");}
   w.push("COALESCE(ti.cancelled,false)=false");
   const where=w.length?" WHERE "+w.join(" AND "):"";
   // GST split/total fields are computed properties in the legacy model,
   // not persisted columns in tax_invoice. Compute them from state_type,
   // gst_rate and the stored taxable components directly in SQL.
-  const base=`SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,ti.product_name,ti.chassis_no,ti.financer_name,ti.dealer_name,ti.amount_received,ti.sale_amount,ti.hypothecation_amount,ti.subsidy_amount,
+  const base=`SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,ti.buyer_state,ti.buyer_state_code,ti.product_name,ti.chassis_no,ti.financer_name,ti.dealer_name,ti.amount_received,ti.sale_amount,ti.hypothecation_amount,ti.subsidy_amount,
     GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0) AS taxable_value,
     CASE WHEN COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'
       THEN GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/200
