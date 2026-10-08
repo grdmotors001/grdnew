@@ -34,9 +34,10 @@ export async function POST(req:Request){
     code:d.code,
     name:d.name,
     login_id:d.login_id,
-    dealer_category:d.dealer_category||"dealer",
-    purchase_access:Boolean(d.purchase_access),
+    dealer_category:d.dealer_category||"dealer",registration_type:d.registration_type||"registered",
+    purchase_access:Boolean(d.purchase_access)&&String(d.registration_type||"registered").toLowerCase()!=="unregistered",
     portal_modules:portalModules,
+    state:d.state||"",state_code:d.state_code||"",bank_name:d.bank_name||"",bank_account_no:d.bank_account_no||"",bank_ifsc:d.bank_ifsc||"",
   };
   const token=jwt.sign({sub:d.id,username:d.login_id,dealer_id:d.id,scope:"dealer",portal_modules:portalModules},secret,{expiresIn:"12h"});
   return Response.json({success:true,token,dealer:safe,user:safe});

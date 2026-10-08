@@ -6,7 +6,7 @@ export const viewport={width:'device-width',initialScale:1,viewportFit:'cover'};
 // Sets data-theme on <html> before React hydrates/paints, so a saved "dark"
 // preference doesn't flash light-mode for a frame on reload.
 // Initialize one of the eight preset themes before React paints.
-const THEME_INIT = `(function(){try{var allowed=['green-olive','grey-white','white-black','navy-gold','maroon-cream','teal-charcoal','purple-lavender','coral-sand'];var t=localStorage.getItem('ebill_theme');if(allowed.indexOf(t)<0)t='green-olive';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;
+const THEME_INIT = `(function(){try{var allowed=['green-olive','lavender-soft','white-black','navy-gold','maroon-cream','teal-charcoal','purple-lavender','red-classic'];var t=localStorage.getItem('ebill_theme');if(t==='grey-white')t='lavender-soft';if(t==='coral-sand')t='red-classic';if(allowed.indexOf(t)<0)t='green-olive';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`;
 
 export default function RootLayout({children}){
   return (

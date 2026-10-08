@@ -146,6 +146,33 @@ export function TaxInvoicePage() {
     }));
   };
 
+  // Registered dealer ko hi buyer banana ho (Challan + Invoice dono dealer ke naam): dealer master se buyer ki details bhar do.
+  const fillBuyerFromDealer = () => run(async () => {
+    if (!form.dealer_id) throw new Error('Pehle Delivery Challan select karo, taaki dealer pata chale.');
+    const r = await get('/dealers');
+    const d = (r.dealers || []).find((x) => String(x.id) === String(form.dealer_id));
+    if (!d) throw new Error('Dealer master mein dealer nahi mila.');
+    const address = [d.address1, d.address2].map((x) => String(x || '').trim()).filter(Boolean).join(', ');
+    const pin = String(d.pincode || '').replace(/\D/g, '') || (address.match(/(?:^|\D)([1-9]\d{5})(?!\d)/) || [])[1] || '';
+    const gst = String(d.gst_no || '').trim().toUpperCase();
+    setForm((f) => ({
+      ...f,
+      customer_id: '',
+      buyer_name: d.name || '',
+      buyer_relation: 'Firm',
+      buyer_father_name: 'NIL',
+      buyer_address: address,
+      buyer_mobile: d.mobile || '',
+      buyer_gst_no: gst,
+      buyer_pan: String(d.pan || (gst.length >= 12 ? gst.slice(2, 12) : '')).toUpperCase(),
+      buyer_aadhar: '',
+      buyer_dob: '',
+      ...(d.state ? stateFields(d.state) : {}),
+      buyer_pincode: pin || f.buyer_pincode || '',
+    }));
+    if (!gst) throw new Error('Is dealer ka GSTIN master mein nahi hai (B2C jaisa maana jayega, Aadhar chahiye hoga).');
+  });
+
   const markStockRemoval = () => {
     // Some chassis leave stock without a real bill ever being cut against
     // them — historically these all shared the placeholder Bill No.
@@ -370,6 +397,9 @@ export function TaxInvoicePage() {
                   <div className="actions" style={{margin:'10px 0'}}>
                     <input className="input" placeholder="Search DO No." value={loanSearch} onChange={e=>searchPendingLoans(e.target.value)} style={{maxWidth:320}} />
                     <span className="muted">Approved / Pending for Bill loans</span>
+                  </div>
+                  <div className="actions" style={{margin:'0 0 8px'}}>
+                    <button type="button" className="btn" disabled={!form.dealer_id} title={form.dealer_id ? 'Dealer ki GST / address details buyer mein bhar do' : 'Pehle Delivery Challan select karo'} onClick={fillBuyerFromDealer}>🏢 Bill to Dealer (Registered){form._dealer_name ? ' — ' + form._dealer_name : ''}</button>
                   </div>
                   <div className="formgrid">
                   <Field label="Dealer Page No." value={form.dealer_page_no} onChange={(v) => setForm({ ...form, dealer_page_no: v })} />

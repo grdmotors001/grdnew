@@ -140,6 +140,7 @@ export function canWrite(a:any,p:string){
     if(p.startsWith("dealer/cash-book/"))return true;
     if(p.startsWith("dealer/pending-sales/"))return true;
     if(/^dealer\/tax-invoices\/\d+$/.test(p))return true;
+    if(p==="dealer/customer-invoice")return true; // permission (purchase_access) handler me check hoti hai
     const need=DEALER_WRITE_MODULE[p];
     if(!need)return false;
     const mods=(Array.isArray(a?.portal_modules)?a.portal_modules:String(a?.portal_modules||"").split(","))

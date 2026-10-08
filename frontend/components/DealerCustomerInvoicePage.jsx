@@ -1,16 +1,20 @@
 'use client';
 import {useEffect,useState} from 'react';
 import {post} from '../lib/api';
+import {STATE_NAMES,stateCodeFor} from '../lib/states';
+import {TaxInvoicePrintView} from './PrintDocs';
 
-export function DealerCustomerInvoicePage({challan,onBack,dealer}){
- const [f,setF]=useState({buyer_name:'',buyer_father_name:'',buyer_mobile:'',buyer_address:'',buyer_gst_no:'',buyer_pan:'',sale_amount:'',gst_rate:'',discount:'',amount_received:'',bank_name:'',bank_account_no:'',bank_ifsc:''});
- const [busy,setBusy]=useState(false),[error,setError]=useState(''),[ok,setOk]=useState(null);
+export function DealerCustomerInvoicePage({challan,onBack,dealer,onDone}){
+ const [f,setF]=useState({buyer_name:'',buyer_father_name:'',buyer_mobile:'',buyer_address:'',buyer_gst_no:'',buyer_pan:'',buyer_state:dealer?.state||'',buyer_state_code:dealer?.state_code||'',sale_amount:'',gst_rate:'',discount:'',amount_received:'',bank_name:'',bank_account_no:'',bank_ifsc:''});
+ const [busy,setBusy]=useState(false),[error,setError]=useState(''),[ok,setOk]=useState(null),[printOpen,setPrintOpen]=useState(false);
  useEffect(()=>{if(challan)setF(x=>({...x,sale_amount:challan.sale_value||'',gst_rate:challan.gst_rate||'',bank_name:dealer?.bank_name||'',bank_account_no:dealer?.bank_account_no||'',bank_ifsc:dealer?.bank_ifsc||''}))},[challan,dealer]);
  const set=(k,v)=>setF(x=>({...x,[k]:v}));
- async function save(e){e.preventDefault();if(!challan)return;setBusy(true);setError('');try{const r=await post('/dealer/customer-invoice',{challan_id:challan.id,...f});setOk(r)}catch(e){setError(e.message)}finally{setBusy(false)}}
- if(ok)return <div className="dealerSuccessCard"><div className="dealerSuccessIcon">✓</div><h1>Invoice Created</h1><p>Invoice No.: <b>{ok.bill_no||'Saved'}</b></p><p>Chassis: <b>{ok.chassis_no}</b></p><button className="btn primary" onClick={onBack}>Back to Purchases</button></div>;
+ async function save(e){e.preventDefault();if(!challan)return;setBusy(true);setError('');try{const r=await post('/dealer/customer-invoice',{challan_id:challan.id,...f});setOk(r);if(onDone)onDone(r)}catch(e){setError(e.message)}finally{setBusy(false)}}
+ if(ok)return <div className="dealerSuccessCard"><div className="dealerSuccessIcon">✓</div><h1>Invoice Created</h1><p>Invoice No.: <b>{ok.bill_no||'Saved'}</b></p><p>Chassis: <b>{ok.chassis_no}</b></p>
+  <div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>{ok.id&&<button className="btn primary" onClick={()=>setPrintOpen(true)}>🖨 Print Invoice</button>}<button className="btn" onClick={onBack}>Back to Purchases</button></div>
+  {printOpen&&ok.id&&<TaxInvoicePrintView invoiceId={ok.id} onClose={()=>setPrintOpen(false)}/>}</div>;
  return <div className="dealerLoanPage">
-  <div className="dealerLoanTop"><div><button className="dealerBackBtn" onClick={onBack}>← Back</button><span className="dealerFormEyebrow">REGISTERED DEALER</span><h1>Create Invoice</h1><p>Customer details, vehicle details and your registered dealer bank details.</p></div></div>
+  <div className="dealerLoanTop"><div><button className="dealerBackBtn" onClick={onBack}>← Back</button><span className="dealerFormEyebrow">REGISTERED DEALER</span><h1>Create Invoice</h1><p>Customer details, vehicle details and your registered dealer bank details. Bill number apne aap banega (jaise 0001/26-27).</p></div></div>
   {error&&<div className="error dealerError">{error}</div>}
   {challan&&<div className="dealerSideCard" style={{marginBottom:14}}><b>{challan.product_name}</b> · {challan.chassis_no} · Challan {challan.challan_no}</div>}
   <form className="dealerFormCard" onSubmit={save}>
@@ -20,6 +24,7 @@ export function DealerCustomerInvoicePage({challan,onBack,dealer}){
     <label>Mobile<input className="input" value={f.buyer_mobile} onChange={e=>set('buyer_mobile',e.target.value)}/></label>
     <label>GSTIN<input className="input" value={f.buyer_gst_no} onChange={e=>set('buyer_gst_no',e.target.value.toUpperCase())}/></label>
     <label>PAN<input className="input" value={f.buyer_pan} onChange={e=>set('buyer_pan',e.target.value.toUpperCase())}/></label>
+    <label>State<select className="input" value={f.buyer_state} onChange={e=>setF(x=>({...x,buyer_state:e.target.value,buyer_state_code:stateCodeFor(e.target.value)||''}))}><option value="">Select State</option>{STATE_NAMES.map(n=><option key={n} value={n}>{n}</option>)}</select></label>
     <label className="dealerSpan2">Address<textarea className="input" rows="3" value={f.buyer_address} onChange={e=>set('buyer_address',e.target.value)}/></label>
    </div>
    <h3 style={{marginTop:20}}>Vehicle Details</h3><div className="dealerPersonGrid">

@@ -178,6 +178,7 @@ export function DealerPage() {
               <Field label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
               <Field label="Address Line 1" value={form.address1} onChange={(v) => setForm({ ...form, address1: v })} />
               <Field label="Address Line 2" value={form.address2} onChange={(v) => setForm({ ...form, address2: v })} />
+              <Field label="Pin Code" value={form.pincode} onChange={(v) => setForm({ ...form, pincode: String(v || '').replace(/\D/g, '').slice(0, 6) })} />
               <Field label="Mobile" value={form.mobile} onChange={(v) => setForm({ ...form, mobile: v })} />
               <Field label="GSTIN" value={form.gst_no} onChange={(v) => setForm({ ...form, gst_no: v })} />
               <Field label="Dealer Category" type="select" value={form.dealer_category || "dealer"} onChange={(v) => setForm({ ...form, dealer_category: v })} options={[{value:"showroom",label:"Showroom / Branch"},{value:"dealer",label:"Dealer"}]} />

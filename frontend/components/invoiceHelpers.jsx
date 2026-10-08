@@ -7,6 +7,7 @@ import { STATES, stateCodeFor } from '../lib/states';
 // company buyer, where no father name applies.
 export const RELATION_OPTIONS = [
   { value: '', label: '— (Firm / none)' },
+  { value: 'Firm', label: 'Firm' },
   { value: 'S/O', label: 'S/O' },
   { value: 'D/O', label: 'D/O' },
   { value: 'C/O', label: 'C/O' },

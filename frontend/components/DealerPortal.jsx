@@ -19,6 +19,7 @@ import { MenuSearch, MobileSearchSheet } from './MenuSearch';
 import { HelpButton } from './HelpButton';
 import { DealerProfilePage, DealerPasswordPage } from './DealerProfilePage';
 import { Field, ErrorBanner } from './ui';
+import { TaxInvoicePrintView } from './PrintDocs';
 
 const DEALER_EXPENSE_CATEGORIES = [
   ['pcc', 'PCC'], ['ll', 'LL'], ['dl', 'DL'], ['makhi_commission', 'Makkhi / Commission'],
@@ -50,6 +51,7 @@ const nav = [
   ['old-stock', '▥', 'Old Rickshaw Stock'],
   ['battery-stock', '🔋', 'Battery Stock'],
   ['challans', '▤', 'Delivery Challans'],
+  ['purchases', '📥', 'Purchases'],
   ['invoices', '▥', 'Tax Invoices'],
   ['pending-sales', '▤', 'Pending'],
   ['balance-pending', '₹', 'Balance Pending'],
@@ -115,6 +117,10 @@ export function DealerPortal({ dealer, onLogout }) {
   const canCashBook = (dealer.dealer_category || 'dealer').toLowerCase() === 'showroom';
   const dealerCategory = (dealer.dealer_category || 'dealer').toLowerCase();
   const canCreateSale = ['showroom', 'branch'].includes(dealerCategory);
+  // Plain Unregistered dealer: admin hi bill katega, par dealer Old Stock dekh sakta hai aur Pending Sale bana sakta hai
+  // (cash = customer manual, finance = approved loan se). Registered dealer ka alag flow (apne naam purchase).
+  const isUnregistered = !canCreateSale && String(dealer.registration_type || 'registered').toLowerCase() === 'unregistered';
+  const canPendingFlow = canCreateSale || isUnregistered;
   const canLedger = !['showroom', 'branch'].includes(dealerCategory);
   const portalModuleList = Array.isArray(dealer?.portal_modules)
     ? dealer.portal_modules.map((x) => String(x).trim()).filter(Boolean)
@@ -131,7 +137,7 @@ export function DealerPortal({ dealer, onLogout }) {
   // and lands on whichever of them is actually enabled for that dealer.
   const canBatteryAdjustment = canBatteryWithdrawal || canBatterySwap || canBatteryAddition;
   const defaultBatteryTab = canBatteryWithdrawal ? 'battery-withdrawal' : canBatterySwap ? 'battery-swap' : 'battery-addition';
-  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'repair-receipt' || canRepairReceipt) && (key !== 'create-sale' || canCreateSale) && (key !== 'old-rickshaw-sales' || canOldRickshawSales) && (key !== 'ledger' || canLedger));
+  const sidebarEntries = nav.filter(([key]) => !SIDEBAR_HIDDEN_KEYS.has(key) && (key !== 'purchases' || canPurchase) && (key !== 'cashbook' || canCashBook) && (key !== 'receipt-create' || canCashBook) && (key !== 'repair-receipt' || canRepairReceipt) && (key !== 'create-sale' || canCreateSale) && (key !== 'old-rickshaw-sales' || canOldRickshawSales) && (key !== 'ledger' || canLedger) && (key !== 'pending-sales' || canPendingFlow) && (key !== 'old-stock' || canPendingFlow));
   if (canBatteryAdjustment) {
     const batteryEntry = ['battery-adjustment', '🔋', 'Battery Adjustment'];
     const insertAt = sidebarEntries.findIndex(([key]) => key === 'cashbook' || key === 'payments' || key === 'ledger');
@@ -142,7 +148,8 @@ export function DealerPortal({ dealer, onLogout }) {
     (key !== 'incentive' || canCashBook) &&
     (!['cashbook','cash-handover','expenses-create','handover-create'].includes(key) || canCashBook) &&
     (key !== 'battery-withdrawal' || canBatteryWithdrawal) && (key !== 'battery-swap' || canBatterySwap) &&
-    (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales) && (key !== 'ledger' || canLedger);
+    (key !== 'battery-addition' || canBatteryAddition) && (key !== 'old-rickshaw-sales' || canOldRickshawSales) && (key !== 'ledger' || canLedger) &&
+    (!['old-stock','pending-sales','balance-pending'].includes(key) || canPendingFlow);
   const dealerSearchItems = [
     ...sidebarEntries.map(([key, , label]) => ({ key, label, group: '' })),
     ...dealerHeaderSections.flatMap((sec) => sec.items.filter(([key]) => searchAllowed(key)).map(([key, label]) => ({ key, label, group: sec.label }))),
@@ -156,6 +163,12 @@ export function DealerPortal({ dealer, onLogout }) {
     if (key === 'all-sale') setTab('invoices');
     else if (key === 'pending-sales') setTab('balance-pending');
     else setTab(key === 'battery-adjustment' ? defaultBatteryTab : key);
+  };
+
+  // Invoice banne ke baad My Stock (bina bill wali gaadiyan) aur Tax Invoices dono turant refresh.
+  const reloadAfterInvoice = () => {
+    get('/dealer/stock', { noClientCache: true }).then(setStock).catch(() => {});
+    get('/dealer/tax-invoices', { noClientCache: true }).then((r) => setInvoices(r.invoices || [])).catch(() => {});
   };
 
   const loadLoanStatus = async () => {
@@ -174,11 +187,11 @@ export function DealerPortal({ dealer, onLogout }) {
     setError('');
     const loads = [
       ['stock', () => get('/dealer/stock').then(setStock)],
-      ['old-rickshaws', () => get('/dealer/old-rickshaws').then(setOldStock)],
       ['battery-stock', () => get('/dealer/battery-stock').then(setBatteryStock)],
       ['delivery-challans', () => get('/dealer/delivery-challans').then(r => setChallans(r.challans || []))],
       ['tax-invoices', () => get('/dealer/tax-invoices').then(r => setInvoices(r.invoices || []))],
     ];
+    if (canPendingFlow) loads.push(['old-rickshaws', () => get('/dealer/old-rickshaws').then(setOldStock)]);
     if (canCashBook) loads.push(['cash-position', () => get('/dealer/cash-position', { noClientCache: true }).then(setCashPos)]);
     loads.forEach(([name, load]) => load().catch((e) => {
       console.warn('[dealer-portal] optional module failed:', name, e);
@@ -218,7 +231,7 @@ export function DealerPortal({ dealer, onLogout }) {
     ALL_SALE_KEYS.includes(tab) ? <DealerAllSale tab={tab} dealer={dealer} invoices={invoices} challans={filteredChallans} canCashBook={canCashBook} canOldRickshawSales={canOldRickshawSales} /> :
     LOAN_KEYS.includes(tab) ? <DealerLoanStatus tab={tab} rows={loans} onRefresh={loadLoanStatus} /> :
     (tab === 'ledger' && canLedger) ? <DealerLedgerPage /> :
-    (tab === 'customer-invoice' && canPurchase) ? <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onBack={() => setTab('purchases')} /> :
+    (tab === 'customer-invoice' && canPurchase) ? <DealerCustomerInvoicePage challan={selectedPurchase} dealer={dealer} onDone={reloadAfterInvoice} onBack={() => setTab('purchases')} /> :
     null;
 
   return (<div className="dealerShell">
@@ -322,7 +335,8 @@ export function DealerPortal({ dealer, onLogout }) {
             (key !== 'battery-withdrawal' || canBatteryWithdrawal) &&
             (key !== 'battery-swap' || canBatterySwap) &&
             (key !== 'battery-addition' || canBatteryAddition) &&
-            (key !== 'old-rickshaw-sales' || canOldRickshawSales)
+            (key !== 'old-rickshaw-sales' || canOldRickshawSales) &&
+            (!['old-stock','balance-pending'].includes(key) || canPendingFlow)
           );
           return (
             <div className="moduleStrip dealerModuleStrip" aria-label={activeHeaderSection}>
@@ -412,7 +426,7 @@ export function DealerPortal({ dealer, onLogout }) {
       {error && <div className="error dealerError">{error}</div>}
 
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
-        {nav.filter(x=>['dashboard','stock','pending-sales'].includes(x[0])).map(([key,icon,label])=>
+        {nav.filter(x=>['dashboard','stock','pending-sales'].includes(x[0]) && (x[0] !== 'pending-sales' || canPendingFlow)).map(([key,icon,label])=>
           <button type="button" key={key} className={sidebarKeyOf(tab)===key?'active':''} onClick={()=>{goToSidebarTab(key);setMobileNav(false)}}>
             <span>{icon}</span><small>{label}</small>
           </button>
@@ -440,10 +454,10 @@ export function DealerPortal({ dealer, onLogout }) {
           return <><td>{formatDate(v.date)}</td><td><b>{v.challan_no}</b></td><td>{v.product_name||'—'}</td><td>{v.chassis_no||'—'}</td>
             <td>{invoiced?<span className="muted">Invoiced</span>:<button className="btn primary" onClick={()=>{setSelectedPurchase(v);setTab('customer-invoice')}}>Create Invoice</button>}</td></>}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
-        {tab==='pending-sales' && <DealerPendingSalesPage/>}
-        {tab==='balance-pending' && <DealerBalancePending/>}
+        {tab==='pending-sales' && canPendingFlow && <DealerPendingSalesPage/>}
+        {tab==='balance-pending' && canPendingFlow && <DealerBalancePending/>}
         {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
-{tab==='old-stock' && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div>{oldSaleNotice&&<div className="muted" style={{margin:'0 0 10px',color:'#15803d',fontWeight:700}}>{oldSaleNotice}</div>}<div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Unsold Stock</span><b>{unsoldOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{unsoldOldStock.filter(v=>!v.pending_sale_id).length}</b></div><div className="dealerOldStockStat"><span>Pending Sale</span><b>{unsoldOldStock.filter(v=>v.pending_sale_id).length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{unsoldOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{v.pending_sale_id?'PENDING SALE':String(v.status||'available').toUpperCase()}</span></td><td data-label="Action">{canOldRickshawSales&&!v.pending_sale_id?<button type="button" className="btn primary" onClick={()=>{setOldSaleNotice('');setOldSaleRow(v)}}>Create Sale</button>:<span className="muted">—</span>}</td></tr>)}{!unsoldOldStock.length&&<tr><td colSpan="7"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div>{oldSaleRow&&<OldRickshawSaleModal row={oldSaleRow} onClose={()=>setOldSaleRow(null)} onDone={(msg)=>{setOldSaleRow(null);setOldSaleNotice(msg);get('/dealer/old-rickshaws').then(setOldStock).catch(()=>{})}}/>}</div>}
+{tab==='old-stock' && canPendingFlow && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div>{oldSaleNotice&&<div className="muted" style={{margin:'0 0 10px',color:'#15803d',fontWeight:700}}>{oldSaleNotice}</div>}<div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Unsold Stock</span><b>{unsoldOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{unsoldOldStock.filter(v=>!v.pending_sale_id).length}</b></div><div className="dealerOldStockStat"><span>Pending Sale</span><b>{unsoldOldStock.filter(v=>v.pending_sale_id).length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{unsoldOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{v.pending_sale_id?'PENDING SALE':String(v.status||'available').toUpperCase()}</span></td><td data-label="Action">{canOldRickshawSales&&!v.pending_sale_id?<button type="button" className="btn primary" onClick={()=>{setOldSaleNotice('');setOldSaleRow(v)}}>Create Sale</button>:<span className="muted">—</span>}</td></tr>)}{!unsoldOldStock.length&&<tr><td colSpan="7"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div>{oldSaleRow&&<OldRickshawSaleModal manual={isUnregistered} row={oldSaleRow} onClose={()=>setOldSaleRow(null)} onDone={(msg)=>{setOldSaleRow(null);setOldSaleNotice(msg);get('/dealer/old-rickshaws').then(setOldStock).catch(()=>{})}}/>}</div>}
         {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='all-receipt' && <DealerAllReceiptsPage dealer={dealer} />}
@@ -624,11 +638,11 @@ function DealerBatterySwap({dealer,onBack}) {
     </form>
   </BatteryAdjustmentShell>;
 }
-function OldRickshawSaleModal({row,onClose,onDone}) {
+function OldRickshawSaleModal({row,onClose,onDone,manual=false}) {
   // Old Rickshaw Stock se Create Sale. Sale pehle Pending Sales me jaati hai;
   // Billing approval ke baad gaadi Sold hoti hai aur sale data CHFPL ko jata hai.
   const todayStr=()=>new Date().toISOString().slice(0,10);
-  const [form,setForm]=useState({sale_date:todayStr(),customer_id:'',customer_name:'',sale_amount:'',loan_amount:'0',do_number:''});
+  const [form,setForm]=useState({sale_date:todayStr(),customer_id:'',customer_name:'',customer_mobile:'',amount_received:'',sale_amount:'',loan_amount:'0',do_number:''});
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   const [customers,setCustomers]=useState([]);
@@ -653,15 +667,16 @@ function OldRickshawSaleModal({row,onClose,onDone}) {
   const balance=Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0)-paidAmt);
   const save=async(e)=>{
     e.preventDefault();
-    if(!selCust){setError('Customer select karo.');return}
+    if(manual){if(!String(form.customer_name||'').trim()){setError('Customer Name bharo.');return}}
+    else if(!selCust){setError('Customer select karo.');return}
     setBusy(true);setError('');
     try{
       await post('/billing/pending-sales/create',{
         sale_category:'OLD',old_rickshaw_id:row.id,sp_no:row.sp_no||'',sale_date:form.sale_date,
-        dealer_cash_customer_id:Number(selCust.id),customer_name:selCust.name||form.customer_name,buyer_name:selCust.name||form.customer_name,
-        buyer_mobile:selCust.phone||'',customer_phone:selCust.phone||'',dealer_page_no:selCust.page_no||'',
+        ...(manual?{}:{dealer_cash_customer_id:Number(selCust.id)}),customer_name:manual?form.customer_name.trim():(selCust.name||form.customer_name),buyer_name:manual?form.customer_name.trim():(selCust.name||form.customer_name),
+        buyer_mobile:manual?form.customer_mobile:(selCust.phone||''),customer_phone:manual?form.customer_mobile:(selCust.phone||''),dealer_page_no:manual?'':(selCust.page_no||''),
         sale_amount:Number(form.sale_amount||0),loan_amount:Number(form.loan_amount||0),hypothecation_amount:Number(form.loan_amount||0),
-        amount_received:paidAmt,do_no:form.do_number||'',ledger_no:''
+        amount_received:manual?Number(form.amount_received||0):paidAmt,do_no:form.do_number||'',ledger_no:''
       },{timeoutMs:60000});
       onDone('Sale Pending Sales me bhej di gayi: '+(row.vehicle_reg_no||'Old Rickshaw')+' → '+form.customer_name+'. Approval ke baad Sold hogi.');
     }catch(err){setError(err.message||'Could not create Old Rickshaw sale.')}
@@ -674,6 +689,14 @@ function OldRickshawSaleModal({row,onClose,onDone}) {
     <div className="formgrid">
       <Field label="SP No." value={row.sp_no||'—'} readOnly/>
       <Field label="Sale Date" type="date" value={form.sale_date} onChange={v=>setF('sale_date',v)} required/>
+      {manual ? <>
+        <Field label="Customer Name" value={form.customer_name} onChange={v=>setF('customer_name',v)} required/>
+        <Field label="Customer Mobile" value={form.customer_mobile} onChange={v=>setF('customer_mobile',String(v||'').replace(/\D/g,'').slice(0,10))}/>
+        <Field label="Sale Amount" type="number" value={form.sale_amount} onChange={v=>setF('sale_amount',v)} required/>
+        <Field label="Loan Amount (finance ho to)" type="number" value={form.loan_amount} onChange={v=>setF('loan_amount',v)}/>
+        <Field label="Amount Received" type="number" value={form.amount_received} onChange={v=>setF('amount_received',v)}/>
+        <Field label="Balance" type="number" value={Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0)-Number(form.amount_received||0))} readOnly/>
+      </> : <>
       <label className="field"><span>Customer (booking)</span>
         <select className="input" value={form.customer_id||''} onChange={e=>pickCustomer(e.target.value)} required>
           <option value="">{customers.length?'Select Customer':'Koi Old Rickshaw booking customer nahi hai'}</option>
@@ -681,16 +704,17 @@ function OldRickshawSaleModal({row,onClose,onDone}) {
         </select>
       </label>
       <Field label="Sale Amount" type="number" value={form.sale_amount} readOnly/>
-      <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF("loan_amount",v)}/>
+        <Field label="Loan Amount" type="number" value={form.loan_amount} onChange={v=>setF("loan_amount",v)}/>
       <Field label="Amount Received (booking)" type="number" value={paidAmt} readOnly/>
       <Field label="Balance" type="number" value={balance} readOnly/>
+      </>}
       <Field label="DO No. (Optional)" value={form.do_number} onChange={v=>setF('do_number',v)}/>
       <Field label="Vehicle No." value={row.vehicle_reg_no||'—'} readOnly/>
       <Field label="Model" value={row.model_name||'—'} readOnly/>
     </div>
     <div className="actions" style={{marginTop:18,justifyContent:'flex-end'}}>
       <button type="button" className="btn" onClick={onClose}>Cancel</button>
-      <button className="btn primary" disabled={busy||!selCust||!(Number(form.sale_amount||0)>0)||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
+      <button className="btn primary" disabled={busy||(manual?!String(form.customer_name||'').trim():!selCust)||!(Number(form.sale_amount||0)>0)||Number(form.loan_amount||0)>Number(form.sale_amount||0)}>{busy?'Saving…':'Send to Pending'}</button>
     </div>
   </form></div>;
 }
@@ -1091,11 +1115,13 @@ function DealerAllSale({tab,dealer,invoices,challans,canCashBook,canOldRickshawS
 }
 function DealerSaleInvoices({invoices}) {
   const [search,setSearch]=useState('');
+  const [printId,setPrintId]=useState(null);
   const q=search.trim().toLowerCase();
   const rows=(invoices||[]).filter(v=>!q||[v.date,v.bill_no,v.chassis_no,v.product_name,v.buyer_name].join(' ').toLowerCase().includes(q));
   return <div className="dealerPanel">
     <div className="dealerPanelHead"><div><h3>Tax Invoices</h3><p>New Rickshaw ke bane hue tax invoice.</p></div><input className="input dealerSearch" placeholder="Search bill, chassis, buyer…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
-    <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={rows} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td></>}/>
+    <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total','Print']} rows={rows} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td><td data-label="Print"><button type="button" className="btn" onClick={()=>setPrintId(i.id)}>🖨 Print</button></td></>}/>
+    {printId&&<TaxInvoicePrintView invoiceId={printId} onClose={()=>setPrintId(null)}/>}
   </div>;
 }
 function DealerBatterySales() {

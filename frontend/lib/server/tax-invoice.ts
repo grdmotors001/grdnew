@@ -4,6 +4,7 @@
 import { pool, num, idOf, ymd, todayDate, columns, json } from "./common";
 import { audit } from "./permissions";
 import { ensureTaxInvoiceRecordColumns } from "./reports-sales";
+import { dealerSellerOverride } from "./dealer-invoice";
 
 // tax_invoice has no stored taxable/GST/total columns (legacy model computes them). Screens, print and the dealer portal read
 // taxable_value / cgst_amount / sgst_amount / igst_amount / tax_amount / bill_total, so every tax_invoice read that feeds them adds this (alias: ti).
@@ -54,10 +55,12 @@ export async function taxInvoiceGet(req:Request,path:string[],a:any,deps:any):Pr
       const r=await pool.query("SELECT ti.*,d.name AS joined_dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,d.address1 AS dealer_address1,d.address2 AS dealer_address2,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(v)->>'colour_code','') AS colour_code FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id LEFT JOIN vehicle v ON v.id=ti.vehicle_id WHERE ti.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Tax Invoice not found."},{status:404});
       const x=r.rows[0],invoice={...x,dealer_name:x.dealer_name||x.joined_dealer_name||"",dealer_code:x.dealer_code||"",dealer_mobile:x.dealer_mobile||"",dealer_gst_no:x.dealer_gst_no||"",dealer_address1:x.dealer_address1||"",dealer_address2:x.dealer_address2||"",product_name:x.product_name||x.vehicle_model_name||"",chassis_no:x.chassis_no||x.vehicle_chassis_no||"",motor_no:x.motor_no||x.vehicle_motor_no||"",colour:x.colour||x.vehicle_colour||"",battery_maker:x.battery_maker||"",battery_no1:x.battery_no1||"",battery_no2:x.battery_no2||"",battery_no3:x.battery_no3||"",battery_no4:x.battery_no4||"",umrn_code:x.umrn_code||"",colour_code:x.colour_code||""};
-      const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
+      let company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
+      if(a.scope==="dealer"&&Number(a.dealer_id)!==Number(x.dealer_id))return Response.json({error:"Tax Invoice not found."},{status:404});
       const pd=await pool.query("SELECT (SELECT pv.date::text FROM production_voucher pv WHERE lower(btrim(pv.chassis_no))=lower(btrim($1)) ORDER BY pv.id DESC LIMIT 1) AS d",[invoice.chassis_no||""]).catch(()=>({rows:[] as any[]}));
       (invoice as any).production_date=String(pd.rows[0]?.d||"").slice(0,10);
-      const printBank=await defaultBank(company);
+      let printBank=await defaultBank(company);
+      if(x.issued_by_dealer){const dRow=(await pool.query("SELECT * FROM dealer WHERE id=$1",[x.dealer_id])).rows[0];const so=dealerSellerOverride(x,dRow,company,printBank);company=so.company;printBank=so.bank;}
       const rtoName=String(x.rto||x.rto_name||"").trim();let rto_address="";
       if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);const rr=rm.rows[0]||{};rto_address=rtoAddressText(rr);}
       const lg=await productLogo(invoice.product_name,x.vehicle_model_name||"");invoice.umrn_code=lg.umrn_code||invoice.umrn_code;(invoice as any).logo_keys=lg.logo_keys;

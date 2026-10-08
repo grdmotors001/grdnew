@@ -13,6 +13,7 @@ import { ensureLoanWorkflowBridgeSchema, chfplBridge, loanGet, loanWebhookPost, 
 import { ensureBatteryRegisterSchema, ensureBatteryFitSchema, assertBatterySerialsAvailable, toggleBatteryRegisterForDelivery, batteryGet, batteryPost, batteryMutation } from "../../../lib/server/battery";
 import { ensureBillingSalesSchema, upsertBillingCustomer, billingGet, billingPost, billingMutation } from "../../../lib/server/billing";
 import { TI_TAXABLE, taxInvoiceGet, taxInvoicePost, taxInvoiceMutation } from "../../../lib/server/tax-invoice";
+import { dealerInvoicePost } from "../../../lib/server/dealer-invoice";
 import { deliveryChallanGet, deliveryChallanPost, deliveryChallanMutation } from "../../../lib/server/delivery-challan";
 import { gstHypSubsidyReport, hypothecationGet, hypothecationPost, hypothecationMutation, ensureTaxInvoiceVehicleNoColumn } from "../../../lib/server/gst-hypothecation";
 export const dynamic="force-dynamic";
@@ -495,7 +496,14 @@ async function ensureHRSchemas(){
   await pool.query("CREATE TABLE IF NOT EXISTS hr_attendance (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, work_date date NOT NULL, first_in timestamptz, last_out timestamptz, status text NOT NULL DEFAULT 'Present', work_hours numeric NOT NULL DEFAULT 0, overtime_hours numeric NOT NULL DEFAULT 0, UNIQUE(employee_id,work_date))");
   await pool.query("CREATE TABLE IF NOT EXISTS hr_salary (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, salary_month text NOT NULL, working_days numeric NOT NULL DEFAULT 0, present_days numeric NOT NULL DEFAULT 0, overtime_hours numeric NOT NULL DEFAULT 0, basic_earned numeric NOT NULL DEFAULT 0, allowances numeric NOT NULL DEFAULT 0, overtime_amount numeric NOT NULL DEFAULT 0, net_salary numeric NOT NULL DEFAULT 0, status text NOT NULL DEFAULT 'PROCESSED', UNIQUE(employee_id,salary_month))");
 }
+let dealerPincodeReady:Promise<void>|null=null;
+// Dealer Master me Pin Code field: column pehli baar use hone par apne aap ban jata hai.
+function ensureDealerPincode():Promise<void>{
+  if(!dealerPincodeReady)dealerPincodeReady=addColumns("dealer",{pincode:"text"}).catch(e=>{dealerPincodeReady=null;throw e});
+  return dealerPincodeReady;
+}
 async function genericGet(req:Request,path:string[],table:string){
+  if(table==="dealer")await ensureDealerPincode();
   const cols=await columns(table);
   if(!cols.size)return Response.json({error:"Table not found",table},{status:404});
   const id=idOf(path[path.length-1]);
@@ -621,6 +629,7 @@ function rtoAddressText(rr:any){
 
 let simpleMasterAddr2Ready:Promise<void>|null=null;
 async function genericWrite(req:Request,path:string[],table:string,method:string,parsedBody?:any){
+  if(table==="dealer")await ensureDealerPincode();
   // RTO Master keeps a second address line (prints as the 2nd line at the invoice bottom-left).
   if(table==="simple_master"){if(!simpleMasterAddr2Ready)simpleMasterAddr2Ready=addColumns("simple_master",{address2:"text",expense_type:"text"}).catch(e=>{simpleMasterAddr2Ready=null;throw e});await simpleMasterAddr2Ready;}
   const cols=await columns(table);
@@ -631,6 +640,17 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
   }
   if(table==="simple_master" && path[0]==="masters" && path[1] && cols.has("kind"))input.kind=path[1]==="color"?"colour":path[1];
   const id=idOf(path[path.length-1]);
+  if(table==="dealer"){
+    // Dealer Master form sends plain "password"; dealer table only has password_hash and the dealer login verifies that hash.
+    // Without this the password was silently dropped (no "password" column) so the login could never match.
+    const authz:any=auth(req);
+    delete input.password;delete input.password_hash;
+    const pw=String(body?.password??"");
+    if(pw.trim()&&authz?.scope!=="dealer"){const crypto=await import("crypto");input.password_hash=pwMakeHash(crypto,pw);}
+    if(typeof input.login_id==="string")input.login_id=input.login_id.trim();
+    if(String(input.registration_type||"").toLowerCase()==="unregistered")input.purchase_access=false;
+    if(input.pincode!==undefined)input.pincode=String(input.pincode??"").replace(/\D/g,"").slice(0,6)||null;
+  }
   if(table==="dealer"){const g=await guardRepairReceiptRight(auth(req),method,method==="POST"?null:id,input);if(g)return g;}
   const scopeGuard=await enforceDealerScope(auth(req),table,id,input); if(scopeGuard)return scopeGuard;
   if(method==="POST"){
@@ -1026,10 +1046,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({vehicles:r.rows,summary:[...m.values()],count:r.rowCount});
     }
     if(p==="dealer/me"&&a.scope==="dealer"){
-      const r=await pool.query("SELECT id,code,name,login_id,dealer_category,purchase_access,portal_modules,blocked FROM dealer WHERE id=$1",[num(a.dealer_id)]);
+      const r=await pool.query("SELECT id,code,name,login_id,dealer_category,registration_type,purchase_access,portal_modules,blocked FROM dealer WHERE id=$1",[num(a.dealer_id)]);
       const d=r.rows[0]||null;
       if(!d)return Response.json({error:"Dealer not found."},{status:404});
-      d.purchase_access=Boolean(d.purchase_access);
+      d.purchase_access=Boolean(d.purchase_access)&&String(d.registration_type||"registered").toLowerCase()!=="unregistered";
       d.portal_modules=String(d.portal_modules||"").replace(/[{}"\[\]]/g,"").split(",").map((x:any)=>x.trim()).filter(Boolean);
       if(String(a.role||"")==="salesman"){d.is_salesman=true;d.salesman=String(a.salesman||a.username||"");d.role="salesman";}
       return Response.json({dealer:d});
@@ -1499,6 +1519,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         await client.query("COMMIT");return Response.json({success:true,row,data:row},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
+    {const x=await dealerInvoicePost(req,path,a);if(x)return x;}
     {const x=await taxInvoicePost(req,path,b,a,SALES_DEPS);if(x)return x;}
     if(p==="factory/old-rickshaw-challans"){
       // Old Rickshaw Challan Voucher: GRD Old Rickshaw Inventory ki Available-for-Sale gaadi se, Dealer ke naam.

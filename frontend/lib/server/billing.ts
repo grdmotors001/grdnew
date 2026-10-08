@@ -383,8 +383,9 @@ export async function billingPost(req:Request,path:string[],b:any,a:any,deps:Bil
       if(!effectiveDealer)return Response.json({error:"Dealer is required."},{status:400});
       // Dealers can create their own Pending Sale only if they are a Showroom / Branch.
       if(a?.scope==="dealer"&&!oldRow){
-        const dc=await pool.query("SELECT LOWER(COALESCE(dealer_category,'')) AS cat FROM dealer WHERE id=$1",[effectiveDealer]);
-        if(!["showroom","branch"].includes(String(dc.rows[0]?.cat||"")))return Response.json({error:"Create Sale sirf Showroom / Branch dealer ke liye hai."},{status:403});
+        const dc=await pool.query("SELECT LOWER(COALESCE(dealer_category,'')) AS cat,LOWER(COALESCE(registration_type,'registered')) AS reg FROM dealer WHERE id=$1",[effectiveDealer]);
+        const isShowroom=["showroom","branch"].includes(String(dc.rows[0]?.cat||"")),isUnreg=String(dc.rows[0]?.reg||"")==="unregistered";
+        if(!isShowroom&&!isUnreg)return Response.json({error:"Pending Sale sirf Showroom / Branch ya Unregistered dealer bana sakta hai."},{status:403});
       }
       let vehicle:any=null;
       if(challanId){

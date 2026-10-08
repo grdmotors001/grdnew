@@ -633,11 +633,11 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
       <div className="tiw">
         <style>{TI_STYLES}</style>
 
-        <div className="top-line">DHAN-DHAN SAHIB SHRI GURU RAMDAS SAHIB JI</div>
+        {!i.issued_by_dealer && <div className="top-line">DHAN-DHAN SAHIB SHRI GURU RAMDAS SAHIB JI</div>}
         <div className="header">
           <div>
             <div className="logo-title">{company?.name || 'G.R.D. MOTORS'}</div>
-            <div className="logo-sub">MANUFACTURER OF E-RICKSHAW &amp; E-CART</div>
+            {!i.issued_by_dealer && <div className="logo-sub">MANUFACTURER OF E-RICKSHAW &amp; E-CART</div>}
           </div>
           <div className="header-right">
             <div className="gstin-top">GSTIN : {company?.gst_no}</div>

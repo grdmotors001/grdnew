@@ -14,7 +14,7 @@ const monthLabel = (m) => {
 
 const Card = ({label,value,sub,onClick,icon:Icon}) => {
   const body=<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}><span className="muted">{label}</span>{Icon&&<Icon size={19}/>}</div><div className="metric" style={{marginTop:6}}>{value}</div>{sub&&<div className="muted" style={{marginTop:4}}>{sub}</div>}</>;
-  return onClick?<button className="card" style={{textAlign:'left',cursor:'pointer'}} onClick={onClick}>{body}</button>:<div className="card">{body}</div>;
+  return onClick?<button className="card" style={{textAlign:'left',cursor:'pointer',color:'var(--ink)',font:'inherit'}} onClick={onClick}>{body}</button>:<div className="card">{body}</div>;
 };
 
 export function Dashboard({ setActive }) {
@@ -62,7 +62,7 @@ export function Dashboard({ setActive }) {
           const sMap = Object.fromEntries(sales.map(r => [r.month, Number(r.taxable || 0)]));
           const mMap = Object.fromEntries(mfg.map(r => [r.month, Number(r.quantity || 0)]));
           const sMax = Math.max(1, ...months.map(m => sMap[m] || 0)), mMax = Math.max(1, ...months.map(m => mMap[m] || 0));
-          const SALE = 'var(--accent)', MFG = '#f59e0b';
+          const SALE = 'var(--theme-accent)', MFG = '#f59e0b';
           const bar = (v, max, color, title) => <div title={title} style={{width:'38%',height:(v/max*175)+'px',minHeight:v?4:1,borderRadius:'6px 6px 2px 2px',background:color}} />;
           return <>
             <div style={{display:'flex',gap:16,fontSize:12,marginTop:8}}>
@@ -87,7 +87,7 @@ export function Dashboard({ setActive }) {
         <h3 style={{margin:0}}>State-wise Sale</h3>
         <p className="muted">Last 12 months, billed sales value</p>
         <div className="tablewrap">
-          <table className="table">
+          <table className="table" style={{minWidth:0}}>
             <thead><tr><th>State</th><th>Bills</th><th>Sale</th></tr></thead>
             <tbody>{(d.state_sales || []).map(r => <tr key={r.state}><td><b>{r.state}</b></td><td>{Number(r.billed||0)}</td><td>₹{Number(r.taxable||0).toLocaleString('en-IN')}</td></tr>)}</tbody>
           </table>
@@ -96,39 +96,44 @@ export function Dashboard({ setActive }) {
     </div>
 
     <div className="card" style={{marginTop:14}}>
-      <div className="pageHeader"><div><h3 style={{margin:0}}>Monthly Delivery / Billed</h3><p className="muted">Last 12 months</p></div></div>
+      <div className="pageHeader"><div><h3 style={{margin:0}}>Monthly Delivery / Billed / Production</h3><p className="muted">Last 12 months</p></div></div>
       {(() => {
-        const rows = d.monthly || [];
-        if (!rows.length) return <EmptyState text="No monthly data found."/>;
+        const base = d.monthly || [], pm = d.manufacturing_monthly || [];
+        const months = Array.from(new Set([...base.map(r => r.month), ...pm.map(r => r.month)])).sort();
+        if (!months.length) return <EmptyState text="No monthly data found."/>;
+        const bMap = Object.fromEntries(base.map(r => [r.month, r]));
+        const pMap = Object.fromEntries(pm.map(r => [r.month, Number(r.quantity || 0)]));
+        const rows = months.map(m => ({ month: m, delivery_challan: Number(bMap[m]?.delivery_challan || 0), tax_invoice: Number(bMap[m]?.tax_invoice || 0), production: pMap[m] || 0 }));
         const W = 900, H = 280, L = 44, R = 20, T = 20, B = 36;
-        const vals = rows.flatMap(r => [Number(r.delivery_challan||0), Number(r.tax_invoice||0)]);
+        const vals = rows.flatMap(r => [r.delivery_challan, r.tax_invoice, r.production]);
         const rawMax = Math.max(1, ...vals);
-        const step = rawMax <= 10 ? 2 : rawMax <= 50 ? 10 : rawMax <= 100 ? 20 : rawMax <= 300 ? 50 : 100;
+        const pow = Math.pow(10, Math.floor(Math.log10(rawMax / 4)));
+        const step = [1, 2, 2.5, 5, 10].map(m => m * pow).find(st => rawMax / st <= 6) || 10 * pow;
         const max = Math.ceil(rawMax / step) * step;
         const x = i => L + (rows.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (rows.length - 1));
         const y = v => T + (H - T - B) * (1 - v / max);
-        const ticks = Array.from({ length: max / step + 1 }, (_, i) => i * step);
-        const DC = 'var(--accent)', BILL = 'var(--success,#16a34a)';
+        const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+        const DC = 'var(--theme-accent)', BILL = 'var(--success,#16a34a)', PROD = '#f59e0b';
         const line = key => rows.map((r, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(Number(r[key]||0)).toFixed(1)).join(' ');
-        const series = [['delivery_challan', DC, 'Delivery Challan'], ['tax_invoice', BILL, 'Tax Invoice (Billed)']];
+        const series = [['delivery_challan', DC, 'Delivery Challan', -9], ['tax_invoice', BILL, 'Tax Invoice (Billed)', 17], ['production', PROD, 'Production', 29]];
         return <>
-          <div style={{display:'flex',gap:16,fontSize:12,marginBottom:6}}>
+          <div style={{display:'flex',gap:16,fontSize:12,marginBottom:6,flexWrap:'wrap'}}>
             {series.map(([k, c, n]) => <span key={k}><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:c,marginRight:6}} />{n}</span>)}
           </div>
           <div style={{overflowX:'auto'}}>
-            <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',minWidth:560,height:'auto',display:'block'}} role="img" aria-label="Monthly delivery challan and tax invoice line graph">
+            <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',minWidth:560,height:'auto',display:'block'}} role="img" aria-label="Monthly delivery challan, tax invoice and production line graph">
               {ticks.map(t => <g key={t}>
-                <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeWidth="1" />
+                <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth="1" />
                 <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="currentColor" opacity="0.65">{t}</text>
               </g>)}
               {rows.map((r, i) => <text key={r.month} x={x(i)} y={H - 12} textAnchor="middle" fontSize="11" fill="currentColor" opacity="0.65">{monthLabel(r.month)}</text>)}
-              {series.map(([k, c]) => <g key={k}>
-                <path d={line(k)} fill="none" stroke={c} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+              {series.map(([k, c, n, dy]) => <g key={k}>
+                <path d={line(k)} fill="none" stroke={c} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={k === 'production' ? '6 4' : undefined} />
                 {rows.map((r, i) => {
                   const v = Number(r[k]||0);
                   return <g key={r.month}>
-                    <circle cx={x(i)} cy={y(v)} r="4" fill={c} stroke="#fff" strokeWidth="1.5"><title>{monthLabel(r.month) + ' • ' + (k === 'delivery_challan' ? 'Delivery Challan: ' : 'Billed: ') + v}</title></circle>
-                    <text x={x(i)} y={y(v) + (k === 'delivery_challan' ? -9 : 17)} textAnchor="middle" fontSize="10" fill={c} fontWeight="600">{v}</text>
+                    <circle cx={x(i)} cy={y(v)} r="4" fill={c} stroke="#fff" strokeWidth="1.5"><title>{monthLabel(r.month) + ' • ' + n + ': ' + v.toLocaleString('en-IN')}</title></circle>
+                    <text x={x(i)} y={y(v) + dy} textAnchor="middle" fontSize="10" fill={c} fontWeight="600">{v.toLocaleString('en-IN')}</text>
                   </g>;
                 })}
               </g>)}

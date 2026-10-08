@@ -1,12 +1,12 @@
 :root{--bg:#F3F6EC;--card:#FFFFFF;--ink:#1C2413;--muted:#5F5E5A;--line:#D3D1C7;--nav:#3B6D11;--accent:#3B6D11;--accent-hover:#27500A;--theme-accent:#97C459;--green:#3B6D11;--orange:#EF9F27;--red:#D85A30;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
 [data-theme="green-olive"]{--bg:#F3F6EC;--card:#FFFFFF;--ink:#1C2413;--muted:#5F5E5A;--line:#D3D1C7;--accent:#3B6D11;--accent-hover:#27500A;--theme-accent:#97C459;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
-[data-theme="grey-white"]{--bg:#F1EFE8;--card:#FFFFFF;--ink:#1C1C1A;--muted:#5F5E5A;--line:#B4B2A9;--accent:#2C2C2A;--accent-hover:#444441;--theme-accent:#B4B2A9;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="lavender-soft"]{--bg:#E2D4EF;--card:#DCCDEC;--ink:#4F4175;--muted:#7D6E9E;--line:#CDBCE2;--accent:#8B7BAA;--accent-hover:#6F5F91;--theme-accent:#FFFFFF;--input-bg:#E6D9F2;--th-bg:#DCCDEC;--modal-bg:#E2D4EF;--strip-bg:#E2D4EF;--nu-light:#F5ECFC;--nu-dark:#B9A5D4}
 [data-theme="white-black"]{--bg:#FFFFFF;--card:#F7F7F5;--ink:#1A1A1A;--muted:#5F5E5A;--line:#D3D1C7;--accent:#2C2C2A;--accent-hover:#000000;--theme-accent:#888780;--input-bg:#F7F7F5;--th-bg:#F7F7F5;--modal-bg:#F7F7F5;--strip-bg:#F7F7F5}
 [data-theme="navy-gold"]{--bg:#F0F5FA;--card:#FFFFFF;--ink:#042C53;--muted:#5F5E5A;--line:#B5D4F4;--accent:#042C53;--accent-hover:#0C447C;--theme-accent:#EF9F27;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
 [data-theme="maroon-cream"]{--bg:#FDF6F3;--card:#FFFFFF;--ink:#3A1509;--muted:#5F5E5A;--line:#F0997B;--accent:#4A1B0C;--accent-hover:#712B13;--theme-accent:#D85A30;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
 [data-theme="teal-charcoal"]{--bg:#F2F9F6;--card:#FFFFFF;--ink:#04342C;--muted:#5F5E5A;--line:#9FE1CB;--accent:#04342C;--accent-hover:#085041;--theme-accent:#1D9E75;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
 [data-theme="purple-lavender"]{--bg:#F5F4FE;--card:#FFFFFF;--ink:#26215C;--muted:#5F5E5A;--line:#CECBF6;--accent:#26215C;--accent-hover:#3C3489;--theme-accent:#7F77DD;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
-[data-theme="coral-sand"]{--bg:#FBF6F0;--card:#FFFFFF;--ink:#3A1509;--muted:#5F5E5A;--line:#F5C4B3;--accent:#993C1D;--accent-hover:#D85A30;--theme-accent:#F0997B;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
+[data-theme="red-classic"]{--bg:#FDF1F1;--card:#FFFFFF;--ink:#3F0D0D;--muted:#6B5252;--line:#F3C4C4;--accent:#B91C1C;--accent-hover:#991B1B;--theme-accent:#F87171;--input-bg:#FFFFFF;--th-bg:#FFFFFF;--modal-bg:#FFFFFF;--strip-bg:#FFFFFF}
 
 *{box-sizing:border-box}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink);transition:background .15s,color .15s}button,input,select,textarea{font:inherit}button{cursor:pointer}.app{display:flex;min-height:100vh}
 .themeColorButton{width:26px;height:26px;min-width:26px;border-radius:50%;border:2px solid #ffffff66;color:#fff;display:flex;align-items:center;justify-content:center;padding:0;box-shadow:0 0 0 1px #0002;transition:transform .15s ease,filter .15s ease}.themeColorButton:hover{transform:scale(1.08);filter:brightness(1.08)}.themeColorInput{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.sidebar{width:300px;background:linear-gradient(180deg,var(--accent) 0%,color-mix(in srgb,var(--accent) 78%,black) 42%,color-mix(in srgb,var(--accent) 55%,black) 100%);color:#fff;padding:0 14px 16px;position:fixed;top:0;bottom:0;left:0;overflow:auto;display:flex;flex-direction:column;transition:width .18s ease,background .15s ease;z-index:5;border-radius:0;box-shadow:6px 0 18px #0002}
@@ -666,3 +666,34 @@ th[data-sortable]::after{content:" \2195";opacity:.35;font-size:10px}
 th[data-sortable][data-sort="asc"]::after{content:" \25B2";opacity:1}
 th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
 @media print{th[data-sortable]::after{content:""!important}}
+
+/* ===== Lavender soft: neumorphic look ===== */
+[data-theme="lavender-soft"] body{background:var(--bg);color:var(--ink)}
+[data-theme="lavender-soft"] .card,
+[data-theme="lavender-soft"] .tablewrap,
+[data-theme="lavender-soft"] .reportToolbar,
+[data-theme="lavender-soft"] .dealerPanel,
+[data-theme="lavender-soft"] .adminModuleTile,
+[data-theme="lavender-soft"] .dealerKpi{border:none;border-radius:22px;background:var(--card);box-shadow:-6px -6px 14px var(--nu-light),7px 7px 16px var(--nu-dark)}
+[data-theme="lavender-soft"] .grid > .card{border-top:none!important}
+[data-theme="lavender-soft"] .btn,
+[data-theme="lavender-soft"] button.card{border:none;border-radius:16px;background:var(--card);color:var(--ink);font-weight:600;box-shadow:-4px -4px 10px var(--nu-light),5px 5px 12px var(--nu-dark);transition:box-shadow .15s ease,transform .1s ease}
+[data-theme="lavender-soft"] .btn:hover,
+[data-theme="lavender-soft"] button.card:hover{box-shadow:-3px -3px 8px var(--nu-light),4px 4px 10px var(--nu-dark);filter:none}
+[data-theme="lavender-soft"] .btn:active,
+[data-theme="lavender-soft"] button.card:active{box-shadow:inset -3px -3px 7px var(--nu-light),inset 4px 4px 9px var(--nu-dark);transform:translateY(1px)}
+[data-theme="lavender-soft"] .btn.primary,
+[data-theme="lavender-soft"] .dealerSubmitBtn,
+[data-theme="lavender-soft"] .dealerPrimaryAction{background:var(--accent);color:#fff;border:none;border-radius:16px;box-shadow:-4px -4px 10px var(--nu-light),5px 5px 12px var(--nu-dark)}
+[data-theme="lavender-soft"] .btn.primary:active{box-shadow:inset 3px 3px 8px #6F5F91aa,inset -2px -2px 6px #a595c4}
+[data-theme="lavender-soft"] .field input,
+[data-theme="lavender-soft"] .field select,
+[data-theme="lavender-soft"] .field textarea,
+[data-theme="lavender-soft"] .input{border:none;border-radius:14px;background:var(--input-bg);color:var(--ink);box-shadow:inset 3px 3px 7px var(--nu-dark),inset -3px -3px 7px var(--nu-light)}
+[data-theme="lavender-soft"] .table th{background:transparent}
+[data-theme="lavender-soft"] .table tbody tr:nth-child(even){background:#ffffff1f}
+[data-theme="lavender-soft"] .table tbody tr:hover{background:#ffffff40}
+[data-theme="lavender-soft"] .navGroupButton{border:none;border-radius:16px;background:#ffffff1f;box-shadow:-3px -3px 8px #ffffff22,4px 4px 10px #00000026}
+[data-theme="lavender-soft"] .navGroupButton.active{background:#fff;color:#4F4175}
+[data-theme="lavender-soft"] .moduleStripItem.active,
+[data-theme="lavender-soft"] .tiTab.active{color:var(--accent)}
