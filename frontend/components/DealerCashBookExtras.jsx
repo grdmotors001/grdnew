@@ -214,7 +214,7 @@ export function DealerAllCustomersPage() {
           <thead><tr><th>Page No.</th><th>Date</th><th>Name</th><th>Phone</th><th>Vehicle No.</th><th>Status</th><th>Sale Amount</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
           <tbody>
             {visibleRows.map((c) => (
-              <tr key={c.id} onClick={() => setDetailFor(c)} style={{ cursor:'pointer' }} title="Click to view full customer detail">
+              <tr key={c.id} onClick={() => { if (!c.from_bill) setDetailFor(c); }} style={{ cursor: c.from_bill ? 'default' : 'pointer' }} title={c.from_bill ? ('Bill ' + (c.bill_no || '')) : 'Click to view full customer detail'}>
                 <td>{c.page_no || '—'}</td>
                 <td>{c.date || '—'}</td>
                 <td><b>{c.name}</b></td>
@@ -226,8 +226,8 @@ export function DealerAllCustomersPage() {
                 <td><b>{money(c.balance)}</b></td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <div style={{ display:'flex', gap:6 }}>
-                    {c.status !== 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit</button>}
-                    {c.status === 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit Page No.</button>}
+                    {!c.from_bill && c.status !== 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit</button>}
+                    {!c.from_bill && c.status === 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit Page No.</button>}
                     {c.status === 'VEHICLE_PENDING' && <button className="btn" onClick={() => openCancel(c)}>Dealer Cancel</button>}
                   </div>
                 </td>

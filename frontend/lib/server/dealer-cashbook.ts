@@ -271,6 +271,22 @@ export async function dealerCashbookGet(req:Request,path:string[],a:any,deps:Cas
       const cols=await columns("dealer_cash_customer"); if(!cols.size)return Response.json({error:"Customer register table not found."},{status:404});
       const r=await pool.query('SELECT * FROM dealer_cash_customer WHERE dealer_id=$1 ORDER BY id DESC LIMIT 2000',[did]);
       let customers=await enrichCashCustomers(r.rows);
+      // Showroom/Branch: inke customers GRD ke tax invoice se bante hain (cash-book register me entry nahi hoti),
+      // isliye jin bills ka register me match nahi hai unhe BILLED customer ke roop me jod do (read-only).
+      const dRow=(await pool.query("SELECT lower(btrim(name)) AS n,LOWER(COALESCE(dealer_category,'dealer')) AS c FROM dealer WHERE id=$1",[did])).rows[0];
+      if(dRow&&["showroom","branch"].includes(String(dRow.c||""))){
+        const ir=await pool.query("SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,to_jsonb(ti)->>'buyer_mobile' AS mobile,to_jsonb(ti)->>'vehicle_reg_no' AS reg,to_jsonb(ti)->>'dealer_page_no' AS pg,COALESCE(ti.sale_amount,0) AS sale_amount,COALESCE(ti.amount_received,0) AS paid FROM tax_invoice ti WHERE COALESCE(ti.cancelled,false)=false AND (ti.dealer_id=$1 OR lower(btrim(ti.dealer_name))=$2) ORDER BY ti.date DESC,ti.id DESC LIMIT 3000",[did,String(dRow.n||"")]);
+        const haveReg=new Set<string>(),havePg=new Set<string>();
+        for(const c of customers){const g=normReg(c.vehicle_no);if(g.length>=5)haveReg.add(g);const pg=String(c.page_no||"").trim();if(pg)havePg.add(pg+"|"+normPhone(c.phone))}
+        const norm=(v:any)=>String(v??"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim();
+        for(const x of ir.rows){
+          if(norm(x.buyer_name)===norm(dRow.n))continue; // dealer ke naam ka bill customer nahi hai
+          const g=normReg(x.reg),pg=String(x.pg||"").trim();
+          if((g.length>=5&&haveReg.has(g))||(pg&&havePg.has(pg+"|"+normPhone(x.mobile))))continue;
+          customers.push({id:"bill-"+x.id,from_bill:true,page_no:pg||x.bill_no||"",date:ymd(x.date),name:String(x.buyer_name||"").trim(),phone:String(x.mobile||"").trim(),vehicle_no:String(x.reg||"").trim(),status:"BILLED",sale_amount:num(x.sale_amount),loan_amount:0,paid_amount:num(x.paid),balance:Math.max(0,num(x.sale_amount)-num(x.paid)),bill_no:x.bill_no});
+        }
+        customers.sort((x:any,y:any)=>String(y.date||"").localeCompare(String(x.date||"")));
+      }
       // Search/status are applied after enrichment so resolved name + derived BILLED status are what gets matched.
       if(status)customers=customers.filter((x:any)=>x.status===status);
       if(q)customers=customers.filter((x:any)=>[x.name,x.phone,x.page_no,x.vehicle_no].join(" ").toLowerCase().includes(q));
