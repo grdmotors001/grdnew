@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react';
 import { get, post, put } from '../lib/api';
 import { printCashReceipt } from '../lib/printReceipt';
+import { CustomerDocumentsModal, CustomerDocumentsPanel, DEALER_DOC_GROUPS } from './CustomerDocuments';
+
+// Customer Register row -> documents ka reference (real customer = customer_id, bill se bani row = invoice_id).
+const docQuery = (c) => (c.from_bill ? { invoice_id: String(c.id).replace(/^bill-/, '') } : { customer_id: c.id });
 
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -90,6 +94,7 @@ export function DealerAllCustomersPage() {
   const [editing, setEditing] = useState(null);
   const [cancelling, setCancelling] = useState(null);
   const [detailFor, setDetailFor] = useState(null);
+  const [docsFor, setDocsFor] = useState(null);
   const [cancelForm, setCancelForm] = useState({ reason: '', refund_amount: '' });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -226,6 +231,7 @@ export function DealerAllCustomersPage() {
                 <td><b>{money(c.balance)}</b></td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <div style={{ display:'flex', gap:6 }}>
+                    <button className="btn" onClick={() => setDocsFor(c)}>📎 Documents</button>
                     {!c.from_bill && c.status !== 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit</button>}
                     {!c.from_bill && c.status === 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit Page No.</button>}
                     {c.status === 'VEHICLE_PENDING' && <button className="btn" onClick={() => openCancel(c)}>Dealer Cancel</button>}
@@ -319,6 +325,7 @@ export function DealerAllCustomersPage() {
       })()}
 
       {detailFor && <CustomerDetailModal customer={detailFor} onClose={() => setDetailFor(null)} />}
+      {docsFor && <CustomerDocumentsModal title={'Documents — ' + (docsFor.name || 'Customer')} subtitle={'Page No. ' + (docsFor.page_no || '—') + (docsFor.phone ? ' · ' + docsFor.phone : '') + (docsFor.vehicle_no ? ' · ' + docsFor.vehicle_no : '')} groups={DEALER_DOC_GROUPS} query={docQuery(docsFor)} scope="dealer" onClose={() => setDocsFor(null)} />}
 
       {cancelling && <div className="card" style={{ marginTop: 12, border: '1px solid currentColor' }}>
         <div className="pageHeader">
@@ -492,6 +499,11 @@ function CustomerDetailModal({ customer, onClose }) {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            <div style={{ marginTop:16 }}>
+              <h3 style={{ margin:'0 0 6px' }}>Documents</h3>
+              <CustomerDocumentsPanel groups={DEALER_DOC_GROUPS} query={{ customer_id: customer.id }} scope="dealer" />
             </div>
           </>
         )}

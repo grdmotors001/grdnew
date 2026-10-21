@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
+import { docCounts } from "../../../../../lib/server/customer-documents";
 
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -157,6 +158,14 @@ export async function GET(req:Request){
       }
     }catch(e){console.error('[customer-expense-ledger dealer expenses/receipts]',e)}
 
+    // Uploaded documents ka count (Docs button par badge).
+    let docPairs:any[]=[];
+    try{
+      const tiIds=rr.rows.map((x:any)=>num(x.id)).filter(Boolean);
+      const dccIdList=Array.from(new Set(rr.rows.map((x:any)=>num((x.dcc_json||{}).id)).filter(Boolean)));
+      docPairs=(await docCounts(tiIds,dccIdList)).pairs;
+    }catch(e){console.error("[customer-expense-ledger doc counts]",e)}
+
     const rows=rr.rows.map((x:any)=>{
       const dc=x.dc_json||{},v=x.vehicle_json||{},d=x.dealer_json||{},lw=x.loan_json||{},cust=x.customer_json||{},dcc=x.dcc_json||{};
       // Dealer-entered Sale/Loan values are authoritative when the invoice still has 0/blank.
@@ -189,8 +198,9 @@ export async function GET(req:Request){
       const ledgerNo=pick(x,"ledger_no")||pick(dc,"ledger_no")||pick(v,"ledger_no");
       const recordNo=pick(x,"record_no","chassis_record_no")||pick(dc,"record_no","chassis_record_no")||pick(x,"dealer_page_no","page_no")||pick(cust,"record_no","page_no");
       const photo=pick(x,"buyer_photo_url","customer_photo_url","photo_url")||pick(cust,"photo_url","photo","image_url");
+      const docCount=docPairs.reduce((t:number,pr:any)=>t+((num(pr.invoice_id)&&num(pr.invoice_id)===num(x.id))||(num(pr.customer_id)&&num(pr.customer_id)===num(dcc.id))?num(pr.n):0),0);
       return {
-        id:x.id,date:x.date,
+        id:x.id,date:x.date,dealer_id:num(x.dealer_id)||null,dcc_id:num(dcc.id)||null,doc_count:docCount,
         customer_name:x.buyer_name||dcc.name||cust.name||cust.full_name||"",
         customer_mobile:pick(x,"buyer_mobile","customer_phone")||pick(dcc,"phone","customer_phone")||pick(cust,"phone","mobile"),
         customer_address:pick(x,"buyer_address","customer_address")||pick(cust,"address","address1"),

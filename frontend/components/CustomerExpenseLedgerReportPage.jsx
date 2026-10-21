@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { get, downloadExcel } from '../lib/api';
 import { ErrorBanner, EmptyState, Field, Money } from './ui';
+import { CustomerDocumentsModal, ADMIN_DOC_GROUPS } from './CustomerDocuments';
 
 // Negative amount (jaise Insurance Fee) -₹1,000.00 ki tarah dikhega.
 function Amt({ value }) {
@@ -211,6 +212,7 @@ export function CustomerExpenseLedgerReportPage() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
+  const [docsFor, setDocsFor] = useState(null);
 
   const load = () => {
     setError('');
@@ -247,7 +249,7 @@ export function CustomerExpenseLedgerReportPage() {
           <table className="table">
             <thead>
               <tr>
-                <th>Customer</th><th>Chassis No.</th><th>Dealer</th><th>Vehicle No.</th><th>Sale Value</th><th>Loan Value</th><th>Incentive</th><th>Expenses</th><th>Record No.</th><th>Print</th>
+                <th>Customer</th><th>Chassis No.</th><th>Dealer</th><th>Vehicle No.</th><th>Sale Value</th><th>Loan Value</th><th>Incentive</th><th>Expenses</th><th>Record No.</th><th>Docs</th><th>Print</th>
               </tr>
             </thead>
             <tbody>
@@ -262,6 +264,7 @@ export function CustomerExpenseLedgerReportPage() {
                   <td><Money value={r.incentive_amount} />{r.incentive_status ? <div className="muted" style={{fontSize:11}}>{r.incentive_voucher_no} · {r.incentive_status}</div> : null}</td>
                   <td><Amt value={r.expense_total} /></td>
                   <td>{r.record_no || '—'}</td>
+                  <td><button className="btn" onClick={() => setDocsFor(r)}>📎 Docs{r.doc_count > 0 ? ' (' + r.doc_count + ')' : ''}</button></td>
                   <td><button className="btn" onClick={() => setDetail(r)}>Print</button></td>
                 </tr>
               ))}
@@ -271,6 +274,16 @@ export function CustomerExpenseLedgerReportPage() {
       )}
 
       {detail && <Detail row={detail} onClose={() => setDetail(null)} />}
+      {docsFor && (
+        <CustomerDocumentsModal
+          title={'Documents — ' + (docsFor.customer_name || 'Customer')}
+          subtitle={[docsFor.dealer_name, docsFor.chassis_no, docsFor.vehicle_no, docsFor.record_no && ('Record ' + docsFor.record_no)].filter(Boolean).join(' · ')}
+          groups={ADMIN_DOC_GROUPS}
+          query={{ invoice_id: docsFor.id, customer_id: docsFor.dcc_id || '' }}
+          scope="staff"
+          onClose={() => { setDocsFor(null); load(); }}
+        />
+      )}
     </>
   );
 }
