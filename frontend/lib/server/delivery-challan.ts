@@ -245,6 +245,7 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
           await client.query("UPDATE delivery_challan SET \""+target+"\"=$1 WHERE id=$2",[next,challanId]);
         }
         await client.query("COMMIT");
+        await audit(a,"challan-shift","Challan shifted to another dealer",challanId,{dealer:fromName,dealer_id:idOf(row.dealer_id)},{dealer:toName,dealer_id:toDealerId,shift_date:shiftDate,shift_ref:ref,remark,challan_no:row.challan_no,chassis_no:row.chassis_no},toDealerId,(row.challan_no||challanId)+" / "+ref);
         return Response.json({success:true,shift_ref:ref,shift_id:Number(ins.rows[0].id),dealer_id:toDealerId,dealer_name:toName});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -306,7 +307,9 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
         await client.query("UPDATE vehicle SET stage='Delivery Challan',dealer_name=(SELECT name FROM dealer WHERE id=$1),battery_maker=$2,battery_no1=$3,battery_no2=$4,battery_no3=$5,battery_no4=$6 WHERE id=$7",[did,batteryMaker||null,batteryNumbers[0]||null,batteryNumbers[1]||null,batteryNumbers[2]||null,batteryNumbers[3]||null,vehicleId]);
         const dealerName=(await client.query("SELECT name FROM dealer WHERE id=$1",[did])).rows[0]?.name||"";
         await toggleBatteryRegisterForDelivery(client,{...r.rows[0],dealer_name:dealerName,dealer_id:did,vehicle_id:vehicleId},false);
-        await client.query("COMMIT");return Response.json({success:true,row:r.rows[0],data:r.rows[0],dispatch_items:products},{status:201});
+        await client.query("COMMIT");
+        await audit(a,"delivery-challans","Delivery Challan created",r.rows[0].id,null,{challan_no:r.rows[0].challan_no,chassis_no:r.rows[0].chassis_no,dealer:dealerName,date:r.rows[0].date},did,r.rows[0].challan_no||r.rows[0].id);
+        return Response.json({success:true,row:r.rows[0],data:r.rows[0],dispatch_items:products},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("delivery-challans/") && p.endsWith("/cancel")){
@@ -335,6 +338,7 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
         const r=await client.query("UPDATE delivery_challan SET cancelled=$1 WHERE id=$2 RETURNING *",[nextCancelled,id]);
         if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[nextCancelled?"Manufacturing":"Delivery Challan",r.rows[0].vehicle_id]);
         await client.query("COMMIT");
+        await audit(a,"delivery-challans",nextCancelled?"Delivery Challan cancelled":"Delivery Challan restored",id,null,{challan_no:r.rows[0]?.challan_no,chassis_no:r.rows[0]?.chassis_no},r.rows[0]?.dealer_id,r.rows[0]?.challan_no||id);
         return Response.json({success:true,row:r.rows[0]||null});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -391,7 +395,9 @@ export async function deliveryChallanMutation(req:Request,path:string[],method:s
         await client.query("UPDATE delivery_challan SET cancelled=$1 WHERE id=$2",[nextCancelled,id]);
         await toggleBatteryRegisterForDelivery(client,row,nextCancelled);
         if(row.vehicle_id)await client.query("UPDATE vehicle SET stage=$1 WHERE id=$2",[nextCancelled?"Manufacturing":"Delivery Challan",row.vehicle_id]);
-        await client.query("COMMIT");return Response.json({success:true,row:{...row,cancelled:nextCancelled}});
+        await client.query("COMMIT");
+        await audit(a,"delivery-challans",nextCancelled?"Delivery Challan cancelled":"Delivery Challan restored",id,null,{challan_no:row.challan_no,chassis_no:row.chassis_no},row.dealer_id,row.challan_no||id);
+        return Response.json({success:true,row:{...row,cancelled:nextCancelled}});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("delivery-challans/") && method==="DELETE"){

@@ -35,7 +35,7 @@ import { CashAtDealerPage } from '../components/CashAtDealerPage';
 import { ShowroomStockPage } from '../components/ShowroomStockPage';
 import { CashHandoverApprovalPage } from '../components/CashHandoverApprovalPage';
 import { DealerCashReceiptPage } from '../components/DealerCashReceiptPage';
-import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockRawPage, StockLedgerPremisesPage, StockLedgerDealersPage } from '../components/StockPages';
+import { ClosingStockPremisesPage, ClosingStockDealersPage, ClosingStockBatteryDealersPage, ActivityLogPage, ClosingStockRawPage, StockLedgerPremisesPage, StockLedgerDealersPage } from '../components/StockPages';
 import { PurchaseRegisterPage, ProductionRegisterPage, DeliveryChallanRegisterPage, SaleRegisterPage, GstRegisterPage, HypothecationRegisterPage, VehicleNoRegisterPage, PaymentReceivablePage, SubsidyReportPage, LedgerPage, DayBookPage, LedgerVPage } from '../components/ReportPages';
 import { CustomerExpenseLedgerReportPage } from '../components/CustomerExpenseLedgerReportPage';
 import { PlaceholderPage } from '../components/PlaceholderPage';
@@ -123,6 +123,8 @@ const CUSTOM_PAGES = {
   'old-rickshaw-inventory': () => <OldRickshawInventoryPage />,
   'closing-stock-premises': () => <ClosingStockPremisesPage />,
   'closing-stock-dealers': () => <ClosingStockDealersPage />,
+  'closing-stock-battery-dealers': () => <ClosingStockBatteryDealersPage />,
+  'activity-log': () => <ActivityLogPage />,
   'closing-stock-raw': () => <ClosingStockRawPage />,
   'stock-ledger-premises': () => <StockLedgerPremisesPage />,
   'stock-ledger-dealers': () => <StockLedgerDealersPage />,

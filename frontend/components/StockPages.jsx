@@ -334,3 +334,169 @@ export function StockLedgerDealersPage() {
     </>
   );
 }
+
+
+export function ClosingStockBatteryDealersPage() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [detailDealer, setDetailDealer] = useState(null);
+  const load = () => { setError(''); get('/stock/closing-dealers-battery', { noClientCache: true }).then(setData).catch((e) => setError(e.message)); };
+  useEffect(() => { load(); }, []);
+  if (error) return <ErrorBanner message={error} />;
+  if (!data) return <div className="card">Loading…</div>;
+  const q = search.trim().toLowerCase();
+  const batteries = data.batteries || [];
+  const matchDealers = new Set(
+    batteries
+      .filter((b) => !q || [b.dealer_name, b.battery_maker, b.battery_no, b.reference_no, b.salesman].join(' ').toLowerCase().includes(q))
+      .map((b) => String(b.dealer_name || '')),
+  );
+  const summary = (data.summary || []).filter((s) => !q || matchDealers.has(String(s.dealer_name || '')) || [s.dealer_name, s.battery_maker].join(' ').toLowerCase().includes(q));
+  const totalQty = summary.reduce((n, s) => n + Number(s.qty || 0), 0);
+  return (
+    <>
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="actions" style={{ justifyContent: 'space-between' }}>
+          <b>Battery Stock with Dealers — Summary by Dealer / Battery Maker</b>
+          <div className="actions">
+            <input className="input" placeholder="Search dealer, maker, battery no…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
+            <button type="button" className="btn" onClick={load}>↻ Refresh</button>
+          </div>
+        </div>
+        <div className="actions" style={{ marginTop: 10 }}><span className="pill d">Total Battery {totalQty}</span></div>
+        {summary.length === 0 ? <EmptyState text={search ? 'No battery stock matches your search.' : 'No battery stock with dealers.'} /> : (
+          <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
+            <table className="table">
+              <thead><tr><th>Dealer</th><th>Battery Maker</th><th>Qty</th></tr></thead>
+              <tbody>{summary.map((s, i) => (
+                <tr key={i} onClick={() => setDetailDealer(s.dealer_name)} style={{ cursor: 'pointer' }} title="Click for dealer battery detail">
+                  <td data-label="Dealer">{s.dealer_name}</td><td data-label="Battery Maker">{s.battery_maker || '—'}</td><td data-label="Qty">{s.qty}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {detailDealer && (
+        <DealerBatteryDetailModal
+          dealerName={detailDealer}
+          batteries={batteries.filter((b) => String(b.dealer_name || '') === String(detailDealer))}
+          onClose={() => setDetailDealer(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function DealerBatteryDetailModal({ dealerName, batteries, onClose }) {
+  const today = formatDate(new Date().toISOString().slice(0, 10));
+  const cols = ['Sr.', 'Date', 'Battery Maker', 'Battery No.', 'Reference'];
+  const rowsOf = () => batteries.map((b, i) => [i + 1, formatDate(b.date), b.battery_maker || '', b.battery_no || '', b.reference_no || '']);
+  const doPrint = () => {
+    const body = rowsOf().map((r) => '<tr>' + r.map((c) => `<td>${escHtml(c)}</td>`).join('') + '</tr>').join('');
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(`<html><head><title>Battery Stock - ${escHtml(dealerName)}</title><style>body{font-family:Arial,sans-serif;font-size:12px;padding:16px}h2{margin:0 0 6px}.meta{margin:2px 0;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #999;padding:5px 7px;text-align:left}th{background:#eee}tfoot td{font-weight:700}</style></head><body><h2>G.R.D. MOTORS — Battery Stock with Dealer</h2><div class="meta"><b>Dealer:</b> ${escHtml(dealerName)}</div><div class="meta"><b>Date:</b> ${escHtml(today)} &nbsp;·&nbsp; <b>Total Qty:</b> ${batteries.length}</div><table><thead><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${body}</tbody><tfoot><tr><td colspan="${cols.length}">Total Qty: ${batteries.length}</td></tr></tfoot></table><script>window.onload=function(){window.print()}<\/script></body></html>`);
+    w.document.close();
+  };
+  const doExport = async () => {
+    const XLSX = await import('xlsx');
+    const aoa = [['G.R.D. MOTORS — Battery Stock with Dealer'], ['Dealer', dealerName], ['Date', today], ['Total Qty', batteries.length], [], cols, ...rowsOf()];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 22 }, { wch: 24 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Dealer Battery');
+    XLSX.writeFile(wb, `Battery_Stock_${String(dealerName).replace(/[^\w\-]+/g, '_').slice(0, 40)}.xlsx`);
+  };
+  return (
+    <div className="modal" onClick={onClose}>
+      <div className="modalbox" onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div>
+            <h2 style={{ margin: 0 }}>{dealerName}</h2>
+            <div className="subtitle">Total Battery: <b>{batteries.length}</b></div>
+          </div>
+          <div className="actions">
+            <button type="button" className="btn" onClick={doPrint}>Print</button>
+            <button type="button" className="btn" onClick={doExport}>Export Excel</button>
+            <button type="button" className="btn" onClick={onClose}>Close</button>
+          </div>
+        </div>
+        {batteries.length === 0 ? <EmptyState text="No battery stock with this dealer." /> : (
+          <div className="tablewrap stockTable">
+            <table className="table">
+              <thead><tr><th>Date</th><th>Battery Maker</th><th>Battery No.</th><th>Reference</th></tr></thead>
+              <tbody>{batteries.map((b) => (
+                <tr key={b.id}>
+                  <td data-label="Date">{formatDate(b.date)}</td>
+                  <td data-label="Battery Maker">{b.battery_maker || '—'}</td>
+                  <td data-label="Battery No."><b>{b.battery_no}</b></td>
+                  <td data-label="Reference">{b.reference_no || '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+const ACTIVITY_TYPES = [['', 'All'], ['delivery-challans', 'Delivery Challan'], ['tax-invoices', 'Bill / Tax Invoice'], ['challan-shift', 'Challan Shift'], ['battery-addition', 'Battery Added'], ['battery-withdrawal', 'Battery Withdrawn']];
+const activityDetail = (r) => {
+  const n = r.new_value || {}, o = r.old_value || {};
+  if (r.module_key === 'challan-shift') return `${o.dealer || '—'} → ${n.dealer || '—'}${n.remark ? ' | ' + n.remark : ''}`;
+  if (r.module_key === 'battery-addition' || r.module_key === 'battery-withdrawal') return [n.battery_maker, n.battery_no && 'No: ' + n.battery_no, n.chassis_no && 'Chassis: ' + n.chassis_no, n.position && 'Pos ' + n.position].filter(Boolean).join(' | ');
+  return [n.challan_no && 'Challan: ' + n.challan_no, n.bill_no && 'Bill: ' + n.bill_no, n.chassis_no && 'Chassis: ' + n.chassis_no].filter(Boolean).join(' | ');
+};
+
+export function ActivityLogPage() {
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState('');
+  const [f, setF] = useState({ type: '', user: '', q: '', from: '', to: '' });
+  const load = (flt = f) => {
+    setError('');
+    const qs = new URLSearchParams(Object.entries(flt).filter(([, v]) => v));
+    get('/activity-log?' + qs.toString(), { noClientCache: true }).then((d) => setRows(d.rows || [])).catch((e) => setError(e.message));
+  };
+  useEffect(() => { load(); }, []);
+  const set = (k, v) => setF({ ...f, [k]: v });
+  return (
+    <div className="page">
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="actions" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ margin: '0 0 4px' }}>Activity Log</h2>
+            <div className="muted">Delivery Challan, Bill, Challan Shift aur Battery — kisne kiya aur kab.</div>
+          </div>
+          <button type="button" className="btn" onClick={() => load()}>↻ Refresh</button>
+        </div>
+        <div className="actions" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+          <select className="input" style={{ maxWidth: 190 }} value={f.type} onChange={(e) => set('type', e.target.value)}>{ACTIVITY_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          <input className="input" style={{ maxWidth: 160 }} placeholder="User" value={f.user} onChange={(e) => set('user', e.target.value)} />
+          <input className="input" style={{ maxWidth: 220 }} placeholder="Challan / Bill / Chassis / Dealer" value={f.q} onChange={(e) => set('q', e.target.value)} />
+          <input className="input" type="date" style={{ maxWidth: 150 }} value={f.from} onChange={(e) => set('from', e.target.value)} />
+          <input className="input" type="date" style={{ maxWidth: 150 }} value={f.to} onChange={(e) => set('to', e.target.value)} />
+          <button type="button" className="btn primary" onClick={() => load()}>Search</button>
+        </div>
+      </div>
+      <ErrorBanner message={error} />
+      {!rows ? <div className="card">Loading…</div> : rows.length === 0 ? <EmptyState text="Koi activity nahi mili." /> : (
+        <div className="card"><div className="tablewrap stockTable"><table className="table">
+          <thead><tr><th>Date / Time</th><th>User</th><th>Activity</th><th>Dealer</th><th>Details</th></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.id}>
+              <td data-label="Date / Time">{new Date(r.created_at).toLocaleString('en-IN')}</td>
+              <td data-label="User"><b>{r.username || '—'}</b>{r.department ? <div className="muted" style={{ fontSize: 11 }}>{r.department}</div> : null}</td>
+              <td data-label="Activity">{r.action}</td>
+              <td data-label="Dealer">{r.dealer_name || '—'}</td>
+              <td data-label="Details">{activityDetail(r) || r.record_ref || '—'}</td>
+            </tr>
+          ))}</tbody>
+        </table></div></div>
+      )}
+    </div>
+  );
+}

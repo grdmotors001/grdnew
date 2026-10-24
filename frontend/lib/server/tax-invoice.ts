@@ -106,11 +106,13 @@ export async function taxInvoicePost(req:Request,path:string[],b:any,a:any,deps:
         const vc=await columns("vehicle");
         if(vc.has("stage")) await pool.query("UPDATE vehicle SET stage='Tax Invoice'"+(vc.has("dealer_name")?",dealer_name=COALESCE($1,dealer_name)":"")+" WHERE id="+(vc.has("dealer_name")?"$2":"$1"),vc.has("dealer_name")?[b.dealer_name||null,num(b.vehicle_id)]:[num(b.vehicle_id)]);
       }
+      await audit(a,"tax-invoices","Bill (Tax Invoice) created",r.rows[0]?.id,null,{bill_no:r.rows[0]?.bill_no,chassis_no:r.rows[0]?.chassis_no,dealer:r.rows[0]?.dealer_name,date:r.rows[0]?.date,sale_amount:r.rows[0]?.sale_amount},r.rows[0]?.dealer_id,r.rows[0]?.bill_no||r.rows[0]?.id);
       return Response.json({success:true,row:r.rows[0],data:r.rows[0],gst:{rate,amount:gst,cgst:sameState?gst/2:0,sgst:sameState?gst/2:0,igst:sameState?0:gst}},{status:201});
     }
     if(p.startsWith("tax-invoices/") && p.endsWith("/cancel")){
       const id=idOf(path[path.length-2]); if(!id)return Response.json({error:"Record id required."},{status:400});
       const r=await pool.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1 RETURNING *",[id]);
+      if(r.rowCount)await audit(a,"tax-invoices","Bill (Tax Invoice) cancelled",id,null,{bill_no:r.rows[0]?.bill_no},r.rows[0]?.dealer_id,r.rows[0]?.bill_no||id);
       return Response.json({success:r.rowCount>0,row:r.rows[0]||null});
     }
     if(p.startsWith("tax-invoices/") && p.endsWith("/payment")){

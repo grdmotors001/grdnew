@@ -3,6 +3,11 @@
 // Schema/register helpers dusre modules (delivery-challan, tax-invoice) bhi use karte hain, isliye export hain.
 import { addColumns, columns, idOf, num, pool, ymd } from "./common";
 import { ensureBillingSalesSchema } from "./billing";
+import { audit } from "./permissions";
+// Staff Activity Log: kisne battery add/withdraw ki (audit_log me, kab + kis user ne). Fail hone par main kaam nahi rukta.
+async function actLog(a:any,moduleKey:string,label:string,recordId:any,batteryNo:string,chassisNo:any,dealerId:any,extra:any){
+  try{await audit(a,moduleKey,label,recordId,null,{battery_no:batteryNo,chassis_no:chassisNo||null,...extra},dealerId,batteryNo+(chassisNo?" / "+chassisNo:""));}catch{}
+}
 
 export type BatteryDeps = {
   ensureNotificationSchema: any;
@@ -273,6 +278,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
           await client.query('UPDATE vehicle SET "battery_no'+slot+'"=$1,battery_maker=$2 WHERE id=$3',[batteryNo,maker,rid]);
           await client.query("COMMIT");
           // Factory stock register ka OUT entry Delivery Challan banne par hota hai (toggleBatteryRegisterForDelivery), isliye yahan double entry nahi.
+          await actLog(a,"battery-addition","Battery added (factory rickshaw)",rid,batteryNo,null,null,{battery_maker:maker,slot});
           return Response.json({success:true,vehicle_id:rid,battery_no:batteryNo,battery_maker:maker},{status:201});
         }
         const did=idOf(b.dealer_id);
@@ -295,6 +301,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
         const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'addition',$6,$7,$8,$9,NOW()) RETURNING *",
           [ymd(b.date)||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,rid,isOld?"old":"new",String(b.remarks||"").trim()||null,String(a.username||a.full_name||a.user_id||"")]);
         await client.query("COMMIT");
+        await actLog(a,"battery-addition","Battery added (dealer stock)",rid,batteryNo,null,did,{battery_maker:maker,rickshaw_type:isOld?"old":"new",reference_no:b.reference_no||null,date:ymd(b.date)||null});
         return Response.json({success:true,row:mv.rows[0],vehicle_id:rid,battery_no:batteryNo},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -326,6 +333,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
         const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',$6,$7,$8,$9,NOW()) RETURNING *",
           [ymd(b.date)||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,rid,isOld?"old":"new",String(b.remarks||"").trim()||null,String(a.username||a.full_name||a.user_id||"")]);
         await client.query("COMMIT");
+        await actLog(a,"battery-withdrawal","Battery withdrawn",rid,batteryNo,null,did,{battery_maker:maker,reference_no:b.reference_no||null,date:ymd(b.date)||null});
         return Response.json({success:true,row:mv.rows[0],data:mv.rows[0]},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -391,6 +399,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
           await client.query('UPDATE vehicle SET battery_maker=$1,"'+field+'"=$2 WHERE id=$3',[maker,batteryNo,vehicleId]);
           const mv=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES ($1::date,$2,$3,$4,$5,'addition',$6,'new','Fitted from dealer stock',$7,NOW()) RETURNING *",[date,did,maker,batteryNo,refNo,vehicleId,who]);
           await client.query("COMMIT");
+          await actLog(a,"battery-addition","Battery added (dealer stock)",vehicleId,batteryNo,row.chassis_no,did,{source:"dealer",battery_maker:maker,position,date});
           return Response.json({success:true,source:"dealer",row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo},{status:201});
         }
         // Factory se fit: battery dealer stock me hona nahi chahiye, aur factory register me pehle issue nahi hui honi chahiye
@@ -427,6 +436,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
             [`${dr.rows[0].name} / ${row.chassis_no||""}: factory battery fitted (${maker} - ${batteryNo}).`,did,fitId,"battery-fit-"+fitId]);
         }
         await client.query("COMMIT");
+        await actLog(a,"battery-addition","Battery added (factory)",vehicleId,batteryNo,row.chassis_no,did,{source:"factory",battery_maker:maker,position,date});
         return Response.json({success:true,source:"factory",row:mv.rows[0],vehicle_id:vehicleId,battery_no:batteryNo,challan_updated:Boolean(fitId)},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }

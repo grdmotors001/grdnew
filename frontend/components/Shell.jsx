@@ -53,7 +53,7 @@ const ICONS = {
   'tax-invoice': Receipt, 'old-rickshaw': Car, 'battery-delivery-challan': BatteryCharging,
   'journal-stock': BookOpen, 'cash-at-dealer': Wallet, 'cashier-pending': Wallet, 'cashier-approved': Wallet, 'cashier-paid': Wallet, 'cashier-handover': Wallet, 'cashier-all-receipts': Wallet, 'cashier-receipt': Wallet, 'showroom-stock': Warehouse, 'dealer-cash-receipt': Wallet,
   'repair-service-voucher': Wrench, 'old-rickshaw-challan': Truck, 'rc-fee-voucher': ClipboardList, 'vahan-inventory': ClipboardList,
-  'closing-stock-premises': Warehouse, 'closing-stock-dealers': Store, 'closing-stock-raw': Boxes,
+  'closing-stock-premises': Warehouse, 'closing-stock-dealers': Store, 'closing-stock-battery-dealers': BatteryCharging, 'activity-log': ClipboardList, 'closing-stock-raw': Boxes,
   'stock-ledger-premises': ClipboardList, 'stock-ledger-dealers': ClipboardList,
   'loan-workflow': ClipboardList, 'loan-application-view': ClipboardList,
   'purchase-register': FileText, 'production-register': FileText, 'delivery-challan-register': FileText,

@@ -10,7 +10,7 @@ import { reportsGet } from "../../../lib/server/reports";
 import { productionGet, productionPost, productionMutation } from "../../../lib/server/production";
 import { ensureDealerCashSchema, dealerCashPosition, enrichCashCustomers, dealerCashbookGet, dealerCashbookPost, dealerCashbookMutation, cashbookAdminGet, cashbookAdminPost } from "../../../lib/server/dealer-cashbook";
 import { ensureLoanWorkflowBridgeSchema, chfplBridge, loanGet, loanWebhookPost, loanPost } from "../../../lib/server/loan";
-import { ensureBatteryRegisterSchema, ensureBatteryFitSchema, assertBatterySerialsAvailable, toggleBatteryRegisterForDelivery, batteryGet, batteryPost, batteryMutation } from "../../../lib/server/battery";
+import { ensureBatteryMovementSchema, ensureBatteryRegisterSchema, ensureBatteryFitSchema, assertBatterySerialsAvailable, toggleBatteryRegisterForDelivery, batteryGet, batteryPost, batteryMutation } from "../../../lib/server/battery";
 import { ensureBillingSalesSchema, upsertBillingCustomer, billingGet, billingPost, billingMutation } from "../../../lib/server/billing";
 import { TI_TAXABLE, taxInvoiceGet, taxInvoicePost, taxInvoiceMutation } from "../../../lib/server/tax-invoice";
 import { dealerInvoicePost } from "../../../lib/server/dealer-invoice";
@@ -39,7 +39,7 @@ const TABLES:any={
   "reports/hypothecation-register":"tax_invoice","reports/ledger":"day_book","reports/ledger-v":"day_book",
   "reports/payment-receivable":"day_book","reports/production-register":"production_voucher","reports/purchase-register":"purchase_bill",
   "reports/sale-register":"tax_invoice","reports/subsidy":"tax_invoice","stock/ledger-dealers":"journal_stock",
-  "stock/ledger-premises":"journal_stock","stock/ledger-raw":"journal_stock","stock/closing-dealers":"journal_stock",
+  "stock/ledger-premises":"journal_stock","stock/ledger-raw":"journal_stock","stock/closing-dealers":"journal_stock","stock/closing-dealers-battery":"battery_stock_movement",
   "stock/closing-premises":"journal_stock","stock/closing-raw":"journal_stock",
   "dealer/battery-stock":"battery_stock_movement","dealer/stock":"vehicle","dealer/purchases":"purchase_bill",
   "dealer/tax-invoices":"tax_invoice","dealer/delivery-challans":"delivery_challan",
@@ -786,6 +786,23 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!(await actionAllowed(a,p,"download")))return Response.json({error:"Download permission required."},{status:403});
     }
     if(p==="expense-payment-voucher"||p.startsWith("expense-payment-voucher/")){const evr=await expenseVoucherGet(req,path,a);if(evr)return evr;}
+    // Staff Activity Log: Delivery Challan / Bill / Challan Shift / Battery - kisne kiya aur kab (audit_log se).
+    if(p==="activity-log"){
+      if(a?.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
+      await ensureSecuritySchema();
+      const u=new URL(req.url),args:any[]=[],w:string[]=["al.module_key IN ('delivery-challans','tax-invoices','challan-shift','battery-addition','battery-withdrawal')"];
+      const type=u.searchParams.get("type");
+      if(type){args.push(type);w.push(`al.module_key=$${args.length}`);}
+      const user=u.searchParams.get("user");if(user){args.push('%'+user+'%');w.push(`COALESCE(al.username,'') ILIKE $${args.length}`);}
+      const q=u.searchParams.get("q");if(q){args.push('%'+q+'%');w.push(`(COALESCE(al.record_ref,'') ILIKE $${args.length} OR COALESCE(d.name,'') ILIKE $${args.length} OR COALESCE(al.new_value::text,'') ILIKE $${args.length})`);}
+      const from=u.searchParams.get("from"),to=u.searchParams.get("to");
+      if(from){args.push(from);w.push(`al.created_at >= $${args.length}::date`);}
+      if(to){args.push(to);w.push(`al.created_at < ($${args.length}::date + interval '1 day')`);}
+      const scope=assignedDealerIds(a);
+      if(scope){args.push(scope.length?scope:[-1]);w.push(`(al.dealer_id IS NULL OR al.dealer_id=ANY($${args.length}::bigint[]))`);}
+      const r=await pool.query(`SELECT al.id,al.created_at,al.username,al.department,al.module_key,al.action,al.record_ref,al.old_value,al.new_value,d.name AS dealer_name FROM audit_log al LEFT JOIN dealer d ON d.id=al.dealer_id WHERE ${w.join(' AND ')} ORDER BY al.created_at DESC,al.id DESC LIMIT 2000`,args);
+      return Response.json({rows:r.rows,count:r.rowCount});
+    }
     if(p==="audit-report"){
       if(!isAdmin(a)) return Response.json({error:"Admin access required."},{status:403});
       const u=new URL(req.url),args:any[]=[],w:string[]=['1=1'];
@@ -1044,6 +1061,18 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const m=new Map<string,any>();
       for(const x of r.rows){const k=String(x.dealer_name||"")+"|"+String(x.model_name||"");const e=m.get(k)||{dealer_name:x.dealer_name||"",model_name:x.model_name||"",qty:0};e.qty++;m.set(k,e);}
       return Response.json({vehicles:r.rows,summary:[...m.values()],count:r.rowCount});
+    }
+    // Dealer ke paas battery stock (admin Inventory > Closing Stock - Dealer Battery).
+    // Har battery ki LATEST movement dekho: withdrawal/delivery => dealer ke stock me; addition => rickshaw par lagi (stock me nahi).
+    if(p==="stock/closing-dealers-battery"&&a.scope!=="dealer"){
+      await ensureBatteryMovementSchema();
+      const sm=String(a.department||"").trim().toLowerCase()==="salesman"?String(a.username||"").trim():"";
+      const args:any[]=[];let extra="";
+      if(sm){args.push(sm);extra=" AND lower(trim(COALESCE(d.salesman,'')))=lower(trim($1))";}
+      const r=await pool.query("SELECT t.id,t.date,t.battery_maker,t.battery_no,t.reference_no,t.movement_type,t.dealer_id,d.name AS dealer_name,COALESCE(d.salesman,'') AS salesman FROM (SELECT DISTINCT ON (upper(trim(battery_no))) * FROM battery_stock_movement WHERE COALESCE(trim(battery_no),'')<>'' ORDER BY upper(trim(battery_no)),id DESC) t JOIN dealer d ON d.id=t.dealer_id WHERE t.movement_type IN ('withdrawal','delivery')"+extra+" ORDER BY d.name,t.date DESC,t.id DESC",args);
+      const m=new Map<string,any>();
+      for(const x of r.rows){const k=String(x.dealer_name||"")+"|"+String(x.battery_maker||"");const e=m.get(k)||{dealer_name:x.dealer_name||"",battery_maker:x.battery_maker||"",qty:0};e.qty++;m.set(k,e);}
+      return Response.json({batteries:r.rows,summary:[...m.values()],count:r.rowCount});
     }
     if(p==="dealer/me"&&a.scope==="dealer"){
       const r=await pool.query("SELECT id,code,name,login_id,dealer_category,registration_type,purchase_access,portal_modules,blocked FROM dealer WHERE id=$1",[num(a.dealer_id)]);
