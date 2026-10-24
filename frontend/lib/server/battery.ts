@@ -366,6 +366,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
         const r=await client.query("INSERT INTO battery_stock_movement (date,dealer_id,battery_maker,battery_no,reference_no,movement_type,vehicle_id,rickshaw_type,remarks,created_by,created_at) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,'withdrawal',$6,$7,$8,$9,NOW()) RETURNING *",
           [ymd(b.date)||null,did,maker,batteryNo,String(b.reference_no||"").trim()||null,vehicleId,rType,vehicleId?"Withdrawn from rickshaw":null,String(a.username||a.full_name||a.dealer_id||"")]);
         await client.query("COMMIT");
+        await actLog(a,"battery-withdrawal",vehicleId?"Battery withdrawn from rickshaw (dealer)":"Battery withdrawn (dealer)",vehicleId,batteryNo,null,did,{battery_maker:maker,reference_no:b.reference_no||null,date:ymd(b.date)||null});
         return Response.json({success:true,row:r.rows[0],data:r.rows[0],removed_from_rickshaw:Boolean(vehicleId)},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -483,6 +484,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
           : `${row.challan_no||"Challan"} / ${row.chassis_no||""}: battery fitted (${maker} - ${nums.filter(Boolean).join(", ")}).`;
         await client.query("INSERT INTO app_notification(notification_type,title,message,dealer_id,reference_type,reference_id,dedupe_key) VALUES('battery_change',$1,$2,$3,'battery_fit',$4,$5) ON CONFLICT(dedupe_key) DO UPDATE SET message=EXCLUDED.message,is_read=false",[title,msg,row.dealer_id,Number(ins.rows[0].id),Number(ins.rows[0].id),"battery-fit-"+Number(ins.rows[0].id)]);
         await client.query("COMMIT");
+        await audit(a,"battery-fit",changed&&oldNums.length?"Battery changed on challan":"Battery fitted on challan",challanId,{battery_no:oldNums.join(", ")||null,battery_maker:oldMakerName||null},{challan_no:row.challan_no,chassis_no:row.chassis_no,battery_maker:maker,battery_no:newNums.join(", "),fit_date:fitDate},row.dealer_id,(row.challan_no||challanId)+" / "+(row.chassis_no||""));
         return Response.json({success:true,fit_id:Number(ins.rows[0].id),register_id:regIds[0]||null,battery_fit_date:fitDate});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -525,6 +527,7 @@ export async function batteryPost(path:string[],b:any,a:any,deps:BatteryDeps):Pr
         const vr=await client.query("INSERT INTO battery_swap_voucher (voucher_no,date,dealer_id,from_type,from_id,to_type,to_id,mode,remarks,created_at) VALUES (COALESCE(NULLIF($1,''),'BS-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),$3,$4,$5,$6,$7,$8,$9,NOW()) RETURNING *",
           [String(b.voucher_no||""),b.date||null,num(b.dealer_id)||null,fromType,fromId,toType,toId,mode,b.remarks||null]);
         await client.query("COMMIT");
+        await audit(a,"battery-swap-vouchers",mode==="transfer"?"Battery transferred between rickshaws":"Battery swapped between rickshaws",vr.rows[0]?.id,null,{mode,voucher_no:vr.rows[0]?.voucher_no,from:String(source.chassis_no||source.vehicle_no||source.reg_no||fromId),to:String(target.chassis_no||target.vehicle_no||target.reg_no||toId),battery_maker:source.battery_maker||null,date:vr.rows[0]?.date},num(b.dealer_id)||(a.scope==="dealer"?num(a.dealer_id):null),(vr.rows[0]?.voucher_no||vr.rows[0]?.id)+" / "+String(source.chassis_no||source.vehicle_no||fromId)+" <-> "+String(target.chassis_no||target.vehicle_no||toId));
         return Response.json({success:true,row:vr.rows[0],data:vr.rows[0],source:nextSource,target:nextTarget},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
@@ -557,6 +560,7 @@ export async function batteryMutation(req:Request,path:string[],method:string,a:
         }
         await client.query("DELETE FROM battery_stock_movement WHERE id=$1",[id]);
         await client.query("COMMIT");
+        await actLog(a,"battery-withdrawal","Battery withdrawal deleted",x.vehicle_id||id,String(x.battery_no||""),null,x.dealer_id,{battery_maker:x.battery_maker||null,deleted_record_id:id});
         return Response.json({success:true});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }

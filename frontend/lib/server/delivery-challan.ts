@@ -419,6 +419,7 @@ export async function deliveryChallanMutation(req:Request,path:string[],method:s
         const r=await client.query("DELETE FROM delivery_challan WHERE id=$1 RETURNING *",[id]);
         if(r.rows[0]?.vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[r.rows[0].vehicle_id]);
         await client.query("COMMIT");
+        await audit(a,"delivery-challans","Delivery Challan deleted",id,{challan_no:r.rows[0]?.challan_no,chassis_no:r.rows[0]?.chassis_no,date:r.rows[0]?.date},null,r.rows[0]?.dealer_id,r.rows[0]?.challan_no||id);
         return Response.json({success:true,row:r.rows[0]||null});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }

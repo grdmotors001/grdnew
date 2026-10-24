@@ -444,9 +444,24 @@ function DealerBatteryDetailModal({ dealerName, batteries, onClose }) {
 }
 
 
-const ACTIVITY_TYPES = [['', 'All'], ['delivery-challans', 'Delivery Challan'], ['tax-invoices', 'Bill / Tax Invoice'], ['challan-shift', 'Challan Shift'], ['battery-addition', 'Battery Added'], ['battery-withdrawal', 'Battery Withdrawn']];
+const ACTIVITY_TYPES = [['', 'All'], ['delivery-challans', 'Delivery Challan'], ['tax-invoices', 'Bill / Tax Invoice'], ['challan-shift', 'Challan Shift'], ['battery-addition', 'Battery Added'], ['battery-withdrawal', 'Battery Withdrawn'], ['battery-swap-vouchers', 'Battery Swap / Exchange'], ['battery-fit', 'Battery Fit on Challan'], ['dealer/customer-invoice', 'Dealer Customer Invoice']];
+const MODULE_LABEL = { 'delivery-challans': 'Delivery Challan', 'tax-invoices': 'Bill (Tax Invoice)', 'dealer/tax-invoices': 'Bill (Tax Invoice, dealer)', 'dealer/customer-invoice': 'Dealer Customer Invoice', 'battery-addition': 'Battery', 'battery-withdrawal': 'Battery' };
+const activityLabel = (r) => {
+  const act = String(r.action || '');
+  if (['create', 'edit', 'update', 'delete'].includes(act)) return `${MODULE_LABEL[r.module_key] || r.module_key} ${act === 'create' ? 'created' : act === 'delete' ? 'deleted' : 'edited'}`;
+  return act;
+};
 const activityDetail = (r) => {
   const n = r.new_value || {}, o = r.old_value || {};
+  if (r.module_key === 'battery-swap-vouchers') return [n.from && n.to && `${n.from} <-> ${n.to}`, n.battery_maker, n.voucher_no && 'Voucher: ' + n.voucher_no].filter(Boolean).join(' | ');
+  if (r.module_key === 'battery-fit') return [n.chassis_no && 'Chassis: ' + n.chassis_no, n.battery_maker, n.battery_no && 'New: ' + n.battery_no, o.battery_no && 'Old: ' + o.battery_no].filter(Boolean).join(' | ');
+  if (r.action === 'edit' || r.action === 'update') {
+    const skip = new Set(['id', 'created_at', 'updated_at']);
+    const diff = Object.keys(n).filter((k) => !skip.has(k) && JSON.stringify(n[k]) !== JSON.stringify(o[k]) && typeof n[k] !== 'object').slice(0, 6).map((k) => `${k}: ${o[k] ?? '—'} → ${n[k] ?? '—'}`);
+    const ref = r.record_ref ? r.record_ref + ' | ' : '';
+    return diff.length ? ref + diff.join(' ; ') : (r.record_ref || '—');
+  }
+  if (r.action === 'delete' || r.module_key === 'delivery-challans') { const x = n.challan_no || n.bill_no ? n : o; if (x.challan_no || x.bill_no) return [x.challan_no && 'Challan: ' + x.challan_no, x.bill_no && 'Bill: ' + x.bill_no, x.chassis_no && 'Chassis: ' + x.chassis_no].filter(Boolean).join(' | '); }
   if (r.module_key === 'challan-shift') return `${o.dealer || '—'} → ${n.dealer || '—'}${n.remark ? ' | ' + n.remark : ''}`;
   if (r.module_key === 'battery-addition' || r.module_key === 'battery-withdrawal') return [n.battery_maker, n.battery_no && 'No: ' + n.battery_no, n.chassis_no && 'Chassis: ' + n.chassis_no, n.position && 'Pos ' + n.position].filter(Boolean).join(' | ');
   return [n.challan_no && 'Challan: ' + n.challan_no, n.bill_no && 'Bill: ' + n.bill_no, n.chassis_no && 'Chassis: ' + n.chassis_no].filter(Boolean).join(' | ');
@@ -490,7 +505,7 @@ export function ActivityLogPage() {
             <tr key={r.id}>
               <td data-label="Date / Time">{new Date(r.created_at).toLocaleString('en-IN')}</td>
               <td data-label="User"><b>{r.username || '—'}</b>{r.department ? <div className="muted" style={{ fontSize: 11 }}>{r.department}</div> : null}</td>
-              <td data-label="Activity">{r.action}</td>
+              <td data-label="Activity">{activityLabel(r)}</td>
               <td data-label="Dealer">{r.dealer_name || '—'}</td>
               <td data-label="Details">{activityDetail(r) || r.record_ref || '—'}</td>
             </tr>

@@ -790,9 +790,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="activity-log"){
       if(a?.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
       await ensureSecuritySchema();
-      const u=new URL(req.url),args:any[]=[],w:string[]=["al.module_key IN ('delivery-challans','tax-invoices','challan-shift','battery-addition','battery-withdrawal')"];
+      const u=new URL(req.url),args:any[]=[],w:string[]=["regexp_replace(al.module_key,'/[0-9]+$','') IN ('delivery-challans','tax-invoices','dealer/tax-invoices','challan-shift','battery-addition','battery-withdrawal','battery-swap-vouchers','battery-fit','dealer/customer-invoice')"];
       const type=u.searchParams.get("type");
-      if(type){args.push(type);w.push(`al.module_key=$${args.length}`);}
+      if(type){args.push(type);w.push(`regexp_replace(al.module_key,'/[0-9]+$','')=$${args.length}`);}
       const user=u.searchParams.get("user");if(user){args.push('%'+user+'%');w.push(`COALESCE(al.username,'') ILIKE $${args.length}`);}
       const q=u.searchParams.get("q");if(q){args.push('%'+q+'%');w.push(`(COALESCE(al.record_ref,'') ILIKE $${args.length} OR COALESCE(d.name,'') ILIKE $${args.length} OR COALESCE(al.new_value::text,'') ILIKE $${args.length})`);}
       const from=u.searchParams.get("from"),to=u.searchParams.get("to");
@@ -800,7 +800,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(to){args.push(to);w.push(`al.created_at < ($${args.length}::date + interval '1 day')`);}
       const scope=assignedDealerIds(a);
       if(scope){args.push(scope.length?scope:[-1]);w.push(`(al.dealer_id IS NULL OR al.dealer_id=ANY($${args.length}::bigint[]))`);}
-      const r=await pool.query(`SELECT al.id,al.created_at,al.username,al.department,al.module_key,al.action,al.record_ref,al.old_value,al.new_value,d.name AS dealer_name FROM audit_log al LEFT JOIN dealer d ON d.id=al.dealer_id WHERE ${w.join(' AND ')} ORDER BY al.created_at DESC,al.id DESC LIMIT 2000`,args);
+      const r=await pool.query(`SELECT al.id,al.created_at,al.username,al.department,regexp_replace(al.module_key,'/[0-9]+$','') AS module_key,al.action,al.record_ref,al.old_value,al.new_value,d.name AS dealer_name FROM audit_log al LEFT JOIN dealer d ON d.id=al.dealer_id WHERE ${w.join(' AND ')} ORDER BY al.created_at DESC,al.id DESC LIMIT 2000`,args);
       return Response.json({rows:r.rows,count:r.rowCount});
     }
     if(p==="audit-report"){
