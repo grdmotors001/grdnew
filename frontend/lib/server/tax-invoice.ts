@@ -84,7 +84,10 @@ export async function taxInvoicePost(req:Request,path:string[],b:any,a:any,deps:
       const customerId=num(b.customer_id)||await upsertBillingCustomer(b);
       const grossTaxable=num(b.gst_sale_amount||b.sale_amount),discount=Math.max(0,num(b.discount)),taxable=Math.max(0,grossTaxable-discount),rate=num(b.gst_rate);
       const companyState=await pool.query("SELECT state_code FROM company ORDER BY id DESC LIMIT 1");
-      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim(),buyerStateCode=String(b.buyer_state_code||"").trim(),stateType=String(b.state_type||"").trim().toUpperCase();
+      const sellerStateCode=String(companyState.rows[0]?.state_code||"").trim(),buyerStateCode=String(b.buyer_state_code||"").trim();
+      // Intra/Inter always from buyer vs company state code when both are known (form value is only the fallback).
+      if(/^\d{1,2}$/.test(sellerStateCode)&&/^\d{1,2}$/.test(buyerStateCode))b.state_type=sellerStateCode.padStart(2,"0")===buyerStateCode.padStart(2,"0")?"I":"O";
+      const stateType=String(b.state_type||"").trim().toUpperCase();
       const sameState=stateType==="I"||stateType==="INTRA"||(!stateType&&!!sellerStateCode&&sellerStateCode===buyerStateCode),gst=taxable*rate/100;
       await ensureTaxInvoiceRecordColumns();
       const cols=await columns("tax_invoice");

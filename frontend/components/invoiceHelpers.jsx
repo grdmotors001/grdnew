@@ -98,10 +98,13 @@ export const stateFields = (name) => ({ buyer_state: name, buyer_state_code: sta
 export function useCompanyStateCode() {
   const [code, setCode] = useState('');
   useEffect(() => {
-    get('/company').then((c) => {
-      const g = clean(c?.gst_no).slice(0, 2);
-      setCode(normStateCode(c?.state_code) || (/^\d{2}$/.test(g) ? g : ''));
-    }).catch(() => {});
+    // /company-state is open to every logged-in user; /company needs Company Master view rights.
+    get('/company-state').then((c) => setCode(normStateCode(c?.state_code))).catch(() => {
+      get('/company').then((c) => {
+        const g = clean(c?.gst_no).slice(0, 2);
+        setCode(normStateCode(c?.state_code) || (/^\d{2}$/.test(g) ? g : ''));
+      }).catch(() => {});
+    });
   }, []);
   return code;
 }

@@ -1,12 +1,14 @@
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
 import { dealerSellerOverride } from "../../../../../../lib/server/dealer-invoice";
+import { SQL_TI_INTRA } from "../../../../../../lib/server/common";
 export const dynamic="force-dynamic";
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3,ssl:{rejectUnauthorized:false}});
 const secret=process.env.JWT_SECRET||"grd-node-change-this-secret";
 // tax_invoice has no stored taxable/GST/total columns; print reads taxable_value / cgst_amount / bill_total, so compute them here (alias: ti).
 const TI_TAXABLE="GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)";
-const TI_STATE_INTRA="COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'";
+// Buyer state code vs company state code decides CGST+SGST / IGST (falls back to stored state_type only if a code is missing).
+const TI_STATE_INTRA=SQL_TI_INTRA;
 const TI_CALC=`${TI_TAXABLE} AS taxable_value,
   CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS cgst_amount,
   CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS sgst_amount,

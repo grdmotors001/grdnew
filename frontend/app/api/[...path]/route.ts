@@ -662,6 +662,16 @@ async function genericWrite(req:Request,path:string[],table:string,method:string
     const c=snake(k);if(cols.has(c)&&c!=="id")input[c]=v;
   }
   if(table==="simple_master" && path[0]==="masters" && path[1] && cols.has("kind"))input.kind=path[1]==="color"?"colour":path[1];
+  // Tax Invoice: Intra/Inter is decided by buyer state code vs company state code (not by what the form sent), so a stale / wrong state_type can never be saved.
+  if(table==="tax_invoice"&&cols.has("state_type")&&(method==="POST"||method==="PUT"||method==="PATCH")&&input.buyer_state_code!==undefined){
+    const bc=String(input.buyer_state_code??"").trim();
+    if(/^\d{1,2}$/.test(bc)){
+      const cr=await pool.query("SELECT state_code,to_jsonb(c)->>'gst_no' AS gst_no FROM company c ORDER BY id DESC LIMIT 1").catch(()=>({rows:[] as any[]}));
+      const sc=String(cr.rows[0]?.state_code??"").trim(),g=String(cr.rows[0]?.gst_no??"").trim().slice(0,2);
+      const cc=/^\d{1,2}$/.test(sc)?sc.padStart(2,"0"):/^\d{2}$/.test(g)?g:"";
+      if(cc)input.state_type=bc.padStart(2,"0")===cc?"I":"O";
+    }
+  }
   const id=idOf(path[path.length-1]);
   if(table==="dealer"){
     // Dealer Master form sends plain "password"; dealer table only has password_hash and the dealer login verifies that hash.
