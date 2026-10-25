@@ -70,12 +70,16 @@ export function DeliveryChallanPage() {
   const [search, setSearch] = useState('');
   const { busy, error, setError, run } = useAsyncAction();
   const reqId = useRef(0);
+  const [approval, setApproval] = useState('all'); // all | pending | approved
+  const approvalRef = useRef('all');
+  const [selected, setSelected] = useState([]);
   const firstSearch = useRef(true);
   const [searching, setSearching] = useState(false);
 
   const load = (p = page, s = search) => {
     const params = new URLSearchParams({ page: p, per_page: 50 });
     if (s.trim()) params.set('search', s.trim());
+    if (approvalRef.current !== 'all') params.set('approval', approvalRef.current);
     const myReq = ++reqId.current;
     setSearching(true);
     get(`/delivery-challans?${params}`).then((d) => {
@@ -86,6 +90,7 @@ export function DeliveryChallanPage() {
         available_vehicles: Array.isArray(d?.available_vehicles) ? d.available_vehicles : [],
         dispatch_items: Array.isArray(d?.dispatch_items) ? d.dispatch_items : [],
         page: Number(d?.page || p), per_page: Number(d?.per_page || 50),
+        pending_count: Number(d?.pending_count || 0),
         total: Number(d?.total || 0), total_pages: Number(d?.total_pages || 1),
       };
       setData(safe); setDispatchItems(safe.dispatch_items);
@@ -124,6 +129,15 @@ export function DeliveryChallanPage() {
     }).catch(() => setColourMasters([]));
   }, []);
 
+  const changeApproval = (v) => { approvalRef.current = v; setApproval(v); setSelected([]); setPage(1); load(1, search); };
+  const approveOne = (c) => {
+    if (!confirm(`Challan ${c.challan_no} approve karna hai?`)) return;
+    run(async () => { await post(`/delivery-challans/${c.id}/approve`); load(page, search); });
+  };
+  const approveSelected = () => {
+    if (!selected.length || !confirm(`${selected.length} challan approve karne hain?`)) return;
+    run(async () => { await post('/delivery-challans/approve-bulk', { ids: selected }); setSelected([]); load(page, search); });
+  };
   const goToPage = (p) => { setPage(p); load(p, search); };
   const runSearch = (e) => { e.preventDefault(); setPage(1); load(1, search); };
 
@@ -283,6 +297,15 @@ export function DeliveryChallanPage() {
       </div>
       <ErrorBanner message={!open && !editRow ? error : ''} />
 
+      <div className="actions" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
+        {[['all', 'All'], ['pending', `Pending Approval${data.pending_count ? ` (${data.pending_count})` : ''}`], ['approved', 'Approved']].map(([k, label]) => (
+          <button key={k} type="button" className={approval === k ? 'btn primary' : 'btn'} onClick={() => changeApproval(k)}>{label}</button>
+        ))}
+        {selected.length > 0 && (
+          <button type="button" className="btn primary" disabled={busy} onClick={approveSelected}>Approve Selected ({selected.length})</button>
+        )}
+      </div>
+
       <form onSubmit={runSearch} className="actions" style={{ marginBottom: 12 }}>
         <input className="input" type="search" autoComplete="off"
                placeholder="Search challan no, chassis, motor, dealer, model, colour, date..."
@@ -300,10 +323,11 @@ export function DeliveryChallanPage() {
       {data.challans.length === 0 ? <EmptyState /> : (
         <div className="tablewrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Colour</th><th>Battery Make</th><th></th></tr></thead>
+            <thead><tr><th><input type="checkbox" title="Select all pending" checked={data.challans.filter((c) => !c.approved_by && !c.cancelled).length > 0 && data.challans.filter((c) => !c.approved_by && !c.cancelled).every((c) => selected.includes(c.id))} onChange={(e) => setSelected(e.target.checked ? data.challans.filter((c) => !c.approved_by && !c.cancelled).map((c) => c.id) : [])} /></th><th>Date</th><th>Challan No.</th><th>Dealer</th><th>Product</th><th>Chassis No.</th><th>Colour</th><th>Battery Make</th><th>Approval</th><th></th></tr></thead>
             <tbody>
               {data.challans.map((c) => (
                 <tr key={c.id}>
+                  <td>{!c.approved_by && !c.cancelled ? <input type="checkbox" checked={selected.includes(c.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, c.id] : selected.filter((x) => x !== c.id))} /> : null}</td>
                   <td>{formatDate(c.date)}</td>
                   <td>{c.challan_no}</td>
                   <td>{c.dealer_name}</td>
@@ -311,7 +335,9 @@ export function DeliveryChallanPage() {
                   <td><b>{c.chassis_no}</b></td>
                   <td><span style={{display:'inline-flex',alignItems:'center',gap:6}}><span style={{width:22,height:14,borderRadius:4,border:'1px solid var(--border)',background:colourPreview(c.colour)?.background||'transparent'}} />{c.colour||'—'}</span></td>
                   <td>{c.battery_maker || '—'}</td>
+                  <td>{c.cancelled ? <span className="muted">Cancelled</span> : c.approved_by ? <span style={{ color: '#067647', fontWeight: 600 }}>✓ {c.approved_by}</span> : <span style={{ color: '#b54708', fontWeight: 600 }}>Pending</span>}</td>
                   <td style={{ display: 'flex', gap: 8 }}>
+                    {!c.approved_by && !c.cancelled && <button className="btn primary" disabled={busy} onClick={() => approveOne(c)}>Approve</button>}
                     <button className="btn" onClick={() => openEdit(c)}>Edit</button>
                     <button className="btn" onClick={() => setPrintId(c.id)}>Preview</button>
                   </td>
@@ -471,6 +497,13 @@ export function DeliveryChallanPage() {
                <div style={{ gridColumn: '1 / -1' }} className="muted">
                  Battery details are locked after Challan creation. Battery changes will be recorded only through Battery Withdrawal / Swap / Fit.
                </div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Received By (dealer ki shop par rickshaw lene wale ka naam)</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input className="input" style={{ flex: 1 }} maxLength={120} placeholder="Receiver ka naam likho" value={editRow.received_by || ''} onChange={(e) => setEditRow({ ...editRow, received_by: e.target.value })} />
+                  <button type="button" className="btn" disabled={busy} onClick={() => run(async () => { const r = await post(`/delivery-challans/${editRow.id}/received-by`, { received_by: editRow.received_by || '' }); setEditRow({ ...editRow, received_by: r?.row?.received_by || '' }); load(page, search); })}>Save Receiver</button>
+                </div>
+              </div>
               <AccessoriesFields value={editRow} onChange={(next) => setEditRow({ ...editRow, ...next })} />
               <Field label="Remarks" value={editRow.remarks1} onChange={(v) => setEditRow({ ...editRow, remarks1: v })} />
               <div className="field" style={{ gridColumn: '1 / -1' }}>
@@ -482,6 +515,7 @@ export function DeliveryChallanPage() {
             <div className="actions" style={{ marginTop: 18 }}>
               <button type="button" className="btn danger" disabled={busy} onClick={() => { if (!confirm('Delete this Delivery Challan permanently?')) return; run(async () => { await del(`/delivery-challans/${editRow.id}`); setEditRow(null); load(page, search); }); }}>Delete Challan</button>
               <button type="button" className="btn" disabled={busy} onClick={() => { if (!confirm('Toggle cancel on this Delivery Challan? Cancelling sends the chassis back to Manufacturing.')) return; run(async () => { await post(`/delivery-challans/${editRow.id}/cancel`); setEditRow(null); load(page, search); }); }}>{editRow.cancelled ? 'Un-cancel Challan' : 'Cancel Challan'}</button>
+              <button type="button" className="btn" disabled={busy || editRow.cancelled} onClick={() => { const rm = !!editRow.approved_by; if (!confirm(rm ? 'Approval hatana hai?' : 'Is Delivery Challan ko approve karna hai? Print me aapka naam Approved By me aayega.')) return; run(async () => { const r = await post(`/delivery-challans/${editRow.id}/approve`); setEditRow({ ...editRow, approved_by: r?.row?.approved_by || '' }); load(page, search); }); }}>{editRow.approved_by ? `Approved by ${editRow.approved_by} ✓` : 'Approve Challan'}</button>
               <span style={{ flex: 1 }} />
               <button type="button" className="btn" onClick={() => setEditRow(null)}>Close</button>
               <button type="button" className="btn" onClick={() => setPrintId(editRow.id)}>Print / Preview</button>

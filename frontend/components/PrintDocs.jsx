@@ -232,8 +232,8 @@ const DC_STYLES = `
 .dcw .dealer-colon{ width:10px; }
 .dcw .dealer-val{ font-weight:700; }
 .dcw .salesperson-row{ display:flex; gap:14px; margin-bottom:16px; }
-.dcw .sp-box{ flex:3; border:1.5px solid var(--navy); border-radius:6px; padding:10px 14px; display:flex; align-items:center; gap:10px; font-size:14px; }
-.dcw .sp-box2{ flex:1; border:1.5px solid var(--navy); border-radius:6px; display:flex; align-items:center; justify-content:center; font-weight:800; }
+.dcw .sp-box{ flex:45 1 0; min-width:0; border:1.5px solid var(--navy); border-radius:6px; padding:8px 12px; display:flex; align-items:center; gap:8px; font-size:13px; }
+.dcw .sp-box2{ flex:55 1 0; min-width:0; border:1.5px solid var(--navy); border-radius:6px; padding:8px 14px; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:800; font-size:17px; line-height:1.15; letter-spacing:0.2px; }
 .dcw .sp-icon{ color:var(--green); }
 .dcw .two-col{ display:flex; gap:14px; margin-bottom:16px; align-items:flex-start; }
 .dcw .col-left, .dcw .col-right{ flex:1; }
@@ -298,7 +298,7 @@ function AccCol({ items, c }) {
         const val = c[key];
         return (
           <div className={`acc-row${i === items.length - 1 ? ' last' : ''}`} key={key}>
-            <span className="acc-num">{num}</span>
+            <span className="acc-num">➤</span>
             <span className="acc-name">{label}</span>
             <span className="acc-colon">:</span>
             <span className={`acc-status ${val ? 'yes' : 'no'}`}>
@@ -455,11 +455,11 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
             <div className="tbl-banner">🚚 VEHICLE PARTICULARS</div>
             <table>
               <tbody>
-                <tr><th>SRN</th><th>PARTICULARS</th><th>DETAILS</th></tr>
-                <tr><td className="center">1</td><td>Chassis No.</td><td className="highlight">{c.chassis_no}</td></tr>
-                <tr><td className="center">2</td><td>Model Name</td><td>{c.product_name || '—'}{c.other ? ` (${c.other})` : ''}</td></tr>
-                <tr><td className="center">3</td><td>Motor No.</td><td>{c.motor_no}</td></tr>
-                <tr><td className="center">4</td><td>Colour</td><td>
+                <tr><th>&nbsp;</th><th>PARTICULARS</th><th>DETAILS</th></tr>
+                <tr><td className="center">➤</td><td>Chassis No.</td><td className="highlight">{c.chassis_no}</td></tr>
+                <tr><td className="center">➤</td><td>Model Name</td><td>{c.product_name || '—'}{c.other ? ` (${c.other})` : ''}</td></tr>
+                <tr><td className="center">➤</td><td>Motor No.</td><td>{c.motor_no}</td></tr>
+                <tr><td className="center">➤</td><td>Colour</td><td>
                   <span style={{ display:'inline-flex', alignItems:'center', gap:8, fontWeight:700 }}>
                     <span style={{ width:42, height:22, borderRadius:4, border:'1px solid #777', background:colourBackground, display:'inline-block', flexShrink:0 }} />
                     {c.colour || '—'}
@@ -523,12 +523,15 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
         <div className="sig-row">
           <div className="sig-box">
             <div className="sig-title"><span className="sig-icon">✓</span>CHECKED BY :</div>
+            {c.checked_by ? <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase' }}>{c.checked_by}</div> : null}
           </div>
           <div className="sig-box">
             <div className="sig-title"><span className="sig-icon">🖊</span>APPROVED BY :</div>
+            {c.approved_by ? <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase' }}>{c.approved_by}</div> : null}
           </div>
           <div className="sig-box">
             <div className="sig-title"><span className="sig-icon">📋</span>RECEIVED BY :</div>
+            {c.received_by ? <div style={{ fontWeight: 700, fontSize: 13, textTransform: 'uppercase' }}>{c.received_by}</div> : null}
           </div>
         </div>
       </div>

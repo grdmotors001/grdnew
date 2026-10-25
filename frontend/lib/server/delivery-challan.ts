@@ -70,6 +70,13 @@ async function registerFilterLists(){
   registerFilterCache={t:Date.now(),v};
   return v;
 }
+// Challan kisne banaya (Print me 'Checked By'): created_by column pehli baar use hone par apne-aap ban jata hai.
+let challanCreatedByReady:Promise<void>|null=null;
+function ensureChallanCreatedBy():Promise<void>{
+  if(!challanCreatedByReady)challanCreatedByReady=pool.query("ALTER TABLE delivery_challan ADD COLUMN IF NOT EXISTS created_by text").then(()=>pool.query("ALTER TABLE delivery_challan ADD COLUMN IF NOT EXISTS approved_by text, ADD COLUMN IF NOT EXISTS approved_at timestamptz, ADD COLUMN IF NOT EXISTS received_by text, ADD COLUMN IF NOT EXISTS received_at timestamptz")).then(()=>{}).catch((e)=>{challanCreatedByReady=null;throw e});
+  return challanCreatedByReady;
+}
+
 export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:any):Promise<Response|null>{
   const p=path.join("/");
   const {ensureBatteryFitSchema,ensureBillingSalesSchema,ensureDispatchSchema,productLogo}=deps||({} as any);
@@ -105,6 +112,10 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
       const soldStatus=String(u.searchParams.get("status")||"all").toLowerCase();
       const tiEx="EXISTS (SELECT 1 FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false)";
       if(soldStatus==="sold")w.push(tiEx);else if(soldStatus==="unsold")w.push("NOT "+tiEx);
+      // Approval bucket: pending = abhi approve nahi hua (cancelled nahi), approved = approve ho chuka.
+      const apv=String(u.searchParams.get("approval")||"all").toLowerCase();
+      const apvExpr="NULLIF(btrim(COALESCE(to_jsonb(dc)->>'approved_by','')),'')";
+      if(apv==="pending"){w.push(apvExpr+" IS NULL");w.push("COALESCE(dc.cancelled,false)=false");}else if(apv==="approved")w.push(apvExpr+" IS NOT NULL");
       if(dealer!=="ALL"){args.push(dealer);w.push("d.id=$"+args.length);}
       if(product!=="ALL"){args.push(product);w.push("LOWER(COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name,''))=LOWER($"+args.length);}
       if(salesman!=="ALL"){args.push(salesman);w.push("LOWER(COALESCE(to_jsonb(dc)->>'salesman',''))=LOWER($"+args.length);}
@@ -178,13 +189,22 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
       const available=await pool.query(availSql);
       const dispatch=await pool.query("SELECT p.*,COALESCE(NULLIF(p.product_category,''),CASE WHEN p.fro='F' THEN 'FINISHED' ELSE 'RAW' END) AS category,COALESCE(p.show_on_delivery_challan,false) AS show_on_delivery_challan,COALESCE(s.qty,0) AS stock_qty FROM product p LEFT JOIN (SELECT item_name,SUM(CASE WHEN UPPER(COALESCE(work_type,''))='IN' THEN qty ELSE -qty END) qty FROM journal_stock GROUP BY item_name) s ON lower(trim(s.item_name))=lower(trim(p.name)) WHERE UPPER(COALESCE(NULLIF(p.product_category,''),CASE WHEN p.fro='F' THEN 'FINISHED' ELSE 'RAW' END))='DISPATCH' AND COALESCE(p.show_on_delivery_challan,false)=true ORDER BY p.name");
       const totalCount=Number(total.rows[0]?.n||0);
-      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,dispatch_items:dispatch.rows,suggested_challan_no:""});
+      const pendingCount=Number((await pool.query("SELECT COUNT(*)::int AS n FROM delivery_challan dc WHERE COALESCE(dc.cancelled,false)=false AND NULLIF(btrim(COALESCE(to_jsonb(dc)->>'approved_by','')),'') IS NULL").catch(()=>({rows:[{n:0}]}))).rows[0]?.n||0);
+      return Response.json({rows:rows.rows,challans:rows.rows,data:rows.rows,page,per_page:per,total:totalCount,pending_count:pendingCount,total_pages:Math.max(1,Math.ceil(totalCount/per)),available_vehicles:available.rows,dispatch_items:dispatch.rows,suggested_challan_no:""});
     }
     if(/^delivery-challans\/\d+\/print$/.test(p)){
       const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Delivery Challan id required."},{status:400});
+      await ensureChallanCreatedBy();
       const r=await pool.query("SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(to_jsonb(d)->>'salesman','') AS dealer_salesman,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
       const x=r.rows[0],challan={...x,product_name:x.product_name||x.vehicle_model_name,chassis_no:x.chassis_no||x.vehicle_chassis_no,motor_no:x.motor_no||x.vehicle_motor_no,colour:x.colour||x.vehicle_colour,salesman:x.salesman||x.dealer_salesman||""};
+      // Checked By = jisne challan banaya. created_by khali ho (purana challan) to audit log se dhundo; wo bhi na mile to blank.
+      {
+        const rawBy=String(x.created_by||"").trim()||(await pool.query("SELECT username FROM audit_log WHERE module_key='delivery-challans' AND action IN ('Delivery Challan created','create') AND (record_id::text=$1::text OR (COALESCE($2,'')<>'' AND record_ref::text=$2::text)) AND COALESCE(username,'')<>'' ORDER BY id ASC LIMIT 1",[String(id),String(x.challan_no||'')]).then(q=>q.rows[0]?.username||"").catch(()=>""));
+        // Print me seedha username dikhao (full name nahi).
+        const fullBy=rawBy;
+        (challan as any).checked_by=fullBy;
+      }
       const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
       {const lg=await productLogo(challan.product_name,x.vehicle_model_name||"");(challan as any).umrn_code=lg.umrn_code||challan.umrn_code||"";(challan as any).logo_keys=lg.logo_keys;}
       return Response.json({challan,company});
@@ -195,6 +215,45 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
 export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,deps:any):Promise<Response|null>{
   const p=path.join("/");
   const {ensureDispatchSchema,ensureBatteryRegisterSchema,assertBatterySerialsAvailable,toggleBatteryRegisterForDelivery}=deps||({} as any);
+    if(/^delivery-challans\/\d+\/received-by$/.test(p)){
+      // Rickshaw dealer ki shop par deliver hone ke baad receiver ka naam haath se likhna.
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Delivery Challan id required."},{status:400});
+      await ensureChallanCreatedBy();
+      const name=String(b?.received_by||"").trim().slice(0,120);
+      const cur=await pool.query("SELECT id,challan_no,dealer_id,NULLIF(btrim(COALESCE(received_by,'')),'') AS received_by FROM delivery_challan WHERE id=$1",[id]);
+      if(!cur.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
+      const c=cur.rows[0];
+      const r=await pool.query("UPDATE delivery_challan SET received_by=$2,received_at=CASE WHEN $2::text IS NULL THEN NULL ELSE NOW() END WHERE id=$1 RETURNING *",[id,name||null]);
+      await audit(a,"delivery-challans","Delivery Challan receiver updated",id,{received_by:c.received_by},{received_by:name||null},c.dealer_id,c.challan_no||id);
+      return Response.json({success:true,row:r.rows[0]});
+    }
+    if(p==="delivery-challans/approve-bulk"){
+      await ensureChallanCreatedBy();
+      const ids=(Array.isArray(b?.ids)?b.ids:[]).map(idOf).filter(Boolean).slice(0,500);
+      if(!ids.length)return Response.json({error:"Koi challan select nahi kiya."},{status:400});
+      const me=String(a?.username||"").trim();if(!me)return Response.json({error:"Username not found."},{status:400});
+      const r=await pool.query("UPDATE delivery_challan SET approved_by=$2,approved_at=NOW() WHERE id=ANY($1::int[]) AND COALESCE(cancelled,false)=false AND NULLIF(btrim(COALESCE(approved_by,'')),'') IS NULL RETURNING id,challan_no,dealer_id",[ids,me]);
+      for(const x of r.rows)await audit(a,"delivery-challans","Delivery Challan approved",x.id,null,{approved_by:me,bulk:true},x.dealer_id,x.challan_no||x.id);
+      return Response.json({success:true,approved:r.rowCount,skipped:ids.length-r.rowCount});
+    }
+    if(/^delivery-challans\/\d+\/approve$/.test(p)){
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Delivery Challan id required."},{status:400});
+      await ensureChallanCreatedBy();
+      const cur=await pool.query("SELECT id,challan_no,dealer_id,COALESCE(cancelled,false) AS cancelled,NULLIF(btrim(COALESCE(approved_by,'')),'') AS approved_by FROM delivery_challan WHERE id=$1",[id]);
+      if(!cur.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
+      const c=cur.rows[0];
+      if(c.cancelled)return Response.json({error:"Cancelled challan approve nahi ho sakta."},{status:409});
+      const me=String(a?.username||"").trim();if(!me)return Response.json({error:"Username not found."},{status:400});
+      if(c.approved_by){
+        if(!(a?.is_super_user||String(a?.department||"").toLowerCase()==="admin"))return Response.json({error:"Ye challan "+c.approved_by+" ne approve kiya hai. Sirf admin approval hata sakta hai."},{status:403});
+        const r=await pool.query("UPDATE delivery_challan SET approved_by=NULL,approved_at=NULL WHERE id=$1 RETURNING *",[id]);
+        await audit(a,"delivery-challans","Delivery Challan approval removed",id,{approved_by:c.approved_by},null,c.dealer_id,c.challan_no||id);
+        return Response.json({success:true,row:r.rows[0]});
+      }
+      const r=await pool.query("UPDATE delivery_challan SET approved_by=$2,approved_at=NOW() WHERE id=$1 RETURNING *",[id,me]);
+      await audit(a,"delivery-challans","Delivery Challan approved",id,null,{approved_by:me},c.dealer_id,c.challan_no||id);
+      return Response.json({success:true,row:r.rows[0]});
+    }
     if(p==="challan-shift"){
       await ensureChallanShiftSchema();
       const challanId=idOf(b.challan_id),toDealerId=idOf(b.to_dealer_id);
@@ -253,7 +312,7 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
       const did=a.scope==="dealer"?num(a.dealer_id):num(b.dealer_id),vehicleId=idOf(b.vehicle_id);
       if(a.scope==="dealer"&&!did)return Response.json({error:"Dealer not found."},{status:403});
       if(!vehicleId)return Response.json({error:"Select a chassis to dispatch."},{status:400});
-      await ensureDispatchSchema();await ensureBatteryRegisterSchema();
+      await ensureDispatchSchema();await ensureBatteryRegisterSchema();await ensureChallanCreatedBy();
       const selected=Array.isArray(b.dispatch_items)?b.dispatch_items.map((x:any)=>({product_id:idOf(x.product_id),qty:Math.max(1,Number(x.qty)||1)})).filter((x:any)=>x.product_id):[];
       const client=await pool.connect();
       try{
@@ -281,8 +340,8 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
           const sq=await client.query("SELECT COALESCE(MAX(RIGHT(challan_no,5)::int),0)+1 AS n FROM delivery_challan WHERE challan_no ~ '^DC[0-9]{11}$'");
           challanNo="DC"+pdt.slice(2,4)+pdt.slice(5,7)+cd.slice(5,7)+String(sq.rows[0].n).padStart(5,"0");
         }
-        const r=await client.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW()) RETURNING *",
-          [challanNo,b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null]);
+        const r=await client.query("INSERT INTO delivery_challan (challan_no,date,cancelled,dealer_id,destination,vehicle_id,product_name,chassis_no,motor_no,controller_no,differential_no,colour,sale_value,remarks1,remarks2,created_at,created_by) VALUES (COALESCE(NULLIF($1,''),'DC-'||extract(epoch from now())::bigint),COALESCE($2::date,CURRENT_DATE),false,$3,$4,$5,COALESCE(NULLIF($6,''),$7),COALESCE(NULLIF($8,''),$9),COALESCE(NULLIF($10,''),$11),$12,$13,COALESCE(NULLIF($14,''),$15),$16,$17,$18,NOW(),$19) RETURNING *",
+          [challanNo,b.date||null,did,b.destination||null,vehicleId,String(b.product_name||""),v.model_name||"",String(b.chassis_no||""),v.chassis_no||"",String(b.motor_no||""),v.motor_no||"",b.controller_no||v.controller_no||null,b.differential_no||v.differential_no||null,String(b.colour||""),v.colour||"",num(b.sale_value),b.remarks1||null,b.remarks2||null,String(a?.username||"").trim()||null]);
         // Accessories (Toolkit/Jack/...) aur Salesman pehle INSERT me save nahi hote the (sirf Edit ke baad aate the) -> ab create par hi save.
         {
           const ACC=["toolkit","jack","charger","center_lock","mat","stapney","front_glass","h_lock"];

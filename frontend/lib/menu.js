@@ -270,6 +270,12 @@ export const NAV_ICON_NAMES = [
 // Bank Ledger ab Bank & Cash (day-book) page me merge ho gaya — DB me saved purana tab bhi na dikhe.
 const HIDDEN_NAV_KEYS = new Set(['bank-ledger']);
 
+// Naye pages jo purane saved (DB) tab-config me nahi hote: agar kisi bhi saved tab me ye key nahi mili to
+// apne-aap uske built-in group me add ho jaati hai (warna admin ko Nav Settings me manually add karna padta).
+const AUTO_ADD_KEYS = {
+  Inventory: ['closing-stock-battery-dealers', 'activity-log'],
+};
+
 export function buildNavGroups(customTabs) {
   // Built-in groups can now be persisted in NavTab rows so admins can
   // rename, hide, reorder and edit their modules. Truly custom tabs remain
@@ -292,7 +298,9 @@ export function buildNavGroups(customTabs) {
     const items = (tab.items || []).filter((key) => !HIDDEN_NAV_KEYS.has(key)).map((key) => [key, labelFor(key)]);
 
     if (Object.prototype.hasOwnProperty.call(NAV_GROUPS, tab.key)) {
-      groups[label] = items;
+      const placed = new Set(configured.flatMap((t) => t.items || []));
+      const extra = (AUTO_ADD_KEYS[tab.key] || []).filter((key) => !placed.has(key)).map((key) => [key, labelFor(key)]);
+      groups[label] = [...items, ...extra];
     } else if (groups[label]) {
       const existingKeys = new Set(groups[label].map(([key]) => key));
       groups[label] = [
