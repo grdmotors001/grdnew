@@ -14,7 +14,7 @@ import { ensureBatteryMovementSchema, ensureBatteryRegisterSchema, ensureBattery
 import { ensureBillingSalesSchema, upsertBillingCustomer, billingGet, billingPost, billingMutation } from "../../../lib/server/billing";
 import { TI_TAXABLE, taxInvoiceGet, taxInvoicePost, taxInvoiceMutation } from "../../../lib/server/tax-invoice";
 import { dealerInvoicePost } from "../../../lib/server/dealer-invoice";
-import { deliveryChallanGet, deliveryChallanPost, deliveryChallanMutation } from "../../../lib/server/delivery-challan";
+import { deliveryChallanGet, deliveryChallanPost, deliveryChallanMutation, ensureChallanShiftSchema } from "../../../lib/server/delivery-challan";
 import { gstHypSubsidyReport, hypothecationGet, hypothecationPost, hypothecationMutation, ensureTaxInvoiceVehicleNoColumn } from "../../../lib/server/gst-hypothecation";
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -57,7 +57,8 @@ function dupKeyResponse(e:any):Response|null{
   if(!e||e.code!=="23505")return null;
   const m=String(e.detail||"").match(/Key \(([^)]+)\)=\(([^)]*)\) already exists/i);
   const label=m?m[1].split(",").map((x:string)=>x.trim().replace(/_/g," ")).join(" + "):"value";
-  const msg=m?`${label.charAt(0).toUpperCase()+label.slice(1)} '${m[2]}' already exists. Please use a different value.`:"This record already exists (duplicate value).";
+  const where=e.table?` [${e.table}${e.constraint?" / "+e.constraint:""}]`:"";
+  const msg=(m?`${label.charAt(0).toUpperCase()+label.slice(1)} '${m[2]}' already exists. Please use a different value.`:"This record already exists (duplicate value).")+where;
   return Response.json({error:msg,code:"duplicate",constraint:e.constraint||null},{status:409});
 }
 // pg returns DATE columns as JS Date objects; String(Date).slice(0,10) gives "Mon Sep 28" (invalid for ::date). Always use ymd().
@@ -142,6 +143,22 @@ function ensureDispatchSchema():Promise<void>{
   await pool.query("ALTER TABLE product ADD COLUMN IF NOT EXISTS product_category text");
   await pool.query("ALTER TABLE product ADD COLUMN IF NOT EXISTS show_on_delivery_challan boolean NOT NULL DEFAULT false");
   await pool.query("CREATE TABLE IF NOT EXISTS delivery_challan_item (id bigserial PRIMARY KEY, delivery_challan_id integer NOT NULL REFERENCES delivery_challan(id) ON DELETE CASCADE, product_id integer NOT NULL REFERENCES product(id), product_name text NOT NULL, qty numeric NOT NULL DEFAULT 1, created_at timestamptz NOT NULL DEFAULT now(), UNIQUE(delivery_challan_id, product_id))");
+  // Cancelled challan ke baad (Credit Note / Cancel Challan) wahi chassis dobara dispatch hona chahiye.
+  // Purane DB me delivery_challan.vehicle_id par poora UNIQUE rule ho sakta hai, jo cancelled challan ko bhi
+  // gin leta hai -> "Vehicle id 'xxx' already exists". Use hata kar sirf ACTIVE (non-cancelled) challan par unique rakhte hain.
+  try{
+    const ux=await pool.query(`SELECT i.indexrelid::regclass::text AS idx, c.conname
+      FROM pg_index i JOIN pg_class t ON t.oid=i.indrelid
+      LEFT JOIN pg_constraint c ON c.conindid=i.indexrelid AND c.contype='u'
+      WHERE t.relname='delivery_challan' AND t.relnamespace=(SELECT oid FROM pg_namespace WHERE nspname=current_schema())
+        AND i.indisunique AND NOT i.indisprimary AND i.indnatts=1 AND i.indpred IS NULL
+        AND (SELECT attname FROM pg_attribute WHERE attrelid=t.oid AND attnum=i.indkey[0])='vehicle_id'`);
+    for(const r of ux.rows){
+      if(r.conname)await pool.query('ALTER TABLE delivery_challan DROP CONSTRAINT "'+String(r.conname).replace(/"/g,'""')+'"');
+      else await pool.query("DROP INDEX "+r.idx);
+    }
+    await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS delivery_challan_active_vehicle_uq ON delivery_challan(vehicle_id) WHERE vehicle_id IS NOT NULL AND COALESCE(cancelled,false)=false");
+  }catch(e){console.error("[dc vehicle unique fix]",e);}
     })().catch((e:any)=>{dispatchSchemaReady=null;throw e});
   }
   return dispatchSchemaReady;
@@ -396,6 +413,12 @@ async function ensureCreditDebitSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS debit_note (id bigserial PRIMARY KEY,date date NOT NULL DEFAULT CURRENT_DATE,debit_note_no text,party_name text,party_gst_no text,party_state_code text,original_bill_no text,reason text,remarks text,taxable_amount numeric NOT NULL DEFAULT 0,tax_amount numeric NOT NULL DEFAULT 0,total_amount numeric NOT NULL DEFAULT 0,items jsonb NOT NULL DEFAULT '[]'::jsonb,created_at timestamptz NOT NULL DEFAULT now())`);
   const defs:any={credit_note:{credit_note_no:"text",tax_invoice_id:"integer",delivery_challan_id:"integer",original_bill_no:"text",dealer_name:"text",buyer_name:"text",chassis_no:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",reason:"text",remarks:"text"},debit_note:{debit_note_no:"text",party_name:"text",party_gst_no:"text",party_state_code:"text",original_bill_no:"text",reason:"text",remarks:"text",taxable_amount:"numeric NOT NULL DEFAULT 0",tax_amount:"numeric NOT NULL DEFAULT 0",total_amount:"numeric NOT NULL DEFAULT 0",items:"jsonb NOT NULL DEFAULT '[]'::jsonb"}};
   for(const table of Object.keys(defs)) for(const [col,type] of Object.entries(defs[table])) await pool.query('ALTER TABLE "'+table+'" ADD COLUMN IF NOT EXISTS "'+col+'" '+type);
+  // Purani (legacy) tables me extra NOT NULL columns ho sakte hain (jaise original_invoice_id) jinhe ye code nahi bharta.
+  // Unka NOT NULL hata do taaki Credit/Debit Note insert fail na ho.
+  for(const table of ["credit_note","debit_note"]){
+    const nn=await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 AND is_nullable='NO' AND column_default IS NULL AND column_name<>'id' AND COALESCE(is_identity,'NO')='NO'",[table]);
+    for(const c of nn.rows)await pool.query('ALTER TABLE "'+table+'" ALTER COLUMN "'+c.column_name+'" DROP NOT NULL');
+  }
 }
 async function ensureRepairSchema(){
   await pool.query(`CREATE TABLE IF NOT EXISTS repair_service_voucher (id bigserial PRIMARY KEY,voucher_no text,date date NOT NULL DEFAULT CURRENT_DATE,vehicle_id integer,vehicle_no text,chassis_no text,customer_name text,customer_mobile text,items jsonb NOT NULL DEFAULT '[]'::jsonb,total_amount numeric NOT NULL DEFAULT 0,paid_amount numeric NOT NULL DEFAULT 0,balance_amount numeric NOT NULL DEFAULT 0,gst_amount numeric NOT NULL DEFAULT 0,remarks text,created_at timestamptz NOT NULL DEFAULT now())`);
@@ -790,7 +813,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="activity-log"){
       if(a?.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
       await ensureSecuritySchema();
-      const u=new URL(req.url),args:any[]=[],w:string[]=["regexp_replace(al.module_key,'/[0-9]+$','') IN ('delivery-challans','tax-invoices','dealer/tax-invoices','challan-shift','battery-addition','battery-withdrawal','battery-swap-vouchers','battery-fit','dealer/customer-invoice')"];
+      const u=new URL(req.url),args:any[]=[],w:string[]=["regexp_replace(al.module_key,'/[0-9]+$','') IN ('delivery-challans','tax-invoices','dealer/tax-invoices','credit-notes','production-vouchers','challan-shift','battery-addition','battery-withdrawal','battery-swap-vouchers','battery-fit','dealer/customer-invoice')"];
       const type=u.searchParams.get("type");
       if(type){args.push(type);w.push(`regexp_replace(al.module_key,'/[0-9]+$','')=$${args.length}`);}
       const user=u.searchParams.get("user");if(user){args.push('%'+user+'%');w.push(`COALESCE(al.username,'') ILIKE $${args.length}`);}
@@ -884,8 +907,13 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     {const x=await loanGet(path,a);if(x)return x;}
     {const x=await billingGet(req,path,a,BILLING_DEPS);if(x)return x;}
     if(p==="credit-notes"){
-      await ensureCreditDebitSchema();
-      const r=await pool.query(`SELECT cn.*,ti.bill_no AS invoice_bill_no,COALESCE(cn.original_bill_no,ti.bill_no) AS original_bill_no,COALESCE(cn.dealer_name,ti.dealer_name) AS dealer_name,COALESCE(cn.buyer_name,ti.buyer_name) AS buyer_name,COALESCE(cn.chassis_no,ti.chassis_no) AS chassis_no FROM credit_note cn LEFT JOIN tax_invoice ti ON ti.id=cn.tax_invoice_id ORDER BY cn.date DESC,cn.id DESC LIMIT 1000`);
+      await ensureCreditDebitSchema();await ensureChallanShiftSchema();
+      const r=await pool.query(`SELECT cn.*,COALESCE(dcx.cancelled,false) AS challan_cancelled,
+        COALESCE(
+          (SELECT s.shift_to_dealer_name FROM delivery_challan_shift s WHERE s.challan_id=cn.delivery_challan_id AND (s.created_at>=cn.created_at OR s.shift_date>=cn.date) ORDER BY s.id DESC LIMIT 1),
+          CASE WHEN dcx.dealer_id IS NOT NULL AND ti.dealer_id IS NOT NULL AND dcx.dealer_id<>ti.dealer_id THEN ddx.name END
+        ) AS challan_shifted_to,
+        ti.bill_no AS invoice_bill_no,COALESCE(cn.original_bill_no,ti.bill_no) AS original_bill_no,COALESCE(cn.dealer_name,ti.dealer_name) AS dealer_name,COALESCE(cn.buyer_name,ti.buyer_name) AS buyer_name,COALESCE(cn.chassis_no,ti.chassis_no) AS chassis_no FROM credit_note cn LEFT JOIN tax_invoice ti ON ti.id=cn.tax_invoice_id LEFT JOIN delivery_challan dcx ON dcx.id=cn.delivery_challan_id LEFT JOIN dealer ddx ON ddx.id=dcx.dealer_id ORDER BY cn.date DESC,cn.id DESC LIMIT 1000`);
       return Response.json({credit_notes:r.rows,rows:r.rows,data:r.rows});
     }
     if(p==="debit-notes"){
@@ -1497,12 +1525,46 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true,row:r.rows[0]});
     }
     {const x=await billingPost(req,path,b,a,BILLING_DEPS);if(x)return x;}
+    if(p.startsWith("credit-notes/") && p.endsWith("/cancel-challan")){
+      await ensureCreditDebitSchema();await ensureDispatchSchema();await ensureBatteryRegisterSchema();
+      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Credit Note id required."},{status:400});
+      const client=await pool.connect();
+      try{
+        await client.query("BEGIN");
+        const cn=await client.query("SELECT * FROM credit_note WHERE id=$1 FOR UPDATE",[id]);if(!cn.rowCount)throw new Error("Credit Note not found.");
+        const dcId=idOf(cn.rows[0].delivery_challan_id);if(!dcId)throw new Error("No Delivery Challan is linked to this Credit Note.");
+        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE OF dc",[dcId]);if(!dc.rowCount)throw new Error("Linked Delivery Challan not found.");
+        const shifted=await client.query(`SELECT COALESCE(
+            (SELECT s.shift_to_dealer_name FROM delivery_challan_shift s WHERE s.challan_id=$1 AND (s.created_at>=$2 OR s.shift_date>=$4) ORDER BY s.id DESC LIMIT 1),
+            (SELECT d.name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id JOIN tax_invoice ti ON ti.id=$3 WHERE dc.id=$1 AND dc.dealer_id IS NOT NULL AND ti.dealer_id IS NOT NULL AND dc.dealer_id<>ti.dealer_id)
+          ) AS to_name`,[dcId,cn.rows[0].created_at,cn.rows[0].tax_invoice_id,cn.rows[0].date]);
+        if(shifted.rows[0]?.to_name)throw new Error("Is Credit Note ke baad challan "+shifted.rows[0].to_name+" ko shift ho chuka hai, isliye cancel nahi hoga. Challan active hai, ab nayi bill banayein.");
+        const wasActive=!dc.rows[0].cancelled;
+        if(!dc.rows[0].cancelled){
+          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[dcId]);
+          for(const item of items.rows){const qty=Math.max(0,Number(item.qty)||0);if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Credit Note Challan Reversal',NOW(),'IN',$1)",[String(dc.rows[0].challan_no||("DC-"+dcId)),dc.rows[0].date,item.product_name,qty]);}
+          await client.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1",[dcId]);
+          await toggleBatteryRegisterForDelivery(client,dc.rows[0],true);
+          if(dc.rows[0].vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[dc.rows[0].vehicle_id]);
+        }
+        await client.query("COMMIT");
+        if(wasActive)await audit(a,"delivery-challans","Delivery Challan cancelled",dcId,null,{challan_no:dc.rows[0].challan_no,chassis_no:dc.rows[0].chassis_no,credit_note_no:cn.rows[0].credit_note_no},dc.rows[0].dealer_id,dc.rows[0].challan_no||dcId);
+        await audit(a,"credit-notes","Credit Note: Delivery Challan cancelled",id,null,{credit_note_no:cn.rows[0].credit_note_no,challan_no:dc.rows[0].challan_no,chassis_no:dc.rows[0].chassis_no,bill_no:cn.rows[0].original_bill_no},dc.rows[0].dealer_id,cn.rows[0].credit_note_no||id);
+        return Response.json({success:true,message:"Credit Note linked Delivery Challan cancelled and stock reversed."});
+      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
+    }
     if(p==="credit-notes"){
       await ensureCreditDebitSchema();const invoiceId=idOf(b.invoice_id||b.tax_invoice_id);if(!invoiceId)return Response.json({error:"Original Tax Invoice is required."},{status:400});
       const client=await pool.connect();try{await client.query("BEGIN");const inv=await client.query("SELECT ti.*,d.name AS joined_dealer_name FROM tax_invoice ti LEFT JOIN dealer d ON d.id=ti.dealer_id WHERE ti.id=$1 FOR UPDATE OF ti",[invoiceId]);if(!inv.rowCount)throw new Error("Tax Invoice not found.");const x=inv.rows[0];if(Boolean(x.cancelled))throw new Error("Tax Invoice is already cancelled.");
         const taxable=Math.max(0,Number(x.gst_sale_amount||x.sale_amount||0)-Number(x.discount||0)),tax=taxable*Number(x.gst_rate||0)/100,total=taxable+tax+Number(x.insurance_amount||0)+Number(x.registration_amount||0),no="CN-"+new Date().toISOString().slice(0,10).replace(/-/g,"")+"-"+String(invoiceId).padStart(5,"0");
         const r=await client.query("INSERT INTO credit_note (date,credit_note_no,tax_invoice_id,delivery_challan_id,original_bill_no,dealer_name,buyer_name,chassis_no,taxable_amount,tax_amount,total_amount,reason,remarks) VALUES (COALESCE($1::date,CURRENT_DATE),$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *",[b.date||null,no,invoiceId,x.delivery_challan_id||null,x.bill_no||null,x.dealer_name||x.joined_dealer_name||null,x.buyer_name||null,x.chassis_no||null,taxable,tax,total,String(b.reason||"").trim(),String(b.remarks||"").trim()||null]);
-        await client.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1",[invoiceId]);await client.query("COMMIT");return Response.json({success:true,credit_note_no:no,credit_note:r.rows[0],row:r.rows[0]},{status:201});
+        await client.query("UPDATE tax_invoice SET cancelled=true WHERE id=$1",[invoiceId]);
+        const hasOrig=await client.query("SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='credit_note' AND column_name='original_invoice_id'");
+        if(hasOrig.rowCount)await client.query("UPDATE credit_note SET original_invoice_id=$1 WHERE id=$2",[invoiceId,r.rows[0].id]);
+        await client.query("COMMIT");
+        await audit(a,"credit-notes","Credit Note issued",r.rows[0]?.id,null,{credit_note_no:no,bill_no:x.bill_no,chassis_no:x.chassis_no,dealer:r.rows[0]?.dealer_name,date:r.rows[0]?.date,total_amount:r.rows[0]?.total_amount,reason:r.rows[0]?.reason},x.dealer_id,no);
+        await audit(a,"tax-invoices","Bill (Tax Invoice) cancelled by Credit Note",invoiceId,null,{bill_no:x.bill_no,chassis_no:x.chassis_no,credit_note_no:no},x.dealer_id,x.bill_no||invoiceId);
+        return Response.json({success:true,credit_note_no:no,credit_note:r.rows[0],row:r.rows[0]},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p==="debit-notes"){
@@ -1774,25 +1836,6 @@ async function mutation(req:Request,params:any,method:string){
     }
     {const x=await taxInvoiceMutation(req,path,method,a,SALES_DEPS);if(x)return x;}
     if(a.scope==="dealer"&&method==="PUT"&&p.startsWith("dealer/cash-book/")){const dm=await dealerCashbookMutation(path,method,a,await json(req),{ensureBillingSalesSchema});if(dm)return dm;}
-    if(p.startsWith("credit-notes/") && p.endsWith("/cancel-challan") && method==="POST"){
-      await ensureCreditDebitSchema();await ensureDispatchSchema();await ensureBatteryRegisterSchema();
-      const id=idOf(path[path.length-2]);if(!id)return Response.json({error:"Credit Note id required."},{status:400});
-      const client=await pool.connect();
-      try{
-        await client.query("BEGIN");
-        const cn=await client.query("SELECT * FROM credit_note WHERE id=$1 FOR UPDATE",[id]);if(!cn.rowCount)throw new Error("Credit Note not found.");
-        const dcId=idOf(cn.rows[0].delivery_challan_id);if(!dcId)throw new Error("No Delivery Challan is linked to this Credit Note.");
-        const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE OF dc",[dcId]);if(!dc.rowCount)throw new Error("Linked Delivery Challan not found.");
-        if(!dc.rows[0].cancelled){
-          const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[dcId]);
-          for(const item of items.rows){const qty=Math.max(0,Number(item.qty)||0);if(qty)await client.query("INSERT INTO journal_stock (vou_no,date,item_name,item_type,qty,reason,created_at,work_type,batch_ref) VALUES ($1,COALESCE($2::date,CURRENT_DATE),$3,'DISPATCH',$4,'Credit Note Challan Reversal',NOW(),'IN',$1)",[String(dc.rows[0].challan_no||("DC-"+dcId)),dc.rows[0].date,item.product_name,qty]);}
-          await client.query("UPDATE delivery_challan SET cancelled=true WHERE id=$1",[dcId]);
-          await toggleBatteryRegisterForDelivery(client,dc.rows[0],true);
-          if(dc.rows[0].vehicle_id)await client.query("UPDATE vehicle SET stage='Manufacturing' WHERE id=$1",[dc.rows[0].vehicle_id]);
-        }
-        await client.query("COMMIT");return Response.json({success:true,message:"Credit Note linked Delivery Challan cancelled and stock reversed."});
-      }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
-    }
     if(p.startsWith("admin/nav-tabs/")){
       const id=idOf(path[path.length-1]);
       if(path[path.length-1]==="reorder" && method==="PUT"){

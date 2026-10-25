@@ -16,13 +16,16 @@ export function CreditNotePage(){
   const [cnSearch,setCnSearch]=useState('');
   const [legacySearch,setLegacySearch]=useState('');
   const [saving,setSaving]=useState(false);
+  const [invSearch,setInvSearch]=useState('');
+  const [invBusy,setInvBusy]=useState(false);
+  const [picked,setPicked]=useState(null);
 
   const load=async()=>{
     setError('');
     try{
       const [cn,ti,lg]=await Promise.all([
         get('/credit-notes?page=1&per_page=100'),
-        get('/tax-invoices?page=1&per_page=100'),
+        get('/tax-invoices?page=1&per_page=30&challans=0'),
         get('/credit-notes/legacy-scan')
       ]);
       setData(cn.credit_notes||[]);
@@ -32,12 +35,27 @@ export function CreditNotePage(){
   };
   useEffect(()=>{load()},[]);
 
+  // Original Tax Invoice search: server par search hota hai (bill no, chassis, customer, motor no),
+  // taaki purane invoices bhi mil sakein, sirf last 100 nahi.
+  useEffect(()=>{
+    if(!open)return;
+    let dead=false;
+    const t=setTimeout(async()=>{
+      setInvBusy(true);
+      try{
+        const r=await get('/tax-invoices?page=1&per_page=30&challans=0&search='+encodeURIComponent(invSearch.trim()));
+        if(!dead)setInvoices((r.invoices||[]).filter(x=>!x.cancelled));
+      }catch(e){}finally{if(!dead)setInvBusy(false)}
+    },invSearch.trim()?300:0);
+    return()=>{dead=true;clearTimeout(t)};
+  },[invSearch,open]);
+
   const q1=cnSearch.trim().toLowerCase();
   const q2=legacySearch.trim().toLowerCase();
   const creditRows=(data||[]).filter(r=>!q1||[r.credit_note_no,r.original_bill_no,r.dealer_name,r.buyer_name,r.chassis_no,r.total_amount].join(' ').toLowerCase().includes(q1));
   const legacyRows=legacy.filter(r=>!q2||[r.bill_no,r.chassis_no,r.dealer_name,r.bill_total,r.formal_credit_note_no].join(' ').toLowerCase().includes(q2));
 
-  const selected=invoices.find(x=>String(x.id)===String(form.invoice_id));
+  const selected=picked&&String(picked.id)===String(form.invoice_id)?picked:invoices.find(x=>String(x.id)===String(form.invoice_id));
   const issue=async(e)=>{
     e.preventDefault();
     if(!form.invoice_id){setError('Select the original Tax Invoice.');return}
@@ -47,7 +65,7 @@ export function CreditNotePage(){
     try{
       const r=await post('/credit-notes',form);
       alert('Credit Note created: '+r.credit_note_no);
-      setOpen(false);setForm({date:today(),reason:'',remarks:''});load();
+      setOpen(false);setPicked(null);setInvSearch('');setForm({date:today(),reason:'',remarks:''});load();
     }catch(e){setError(e.message)}finally{setSaving(false)}
   };
 
@@ -81,7 +99,7 @@ export function CreditNotePage(){
           <h3 style={{marginTop:0}}>Issue Credit Note</h3>
           <p className="muted">Old method me chassis ke end me CN lagane ki zarurat nahi. Original invoice history safe rahegi.</p>
         </div>
-        <button className="btn primary" onClick={()=>{setForm({date:today(),reason:'',remarks:''});setOpen(true)}}>+ New Credit Note</button>
+        <button className="btn primary" onClick={()=>{setForm({date:today(),reason:'',remarks:''});setPicked(null);setInvSearch('');setOpen(true)}}>+ New Credit Note</button>
       </div>
       <input className="input" style={{width:'100%',maxWidth:480,margin:'0 0 12px'}} placeholder="Search CN no., bill, dealer, customer, chassis…" value={cnSearch} onChange={e=>setCnSearch(e.target.value)} />
       <div className="tablewrap"><table className="table"><thead><tr>
@@ -91,7 +109,7 @@ export function CreditNotePage(){
         <td>{formatDate(cn.date)}</td><td><b>{cn.credit_note_no}</b></td><td>{cn.original_bill_no||'—'}</td>
         <td>{cn.dealer_name||'—'}</td><td>{cn.buyer_name||'—'}</td><td><b>{cn.chassis_no||'—'}</b></td>
         <td><Money value={cn.total_amount}/></td>
-        <td>{cn.delivery_challan_id&&<button className="btn" onClick={()=>cancelChallan(cn)}>Cancel Challan</button>}</td>
+        <td>{cn.delivery_challan_id&&(cn.challan_shifted_to?<span className="muted">Challan shifted → <b>{cn.challan_shifted_to}</b></span>:cn.challan_cancelled?<span className="muted">Challan cancelled</span>:<button className="btn" onClick={()=>cancelChallan(cn)}>Cancel Challan</button>)}</td>
       </tr>)}
       {!data.length&&<tr><td colSpan="8" className="muted">No Credit Notes yet.</td></tr>}</tbody></table></div>
     </div>
@@ -115,9 +133,19 @@ export function CreditNotePage(){
     {open&&<div className="modal"><form className="modalbox" onSubmit={issue}>
       <h2>New Credit Note</h2><ErrorBanner message={error}/>
       <div className="formgrid">
-        <Field label="Original Tax Invoice" type="select" value={form.invoice_id||''}
-          options={[{value:'',label:'Select Invoice'},...invoices.map(i=>({value:i.id,label:(i.bill_no||'No Bill')+' — '+(i.chassis_no||'')+' — '+(i.buyer_name||'')}))]}
-          onChange={v=>setForm({...form,invoice_id:Number(v)})} required/>
+        <div className="field" style={{gridColumn:'1 / -1'}}>
+          <label>Original Tax Invoice *</label>
+          <input className="input" autoFocus placeholder="Bill no., chassis, customer ya motor no. se search karein…" value={invSearch} onChange={e=>setInvSearch(e.target.value)} />
+          <div style={{maxHeight:200,overflowY:'auto',border:'1px solid var(--line)',borderRadius:8,marginTop:6}}>
+            {invBusy&&<div className="muted" style={{padding:8}}>Searching…</div>}
+            {!invBusy&&!invoices.length&&<div className="muted" style={{padding:8}}>Koi invoice nahi mila.</div>}
+            {invoices.map(i=>{const on=String(form.invoice_id)===String(i.id);return <div key={i.id} onClick={()=>{setPicked(i);setForm({...form,invoice_id:Number(i.id)})}}
+              style={{padding:'8px 10px',cursor:'pointer',borderBottom:'1px solid var(--line)',background:on?'var(--accent)':'transparent',color:on?'#fff':'inherit',fontSize:13}}>
+              <b>{i.bill_no||'No Bill'}</b> — {i.chassis_no||''} — {i.buyer_name||''}
+            </div>})}
+          </div>
+          {selected&&<div className="muted" style={{marginTop:6}}>Selected: <b>{selected.bill_no}</b> — {selected.chassis_no}</div>}
+        </div>
         <Field label="Credit Note Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})} required/>
         <Field label="Reason" value={form.reason} onChange={v=>setForm({...form,reason:v})} required/>
         <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>

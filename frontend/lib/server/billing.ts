@@ -3,7 +3,7 @@
 // ensureBillingSalesSchema / upsertBillingCustomer dusre modules (tax-invoice, delivery-challan, cashbook) bhi use karte hain, isliye export hain.
 import { addColumns, columns, idOf, json, num, pool } from "./common";
 import { healManualChallanStock } from "./manual-challan";
-import { actionAllowed, billingStaff } from "./permissions";
+import { actionAllowed, audit, billingStaff } from "./permissions";
 import { enrichCashCustomers, ensureDealerCashSchema } from "./dealer-cashbook";
 import { ensureTaxInvoiceRecordColumns } from "./reports-sales";
 
@@ -506,7 +506,9 @@ export async function billingPost(req:Request,path:string[],b:any,a:any,deps:Bil
         const inv=ins.rows[0];
         await rr.query("UPDATE grd_billing_sale SET invoice_id=$1,status='BILLED',updated_at=NOW() WHERE id=$2",[inv.id,id]);
         if(s.vehicle_id)await rr.query("UPDATE vehicle SET stage='Tax Invoice' WHERE id=$1",[s.vehicle_id]);
-        await rr.query("COMMIT");return Response.json({success:true,invoice:inv});
+        await rr.query("COMMIT");
+        await audit(a,"tax-invoices","Bill (Tax Invoice) created",inv.id,null,{bill_no:inv.bill_no,chassis_no:inv.chassis_no,dealer:inv.dealer_name,date:inv.date,sale_amount:inv.sale_amount},inv.dealer_id,inv.bill_no||inv.id);
+        return Response.json({success:true,invoice:inv});
       }catch(e){await rr.query("ROLLBACK");throw e}finally{rr.release()}
     }
     if(p==="billing/vehicle-inventory/download-txt"){

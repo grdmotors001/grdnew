@@ -1,6 +1,7 @@
-Production Voucher BOM edit (v2) - pichhla zip + Daily Raw Material Checklist
+Activity Log: Credit Note + New Invoice
 
-Is zip me teeno files hain (pichhle zip wali bhi, isliye sirf isi ko overwrite karna kaafi hai):
-  components/ProductionVoucherPage.jsx        - formula items me qty badalna / hatana / add
-  components/DailyRawMaterialChecklistPage.jsx- "Voucher me add kiya" / "Voucher me qty badli hai" note; extra item par Update Formula nahi
-  lib/server/production.ts                    - voucher par custom items, stock/factory check/daily checklist sab isi se
+Is zip me 3 files hain (same path par overwrite karein):
+  app/api/[...path]/route.ts   - Credit Note issue / Cancel Challan par audit entry; activity-log me 'credit-notes' shamil
+  lib/server/billing.ts        - Pending Sales -> Save Invoice (new bill) par "Bill (Tax Invoice) created" audit entry
+  components/StockPages.jsx    - Activity Log page me "Credit Note" filter + details (CN no, bill, chassis, amount, reason)
+  lib/server/production.ts     - Production Voucher create par audit entry (edit/delete pehle se logged the)

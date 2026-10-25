@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const isoToDisplayDate = (value) => {
   if (!value) return '';
@@ -19,6 +19,58 @@ const displayToIsoDate = (value) => {
   if (d.getFullYear() !== Number(yyyy) || d.getMonth() !== Number(mm) - 1 || d.getDate() !== Number(dd)) return null;
   return `${yyyy}-${mm}-${dd}`;
 };
+
+// Searchable dropdown used by Field type="combo". Native <datalist> ka popup chhota/cut jata tha
+// (lamba chassis no. poora nahi dikhta tha); ye list input ki poori width me, scroll ke saath dikhati hai.
+function ComboInput({ value, onChange, options, required, readOnly }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const boxRef = useRef(null);
+  const text = String(value ?? '');
+  const all = (options || []).map((o) => ({ value: String(o.value ?? o), label: String(o.label ?? o.value ?? o) }));
+  const exact = all.some((o) => o.value.toLowerCase() === text.trim().toLowerCase());
+  const q = text.trim().toLowerCase();
+  const list = (!q || exact ? all : all.filter((o) => (o.label + ' ' + o.value).toLowerCase().includes(q))).slice(0, 300);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const pick = (o) => { onChange(o.value); setOpen(false); setActive(-1); };
+  const onKeyDown = (e) => {
+    if (readOnly) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((i) => Math.min(list.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(0, i - 1)); }
+    else if (e.key === 'Enter' && open && active >= 0 && list[active]) { e.preventDefault(); pick(list[active]); }
+    else if (e.key === 'Escape' || e.key === 'Tab') setOpen(false);
+  };
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <input value={text} required={required} readOnly={readOnly} autoComplete="off"
+             onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(-1); }}
+             onFocus={() => { if (!readOnly) setOpen(true); }}
+             onKeyDown={onKeyDown}
+             style={{ width: '100%', ...(readOnly ? { background: '#f2f4f7', color: '#475467' } : {}) }} />
+      {open && !readOnly && (
+        <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 60, marginTop: 2, maxHeight: 240, overflowY: 'auto',
+                      background: 'var(--card, #fff)', color: 'var(--ink, #111)', border: '1px solid var(--line, #d0d5dd)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }}>
+          {list.length === 0 && <div className="muted" style={{ padding: '8px 10px', fontSize: 13 }}>Koi match nahi mila.</div>}
+          {list.map((o, i) => (
+            <div key={o.value + i} onMouseDown={(e) => { e.preventDefault(); pick(o); }} onMouseEnter={() => setActive(i)}
+                 style={{ padding: '8px 10px', fontSize: 13, cursor: 'pointer', wordBreak: 'break-all',
+                          background: i === active ? 'color-mix(in srgb, var(--accent, #2563eb) 14%, transparent)' : 'transparent' }}>
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Field({ label, type = 'text', value, onChange, required, options, readOnly, autoComplete, name }) {
   const [dateText, setDateText] = useState(() => type === 'date' ? isoToDisplayDate(value) : '');
@@ -60,7 +112,6 @@ export function Field({ label, type = 'text', value, onChange, required, options
   // Name) where old records may hold a name that's no longer in the master,
   // so a strict <select> would blank those out. Typing still works; the
   // dropdown just offers the master's names to pick from.
-  const comboId = type === 'combo' ? 'combo-' + label.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase() : null;
   return (
     <div className="field">
       <label>{label}</label>
@@ -74,16 +125,7 @@ export function Field({ label, type = 'text', value, onChange, required, options
           ))}
         </select>
       ) : type === 'combo' ? (
-        <>
-          <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} required={required}
-                 readOnly={readOnly} list={comboId}
-                 style={readOnly ? { background: '#f2f4f7', color: '#475467' } : undefined} />
-          <datalist id={comboId}>
-            {(options || []).map((o) => (
-              <option key={o.value ?? o} value={o.value ?? o} />
-            ))}
-          </datalist>
-        </>
+        <ComboInput value={value} onChange={onChange} options={options} required={required} readOnly={readOnly} />
       ) : type === 'date' ? (
         dateField
       ) : type === 'textarea' ? (

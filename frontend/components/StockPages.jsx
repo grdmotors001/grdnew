@@ -444,8 +444,8 @@ function DealerBatteryDetailModal({ dealerName, batteries, onClose }) {
 }
 
 
-const ACTIVITY_TYPES = [['', 'All'], ['delivery-challans', 'Delivery Challan'], ['tax-invoices', 'Bill / Tax Invoice'], ['challan-shift', 'Challan Shift'], ['battery-addition', 'Battery Added'], ['battery-withdrawal', 'Battery Withdrawn'], ['battery-swap-vouchers', 'Battery Swap / Exchange'], ['battery-fit', 'Battery Fit on Challan'], ['dealer/customer-invoice', 'Dealer Customer Invoice']];
-const MODULE_LABEL = { 'delivery-challans': 'Delivery Challan', 'tax-invoices': 'Bill (Tax Invoice)', 'dealer/tax-invoices': 'Bill (Tax Invoice, dealer)', 'dealer/customer-invoice': 'Dealer Customer Invoice', 'battery-addition': 'Battery', 'battery-withdrawal': 'Battery' };
+const ACTIVITY_TYPES = [['', 'All'], ['delivery-challans', 'Delivery Challan'], ['tax-invoices', 'Bill / Tax Invoice'], ['credit-notes', 'Credit Note'], ['production-vouchers', 'Production Voucher'], ['challan-shift', 'Challan Shift'], ['battery-addition', 'Battery Added'], ['battery-withdrawal', 'Battery Withdrawn'], ['battery-swap-vouchers', 'Battery Swap / Exchange'], ['battery-fit', 'Battery Fit on Challan'], ['dealer/customer-invoice', 'Dealer Customer Invoice']];
+const MODULE_LABEL = { 'delivery-challans': 'Delivery Challan', 'tax-invoices': 'Bill (Tax Invoice)', 'credit-notes': 'Credit Note', 'production-vouchers': 'Production Voucher', 'dealer/tax-invoices': 'Bill (Tax Invoice, dealer)', 'dealer/customer-invoice': 'Dealer Customer Invoice', 'battery-addition': 'Battery', 'battery-withdrawal': 'Battery' };
 const activityLabel = (r) => {
   const act = String(r.action || '');
   if (['create', 'edit', 'update', 'delete'].includes(act)) return `${MODULE_LABEL[r.module_key] || r.module_key} ${act === 'create' ? 'created' : act === 'delete' ? 'deleted' : 'edited'}`;
@@ -464,6 +464,8 @@ const activityDetail = (r) => {
   if (r.action === 'delete' || r.module_key === 'delivery-challans') { const x = n.challan_no || n.bill_no ? n : o; if (x.challan_no || x.bill_no) return [x.challan_no && 'Challan: ' + x.challan_no, x.bill_no && 'Bill: ' + x.bill_no, x.chassis_no && 'Chassis: ' + x.chassis_no].filter(Boolean).join(' | '); }
   if (r.module_key === 'challan-shift') return `${o.dealer || '—'} → ${n.dealer || '—'}${n.remark ? ' | ' + n.remark : ''}`;
   if (r.module_key === 'battery-addition' || r.module_key === 'battery-withdrawal') return [n.battery_maker, n.battery_no && 'No: ' + n.battery_no, n.chassis_no && 'Chassis: ' + n.chassis_no, n.position && 'Pos ' + n.position].filter(Boolean).join(' | ');
+  if (r.module_key === 'production-vouchers' && r.action !== 'edit') { const x = n.vou_no ? n : o; return [x.vou_no && 'Vou: ' + x.vou_no, x.product_name, x.quantity && 'Qty: ' + x.quantity, x.chassis_no && 'Chassis: ' + x.chassis_no].filter(Boolean).join(' | '); }
+  if (r.module_key === 'credit-notes') return [n.credit_note_no && 'CN: ' + n.credit_note_no, n.bill_no && 'Bill: ' + n.bill_no, n.challan_no && 'Challan: ' + n.challan_no, n.chassis_no && 'Chassis: ' + n.chassis_no, n.total_amount && 'Amt: ' + n.total_amount, n.reason && 'Reason: ' + n.reason].filter(Boolean).join(' | ');
   return [n.challan_no && 'Challan: ' + n.challan_no, n.bill_no && 'Bill: ' + n.bill_no, n.chassis_no && 'Chassis: ' + n.chassis_no].filter(Boolean).join(' | ');
 };
 
@@ -484,7 +486,7 @@ export function ActivityLogPage() {
         <div className="actions" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
           <div>
             <h2 style={{ margin: '0 0 4px' }}>Activity Log</h2>
-            <div className="muted">Delivery Challan, Bill, Challan Shift aur Battery — kisne kiya aur kab.</div>
+            <div className="muted">Delivery Challan, Bill, Credit Note, Production Voucher, Challan Shift aur Battery — kisne kiya aur kab.</div>
           </div>
           <button type="button" className="btn" onClick={() => load()}>↻ Refresh</button>
         </div>

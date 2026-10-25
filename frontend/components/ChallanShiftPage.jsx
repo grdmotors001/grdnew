@@ -4,15 +4,76 @@ import { get, post } from '../lib/api';
 import { EmptyState, ErrorBanner, Field } from './ui';
 import { formatDate } from '../lib/date';
 
-export function ChallanShiftPage() {
-  const [data, setData] = useState(null);
-  const [selected, setSelected] = useState(null);
+// Challan Shift popup — Challan Shift page aur Delivery Challan edit popup dono me yahi use hota hai.
+export function ChallanShiftModal({ challan, dealers = [], onClose, onDone }) {
   const [dealerId, setDealerId] = useState('');
   const [shiftDate, setShiftDate] = useState(new Date().toISOString().slice(0, 10));
   const [remark, setRemark] = useState('');
-  const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const options = dealers
+    .filter((d) => String(d.id) !== String(challan?.dealer_id))
+    .map((d) => ({ value: String(d.id), label: d.name }));
+
+  const confirmShift = async (e) => {
+    e.preventDefault();
+    if (!challan) return;
+    if (!dealerId) { setError('Please select the dealer to shift to.'); return; }
+    if (!remark.trim()) { setError('Shift Remark is required. Please enter a remark.'); return; }
+    setError('');
+    setBusy(true);
+    try {
+      await post('/challan-shift', {
+        challan_id: challan.id,
+        to_dealer_id: Number(dealerId),
+        shift_date: shiftDate,
+        remark: remark.trim(),
+      });
+      onDone && (await onDone());
+    } catch (e) {
+      setError(e.message || 'Dealer shift failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!challan) return null;
+  return (
+    <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <form className="modalbox" onSubmit={confirmShift}>
+        <h2>Shift Dealer — {challan.challan_no}</h2>
+        <div className="muted" style={{ marginBottom: 14 }}>
+          Challan number same rahega. Sirf current dealer change hoga.
+        </div>
+        <ErrorBanner message={error} />
+        <div className="formgrid">
+          <Field label="Challan No." value={challan.challan_no || '—'} readOnly />
+          <Field label="Chassis No." value={challan.chassis_no || '—'} readOnly />
+          <Field label="Model" value={challan.product_name || challan.model_name || '—'} readOnly />
+          <Field label="Current Dealer" value={challan.dealer_name || '—'} readOnly />
+          <Field label="Shift To Dealer *" type="select" value={dealerId} options={options} onChange={setDealerId} />
+          <Field label="Shift Date" type="date" value={shiftDate} onChange={setShiftDate} required />
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Field label="Remark * (required)" value={remark} onChange={setRemark} />
+          </div>
+        </div>
+        <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" type="submit" disabled={busy}>
+            {busy ? 'Shifting…' : 'Confirm Shift'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function ChallanShiftPage() {
+  const [data, setData] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState('');
+  const [error, setError] = useState('');
 
   const load = async (q = search) => {
     try {
@@ -26,40 +87,10 @@ export function ChallanShiftPage() {
 
   useEffect(() => { load(''); }, []);
 
-  const openShift = (row) => {
-    setSelected(row);
-    setDealerId('');
-    setShiftDate(new Date().toISOString().slice(0, 10));
-    setRemark('');
-    setError('');
-  };
-
-  const confirmShift = async (e) => {
-    e.preventDefault();
-    if (!selected) return;
-    if (!dealerId) { setError('Please select the dealer to shift to.'); return; }
-    if (!remark.trim()) { setError('Shift Remark is required. Please enter a remark.'); return; }
-    setError('');
-    setBusy(true);
-    try {
-      await post('/challan-shift', {
-        challan_id: selected.id,
-        to_dealer_id: Number(dealerId),
-        shift_date: shiftDate,
-        remark: remark.trim(),
-      });
-      setSelected(null);
-      await load(search);
-    } catch (e) {
-      setError(e.message || 'Dealer shift failed.');
-    } finally {
-      setBusy(false);
-    }
-  };
+  const openShift = (row) => { setSelected(row); setError(''); };
 
   if (!data) return <div className="card">{error || 'Loading…'}</div>;
 
-  const dealers = (data.dealers || []).filter((d) => String(d.id) !== String(selected?.dealer_id));
 
   return (
     <>
@@ -142,34 +173,12 @@ export function ChallanShiftPage() {
       </div>
 
       {selected && (
-        <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) setSelected(null); }}>
-          <form className="modalbox" onSubmit={confirmShift}>
-            <h2>Shift Dealer — {selected.challan_no}</h2>
-            <div className="muted" style={{ marginBottom: 14 }}>
-              Challan number same rahega. Sirf current dealer change hoga.
-            </div>
-            <ErrorBanner message={error} />
-            <div className="formgrid">
-              <Field label="Challan No." value={selected.challan_no || '—'} readOnly />
-              <Field label="Chassis No." value={selected.chassis_no || '—'} readOnly />
-              <Field label="Model" value={selected.product_name || selected.model_name || '—'} readOnly />
-              <Field label="Current Dealer" value={selected.dealer_name || '—'} readOnly />
-              <Field label="Shift To Dealer *" type="select" value={dealerId}
-                options={dealers.map((d) => ({ value: String(d.id), label: d.name }))}
-                onChange={setDealerId} />
-              <Field label="Shift Date" type="date" value={shiftDate} onChange={setShiftDate} required />
-              <div style={{ gridColumn: '1 / -1' }}>
-                <Field label="Remark * (required)" value={remark} onChange={setRemark} />
-              </div>
-            </div>
-            <div className="actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>
-              <button type="button" className="btn" onClick={() => setSelected(null)}>Cancel</button>
-              <button className="btn primary" type="submit" disabled={busy}>
-                {busy ? 'Shifting…' : 'Confirm Shift'}
-              </button>
-            </div>
-          </form>
-        </div>
+        <ChallanShiftModal
+          challan={selected}
+          dealers={data.dealers || []}
+          onClose={() => setSelected(null)}
+          onDone={async () => { setSelected(null); await load(search); }}
+        />
       )}
     </>
   );

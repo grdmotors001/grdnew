@@ -48,6 +48,7 @@ for(const t of EPV_TYPES)EPV_TYPE_NAME[t.id]=t.name;
 // Naye types ki id "m"+row id hoti hai aur wo simple expense ki tarah chalte hain (Date, Account Head, Pay To, Amount...).
 export const EPV_DEFAULT_CAT:any={assembly:"Direct Expense",fabrication:"Direct Expense"};
 export const EPV_CATS=["Direct Expense","Indirect Expense"];
+let epvDedupeDone=false;
 export async function epvTypes(includeInactive:boolean=false):Promise<any[]>{
   const base=EPV_TYPES.map(t=>({id:t.id,name:t.name,sub_category:EPV_DEFAULT_CAT[t.id]||"Indirect Expense",builtin:true,inactive:false}));
   try{
@@ -57,12 +58,19 @@ export async function epvTypes(includeInactive:boolean=false):Promise<any[]>{
       await addColumns("simple_master",{type_code:"text",inactive:"boolean DEFAULT false",sub_category:"text"});
     }
     const load=async()=>(await pool.query("SELECT id,name,sub_category,type_code,COALESCE(inactive,false) AS inactive FROM simple_master WHERE kind='expense-type' ORDER BY id")).rows;
+    // Duplicate fix: pehle purane duplicate built-in rows hatao (sabse purani row rakhi jaati hai),
+    // phir unique index lagao taaki parallel requests dobara duplicate na bana saken.
+    if(!epvDedupeDone){
+      await pool.query("DELETE FROM simple_master a USING simple_master b WHERE a.kind='expense-type' AND b.kind='expense-type' AND COALESCE(a.type_code,'')<>'' AND a.type_code=b.type_code AND a.id>b.id");
+      await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS simple_master_expense_type_code_uq ON simple_master (type_code) WHERE kind='expense-type' AND COALESCE(type_code,'')<>''");
+      epvDedupeDone=true;
+    }
     let rows=await load();
     const have=new Set(rows.map((x:any)=>String(x.type_code||"")));
     let added=false;
     for(const t of base){
       if(have.has(t.id))continue;
-      await pool.query("INSERT INTO simple_master (kind,name,sub_category,type_code,inactive) VALUES ('expense-type',$1,$2,$3,false)",[t.name,t.sub_category,t.id]);
+      await pool.query("INSERT INTO simple_master (kind,name,sub_category,type_code,inactive) VALUES ('expense-type',$1,$2,$3,false) ON CONFLICT DO NOTHING",[t.name,t.sub_category,t.id]);
       added=true;
     }
     if(added)rows=await load();

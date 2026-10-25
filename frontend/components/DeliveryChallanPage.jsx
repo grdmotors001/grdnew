@@ -4,6 +4,7 @@ import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Pill, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { DeliveryChallanPrintView } from './PrintDocs';
+import { ChallanShiftModal } from './ChallanShiftPage';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -64,6 +65,7 @@ export function DeliveryChallanPage() {
   const [dispatchItems, setDispatchItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
+  const [shiftRow, setShiftRow] = useState(null);
   const [form, setForm] = useState({ date: today(), ...blankAccessories() });
   const [printId, setPrintId] = useState(null);
   const [page, setPage] = useState(1);
@@ -107,7 +109,7 @@ export function DeliveryChallanPage() {
 
   useEffect(() => {
     load(1, search);
-    get('/dealers').then((d) => setDealers(d.dealers || []));
+    get('/dealers').then((d) => setDealers([...(d.dealers || [])].sort((a, b) => String(a.name || '').trim().localeCompare(String(b.name || '').trim(), 'en', { sensitivity: 'base', numeric: true }))));
     get('/masters/battery-maker').then((d) => {
       const rows = Array.isArray(d)
         ? d
@@ -516,6 +518,7 @@ export function DeliveryChallanPage() {
               <button type="button" className="btn danger" disabled={busy} onClick={() => { if (!confirm('Delete this Delivery Challan permanently?')) return; run(async () => { await del(`/delivery-challans/${editRow.id}`); setEditRow(null); load(page, search); }); }}>Delete Challan</button>
               <button type="button" className="btn" disabled={busy} onClick={() => { if (!confirm('Toggle cancel on this Delivery Challan? Cancelling sends the chassis back to Manufacturing.')) return; run(async () => { await post(`/delivery-challans/${editRow.id}/cancel`); setEditRow(null); load(page, search); }); }}>{editRow.cancelled ? 'Un-cancel Challan' : 'Cancel Challan'}</button>
               <button type="button" className="btn" disabled={busy || editRow.cancelled} onClick={() => { const rm = !!editRow.approved_by; if (!confirm(rm ? 'Approval hatana hai?' : 'Is Delivery Challan ko approve karna hai? Print me aapka naam Approved By me aayega.')) return; run(async () => { const r = await post(`/delivery-challans/${editRow.id}/approve`); setEditRow({ ...editRow, approved_by: r?.row?.approved_by || '' }); load(page, search); }); }}>{editRow.approved_by ? `Approved by ${editRow.approved_by} ✓` : 'Approve Challan'}</button>
+              <button type="button" className="btn" disabled={busy || editRow.cancelled} onClick={() => setShiftRow(editRow)}>Challan Shift</button>
               <span style={{ flex: 1 }} />
               <button type="button" className="btn" onClick={() => setEditRow(null)}>Close</button>
               <button type="button" className="btn" onClick={() => setPrintId(editRow.id)}>Print / Preview</button>
@@ -523,6 +526,15 @@ export function DeliveryChallanPage() {
             </div>
           </form>
         </div>
+      )}
+
+      {shiftRow && (
+        <ChallanShiftModal
+          challan={shiftRow}
+          dealers={dealers}
+          onClose={() => setShiftRow(null)}
+          onDone={() => { setShiftRow(null); setEditRow(null); load(page, search); }}
+        />
       )}
 
       {printId && <DeliveryChallanPrintView challanId={printId} onClose={() => setPrintId(null)} />}

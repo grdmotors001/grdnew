@@ -407,7 +407,7 @@ export const SIMPLE_MASTERS = {
     fields: [
       ['name', 'Expense Type Name', 'text'],
       ['sub_category', 'Category (P&L me kahan dikhe)', 'select', ['Direct Expense', 'Indirect Expense'].map(v => ({ value: v, label: v }))],
-      ['inactive', 'Band (naye voucher me na dikhe)', 'checkbox']
+      ['inactive', 'Inactive (naye voucher me na dikhe)', 'checkbox']
     ]
   },
   colour: { label: 'Colour Master', fields: [['name', 'Colour', 'text'], ['code', 'Colour Code', 'text'], ['color_hex', 'RGB / HEX', 'color'], ['color_hex2', 'Second Tone RGB / HEX', 'color'], ['is_double_tone', 'Double Tone', 'checkbox']] },

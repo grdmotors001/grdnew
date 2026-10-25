@@ -7,6 +7,16 @@ import { formulaNameSql, ensureProductionVoucherSchema, ensureProductionFormulaS
 import { TI_CALC } from "./tax-invoice";
 
 let challanShiftSchemaReady:Promise<void>|null=null;
+// Billed challan (active Tax Invoice bana hua) ko cancel / delete / shift nahi kar sakte.
+// Pehle Credit Note issue hona chahiye (jisse Tax Invoice cancel ho jata hai), uske baad hi ye allowed hai.
+async function assertNotBilled(client:any,challanId:number,action:string){
+  const r=await client.query(`SELECT ti.bill_no FROM tax_invoice ti
+    WHERE COALESCE(ti.cancelled,false)=false
+      AND (ti.delivery_challan_id=$1 OR (COALESCE(btrim(ti.chassis_no),'')<>'' AND lower(btrim(ti.chassis_no))=(SELECT lower(btrim(dc.chassis_no)) FROM delivery_challan dc WHERE dc.id=$1) AND ti.delivery_challan_id IS NULL))
+    ORDER BY ti.id DESC LIMIT 1`,[challanId]);
+  if(r.rowCount)throw new Error("Is challan ka bill ban chuka hai"+(r.rows[0].bill_no?" ("+r.rows[0].bill_no+")":"")+", isliye "+action+" nahi ho sakta. Pehle Credit Note issue kijiye, uske baad hi ye ho payega.");
+}
+
 export function ensureChallanShiftSchema():Promise<void>{
   if(!challanShiftSchemaReady){
     challanShiftSchemaReady=(async()=>{
@@ -273,6 +283,7 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
         const row=dc.rows[0];
         if(Boolean(row.cancelled))throw new Error("Cancelled Delivery Challan cannot be shifted.");
         if(Boolean(row.invoiced))throw new Error("Bill already generated. Dealer shift is locked.");
+        await assertNotBilled(client,challanId,"shift");
         if(Number(row.dealer_id||0)===toDealerId)throw new Error("New dealer is same as current dealer.");
         const td=await client.query("SELECT id,name FROM dealer WHERE id=$1 AND COALESCE(blocked,false)=false",[toDealerId]);
         if(!td.rowCount)throw new Error("Shift To Dealer not found.");
@@ -380,6 +391,7 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
         const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
         if(!dc.rowCount)throw new Error("Delivery Challan not found.");
         const row=dc.rows[0];
+        if(!Boolean(row.cancelled))await assertNotBilled(client,id,"cancel");
         const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[id]);
         const nextCancelled=!Boolean(row.cancelled);
         for(const item of items.rows){
@@ -441,6 +453,7 @@ export async function deliveryChallanMutation(req:Request,path:string[],method:s
         const dc=await client.query("SELECT dc.*,d.name AS dealer_name FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1 FOR UPDATE OF dc",[id]);
         if(!dc.rowCount)throw new Error("Delivery Challan not found.");
         const row=dc.rows[0],nextCancelled=!Boolean(row.cancelled);
+        if(nextCancelled)await assertNotBilled(client,id,"cancel");
         const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1 ORDER BY id",[id]);
         for(const item of items.rows){
           const qty=Math.max(0,Number(item.qty)||0);if(!qty)continue;
@@ -467,6 +480,7 @@ export async function deliveryChallanMutation(req:Request,path:string[],method:s
         await client.query("BEGIN");
         const dc=await client.query("SELECT * FROM delivery_challan WHERE id=$1 FOR UPDATE",[id]);
         if(!dc.rowCount)throw new Error("Delivery Challan not found.");
+        await assertNotBilled(client,id,"delete");
         if(!dc.rows[0].cancelled){
           const items=await client.query("SELECT * FROM delivery_challan_item WHERE delivery_challan_id=$1",[id]);
           for(const item of items.rows){

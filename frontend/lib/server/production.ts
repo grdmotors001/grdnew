@@ -643,6 +643,7 @@ export async function productionPost(req:Request,path:string[],b:any,a:any):Prom
           }
         }
         await client.query("COMMIT");
+        await audit(a,"production-vouchers","create",r.rows[0].id,null,{vou_no:r.rows[0].vou_no,product_name:r.rows[0].product_name,quantity:r.rows[0].quantity,chassis_no:r.rows[0].chassis_no,date:r.rows[0].date},null,r.rows[0].vou_no);
         return Response.json({success:true,row:r.rows[0],data:r.rows[0],bom_consumed:formula.rowCount},{status:201});
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }

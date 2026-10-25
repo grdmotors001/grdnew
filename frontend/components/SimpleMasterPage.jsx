@@ -112,7 +112,7 @@ export function SimpleMasterPage({ kind, setActive, setOptionUserId }) {
                         <a onClick={() => isPaymentMaster ? openPayments(r) : openEdit(r)} style={{ color: 'var(--accent)', cursor: 'pointer' }}>
                           {String(r[f] ?? '')}
                         </a>
-                      ) : f === 'is_default' ? (r[f] ? 'Yes' : '') : f === 'inactive' ? (r[f] ? 'Band' : 'Chalu') : f === 'expense_type' ? ((etOpts || []).find((o) => o.value === r[f])?.label || String(r[f] ?? '')) : f === 'is_double_tone' ? (r[f] ? 'Yes' : 'No') : f === 'color_hex' ? (
+                      ) : f === 'is_default' ? (r[f] ? 'Yes' : '') : f === 'inactive' ? (r[f] ? 'Inactive' : 'Active') : f === 'expense_type' ? ((etOpts || []).find((o) => o.value === r[f])?.label || String(r[f] ?? '')) : f === 'is_double_tone' ? (r[f] ? 'Yes' : 'No') : f === 'color_hex' ? (
                         <span style={{display:'inline-flex',alignItems:'center',gap:7}}>
                           <span style={{width:24,height:16,borderRadius:4,border:'1px solid var(--border)',background:r.color_hex||'transparent',display:'inline-block'}} />
                           {r.color_hex||'—'}
