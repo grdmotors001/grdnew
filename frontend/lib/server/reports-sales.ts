@@ -58,7 +58,7 @@ export async function paymentReceivableReport(req:Request):Promise<Response>{
   if(search){args.push("%"+search+"%");w.push("(COALESCE(ti.bill_no,'') ILIKE $"+args.length+" OR COALESCE(ti.buyer_name,'') ILIKE $"+args.length+" OR COALESCE(ti.chassis_no,'') ILIKE $"+args.length+" OR COALESCE(ti.dealer_name,'') ILIKE $"+args.length+")")}
   await ensureTaxInvoiceRecordColumns();
   // Salesman is not stored on tax_invoice itself: take it from the delivery challan, else from the dealer master.
-  const rr=await pool.query("SELECT ti.*,COALESCE(NULLIF(to_jsonb(ti)->>'salesman',''),NULLIF(to_jsonb(dc)->>'salesman',''),NULLIF(to_jsonb(d)->>'salesman','')) AS sale_salesman FROM tax_invoice ti LEFT JOIN delivery_challan dc ON dc.id=ti.delivery_challan_id LEFT JOIN dealer d ON d.id=ti.dealer_id WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC",args);
+  const rr=await pool.query("SELECT ti.*,COALESCE(NULLIF(btrim(to_jsonb(d)->>'salesman'),''),NULLIF(to_jsonb(ti)->>'salesman',''),NULLIF(to_jsonb(dc)->>'salesman','')) AS sale_salesman FROM tax_invoice ti LEFT JOIN delivery_challan dc ON dc.id=ti.delivery_challan_id LEFT JOIN dealer d ON d.id=ti.dealer_id WHERE "+w.join(" AND ")+" ORDER BY ti.date DESC,ti.id DESC",args);
   let rows=rr.rows.map((x:any)=>{
     const value=num(x.sale_amount);
     const loan=num(x.hypothecation_amount);

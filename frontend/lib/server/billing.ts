@@ -250,7 +250,7 @@ export async function billingGet(req:Request,path:string[],a:any,deps:BillingDep
         financer_name:x.financer_name||"",eway_bill_no:"",umrn_code:lg.umrn_code||x.umrn_code||"",logo_keys:lg.logo_keys};
       let rto_address="";const rtoName=String(x.rto_name||"").trim();
       if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);rto_address=rtoAddressText(rm.rows[0]||{});}
-      return Response.json({invoice,company,product:{umrn_code:invoice.umrn_code,logo_keys:lg.logo_keys,colour_code:x.colour_code,name:productName},doc_title:"PROFORMA INVOICE",doc_no_label:"Proforma No.",rto_address,
+      return Response.json({invoice,company,product:{hsn_code:lg.hsn_code,umrn_code:invoice.umrn_code,logo_keys:lg.logo_keys,colour_code:x.colour_code,name:productName},doc_title:"PROFORMA INVOICE",doc_no_label:"Proforma No.",rto_address,
         print_bank_name:printBank.name,print_bank_account_no:printBank.account_no,print_bank_ifsc:printBank.ifsc});
     }
     if(p==="billing/pending-sales/invoice"){

@@ -78,10 +78,10 @@ function purchaseBillTotals(pb:any){
 }
 async function productLogo(name:string,model:string){
   // UMRN code lives on the PRODUCT master (not on vehicle). Match product by name.
-  const r=await pool.query("SELECT to_jsonb(p)->>'umrn_code' AS umrn_code,to_jsonb(p)->>'chassis_item_code' AS chassis_item_code,p.name FROM product p WHERE lower(btrim(p.name)) IN (lower(btrim($1)),lower(btrim($2))) ORDER BY (COALESCE(to_jsonb(p)->>'umrn_code','')<>'') DESC,(p.fro='F') DESC,p.id DESC LIMIT 1",[name||"",model||""]);
+  const r=await pool.query("SELECT to_jsonb(p)->>'umrn_code' AS umrn_code,to_jsonb(p)->>'chassis_item_code' AS chassis_item_code,COALESCE(to_jsonb(p)->>'hsn_code','') AS hsn_code,p.name FROM product p WHERE lower(btrim(p.name)) IN (lower(btrim($1)),lower(btrim($2))) ORDER BY (COALESCE(to_jsonb(p)->>'umrn_code','')<>'') DESC,(p.fro='F') DESC,p.id DESC LIMIT 1",[name||"",model||""]);
   const x=r.rows[0]||{},umrn=String(x.umrn_code||"").trim();
   const keys=[umrn,String(x.chassis_item_code||"").trim(),String(x.name||name||model||"").trim()].filter((k,i,a)=>k&&a.indexOf(k)===i);
-  return {umrn_code:umrn,logo_keys:keys};
+  return {umrn_code:umrn,logo_keys:keys,hsn_code:String(x.hsn_code||"").trim()};
 }
 let grdAssetSchemaReady:Promise<void>|null=null;
 function ensureGrdAssetSchema():Promise<void>{

@@ -474,10 +474,13 @@ export function DeliveryChallanPrintView({ challanId, onClose }) {
               <tbody>
                 <tr><th colSpan="2">{c.battery_maker || '—'}</th></tr>
                 <tr><td colSpan="2" style={{fontWeight:700}}>Battery Fit Date: {c.battery_fit_date ? fmtDate(c.battery_fit_date) : 'Not Fitted'}</td></tr>
-                <tr><td className="center">1</td><td>{c.battery_no1 || '0'}</td></tr>
-                <tr><td className="center">2</td><td>{c.battery_no2 || '0'}</td></tr>
-                <tr><td className="center">3</td><td>{c.battery_no3 || '0'}</td></tr>
-                <tr><td className="center">4</td><td>{c.battery_no4 || '0'}</td></tr>
+                {(() => {
+                  // Jitni battery lagi hai utne hi box (max 4); ek bhi nahi lagi to 1 blank box.
+                  const filled = [c.battery_no1, c.battery_no2, c.battery_no3, c.battery_no4]
+                    .map((v) => String(v ?? '').trim()).filter((v) => v && v !== '0');
+                  const rows = filled.length ? filled : [''];
+                  return rows.map((no, i) => <tr key={i}><td className="center">➤</td><td>{no}&nbsp;</td></tr>);
+                })()}
               </tbody>
             </table>
           </div>
@@ -722,7 +725,7 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
                 {i.battery_maker && <div className="item-sub">Battery Make : {i.battery_maker}</div>}
                 {batteryNos.length > 0 && <div className="item-sub">Battery No. : {batteryNos.join(', ')}</div>}
               </td>
-              <td className="center">{p.hsn_code || '—'}</td>
+              <td className="center">{p.hsn_code || i.hsn_code || '—'}</td>
               <td className="center">1 {p.unit || 'PCS'}</td>
               <td className="num"><Money value={i.taxable_value} noSymbol /></td>
               <td className="center">{p.unit || 'PCS'}</td>
@@ -743,7 +746,12 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
           <div className="box amt-box">
             <table className="amt-table"><tbody>
               <tr><td>Taxable Amount</td><td><Money value={i.taxable_value} /></td></tr>
-              <tr><td>GST @ {i.gst_rate}%</td><td><Money value={(Number(i.cgst_amount) || 0) + (Number(i.sgst_amount) || 0) + (Number(i.igst_amount) || 0)} /></td></tr>
+              {(Number(i.igst_amount) || 0) > 0
+                ? <tr><td>IGST @ {i.gst_rate}%</td><td><Money value={Number(i.igst_amount) || 0} /></td></tr>
+                : <>
+                    <tr><td>CGST @ {gstHalf}%</td><td><Money value={Number(i.cgst_amount) || 0} /></td></tr>
+                    <tr><td>SGST @ {gstHalf}%</td><td><Money value={Number(i.sgst_amount) || 0} /></td></tr>
+                  </>}
               {regAmt > 0 && <tr><td>Registration Charges</td><td><Money value={regAmt} /></td></tr>}
               {insAmt > 0 && <tr><td>Insurance Charges</td><td><Money value={insAmt} /></td></tr>}
             </tbody></table>
@@ -785,7 +793,6 @@ function InvoiceBody({ data, banner = 'TAX INVOICE', numberLabel = 'Invoice No.'
           </div>
         </div>
 
-        <div className="bottom-strip">DHAN DHAN SAHIB SHRI GURU RAM DAS SAHIB JI</div>
       </div>
   </>
   );

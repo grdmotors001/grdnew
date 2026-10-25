@@ -256,7 +256,7 @@ export function DeliveryChallanPage() {
   const openEdit = (row) => {
     setError('');
     setOpen(false);
-    setEditRow({ ...blankAccessories(), ...row, salesman: row.salesman || dealerById(row.dealer_id)?.salesman || '' });
+    setEditRow({ ...blankAccessories(), ...row, salesman: dealerById(row.dealer_id)?.salesman || row.salesman || '' });
   };
 
   const saveEdit = (e) => {
@@ -487,7 +487,7 @@ export function DeliveryChallanPage() {
               <Field label="Date" type="date" value={editRow.date} onChange={(v) => setEditRow({ ...editRow, date: v })} />
               <Field label="Dealer" value={editRow.dealer_name} readOnly />
               <Field label="Destination" value={editRow.destination || [dealerById(editRow.dealer_id)?.address1, dealerById(editRow.dealer_id)?.address2].filter(Boolean).join(', ')} readOnly />
-              <Field label="Salesman" value={editRow.salesman} onChange={(v) => setEditRow({ ...editRow, salesman: v })} />
+              <Field label="Salesman" value={editRow.salesman} readOnly />
               <Field label="Chassis No." value={editRow.chassis_no} readOnly />
               <Field label="Model Name" value={editRow.product_name} readOnly />
               <div className="field"><label>Colour</label><div style={{display:'flex',alignItems:'center',gap:8}}>

@@ -423,7 +423,7 @@ export function DeliveryChallanRegisterPage() {
               <Field label="Date" type="date" value={editRow.date} onChange={setE('date')} />
               <Field label="Dealer" value={editRow.dealer_name} readOnly />
               <Field label="Destination" value={editRow.destination} onChange={setE('destination')} />
-              <Field label="Salesman" value={editRow.salesman} onChange={setE('salesman')} />
+              <Field label="Salesman" value={editRow.salesman} readOnly />
               <Field label="Chassis No." value={editRow.chassis_no} readOnly />
               <Field label="Model Name" value={editRow.product_name} readOnly />
               <Field label="Colour" value={editRow.colour} readOnly />

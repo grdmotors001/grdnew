@@ -73,7 +73,7 @@ async function registerFilterLists(){
   const live="COALESCE(dc.cancelled,false)=false";
   const pr=await pool.query("SELECT DISTINCT btrim(COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name)) AS n FROM delivery_challan dc LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE "+live);
   const dl=await pool.query("SELECT DISTINCT d.id,d.name FROM delivery_challan dc JOIN dealer d ON d.id=dc.dealer_id WHERE "+live+" ORDER BY d.name");
-  const sm=await pool.query("SELECT DISTINCT btrim(to_jsonb(dc)->>'salesman') AS n FROM delivery_challan dc WHERE "+live);
+  const sm=await pool.query("SELECT DISTINCT btrim(COALESCE(NULLIF(btrim(to_jsonb(d)->>'salesman'),''),to_jsonb(dc)->>'salesman','')) AS n FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE "+live);
   const bt=await pool.query("SELECT DISTINCT btrim(COALESCE(NULLIF(v.battery_maker,''),to_jsonb(dc)->>'battery_maker','')) AS n FROM delivery_challan dc LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE "+live);
   const names=(r:any)=>r.rows.map((x:any)=>String(x.n||"").trim()).filter(Boolean).sort();
   const v={product:names(pr),dealer:dl.rows.map((x:any)=>({id:x.id,name:x.name})),salesman:names(sm),battery:names(bt)};
@@ -111,7 +111,7 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
             "v.battery_no1","v.battery_no2","v.battery_no3","v.battery_no4",
             "to_jsonb(dc)->>'battery_no1'","to_jsonb(dc)->>'battery_no2'","to_jsonb(dc)->>'battery_no3'","to_jsonb(dc)->>'battery_no4'",
             "to_jsonb(dc)->>'motor_no'","v.motor_no","to_jsonb(dc)->>'controller_no'","to_jsonb(dc)->>'colour'","v.colour",
-            "to_jsonb(dc)->>'destination'","to_jsonb(dc)->>'salesman'","to_jsonb(dc)->>'remarks1'","to_jsonb(dc)->>'remarks2'",
+            "to_jsonb(dc)->>'destination'","to_jsonb(dc)->>'salesman'","to_jsonb(d)->>'salesman'","to_jsonb(dc)->>'remarks1'","to_jsonb(dc)->>'remarks2'",
             "to_char(dc.date,'DD-MM-YYYY')","to_char(dc.date,'YYYY-MM-DD')"
           ];
           w.push("("+fields.map(f=>"COALESCE("+f+"::text,'') ILIKE "+ix).join(" OR ")+")");
@@ -128,9 +128,9 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
       if(apv==="pending"){w.push(apvExpr+" IS NULL");w.push("COALESCE(dc.cancelled,false)=false");}else if(apv==="approved")w.push(apvExpr+" IS NOT NULL");
       if(dealer!=="ALL"){args.push(dealer);w.push("d.id=$"+args.length);}
       if(product!=="ALL"){args.push(product);w.push("LOWER(COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name,''))=LOWER($"+args.length);}
-      if(salesman!=="ALL"){args.push(salesman);w.push("LOWER(COALESCE(to_jsonb(dc)->>'salesman',''))=LOWER($"+args.length);}
+      if(salesman!=="ALL"){args.push(salesman);w.push("LOWER(COALESCE(NULLIF(btrim(to_jsonb(d)->>'salesman'),''),to_jsonb(dc)->>'salesman',''))=LOWER($"+args.length+")");}
       if(battery!=="ALL"){args.push(battery);w.push("LOWER(COALESCE(NULLIF(v.battery_maker,''),to_jsonb(dc)->>'battery_maker',''))=LOWER($"+args.length);}
-      const base="SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name) AS product_name,COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(to_jsonb(dc)->>'motor_no',''),v.motor_no) AS motor_no,COALESCE(NULLIF(to_jsonb(dc)->>'colour',''),v.colour) AS colour,COALESCE(to_jsonb(dc)->>'controller_no','') AS controller_no,COALESCE(to_jsonb(dc)->>'other','') AS other,COALESCE(to_jsonb(dc)->>'remarks1','') AS remarks1,COALESCE(to_jsonb(dc)->>'remarks2','') AS remarks2,COALESCE(to_jsonb(dc)->>'destination','') AS destination,COALESCE(to_jsonb(dc)->>'salesman','') AS salesman,COALESCE(NULLIF(btrim(to_jsonb(dc)->>'formula_name'),''),(SELECT "+formulaNameSql("pvx","COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name)")+" FROM (SELECT p.formula_name FROM production_voucher p WHERE lower(btrim(p.chassis_no))=lower(btrim(COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no))) ORDER BY p.id DESC LIMIT 1) pvx),'') AS formula_name,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_maker ELSE to_jsonb(dc)->>'battery_maker' END AS battery_maker,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no1 ELSE to_jsonb(dc)->>'battery_no1' END AS battery_no1,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no2 ELSE to_jsonb(dc)->>'battery_no2' END AS battery_no2,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no3 ELSE to_jsonb(dc)->>'battery_no3' END AS battery_no3,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no4 ELSE to_jsonb(dc)->>'battery_no4' END AS battery_no4,bf.old_battery_maker,bf.old_battery_no1,bf.old_battery_no2,bf.old_battery_no3,bf.old_battery_no4,bf.battery_change_date,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(dc)->>'dealer_page_no','') AS dealer_page_no,ti.bill_no,COALESCE(ti.sale_amount,0) AS sale_value FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id LEFT JOIN LATERAL (SELECT f.old_battery_maker,f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4,f.fit_date AS battery_change_date FROM battery_fit_log f WHERE f.challan_id=dc.id AND (COALESCE(f.old_battery_no1,'')<>'' OR COALESCE(f.old_battery_maker,'')<>'') AND (COALESCE(f.old_battery_maker,'')<>COALESCE(f.battery_maker,'') OR concat_ws('|',f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4)<>concat_ws('|',f.battery_no1,f.battery_no2,f.battery_no3,f.battery_no4)) ORDER BY f.id DESC LIMIT 1) bf ON true LEFT JOIN LATERAL (SELECT x.id,x.bill_no,x.sale_amount FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false ORDER BY x.id DESC LIMIT 1) ti ON true";
+      const base="SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name) AS product_name,COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(to_jsonb(dc)->>'motor_no',''),v.motor_no) AS motor_no,COALESCE(NULLIF(to_jsonb(dc)->>'colour',''),v.colour) AS colour,COALESCE(to_jsonb(dc)->>'controller_no','') AS controller_no,COALESCE(to_jsonb(dc)->>'other','') AS other,COALESCE(to_jsonb(dc)->>'remarks1','') AS remarks1,COALESCE(to_jsonb(dc)->>'remarks2','') AS remarks2,COALESCE(to_jsonb(dc)->>'destination','') AS destination,COALESCE(NULLIF(btrim(to_jsonb(d)->>'salesman'),''),to_jsonb(dc)->>'salesman','') AS salesman,COALESCE(NULLIF(btrim(to_jsonb(dc)->>'formula_name'),''),(SELECT "+formulaNameSql("pvx","COALESCE(NULLIF(to_jsonb(dc)->>'product_name',''),v.model_name)")+" FROM (SELECT p.formula_name FROM production_voucher p WHERE lower(btrim(p.chassis_no))=lower(btrim(COALESCE(NULLIF(to_jsonb(dc)->>'chassis_no',''),v.chassis_no))) ORDER BY p.id DESC LIMIT 1) pvx),'') AS formula_name,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_maker ELSE to_jsonb(dc)->>'battery_maker' END AS battery_maker,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no1 ELSE to_jsonb(dc)->>'battery_no1' END AS battery_no1,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no2 ELSE to_jsonb(dc)->>'battery_no2' END AS battery_no2,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no3 ELSE to_jsonb(dc)->>'battery_no3' END AS battery_no3,CASE WHEN (COALESCE(v.battery_maker,'')<>'' OR COALESCE(v.battery_no1,'')<>'') THEN v.battery_no4 ELSE to_jsonb(dc)->>'battery_no4' END AS battery_no4,bf.old_battery_maker,bf.old_battery_no1,bf.old_battery_no2,bf.old_battery_no3,bf.old_battery_no4,bf.battery_change_date,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code,COALESCE(to_jsonb(dc)->>'dealer_page_no','') AS dealer_page_no,ti.bill_no,COALESCE(ti.sale_amount,0) AS sale_value FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id LEFT JOIN LATERAL (SELECT f.old_battery_maker,f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4,f.fit_date AS battery_change_date FROM battery_fit_log f WHERE f.challan_id=dc.id AND (COALESCE(f.old_battery_no1,'')<>'' OR COALESCE(f.old_battery_maker,'')<>'') AND (COALESCE(f.old_battery_maker,'')<>COALESCE(f.battery_maker,'') OR concat_ws('|',f.old_battery_no1,f.old_battery_no2,f.old_battery_no3,f.old_battery_no4)<>concat_ws('|',f.battery_no1,f.battery_no2,f.battery_no3,f.battery_no4)) ORDER BY f.id DESC LIMIT 1) bf ON true LEFT JOIN LATERAL (SELECT x.id,x.bill_no,x.sale_amount FROM tax_invoice x WHERE x.delivery_challan_id=dc.id AND COALESCE(x.cancelled,false)=false ORDER BY x.id DESC LIMIT 1) ti ON true";
       const page=Math.max(1,num(u.searchParams.get("page"))||1),per=Math.min(200,Math.max(1,num(u.searchParams.get("per_page"))||100)),start=(page-1)*per;
       const isCsv=u.searchParams.get("export")==="csv";
       // Step 1: sirf ids + count (halka query; join sirf wahi jo filter ko chahiye)
@@ -207,7 +207,7 @@ export async function deliveryChallanGet(req:Request,path:string[],a:any,deps:an
       await ensureChallanCreatedBy();
       const r=await pool.query("SELECT dc.*,d.name AS dealer_name,d.code AS dealer_code,d.mobile AS dealer_mobile,d.gst_no AS dealer_gst_no,COALESCE(to_jsonb(d)->>'salesman','') AS dealer_salesman,v.model_name AS vehicle_model_name,v.chassis_no AS vehicle_chassis_no,v.motor_no AS vehicle_motor_no,v.colour AS vehicle_colour,v.battery_maker,v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4,COALESCE(to_jsonb(v)->>'umrn_code','') AS umrn_code FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE dc.id=$1",[id]);
       if(!r.rowCount)return Response.json({error:"Delivery Challan not found."},{status:404});
-      const x=r.rows[0],challan={...x,product_name:x.product_name||x.vehicle_model_name,chassis_no:x.chassis_no||x.vehicle_chassis_no,motor_no:x.motor_no||x.vehicle_motor_no,colour:x.colour||x.vehicle_colour,salesman:x.salesman||x.dealer_salesman||""};
+      const x=r.rows[0],challan={...x,product_name:x.product_name||x.vehicle_model_name,chassis_no:x.chassis_no||x.vehicle_chassis_no,motor_no:x.motor_no||x.vehicle_motor_no,colour:x.colour||x.vehicle_colour,salesman:x.dealer_salesman||x.salesman||""};
       // Checked By = jisne challan banaya. created_by khali ho (purana challan) to audit log se dhundo; wo bhi na mile to blank.
       {
         const rawBy=String(x.created_by||"").trim()||(await pool.query("SELECT username FROM audit_log WHERE module_key='delivery-challans' AND action IN ('Delivery Challan created','create') AND (record_id::text=$1::text OR (COALESCE($2,'')<>'' AND record_ref::text=$2::text)) AND COALESCE(username,'')<>'' ORDER BY id ASC LIMIT 1",[String(id),String(x.challan_no||'')]).then(q=>q.rows[0]?.username||"").catch(()=>""));
@@ -362,8 +362,8 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
           for(const k of ACC){if(!typ[k])continue;const on=b[k]===true||b[k]==="true"||b[k]===1||b[k]==="1"||b[k]==="YES";
             vals.push(typ[k]==="boolean"?on:(/int|numeric|double|real/.test(typ[k])?(on?1:0):(on?"YES":null)));sets.push(k+"=$"+vals.length);}
           if(typ.salesman){
-            let sm=String(b.salesman||"").trim();
-            if(!sm)sm=String((await client.query("SELECT COALESCE(to_jsonb(d)->>'salesman','') AS s FROM dealer d WHERE d.id=$1",[did])).rows[0]?.s||"").trim();
+            // Salesman sirf Dealer Master se aata hai (form se nahi).
+            const sm=String((await client.query("SELECT COALESCE(to_jsonb(d)->>'salesman','') AS s FROM dealer d WHERE d.id=$1",[did])).rows[0]?.s||"").trim();
             vals.push(sm||null);sets.push("salesman=$"+vals.length);
           }
           if(typ.formula_name){
@@ -414,7 +414,7 @@ export async function deliveryChallanPost(req:Request,path:string[],b:any,a:any,
       }catch(e){await client.query("ROLLBACK");throw e}finally{client.release()}
     }
     if(p.startsWith("delivery-challans/") && p.endsWith("/print")){
-      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT dc.*,COALESCE(NULLIF(btrim(to_jsonb(d)->>'salesman'),''),to_jsonb(dc)->>'salesman','') AS salesman FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1",[id]);
       return Response.json({success:true,data:r.rows[0]||null});
     }
   return null;
@@ -437,12 +437,12 @@ export async function deliveryChallanMutation(req:Request,path:string[],method:s
         if(Object.prototype.hasOwnProperty.call(body,k) && String(body[k]??"").trim()!==String(old[k]??"").trim())
           return Response.json({error:"Battery change Delivery Challan Edit se allowed nahi hai. Battery module se Withdrawal / Swap / Fit use karein."},{status:409});
       }
-      delete body.dealer_id; delete body.dealer_name;
+      delete body.dealer_id; delete body.dealer_name; delete body.salesman; // Salesman sirf Dealer Master me edit hota hai.
       delete body.battery_maker; delete body.battery_no1; delete body.battery_no2; delete body.battery_no3; delete body.battery_no4;
       return genericWrite(req,path,"delivery_challan",method,body);
     }
     if(p.startsWith("delivery-challans/") && p.endsWith("/print") && method==="POST"){
-      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT * FROM delivery_challan WHERE id=$1",[id]);
+      const id=idOf(path[path.length-2]); const r=await pool.query("SELECT dc.*,COALESCE(NULLIF(btrim(to_jsonb(d)->>'salesman'),''),to_jsonb(dc)->>'salesman','') AS salesman FROM delivery_challan dc LEFT JOIN dealer d ON d.id=dc.dealer_id WHERE dc.id=$1",[id]);
       return Response.json({success:true,data:r.rows[0]||null});
     }
     if(p.startsWith("delivery-challans/") && p.endsWith("/cancel") && method==="POST"){
