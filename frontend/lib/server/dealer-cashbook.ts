@@ -275,7 +275,7 @@ export async function dealerCashbookGet(req:Request,path:string[],a:any,deps:Cas
       // isliye jin bills ka register me match nahi hai unhe BILLED customer ke roop me jod do (read-only).
       const dRow=(await pool.query("SELECT lower(btrim(name)) AS n,LOWER(COALESCE(dealer_category,'dealer')) AS c FROM dealer WHERE id=$1",[did])).rows[0];
       if(dRow&&["showroom","branch"].includes(String(dRow.c||""))){
-        const ir=await pool.query("SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,to_jsonb(ti)->>'buyer_mobile' AS mobile,to_jsonb(ti)->>'vehicle_reg_no' AS reg,to_jsonb(ti)->>'dealer_page_no' AS pg,COALESCE(ti.sale_amount,0) AS sale_amount,COALESCE(ti.amount_received,0) AS paid FROM tax_invoice ti WHERE COALESCE(ti.cancelled,false)=false AND (ti.dealer_id=$1 OR lower(btrim(ti.dealer_name))=$2) ORDER BY ti.date DESC,ti.id DESC LIMIT 3000",[did,String(dRow.n||"")]);
+        const ir=await pool.query("SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,to_jsonb(ti)->>'buyer_mobile' AS mobile,to_jsonb(ti)->>'vehicle_reg_no' AS reg,to_jsonb(ti)->>'dealer_page_no' AS pg,COALESCE(ti.sale_amount,0) AS sale_amount,COALESCE(ti.hypothecation_amount,0) AS loan,COALESCE(ti.amount_received,0) AS paid FROM tax_invoice ti WHERE COALESCE(ti.cancelled,false)=false AND (ti.dealer_id=$1 OR lower(btrim(ti.dealer_name))=$2) ORDER BY ti.date DESC,ti.id DESC LIMIT 3000",[did,String(dRow.n||"")]);
         const haveReg=new Set<string>(),havePg=new Set<string>();
         for(const c of customers){const g=normReg(c.vehicle_no);if(g.length>=5)haveReg.add(g);const pg=String(c.page_no||"").trim();if(pg)havePg.add(pg+"|"+normPhone(c.phone))}
         const norm=(v:any)=>String(v??"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim();
@@ -283,7 +283,7 @@ export async function dealerCashbookGet(req:Request,path:string[],a:any,deps:Cas
           if(norm(x.buyer_name)===norm(dRow.n))continue; // dealer ke naam ka bill customer nahi hai
           const g=normReg(x.reg),pg=String(x.pg||"").trim();
           if((g.length>=5&&haveReg.has(g))||(pg&&havePg.has(pg+"|"+normPhone(x.mobile))))continue;
-          customers.push({id:"bill-"+x.id,from_bill:true,page_no:pg||x.bill_no||"",date:ymd(x.date),name:String(x.buyer_name||"").trim(),phone:String(x.mobile||"").trim(),vehicle_no:String(x.reg||"").trim(),status:"BILLED",sale_amount:num(x.sale_amount),loan_amount:0,paid_amount:num(x.paid),balance:Math.max(0,num(x.sale_amount)-num(x.paid)),bill_no:x.bill_no});
+          customers.push({id:"bill-"+x.id,from_bill:true,invoice_id:x.id,page_no:pg,date:ymd(x.date),name:String(x.buyer_name||"").trim(),phone:String(x.mobile||"").trim(),vehicle_no:String(x.reg||"").trim(),status:"BILLED",sale_amount:num(x.sale_amount),loan_amount:num(x.loan),paid_amount:num(x.paid),balance:Math.max(0,num(x.sale_amount)-num(x.paid)),bill_no:x.bill_no});
         }
         customers.sort((x:any,y:any)=>String(y.date||"").localeCompare(String(x.date||"")));
       }
@@ -296,20 +296,30 @@ export async function dealerCashbookGet(req:Request,path:string[],a:any,deps:Cas
     // Customer Register row click: ek customer ka poora record (customer + vehicle + sale/loan + receipts + kharche).
     if(p.startsWith("dealer/cash-book/customers/")&&p.endsWith("/detail")&&a.scope==="dealer"){
       await ensureDealerCashSchema();await deps.ensureBillingSalesSchema();
-      const did=num(a.dealer_id),cid=idOf(path[path.length-2]);
-      if(!cid)return Response.json({error:"Customer id required."},{status:400});
-      const cr=await pool.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2",[cid,did]);
-      if(!cr.rowCount)return Response.json({error:"Customer not found."},{status:404});
-      const [customer]=await enrichCashCustomers(cr.rows);
+      const did=num(a.dealer_id),billM=/^bill-(\d+)$/.exec(String(path[path.length-2]||"")),cid=billM?0:idOf(path[path.length-2]);
+      if(!cid&&!billM)return Response.json({error:"Customer id required."},{status:400});
+      // "bill-<id>" = Showroom/Branch customer that exists only as a GRD tax invoice (no cash-register row): build the customer from that bill.
+      let customer:any,billInv:any=null;
+      if(billM){
+        const br=await pool.query("SELECT to_jsonb(ti) AS j FROM tax_invoice ti WHERE ti.id=$1 AND COALESCE(ti.cancelled,false)=false AND (ti.dealer_id=$2 OR lower(btrim(COALESCE(ti.dealer_name,'')))=(SELECT lower(btrim(name)) FROM dealer WHERE id=$2))",[Number(billM[1]),did]);
+        if(!br.rowCount)return Response.json({error:"Customer not found."},{status:404});
+        billInv=br.rows[0].j;
+        customer={id:"bill-"+billInv.id,name:String(billInv.buyer_name||"").trim(),phone:String(billInv.buyer_mobile||"").trim(),page_no:String(billInv.dealer_page_no||"").trim(),date:billInv.date,status:"BILLED",status_label:"BILLED",vehicle_no:String(billInv.vehicle_reg_no||"").trim(),sale_amount:num(billInv.sale_amount),loan_amount:num(billInv.hypothecation_amount),paid_amount:num(billInv.amount_received)};
+      }else{
+        const cr=await pool.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2",[cid,did]);
+        if(!cr.rowCount)return Response.json({error:"Customer not found."},{status:404});
+        [customer]=await enrichCashCustomers(cr.rows);
+      }
+      const noRows=Promise.resolve({rows:[] as any[]});
       const [rcp,exp,sal,dl]=await Promise.all([
-        pool.query("SELECT * FROM dealer_cash_receipt WHERE customer_id=$1 AND dealer_id=$2 ORDER BY COALESCE(date,receipt_date) ASC,id ASC",[cid,did]),
-        pool.query("SELECT * FROM dealer_cash_expense WHERE customer_id=$1 AND dealer_id=$2 ORDER BY COALESCE(date,expense_date) ASC,id ASC",[cid,did]),
-        pool.query("SELECT * FROM grd_billing_sale WHERE dealer_cash_customer_id=$1 AND dealer_id=$2 ORDER BY (status='BILLED') DESC,id DESC LIMIT 1",[cid,did]),
+        billM?noRows:pool.query("SELECT * FROM dealer_cash_receipt WHERE customer_id=$1 AND dealer_id=$2 ORDER BY COALESCE(date,receipt_date) ASC,id ASC",[cid,did]),
+        billM?noRows:pool.query("SELECT * FROM dealer_cash_expense WHERE customer_id=$1 AND dealer_id=$2 ORDER BY COALESCE(date,expense_date) ASC,id ASC",[cid,did]),
+        billM?noRows:pool.query("SELECT * FROM grd_billing_sale WHERE dealer_cash_customer_id=$1 AND dealer_id=$2 ORDER BY (status='BILLED') DESC,id DESC LIMIT 1",[cid,did]),
         pool.query("SELECT lower(btrim(name)) AS n FROM dealer WHERE id=$1",[did])
       ]);
       const sale:any=sal.rows[0]||null;
       // Tax invoice (bill): pehle sale se link, warna vehicle no., warna page no.+mobile se match.
-      let inv:any=null;
+      let inv:any=billInv;
       const reg=normReg(customer.vehicle_no),mob=normPhone(customer.phone),pg=String(customer.page_no||"").trim();
       const dealerScope="(ti.dealer_id=$1 OR lower(btrim(COALESCE(ti.dealer_name,'')))=$2)";
       if(sale?.invoice_id){inv=(await pool.query("SELECT to_jsonb(ti) AS j FROM tax_invoice ti WHERE ti.id=$1 AND ti.dealer_id=$2 LIMIT 1",[sale.invoice_id,did])).rows[0]?.j||null;}

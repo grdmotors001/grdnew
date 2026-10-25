@@ -9,6 +9,8 @@ import { CustomerDocumentsModal, CustomerDocumentsPanel, DEALER_DOC_GROUPS } fro
 const docQuery = (c) => (c.from_bill ? { invoice_id: String(c.id).replace(/^bill-/, '') } : { customer_id: c.id });
 
 const today = () => new Date().toISOString().slice(0, 10);
+const fmtDate = (d) => { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : (d || '—'); };
+const isMobile = () => typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width:700px)').matches;
 const money = (v) => `₹${Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const field = (label, key, obj, setter, type = 'text') => (
   <input className="input" type={type} placeholder={label} value={obj[key] || ''} onChange={(e) => setter({ ...obj, [key]: e.target.value })} />
@@ -29,6 +31,7 @@ export function DealerAllReceiptsPage({ dealer } = {}) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [openRows, setOpenRows] = useState({});
   const load = () => { get('/dealer/cash-book/customers').then((d) => setCusts(d.customers || [])).catch(() => {}); return get('/dealer/cash-book/all-receipts').then((d) => setRows(d.receipts || [])).catch((e) => setError(e.message || 'Could not load receipts')); };
   useEffect(() => { load(); }, []);
   const rq = search.trim().toLowerCase();
@@ -54,15 +57,15 @@ export function DealerAllReceiptsPage({ dealer } = {}) {
   };
   return (
     <div className="card">
-      <div className="pageHeader"><div><h2>All Receipts</h2><p className="muted">Receipt correction: only Page No. and Loan Amount can be edited.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
+      <div className="pageHeader mxHead"><div><h2>All Receipts</h2><p className="muted">Receipt correction: only Page No. and Loan Amount can be edited.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
       {error && <div className="error">{error}</div>}
       <input className="input" style={{width:'100%',maxWidth:420,margin:'0 0 12px'}} placeholder="Search receipt no., name, mobile, page no…" value={search} onChange={(e) => setSearch(e.target.value)} />
-      <div className="tablewrap dealerTable"><table className="table">
+      <div className="tablewrap dealerTable mxTable"><table className="table">
         <thead><tr><th>Date</th><th>Receipt No.</th><th>Name</th><th>Amount</th><th>Loan Amount</th><th>Page No.</th><th></th></tr></thead>
-        <tbody>{filteredRows.map((r) => <tr key={r.id}>
-          <td>{r.date}</td><td><b>{r.receipt_no}</b></td><td>{r.customer_name}<div className="muted">{r.customer_phone || ''}</div></td>
-          <td>{money(r.amount)}</td><td>{money(r.loan_amount)}</td><td>{r.dealer_register_page_no || '—'}</td>
-          <td><div className="actions"><button className="btn" title="58mm thermal receipt print" onClick={() => printRow(r)}>🖨 Print</button><button className="btn" onClick={() => setEditing({...r})}>Edit</button></div></td>
+        <tbody>{filteredRows.map((r) => <tr key={r.id} className={'mxRow two' + (openRows[r.id] ? ' open' : '')} onClick={() => setOpenRows((m) => ({ ...m, [r.id]: !m[r.id] }))}>
+          <td className="mxK k4" data-label="Date">{fmtDate(r.date)}<span className="mxChev">▾</span></td><td className="mxK k3" data-label="Receipt No."><b>{r.receipt_no}</b></td><td className="mxK k1" data-label="Name"><b>{r.customer_name}</b><div className="muted mxPhone">{r.customer_phone || ''}</div></td>
+          <td className="mxK k2" data-label="Amount"><b>{money(r.amount)}</b></td><td className="mxM" data-label="Loan Amount">{money(r.loan_amount)}</td><td className="mxM" data-label="Page No.">{r.dealer_register_page_no || '—'}</td>
+          <td className="mxM mxAct" data-label="" onClick={(e) => e.stopPropagation()}><div className="actions"><button className="btn" title="58mm thermal receipt print" onClick={() => printRow(r)}>🖨 Print</button><button className="btn" onClick={() => setEditing({...r})}>Edit</button></div></td>
         </tr>)}{!filteredRows.length && <tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody>
       </table></div>
       {editing && <div className="modal" style={{zIndex:10000}} onMouseDown={(e)=>{if(e.target===e.currentTarget)setEditing(null)}}>
@@ -90,6 +93,7 @@ export function DealerAllCustomersPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(1);
+  const [openRows, setOpenRows] = useState({});
   const pageSize = 35;
   const [editing, setEditing] = useState(null);
   const [cancelling, setCancelling] = useState(null);
@@ -172,13 +176,13 @@ export function DealerAllCustomersPage() {
 
   return (
     <div className="card">
-      <div className="pageHeader">
+      <div className="pageHeader mxHead">
         <div><h2>Customer Register</h2><p className="muted">All Customers is the master register. Tax Invoice controls Billed; a refunded booking stays in history as Dealer Cancel.</p></div>
         <button className="btn" onClick={() => load(search)}>↻ Refresh</button>
       </div>
       {error && <div className="error">{error}</div>}
 
-      <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
+      <div className="mxTabs" style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
         {tabs.map(([key, label]) => (
           <button key={key} className={tab === key ? 'btn primary' : 'btn'} onClick={() => { setTab(key); setPage(1); }}>
             {label} ({counts[key]})
@@ -194,15 +198,15 @@ export function DealerAllCustomersPage() {
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
         />
-        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:700 }}>
+        <label className="mxHide" style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:700 }}>
           From
           <input className="input" type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setPage(1); }} />
         </label>
-        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:700 }}>
+        <label className="mxHide" style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:700 }}>
           To
           <input className="input" type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setPage(1); }} />
         </label>
-        {(fromDate || toDate) && <button className="btn" onClick={clearDates}>Clear Date</button>}
+        {(fromDate || toDate) && <button className="btn mxHide" onClick={clearDates}>Clear Date</button>}
       </div>
 
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:10, marginBottom:8 }}>
@@ -214,25 +218,27 @@ export function DealerAllCustomersPage() {
         </div>
       </div>
 
-      <div className="tablewrap dealerTable">
+      <div className="tablewrap dealerTable mxTable">
         <table className="table">
           <thead><tr><th>Page No.</th><th>Date</th><th>Name</th><th>Phone</th><th>Vehicle No.</th><th>Status</th><th>Sale Amount</th><th>Paid</th><th>Balance</th><th></th></tr></thead>
           <tbody>
             {visibleRows.map((c) => (
-              <tr key={c.id} onClick={() => { if (!c.from_bill) setDetailFor(c); }} style={{ cursor: c.from_bill ? 'default' : 'pointer' }} title={c.from_bill ? ('Bill ' + (c.bill_no || '')) : 'Click to view full customer detail'}>
-                <td>{c.page_no || '—'}</td>
-                <td>{c.date || '—'}</td>
-                <td><b>{c.name}</b></td>
-                <td>{c.phone || '—'}</td>
-                <td>{c.vehicle_no || '—'}</td>
-                <td><b>{c.status_label || c.status}</b>{c.status === 'DEALER_CANCEL' && <div className="muted">{c.cancel_reason || ''}</div>}</td>
-                <td>{money(c.sale_amount)}</td>
-                <td>{money(c.paid_amount)}</td>
-                <td><b>{money(c.balance)}</b></td>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <div style={{ display:'flex', gap:6 }}>
+              <tr key={c.id} className={'mxRow three' + (openRows[c.id] ? ' open' : '')} onClick={() => (isMobile() ? setOpenRows((m) => ({ ...m, [c.id]: !m[c.id] })) : setDetailFor(c))} style={{ cursor: 'pointer' }} title="Click to view full customer detail">
+                <td className="mxK k1" data-label="Page No."><span className="mxPg">{c.page_no || '—'}</span></td>
+                <td className="mxK k3" data-label="Date">{fmtDate(c.date)}<span className="mxChev">▾</span></td>
+                <td className="mxK k2" data-label="Name"><b>{c.name}</b></td>
+                <td className="mxM" data-label="Phone">{c.phone || '—'}</td>
+                <td className="mxM" data-label="Vehicle No.">{c.vehicle_no || '—'}</td>
+                <td className="mxM" data-label="Status"><b>{c.status_label || c.status}</b>{c.status === 'DEALER_CANCEL' && <div className="muted">{c.cancel_reason || ''}</div>}</td>
+                <td className="mxM" data-label="Sale Amount">{money(c.sale_amount)}</td>
+                <td className="mxM" data-label="Paid">{money(c.paid_amount)}</td>
+                <td className="mxM" data-label="Balance"><b>{money(c.balance)}</b></td>
+                <td className="mxM mxAct" data-label="" onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                    <button className="btn mxOnlyMobile" onClick={() => setDetailFor(c)}>👁 Full Detail</button>
                     <button className="btn" onClick={() => setDocsFor(c)}>📎 Documents</button>
                     {!c.from_bill && c.status !== 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit</button>}
+                    {c.from_bill && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit</button>}
                     {!c.from_bill && c.status === 'BILLED' && <button className="btn" onClick={() => setEditing({ ...c, _saleWasFilled: Number(c.sale_amount || 0) !== 0, _loanWasFilled: Number(c.loan_amount || 0) !== 0 })}>Edit Page No.</button>}
                     {c.status === 'VEHICLE_PENDING' && <button className="btn" onClick={() => openCancel(c)}>Dealer Cancel</button>}
                   </div>
@@ -297,6 +303,12 @@ export function DealerAllCustomersPage() {
                     const amountPatch = {};
                     if (saleEntered) amountPatch.sale_amount = Number(editing.sale_amount);
                     if (loanEntered) amountPatch.loan_amount = Number(editing.loan_amount);
+                    if (editing.from_bill) {
+                      // Customer that exists only as a GRD tax invoice: save Page No. / blank Sale / blank Loan straight on the invoice.
+                      await put('/dealer/tax-invoices/' + editing.invoice_id, { dealer_page_no: editing.page_no || '', ...amountPatch });
+                      setEditing(null); await load(search);
+                      return;
+                    }
                     // Always save Page No. on the customer record; for billed rows also mirror it to the invoice.
                     await put('/dealer/cash-book/customers/' + editing.id, { page_no: editing.page_no, ...amountPatch });
                     if (editing.invoice_id) await put('/dealer/tax-invoices/' + editing.invoice_id, { dealer_page_no: editing.page_no });
@@ -591,5 +603,5 @@ export function DealerHandoverCreatePage() {
   useEffect(() => { loadRecent(); }, []);
   const submit = async (e) => { e.preventDefault(); setSaving(true); setError(''); try { const d = await post('/dealer/cash-book/handover', handover); setMessage(`Handover ${d.handover.handover_no} saved — waiting for Head Office to accept.`); setHandover({ ...handover, amount: '', sent_to: '', remarks: '' }); loadRecent(); setTimeout(() => setMessage(''), 4000); } catch (e2) { setError(e2.message || 'Could not save'); } finally { setSaving(false); } };
   const statusLabel = (s) => s === 'accepted' ? 'Accepted ✓' : s === 'rejected' ? 'Rejected' : 'Pending Acceptance';
-  return <div><form className="card" onSubmit={submit}><h2>Cash Handover to Head Office</h2>{cash && <div className="muted" style={{ marginBottom: 10 }}>Cash in hand: <b>{money(cash.inHand)}</b>{cash.pending > 0 && <> · Pending acceptance: <b>{money(cash.pending)}</b> · Handover ke liye available: <b>{money(cash.inHand - cash.pending)}</b></>}<br />Head Office accept karega tab hi ye cash aapke cashbook se out hoga.</div>}{error && <div className="error">{error}</div>}{message && <div className="card" style={{ marginBottom: 12 }}>{message}</div>}<div className="grid">{field('Date', 'date', handover, setHandover, 'date')}{field('Amount', 'amount', handover, setHandover, 'number')}{field('Sent To / Received By', 'sent_to', handover, setHandover)}{field('Remarks', 'remarks', handover, setHandover)}</div><button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Record HO Handover'}</button> <button type="button" className="btn" disabled title="Coming soon" style={{opacity:.6,cursor:'not-allowed',marginLeft:8}}>🏦 Pay to Head Office Bank via Cashfree <span className="muted">(Coming soon)</span></button></form><div className="card" style={{ marginTop: 12 }}><div className="pageHeader"><h2 style={{ margin: 0 }}>Recent Handovers</h2><button className="btn" onClick={loadRecent}>↻ Refresh</button></div><div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Handover No.</th><th>Amount</th><th>Status</th></tr></thead><tbody>{recent.map((h) => <tr key={h.id}><td>{h.date}</td><td>{h.handover_no}</td><td>{money(h.amount)}</td><td>{statusLabel(h.status)}</td></tr>)}{!recent.length && <tr><td colSpan="4" className="muted">No handovers in the last 14 days.</td></tr>}</tbody></table></div></div></div>;
+  return <div><form className="card" onSubmit={submit}><h2>Cash Handover to Head Office</h2>{cash && <div className="muted" style={{ marginBottom: 10 }}>Cash in hand: <b>{money(cash.inHand)}</b>{cash.pending > 0 && <> · Pending acceptance: <b>{money(cash.pending)}</b> · Handover ke liye available: <b>{money(cash.inHand - cash.pending)}</b></>}<br />Head Office accept karega tab hi ye cash aapke cashbook se out hoga.</div>}{error && <div className="error">{error}</div>}{message && <div className="card" style={{ marginBottom: 12 }}>{message}</div>}<div className="grid">{field('Date', 'date', handover, setHandover, 'date')}{field('Amount', 'amount', handover, setHandover, 'number')}{field('Sent To / Received By', 'sent_to', handover, setHandover)}{field('Remarks', 'remarks', handover, setHandover)}</div><button className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Record HO Handover'}</button> <button type="button" className="btn" disabled title="Coming soon" style={{opacity:.6,cursor:'not-allowed',marginLeft:8}}>🏦 Pay to Head Office Bank via Cashfree <span className="muted">(Coming soon)</span></button></form><div className="card" style={{ marginTop: 12 }}><div className="pageHeader"><h2 style={{ margin: 0 }}>Recent Handovers</h2><button className="btn" onClick={loadRecent}>↻ Refresh</button></div><div className="tablewrap dealerTable mxTable"><table className="table"><thead><tr><th>Date</th><th>Handover No.</th><th>Amount</th><th>Status</th></tr></thead><tbody>{recent.map((h) => <tr key={h.id} className="mxRow two" style={{ cursor: "default" }}><td className="mxK k4" data-label="Date">{fmtDate(h.date)}</td><td className="mxK k1" data-label="Handover No."><b>{h.handover_no}</b></td><td className="mxK k2" data-label="Amount"><b>{money(h.amount)}</b></td><td className="mxK k3" data-label="Status">{statusLabel(h.status)}</td></tr>)}{!recent.length && <tr><td colSpan="4" className="muted">No handovers in the last 14 days.</td></tr>}</tbody></table></div></div></div>;
 }

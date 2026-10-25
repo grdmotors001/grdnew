@@ -42,6 +42,7 @@ export function DayBookPreview({
   onNext,
   onPrint,
   onExport,
+  hideSummary=false, // true: parent page already shows Opening / Cash In / Out / Closing cards
 }) {
   const [search,setSearch]=useState('');
   const [page,setPage]=useState(1);
@@ -60,107 +61,150 @@ export function DayBookPreview({
     ].sort((a,b)=>String(a.date||date).localeCompare(String(b.date||date)) || String(a.no||'').localeCompare(String(b.no||''),undefined,{numeric:true}));
     let running=Number(openingBalance||0);
     return combined.map(x=>{
-      const rowOpening=running;
       running += Number(x.debit||0)-Number(x.credit||0);
-      return {...x,rowOpening,running};
+      return {...x,running};
     });
   },[rs,ps,openingBalance,date]);
 
   useEffect(()=>{setPage(1)},[q,date,pageSize,receipts.length,payments.length]);
   const pageRows=useMemo(()=>rows.slice((page-1)*pageSize,page*pageSize),[rows,page,pageSize]);
   const dateLabel=formatDate(date);
-  const dayShift=d=>{const x=new Date((d||isoToday())+'T00:00:00');x.setDate(x.getDate()+1);return x.toISOString().slice(0,10)};
-  const dayBack=d=>{const x=new Date((d||isoToday())+'T00:00:00');x.setDate(x.getDate()-1);return x.toISOString().slice(0,10)};
+  const shift=(d,n)=>{const x=new Date((d||isoToday())+'T00:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
+  const goPrev=()=>onPrev?onPrev():onDateChange?.(shift(date,-1));
+  const goNext=()=>onNext?onNext():onDateChange?.(shift(date,1));
+  const ref=row=>row.no?(row.type==='DEBIT'?'Receipt':'Voucher')+': '+row.no+(row.folio?' · Page '+row.folio:''):'';
 
-  return <div className="grdDayBook">
+  return <div className="grdDb">
     <style>{`
-      .grdDayBook{background:#fff;border:1px solid #e4eaf2;border-radius:16px;padding:18px;box-shadow:0 8px 28px rgba(16,42,80,.07);color:#12305d}
-      .grdDayBook *{box-sizing:border-box}
-      .grdDayBookTop{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
-      .grdDayBookTitle{display:flex;align-items:center;gap:12px}.grdDayBookIcon{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:#eaf2ff;font-size:25px}
-      .grdDayBookTitle h2{margin:0;font-size:26px;color:#12305d}.grdDayBookTitle p{margin:3px 0 0;color:#718096;font-size:12px}
-      .grdDayBookActions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.grdDayBookActions button,.grdDayBookActions input{height:40px;border:1px solid #d7e0ec;border-radius:9px;background:#fff;padding:0 13px;color:#12305d;font-weight:700}
-      .grdDayBookDate{display:flex;align-items:center;gap:8px}.grdDayBookDate input{font-weight:800}
-      .grdDayBookSearch{width:180px}.grdDayBookBtn{cursor:pointer}.grdDayBookBtn.primary{background:#1667d9;color:#fff;border-color:#1667d9}
-      .grdCashSummary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
-      .grdCashSummaryCard{border:1px solid #d8e1ec;border-radius:11px;padding:13px 15px;background:#fff}
-      .grdCashSummaryCard span{display:block;font-size:10px;color:#68798f;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
-      .grdCashSummaryCard strong{display:block;font-size:20px;margin-top:4px}.grdCashSummaryCard.open strong,.grdCashSummaryCard.running strong{color:#1764d1}.grdCashSummaryCard.debit strong{color:#08734b}.grdCashSummaryCard.credit strong{color:#bd1730}
-      .grdCashLedger{border:1px solid #dce5f0;border-radius:13px;overflow:auto}
-      .grdCashLedgerTable{width:100%;min-width:760px;border-collapse:collapse;table-layout:fixed}.grdCashLedgerTable th,.grdCashLedgerTable td{border-bottom:1px solid #dbe3ed;padding:10px 9px;font-size:12px;vertical-align:middle}
-      .grdCashLedgerTable th{background:#f7f9fc;font-weight:900;text-align:center;color:#25456e;position:sticky;top:0;z-index:1}
-      .grdCashLedgerTable th:nth-child(1){width:12%}.grdCashLedgerTable th:nth-child(2){width:34%}.grdCashLedgerTable th:nth-child(3){width:17%}.grdCashLedgerTable th:nth-child(4){width:13%}.grdCashLedgerTable th:nth-child(5){width:13%}.grdCashLedgerTable th:nth-child(6){width:17%}
-      .grdCashLedgerTable td:nth-child(1){text-align:center;white-space:nowrap}.grdCashLedgerTable td:nth-child(3),.grdCashLedgerTable td:nth-child(4),.grdCashLedgerTable td:nth-child(5),.grdCashLedgerTable td:nth-child(6){text-align:right;font-weight:800}
-      .grdCashLedgerTable td:nth-child(2){font-weight:700}.grdCashLedgerTable tbody tr:hover{background:#f8fbff}
-      .grdCashLedgerTable .debit{color:#08734b}.grdCashLedgerTable .credit{color:#bd1730}.grdCashLedgerTable .running{color:#1764d1}
-      .grdCashLedgerEmpty td{text-align:center!important;height:58px;color:#8795a8;font-weight:600!important}
-      .grdCashLedgerFooter{display:flex;justify-content:flex-end;gap:28px;padding:12px 14px;background:#f7f9fc;font-weight:900}
-      .grdCashLedgerFooter .debit{color:#08734b}.grdCashLedgerFooter .credit{color:#bd1730}.grdCashLedgerFooter .running{color:#1764d1}
-      @media(max-width:900px){.grdCashSummary{grid-template-columns:1fr 1fr}}
-      @media(max-width:600px){
-        .grdDayBook{padding:10px}.grdDayBookTitle h2{font-size:21px}.grdDayBookActions{width:100%}.grdDayBookActions>*{flex:1;min-width:110px}
-        .grdCashSummary{grid-template-columns:1fr 1fr;gap:7px}.grdCashSummaryCard{padding:10px}.grdCashSummaryCard strong{font-size:17px}
-        .grdCashLedgerTable{min-width:700px}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:8px 6px;font-size:10px}
+      .grdDb{background:var(--card,#fff);border:1px solid var(--line,#d7e0ec);border-radius:16px;padding:16px;color:var(--ink,#12305d);box-shadow:0 1px 2px #00000008;min-width:0}
+      .grdDb *{box-sizing:border-box}
+      .grdDbTop{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+      .grdDbTitle{display:flex;align-items:center;gap:12px;min-width:0}
+      .grdDbIcon{width:42px;height:42px;flex:none;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent,#1667d9) 14%,transparent);font-size:21px}
+      .grdDbTitle h2{margin:0;font-size:21px;line-height:1.2;color:var(--ink,#12305d)}
+      .grdDbTitle p{margin:2px 0 0;color:var(--muted,#718096);font-size:12px}
+      .grdDbTools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .grdDbNav{display:flex;align-items:stretch;border:1px solid var(--line,#d7e0ec);border-radius:10px;overflow:hidden;background:var(--input-bg,#fff)}
+      .grdDbNav button,.grdDbNav input{height:38px;border:0;background:transparent;color:var(--ink,#12305d);font-weight:700;font-size:13px;padding:0 12px;font-family:inherit}
+      .grdDbNav button{cursor:pointer;font-size:18px;line-height:1;padding:0 13px}
+      .grdDbNav button:hover{background:color-mix(in srgb,var(--accent,#1667d9) 12%,transparent)}
+      .grdDbNav input{border-left:1px solid var(--line,#d7e0ec);border-right:1px solid var(--line,#d7e0ec);min-width:140px;text-align:center}
+      [data-theme="midnight-dark"] .grdDbNav input,[data-theme="midnight-dark"] .grdDbSearch{color-scheme:dark}
+      .grdDbSearch{height:38px;width:170px;border:1px solid var(--line,#d7e0ec);border-radius:10px;background:var(--input-bg,#fff);color:var(--ink,#12305d);padding:0 12px;font-size:13px}
+      .grdDbBtn{height:38px;border:1px solid var(--line,#d7e0ec);border-radius:10px;background:var(--input-bg,#fff);color:var(--ink,#12305d);font-weight:700;font-size:13px;padding:0 14px;cursor:pointer;white-space:nowrap}
+      .grdDbBtn.primary{background:var(--accent,#1667d9);border-color:var(--accent,#1667d9);color:#fff}
+      .grdDbSum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+      .grdDbSumCard{border:1px solid var(--line,#d8e1ec);border-radius:11px;padding:11px 14px;background:var(--strip-bg,transparent)}
+      .grdDbSumCard span{display:block;font-size:10px;color:var(--muted,#68798f);font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+      .grdDbSumCard strong{display:block;font-size:19px;margin-top:3px}
+      .grdDbBox{border:1px solid var(--line,#dce5f0);border-radius:13px;overflow:hidden}
+      .grdDbScroll{overflow-x:auto}
+      .grdDbTable{width:100%;border-collapse:collapse;table-layout:fixed;min-width:640px}
+      .grdDbTable th,.grdDbTable td{border-bottom:1px solid var(--line,#dbe3ed);padding:11px 14px;font-size:13px;vertical-align:middle;text-align:left}
+      .grdDbTable th{background:var(--th-bg,transparent);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:var(--muted,#25456e)}
+      .grdDbTable th small{display:block;font-weight:600;text-transform:none;letter-spacing:0;font-size:10px;opacity:.8}
+      .grdDbTable .c1{width:14%}.grdDbTable .c2{width:38%}.grdDbTable .c3,.grdDbTable .c4,.grdDbTable .c5{width:16%}
+      .grdDbTable th.num,.grdDbTable td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:800}
+      .grdDbTable td.date{white-space:nowrap;color:var(--muted,#4a5d78)}
+      .grdDbTable tbody tr:last-child td{border-bottom:0}
+      .grdDbTable tbody tr:hover{background:color-mix(in srgb,var(--accent,#1667d9) 6%,transparent)}
+      .grdDbRef{font-size:11px;color:var(--muted,#728096);margin-top:2px;font-weight:500}
+      .grdDbTable .debit,.grdDbList .debit{color:#16a36a}.grdDbTable .credit,.grdDbList .credit{color:#e5484d}.grdDbTable .run,.grdDbList .run{color:var(--ink,#12305d)}
+      .grdDbOpenRow td{background:color-mix(in srgb,var(--accent,#1667d9) 7%,transparent);font-weight:700}
+      .grdDbEmpty{padding:26px 14px;text-align:center;color:var(--muted,#8795a8);font-size:13px}
+      .grdDbList{display:none}
+      .grdDbFoot{display:flex;justify-content:flex-end;gap:24px;flex-wrap:wrap;padding:12px 14px;border-top:1px solid var(--line,#dbe3ed);font-weight:800;font-size:13px}
+      .grdDbFoot .debit{color:#16a36a}.grdDbFoot .credit{color:#e5484d}
+      @media(max-width:900px){.grdDbSum{grid-template-columns:1fr 1fr}.grdDbTop{align-items:flex-start}}
+      @media(max-width:700px){
+        .grdDb{padding:12px;border-radius:14px}
+        .grdDbTitle h2{font-size:18px}.grdDbIcon{width:36px;height:36px;font-size:18px}
+        .grdDbTools{width:100%}
+        .grdDbNav{width:100%}.grdDbNav input{flex:1;min-width:0}
+        .grdDbSearch{flex:1 1 100%;width:100%;order:3}
+        .grdDbBtn{flex:1}
+        .grdDbSumCard strong{font-size:16px}
+        .grdDbScroll{display:none}
+        .grdDbList{display:block}
+        .grdDbItem{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:11px 12px;border-bottom:1px solid var(--line,#dbe3ed)}
+        .grdDbItem:last-child{border-bottom:0}
+        .grdDbItem .p{font-weight:700;font-size:13px;min-width:0;overflow-wrap:anywhere}
+        .grdDbItem .a{font-weight:800;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+        .grdDbItem .m{font-size:11px;color:var(--muted,#728096)}
+        .grdDbItem .b{font-size:11px;color:var(--muted,#728096);text-align:right}
+        .grdDbItem.open{background:color-mix(in srgb,var(--accent,#1667d9) 7%,transparent)}
+        .grdDbFoot{justify-content:space-between;gap:10px;font-size:12px}
       }
-      @media print{.grdPager{display:none!important}.grdDayBook{box-shadow:none;border:0;padding:0}.grdDayBookActions{display:none}.grdCashLedgerTable th,.grdCashLedgerTable td{padding:6px;font-size:9px}}
+      @media print{.grdPager,.grdDbTools,.grdDbList{display:none!important}.grdDbScroll{display:block!important}.grdDb{box-shadow:none;border:0;padding:0}.grdDbTable th,.grdDbTable td{padding:6px;font-size:9px}}
     `}</style>
 
-    <div className="grdDayBookTop">
-      <div className="grdDayBookTitle"><div className="grdDayBookIcon">📖</div><div><h2>Cash / Day Book</h2><p>G.R.D. MOTORS · {dealerLabel}</p></div></div>
-      <div className="grdDayBookActions">
-        <div className="grdDayBookDate">📅 <input aria-label="Select date" type="date" value={date} onChange={e=>onDateChange?onDateChange(e.target.value):null}/></div>
-        <button className="grdDayBookBtn" onClick={()=>onPrev?onPrev():onDateChange?.(dayBack(date))}>‹ Previous Day</button>
-        <button className="grdDayBookBtn" onClick={()=>onNext?onNext():onDateChange?.(dayShift(date))}>Next Day ›</button>
-        <input className="grdDayBookSearch" placeholder="Search" value={search} onChange={e=>setSearch(e.target.value)}/>
-        <button className="grdDayBookBtn" onClick={()=>onPrint?onPrint():window.print()}>🖨 Print</button>
-        <button className="grdDayBookBtn primary" onClick={onExport}>⇩ Export</button>
+    <div className="grdDbTop">
+      <div className="grdDbTitle"><div className="grdDbIcon">📖</div><div><h2>Cash / Day Book</h2><p>G.R.D. MOTORS · {dealerLabel}</p></div></div>
+      <div className="grdDbTools">
+        <div className="grdDbNav">
+          <button type="button" aria-label="Previous day" onClick={goPrev}>‹</button>
+          <input aria-label="Select date" type="date" value={date} onChange={e=>onDateChange?onDateChange(e.target.value):null}/>
+          <button type="button" aria-label="Next day" onClick={goNext}>›</button>
+        </div>
+        <input className="grdDbSearch" placeholder="Search" value={search} onChange={e=>setSearch(e.target.value)}/>
+        <button type="button" className="grdDbBtn" onClick={()=>onPrint?onPrint():window.print()}>🖨 Print</button>
+        <button type="button" className="grdDbBtn primary" onClick={onExport}>⇩ Export</button>
       </div>
     </div>
 
-    <div className="grdCashSummary">
-      <div className="grdCashSummaryCard open"><span>Opening Balance</span><strong>₹{money(openingBalance)}</strong></div>
-      <div className="grdCashSummaryCard debit"><span>Total Debit · Cash In</span><strong>₹{money(totalReceipts)}</strong></div>
-      <div className="grdCashSummaryCard credit"><span>Total Credit · Cash Out</span><strong>₹{money(totalPayments)}</strong></div>
-      <div className="grdCashSummaryCard running"><span>Running Balance / Closing</span><strong>₹{money(close)}</strong></div>
-    </div>
+    {!hideSummary&&<div className="grdDbSum">
+      <div className="grdDbSumCard"><span>Opening Balance</span><strong>₹{money(openingBalance)}</strong></div>
+      <div className="grdDbSumCard"><span>Total Debit · Cash In</span><strong className="debit">₹{money(totalReceipts)}</strong></div>
+      <div className="grdDbSumCard"><span>Total Credit · Cash Out</span><strong className="credit">₹{money(totalPayments)}</strong></div>
+      <div className="grdDbSumCard"><span>Closing Balance</span><strong>₹{money(close)}</strong></div>
+    </div>}
 
-    <div className="grdCashLedger">
-      <table className="grdCashLedgerTable">
-        <thead><tr>
-          <th>Date</th>
-          <th>Particulars</th>
-          <th>Opening Balance</th>
-          <th>Debit<br/><small>Cash In</small></th>
-          <th>Credit<br/><small>Cash Out</small></th>
-          <th>Running Balance</th>
-        </tr></thead>
-        <tbody>
-          {page===1&&<tr>
-            <td>{dateLabel}</td>
-            <td><b>Opening Balance</b></td>
-            <td>{money(openingBalance)}</td>
-            <td>—</td>
-            <td>—</td>
-            <td className="running">{money(openingBalance)}</td>
-          </tr>}
-          {pageRows.map((row,i)=><tr key={row.id||row.no||i}>
-            <td>{formatDate(row.date||date)}</td>
-            <td>{row.particulars||'—'}{row.no && <div style={{fontSize:10,color:'#728096',marginTop:2}}>{row.type==='DEBIT'?'Receipt':'Voucher'}: {row.no}{row.folio ? ' · Page '+row.folio : ''}</div>}</td>
-            <td>{money(row.rowOpening)}</td>
-            <td className="debit">{row.debit ? money(row.debit) : '—'}</td>
-            <td className="credit">{row.credit ? money(row.credit) : '—'}</td>
-            <td className="running">{money(row.running)}</td>
-          </tr>)}
-          {!rows.length && <tr className="grdCashLedgerEmpty"><td colSpan="6">No cash transactions for this date.</td></tr>}
-        </tbody>
-      </table>
+    <div className="grdDbBox">
+      <div className="grdDbScroll">
+        <table className="grdDbTable">
+          <thead><tr>
+            <th className="c1">Date</th>
+            <th className="c2">Particulars</th>
+            <th className="c3 num">Debit<small>Cash In</small></th>
+            <th className="c4 num">Credit<small>Cash Out</small></th>
+            <th className="c5 num">Balance</th>
+          </tr></thead>
+          <tbody>
+            {page===1&&<tr className="grdDbOpenRow">
+              <td className="date">{dateLabel}</td>
+              <td>Opening Balance</td>
+              <td className="num">—</td>
+              <td className="num">—</td>
+              <td className="num run">{money(openingBalance)}</td>
+            </tr>}
+            {pageRows.map((row,i)=><tr key={row.id||row.no||i}>
+              <td className="date">{formatDate(row.date||date)}</td>
+              <td><div style={{fontWeight:700}}>{row.particulars||'—'}</div>{row.no&&<div className="grdDbRef">{ref(row)}</div>}</td>
+              <td className="num debit">{row.debit?money(row.debit):'—'}</td>
+              <td className="num credit">{row.credit?money(row.credit):'—'}</td>
+              <td className="num run">{money(row.running)}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="grdDbList">
+        {page===1&&<div className="grdDbItem open"><div className="p">Opening Balance</div><div className="a run">₹{money(openingBalance)}</div><div className="m">{dateLabel}</div></div>}
+        {pageRows.map((row,i)=><div className="grdDbItem" key={'m'+(row.id||row.no||i)}>
+          <div className="p">{row.particulars||'—'}</div>
+          <div className={'a '+(row.debit?'debit':'credit')}>{row.debit?'+ ':'− '}₹{money(row.debit||row.credit)}</div>
+          <div className="m">{formatDate(row.date||date)}{ref(row)?' · '+ref(row):''}</div>
+          <div className="b">Bal ₹{money(row.running)}</div>
+        </div>)}
+      </div>
+
+      {!rows.length&&<div className="grdDbEmpty">No cash transactions for this date.</div>}
       <Pagination page={page} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={setPageSize}/>
-      <div className="grdCashLedgerFooter">
-        <span>Debit ₹{money(totalReceipts)}</span>
-        <span>Credit ₹{money(totalPayments)}</span>
-        <span className="running">Running Balance ₹{money(close)}</span>
-      </div>
+      {!hideSummary&&<div className="grdDbFoot">
+        <span>Debit <span className="debit">₹{money(totalReceipts)}</span></span>
+        <span>Credit <span className="credit">₹{money(totalPayments)}</span></span>
+        <span>Closing ₹{money(close)}</span>
+      </div>}
     </div>
   </div>;
 }
-

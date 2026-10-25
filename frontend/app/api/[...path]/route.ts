@@ -1140,7 +1140,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="dealer/stock"&&a.scope==="dealer"){
       const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1",[num(a.dealer_id)]);
       const name=dr.rows[0]?.name||"";
-      const r=await pool.query("SELECT * FROM vehicle WHERE stage='Delivery Challan' AND lower(trim(COALESCE(dealer_name,'')))=lower(trim($1)) ORDER BY date DESC,id DESC",[name]);
+      const r=await pool.query("SELECT v.*,dc.challan_no FROM vehicle v LEFT JOIN LATERAL (SELECT c.challan_no FROM delivery_challan c WHERE c.vehicle_id=v.id AND COALESCE(c.cancelled,false)=false ORDER BY c.id DESC LIMIT 1) dc ON true WHERE v.stage='Delivery Challan' AND lower(trim(COALESCE(v.dealer_name,'')))=lower(trim($1)) ORDER BY v.date DESC,v.id DESC",[name]);
       return Response.json({vehicles:r.rows,count:r.rowCount});
     }
     if(p==="dealer/old-rickshaws"&&a.scope==="dealer"){

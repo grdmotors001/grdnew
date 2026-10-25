@@ -98,6 +98,12 @@ export function DealerPortal({ dealer, onLogout }) {
   const [loans, setLoans] = useState([]);
   const [seizedVehicles, setSeizedVehicles] = useState([]);
   const [tab, setTab] = useState('dashboard');
+  const [bpSearch, setBpSearch] = useState(''); // Balance Pending: toolbar search + refresh
+  const [bpRefresh, setBpRefresh] = useState(0);
+  const [openStock, setOpenStock] = useState({}); // mobile My Stock: tapped rows expanded
+  const [salePreset, setSalePreset] = useState(null); // stock row -> Create Sale (item already chosen)
+  useEffect(() => { if (tab !== 'create-sale') setSalePreset(null); }, [tab]);
+  const startSaleFromStock = (preset) => { setSalePreset(preset); setTab('create-sale'); };
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [mobileNav, setMobileNav] = useState(false);
@@ -203,7 +209,7 @@ export function DealerPortal({ dealer, onLogout }) {
   }, []);
 
   const q = search.trim().toLowerCase();
-  const filteredStock = (stock?.vehicles || []).filter(v => [v.date,v.chassis_no,v.model_name,v.motor_no,v.colour].join(' ').toLowerCase().includes(q));
+  const filteredStock = (stock?.vehicles || []).filter(v => [v.date,v.challan_no,v.chassis_no,v.model_name,v.battery_maker,v.colour].join(' ').toLowerCase().includes(q));
   const filteredOldStock = (oldStock?.rickshaws || []).filter(v => [v.sale_date,v.vehicle_reg_no,v.model_name,v.owner_name,v.sp_no].join(' ').toLowerCase().includes(q));
   const unsoldOldStock = filteredOldStock.filter(v => String(v.status||'').toLowerCase() === 'available');
   const filteredBatteryStock = (batteryStock?.batteries || []).filter(v => [v.date,v.battery_maker,v.battery_no,v.reference_no].join(' ').toLowerCase().includes(q));
@@ -222,7 +228,7 @@ export function DealerPortal({ dealer, onLogout }) {
   const personName = isSalesman ? String(dealer?.salesman || 'Salesman') : dealerName;
 
   const standaloneForm =
-    (tab === 'create-sale' && canCreateSale) ? <DealerCreateSaleForm dealer={dealer} stock={stock} oldStock={oldStock} batteryStock={batteryStock} onBack={() => setTab('dashboard')} /> :
+    (tab === 'create-sale' && canCreateSale) ? <DealerCreateSaleForm key={salePreset ? (salePreset.kind + (salePreset.chassis_no || salePreset.battery_no || '')) : 'free'} dealer={dealer} stock={stock} oldStock={oldStock} batteryStock={batteryStock} preset={salePreset} onBack={() => setTab(salePreset ? (salePreset.kind === 'battery' ? 'battery-stock' : 'stock') : 'dashboard')} /> :
     tab === 'newloan' ? <DealerNewLoanForm onBack={() => setTab('dashboard')} /> :
     (tab === 'expenses-create' && canCashBook) ? <div className="dealerPage"><div style={{marginBottom:10}}><button type="button" className="btn" onClick={() => setTab('dashboard')}>← Back</button></div><DealerExpenseCreatePage /></div> :
     (tab === 'battery-withdrawal' && canBatteryWithdrawal) ? <DealerBatteryWithdrawal dealer={dealer} onBack={() => setTab('dashboard')} /> :
@@ -339,7 +345,7 @@ export function DealerPortal({ dealer, onLogout }) {
             (!['old-stock','balance-pending'].includes(key) || canPendingFlow)
           );
           return (
-            <div className="moduleStrip dealerModuleStrip" aria-label={activeHeaderSection}>
+            <div className={"moduleStrip dealerModuleStrip"+((activeHeaderSection==='Bahikhata'||activeHeaderSection==='Battery Adjustment')?' bkStripHide':'')} aria-label={activeHeaderSection}>
               {items.map(([key,label]) => (
                 <button type="button" key={key}
                   className={'moduleStripItem'+(tab===key?' active':'')}
@@ -425,14 +431,70 @@ export function DealerPortal({ dealer, onLogout }) {
       })()}
       {error && <div className="error dealerError">{error}</div>}
 
+      {(activeHeaderSection==='Bahikhata' || activeHeaderSection==='Battery Adjustment') && !standaloneForm && <>
+        <style>{`
+          .bkBlocks{display:none}
+          .mxChev,.mxOnlyMobile{display:none}
+          @media(max-width:700px){
+            .mxHead{flex-direction:row!important;align-items:flex-start!important;justify-content:space-between;gap:10px}
+            .mxHead p{display:none}
+            .mxTabs{display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important}
+            .mxTabs .btn{width:100%;justify-content:center;text-align:center;padding:10px 6px;font-size:13px;line-height:1.2;white-space:normal}
+            .mxHide{display:none!important}
+            .mxTools{display:grid!important;grid-template-columns:minmax(0,1fr) auto;gap:8px;width:100%}
+            .mxTools .dealerSearch{grid-column:1/-1;order:3;width:100%}
+            .mxOnlyMobile{display:inline-flex}
+            .mxTable .table tfoot{display:none}
+            .mxTable .table tbody tr.mxRow{display:grid;column-gap:10px;row-gap:3px;align-items:center;padding:12px 14px;cursor:pointer}
+            .mxTable .table tbody tr.mxRow.open{border-color:var(--accent)}
+            .mxTable .table tbody tr.mxRow.three{grid-template-columns:auto minmax(0,1fr) auto}
+            .mxTable .table tbody tr.mxRow.two{grid-template-columns:minmax(0,1fr) auto}
+            .mxTable .table tbody tr.mxRow td:before{display:none}
+            .mxTable .table tbody tr.mxRow td.mxK{display:block;border:0;padding:0;min-width:0;overflow-wrap:anywhere}
+            .mxTable tr.three td.k1{grid-area:1/1}.mxTable tr.three td.k2{grid-area:1/2;font-size:14px}.mxTable tr.three td.k3{grid-area:1/3;text-align:right;font-size:12px;color:var(--muted);white-space:nowrap}
+            .mxTable tr.two td.k1{grid-area:1/1;font-size:14px}.mxTable tr.two td.k2{grid-area:1/2;text-align:right;font-size:14px}
+            .mxTable tr.two td.k3{grid-area:2/1;font-size:12px;color:var(--muted)}.mxTable tr.two td.k4{grid-area:2/2;text-align:right;font-size:12px;color:var(--muted);white-space:nowrap}
+            .mxTable .mxPg{display:inline-block;min-width:34px;text-align:center;padding:3px 7px;border-radius:8px;background:color-mix(in srgb,var(--accent) 14%,transparent);font-weight:800;font-size:12px}
+            .mxTable .mxChev{display:inline-block;margin-left:6px;font-size:11px;transition:transform .15s}
+            .mxTable tr.open .mxChev{transform:rotate(180deg)}
+            .mxTable .table tbody tr.mxRow td.mxM{display:none}
+            .mxTable .table tbody tr.mxRow.open td.mxM{display:flex;grid-column:1/-1;border-bottom:0;border-top:1px solid var(--line);padding:9px 0}
+            .mxTable .table tbody tr.mxRow.open td.mxM:before{display:block}
+            .mxTable .table tbody tr.mxRow.open td.mxAct{flex-wrap:wrap;gap:6px}
+            .mxTable .table tbody tr.mxRow.open td.mxAct:before{display:none}
+            .mxTable tr:not(.open) .mxPhone{display:none}
+            .dealerModuleStrip.bkStripHide{display:none}
+            .bkBlocks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:4px 0 14px}
+            .bkBlock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:68px;padding:8px 4px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:12px;font-weight:700;line-height:1.2;text-align:center;cursor:pointer}
+            .bkBlock i{font-style:normal;font-size:20px;line-height:1}
+            .bkBlock.active{background:var(--accent);border-color:var(--accent);color:#fff}
+            .bkBlock:active{transform:scale(.97)}
+          }
+        `}</style>
+        <div className="bkBlocks" role="tablist" aria-label={activeHeaderSection} style={activeHeaderSection==='Battery Adjustment'?{gridTemplateColumns:'repeat(2,minmax(0,1fr))'}:undefined}>
+          {(activeHeaderSection==='Battery Adjustment'
+            ? [['battery-swap','🔄'],['battery-withdrawal','⬇️'],['battery-addition','🔌'],['battery-stock','🔋']]
+            : [['cashbook','📒'],['all-customers','👥'],['all-receipt','🧾'],['all-expenses','💸'],['handover-create','🤝'],['payments','📲']])
+            .map(([key,icon])=>{const it=dealerHeaderSections.find(x=>x.label===activeHeaderSection).items.find(x=>x[0]===key); return it?{key,icon,label:it[1]}:null})
+            .filter(b=>b
+              && (!['cashbook','handover-create'].includes(b.key) || canCashBook)
+              && (b.key!=='battery-swap' || canBatterySwap) && (b.key!=='battery-withdrawal' || canBatteryWithdrawal) && (b.key!=='battery-addition' || canBatteryAddition))
+            .map(b=><button type="button" role="tab" key={b.key} className={'bkBlock'+((tab===b.key||(b.key==='handover-create'&&tab==='cash-handover'))?' active':'')} aria-selected={tab===b.key} onClick={()=>setTab(b.key)}><i>{b.icon}</i><span>{b.label}</span></button>)}
+        </div>
+      </>}
+
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
         {nav.filter(x=>['dashboard','stock','pending-sales'].includes(x[0]) && (x[0] !== 'pending-sales' || canPendingFlow)).map(([key,icon,label])=>
           <button type="button" key={key} className={sidebarKeyOf(tab)===key?'active':''} onClick={()=>{goToSidebarTab(key);setMobileNav(false)}}>
             <span>{icon}</span><small>{label}</small>
           </button>
         )}
-        <button type="button" onClick={()=>{setMobileNav(false);setSearchOpen(true)}}><span>🔍</span><small>Search</small></button>
-        <button type="button" className={mobileNav?'active':''} onClick={()=>setMobileNav(v=>!v)}><span>☰</span><small>More</small></button>
+        {canCashBook
+          ? <button type="button" className={activeHeaderSection==='Bahikhata'?'active':''} onClick={()=>{setMobileNav(false);setTab('cashbook')}}><span>📒</span><small>Bahikhata</small></button>
+          : <button type="button" onClick={()=>{setMobileNav(false);setSearchOpen(true)}}><span>🔍</span><small>Search</small></button>}
+        {canBatteryAdjustment
+          ? <button type="button" className={activeHeaderSection==='Battery Adjustment'?'active':''} onClick={()=>{setMobileNav(false);setTab(defaultBatteryTab)}}><span>🔋</span><small>Battery</small></button>
+          : <button type="button" className={mobileNav?'active':''} onClick={()=>setMobileNav(v=>!v)}><span>☰</span><small>More</small></button>}
       </nav>
       <MobileSearchSheet open={searchOpen} onClose={()=>setSearchOpen(false)} items={dealerSearchItems} onPick={goToSidebarTab} recentKey="grd_dealer_recent_menu" />
       {standaloneForm || <>
@@ -442,7 +504,7 @@ export function DealerPortal({ dealer, onLogout }) {
       {tab!=='dashboard' && tab!=='profile' && tab!=='password' && <>
         <div className="dealerContentToolbar">
           <div className="dealerPageIntro"><span className="dealerSectionIcon">{nav.find(x=>x[0]===tab)?.[1]}</span><div><strong>{nav.find(x=>x[0]===tab)?.[2]}</strong><small>Dealer-wise records</small></div></div>
-          {tab!=='cashbook' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
+          {tab==='balance-pending' ? <div style={{display:'flex',gap:8,alignItems:'center',flex:'none',width:'min(460px,100%)',minWidth:0}}><input className="input dealerSearch" style={{flex:1,minWidth:0}} placeholder="Search page no. / name / mobile…" value={bpSearch} onChange={e=>setBpSearch(e.target.value)}/><button type="button" className="btn" style={{height:40,whiteSpace:'nowrap'}} onClick={()=>setBpRefresh(n=>n+1)}>↻ Refresh</button></div> : tab!=='cashbook' && activeHeaderSection!=='Bahikhata' && <input className="input dealerSearch" placeholder="Search chassis, bill, challan, model…" value={search} onChange={e=>setSearch(e.target.value)}/>}
         </div>
         {tab==='cashbook' && canCashBook && <DealerCashBook/>}
         {tab==='all-expenses' && canCashBook && <DealerAllExpenses dealer={dealer}/>}
@@ -455,10 +517,28 @@ export function DealerPortal({ dealer, onLogout }) {
             <td>{invoiced?<span className="muted">Invoiced</span>:<button className="btn primary" onClick={()=>{setSelectedPurchase(v);setTab('customer-invoice')}}>Create Invoice</button>}</td></>}}/>}
         {tab==='payments' && <DealerPaymentPage dealer={dealer}/>}
         {tab==='pending-sales' && canPendingFlow && <DealerPendingSalesPage/>}
-        {tab==='balance-pending' && canPendingFlow && <DealerBalancePending/>}
-        {tab==='stock' && <DealerTable headers={['Date','Chassis No.','Model','Motor No.','Colour']} rows={filteredStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Chassis No."><b>{v.chassis_no}</b></td><td data-label="Model">{v.model_name}</td><td data-label="Motor No.">{v.motor_no}</td><td data-label="Colour">{v.colour}</td></>}/>}
+        {tab==='balance-pending' && canPendingFlow && <DealerBalancePending search={bpSearch} refreshKey={bpRefresh}/>}
+        {tab==='stock' && <><style>{`
+          .sxChev{display:none}
+          @media(max-width:700px){
+            .dealerStockExpand .table tbody tr.sxRow{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:3px;padding:12px 14px;cursor:pointer}
+            .dealerStockExpand .table tbody tr.sxRow.open{border-color:var(--accent)}
+            .dealerStockExpand .table tbody tr.sxRow td:before{display:none}
+            .dealerStockExpand .table tbody tr.sxRow td.sxKeep{display:block;border:0;padding:0;min-width:0;overflow-wrap:anywhere}
+            .dealerStockExpand .table tbody tr.sxRow td.sxDate{grid-area:1/1;text-align:left;font-size:12px;color:var(--muted)}
+            .dealerStockExpand .table tbody tr.sxRow td.sxChallan{grid-area:1/2;text-align:right;font-size:12px;color:var(--muted)}
+            .dealerStockExpand .table tbody tr.sxRow td.sxModel{grid-area:2/1;text-align:left;font-size:13px;font-weight:600}
+            .dealerStockExpand .table tbody tr.sxRow td.sxChassis{grid-area:2/2;text-align:right;font-size:13px}
+            .dealerStockExpand .sxChev{display:inline-block;margin-left:8px;font-size:11px;color:var(--muted);transition:transform .15s}
+            .dealerStockExpand tr.open .sxChev{transform:rotate(180deg)}
+            .dealerStockExpand .table tbody tr.sxRow td.sxMore{display:none}
+            .dealerStockExpand .table tbody tr.sxRow.open td.sxMore{display:flex;grid-column:1/-1;border-bottom:0;border-top:1px solid var(--line);padding:9px 0}
+            .dealerStockExpand .table tbody tr.sxRow.open td.sxMore:first-of-type{margin-top:6px}
+            .dealerStockExpand .table tbody tr.sxRow.open td.sxMore:before{display:block}
+          }
+        `}</style><DealerTable wrapClass="dealerStockExpand" headers={canCreateSale?['Date','Challan No.','Chassis No.','Model','Battery Make','Colour','Action']:['Date','Challan No.','Chassis No.','Model','Battery Make','Colour']} rows={filteredStock} pageSize={35} rowProps={v=>({className:'sxRow'+(openStock[v.id??v.chassis_no]?' open':''),'aria-expanded':!!openStock[v.id??v.chassis_no],onClick:()=>setOpenStock(m=>({...m,[v.id??v.chassis_no]:!m[v.id??v.chassis_no]}))})} row={v=><><td className="sxKeep sxDate" data-label="Date">{formatDate(v.date)}</td><td className="sxKeep sxChallan" data-label="Challan No.">{v.challan_no||'—'}</td><td className="sxKeep sxChassis" data-label="Chassis No."><b>{v.chassis_no}</b><span className="sxChev">▾</span></td><td className="sxKeep sxModel" data-label="Model">{v.model_name}</td><td className="sxMore" data-label="Battery Make">{v.battery_maker||'—'}</td><td className="sxMore" data-label="Colour">{v.colour}</td>{canCreateSale&&<td className="sxMore" data-label="Action"><button type="button" className="btn primary" onClick={e=>{e.stopPropagation();startSaleFromStock({kind:'new',chassis_no:v.chassis_no})}}>Create Sale</button></td>}</>}/></>}
 {tab==='old-stock' && canPendingFlow && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div>{oldSaleNotice&&<div className="muted" style={{margin:'0 0 10px',color:'#15803d',fontWeight:700}}>{oldSaleNotice}</div>}<div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Unsold Stock</span><b>{unsoldOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{unsoldOldStock.filter(v=>!v.pending_sale_id).length}</b></div><div className="dealerOldStockStat"><span>Pending Sale</span><b>{unsoldOldStock.filter(v=>v.pending_sale_id).length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{unsoldOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{v.pending_sale_id?'PENDING SALE':String(v.status||'available').toUpperCase()}</span></td><td data-label="Action">{canOldRickshawSales&&!v.pending_sale_id?<button type="button" className="btn primary" onClick={()=>{setOldSaleNotice('');setOldSaleRow(v)}}>Create Sale</button>:<span className="muted">—</span>}</td></tr>)}{!unsoldOldStock.length&&<tr><td colSpan="7"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div>{oldSaleRow&&<OldRickshawSaleModal manual={isUnregistered} row={oldSaleRow} onClose={()=>setOldSaleRow(null)} onDone={(msg)=>{setOldSaleRow(null);setOldSaleNotice(msg);get('/dealer/old-rickshaws').then(setOldStock).catch(()=>{})}}/>}</div>}
-        {tab==='battery-stock' && <DealerTable headers={['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td></>}/>}
+        {tab==='battery-stock' && <DealerTable headers={canCreateSale?['Date','Battery Maker','Battery No.','Reference','Action']:['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td>{canCreateSale&&<td data-label="Action"><button type="button" className="btn primary" onClick={()=>startSaleFromStock({kind:'battery',battery_no:String(v.battery_no||'').trim()})}>Create Sale</button></td>}</>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
         {tab==='all-receipt' && <DealerAllReceiptsPage dealer={dealer} />}
         {tab==='all-customers' && <DealerAllCustomersPage />}
@@ -473,54 +553,100 @@ export function DealerPortal({ dealer, onLogout }) {
 }
 
 function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCount,latest,onNewLoan,onOpen,canCashBook,canCreateSale,cashPos}) {
-  const cards = [
-    ['New Stock', stockCount ?? 0, 'stock'],
-    ['Delivery Challans', challanCount ?? 0, 'challans'],
-    ['Tax Invoices', invoiceCount ?? 0, 'invoices'],
-    ['Loan Applications', loanCount ?? 0, 'loan-status'],
-    ...(canCashBook ? [['Cash in Hand', cashPos ? '₹ '+Number(cashPos.cash_at_dealer||0).toLocaleString('en-IN',{maximumFractionDigits:2}) : '—', 'cashbook']] : []),
+  const cash = cashPos ? '₹ '+Number(cashPos.cash_at_dealer||0).toLocaleString('en-IN',{maximumFractionDigits:2}) : '—';
+  const actions = [
+    {icon:'＋', label:'New Loan', onClick:onNewLoan, show:true},
+    {icon:'🛻', label:'Create Sale', onClick:()=>onOpen('create-sale'), show:!!canCreateSale},
+    {icon:'🧾', label:'Create Receipt', onClick:()=>onOpen('receipt-create'), show:!!canCashBook},
+    {icon:'💸', label:'Shop Expense', onClick:()=>onOpen('expenses-create'), show:!!canCashBook},
+  ].filter(a=>a.show);
+  const stats = [
+    ...(canCashBook ? [{key:'cashbook', icon:'💰', label:'Cash in Hand', value:cash, hero:true}] : []),
+    {key:'stock', icon:'📦', label:'New Stock', value:stockCount ?? 0},
+    {key:'challans', icon:'🚚', label:'Delivery Challans', value:challanCount ?? 0},
+    {key:'invoices', icon:'🧾', label:'Tax Invoices', value:invoiceCount ?? 0},
+    {key:'loan-status', icon:'🏦', label:'Loan Applications', value:loanCount ?? 0},
   ];
-  return <div className="dealerPage">
-    <div className="dealerPanel" style={{marginBottom:14}}>
-      <div className="dealerPanelHead">
-        <div><h3>Welcome, {dealerName}</h3><p>Dealer dashboard and recent activity.</p></div>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <button type="button" className="btn primary" onClick={onNewLoan}>＋ New Loan</button>
-          {canCreateSale && <button type="button" className="btn primary" onClick={()=>onOpen('create-sale')}>＋ Create Sale</button>}
-          {canCashBook && <button type="button" className="btn primary" onClick={()=>onOpen('receipt-create')}>🧾 Create Receipt</button>}
-          {canCashBook && <button type="button" className="btn primary" onClick={()=>onOpen('expenses-create')}>💸 Shop Expense</button>}
-        </div>
-      </div>
-      <div className="dealerDashboardStats">
-        {cards.map(([label,value,key]) => <button type="button" className="dealerDashStat" key={key} onClick={()=>onOpen(key)}>
-          <span>{label}</span><b>{value}</b>
-        </button>)}
-      </div>
-      <div className="dealerDashboardActions">
-        <button type="button" className="btn" onClick={()=>onOpen('stock')}>My Stock</button>
-        <button type="button" className="btn" onClick={()=>onOpen('challans')}>Delivery Challans</button>
-        <button type="button" className="btn" onClick={()=>onOpen('invoices')}>Tax Invoices</button>
-        {canCashBook && <button type="button" className="btn" onClick={()=>onOpen('cashbook')}>Bahikhata</button>}
-      </div>
+  return <div className="dealerPage dbx">
+    <style>{`
+      .dbx{display:grid;gap:16px}
+      .dbxHello{display:flex;align-items:center;gap:12px}
+      .dbxAvatar{width:44px;height:44px;flex:none;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:#fff;font-weight:800;font-size:18px}
+      .dbxHello h2{margin:0;font-size:20px;line-height:1.2;color:var(--ink);overflow-wrap:anywhere}
+      .dbxHello p{margin:2px 0 0;font-size:12px;color:var(--muted)}
+      .dbxActions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+      .dbxAct{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:78px;padding:10px 6px;border-radius:14px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:700;font-size:13px;text-align:center;cursor:pointer;line-height:1.2}
+      .dbxAct i{font-style:normal;font-size:22px;line-height:1}
+      .dbxAct:active{transform:scale(.97)}
+      .dbxStats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+      .dbxStat{display:flex;flex-direction:column;gap:6px;align-items:flex-start;text-align:left;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;min-width:0}
+      .dbxStat:hover{border-color:var(--accent)}
+      .dbxStat .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-size:17px;background:color-mix(in srgb,var(--accent) 13%,transparent)}
+      .dbxStat span.l{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+      .dbxStat b{font-size:24px;line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+      .dbxStat.hero{background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 65%,#000));border-color:transparent;color:#fff}
+      .dbxStat.hero .ic{background:#ffffff26}.dbxStat.hero span.l{color:#ffffffcc}
+      .dbxFeed{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden}
+      .dbxFeedHead{padding:14px 16px;border-bottom:1px solid var(--line)}
+      .dbxFeedHead h3{margin:0;font-size:16px;color:var(--ink)}.dbxFeedHead p{margin:2px 0 0;font-size:12px;color:var(--muted)}
+      .dbxItem{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 12px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line)}
+      .dbxItem:last-child{border-bottom:0}
+      .dbxItem .ty{grid-row:1/3;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:17px;background:color-mix(in srgb,var(--accent) 13%,transparent)}
+      .dbxItem .no{font-weight:800;font-size:14px;color:var(--ink);min-width:0;overflow-wrap:anywhere}
+      .dbxItem .dt{font-size:12px;color:var(--muted);text-align:right;white-space:nowrap}
+      .dbxItem .rf{grid-column:2/4;font-size:12px;color:var(--muted);min-width:0;overflow-wrap:anywhere}
+      .dbxEmpty{padding:24px 16px;text-align:center;color:var(--muted);font-size:13px}
+      @media(max-width:1000px){.dbxStats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+      @media(max-width:700px){
+        .dbxActions{grid-template-columns:1fr 1fr}
+        .dbxAct{flex-direction:row;justify-content:flex-start;gap:10px;min-height:54px;padding:10px 14px;font-size:14px;text-align:left}
+        .dbxAct i{font-size:20px}
+        .dbxStats{grid-template-columns:1fr 1fr;gap:8px}
+        .dbxStat{padding:12px}.dbxStat b{font-size:20px}
+        .dbxStat.hero{grid-column:1/-1;flex-direction:row;align-items:center;gap:12px}
+        .dbxStat.hero .t{display:flex;flex-direction:column;gap:2px}
+        .dbxStat.hero b{font-size:26px}
+        .dbxItem{padding:10px 12px}
+      }
+    `}</style>
+
+    <div className="dbxHello">
+      <div className="dbxAvatar">{String(dealerName||'D').trim().charAt(0).toUpperCase()}</div>
+      <div><h2>Welcome, {dealerName}</h2><p>Dealer dashboard and recent activity</p></div>
     </div>
-    <div className="dealerPanel">
-      <div className="dealerPanelHead"><div><h3>Recent Activity</h3><p>Latest delivery challans and tax invoices.</p></div></div>
-      {latest?.length ? <div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Type</th><th>No.</th><th>Date</th><th>Reference</th></tr></thead><tbody>
-        {latest.map((x,i)=><tr key={(x.type||'')+'-'+(x.no||'')+'-'+i}><td>{x.type}</td><td><b>{x.no||'—'}</b></td><td>{formatDate(x.date)}</td><td>{x.text||'—'}</td></tr>)}
-      </tbody></table></div> : <div className="dealerEmpty">No recent activity.</div>}
+
+    <div className="dbxActions">
+      {actions.map(a=><button key={a.label} type="button" className="dbxAct" onClick={a.onClick}><i>{a.icon}</i><span>{a.label}</span></button>)}
+    </div>
+
+    <div className="dbxStats">
+      {stats.map(c=><button key={c.key} type="button" className={'dbxStat'+(c.hero?' hero':'')} onClick={()=>onOpen(c.key)}>
+        <span className="ic">{c.icon}</span>
+        <span className="t"><span className="l">{c.label}</span><b>{c.value}</b></span>
+      </button>)}
+    </div>
+
+    <div className="dbxFeed">
+      <div className="dbxFeedHead"><h3>Recent Activity</h3><p>Latest delivery challans and tax invoices</p></div>
+      {latest?.length ? latest.map((x,i)=><div className="dbxItem" key={(x.type||'')+'-'+(x.no||'')+'-'+i}>
+        <span className="ty">{/invoice/i.test(x.type||'')?'🧾':'🚚'}</span>
+        <span className="no">{x.no||'—'}</span>
+        <span className="dt">{formatDate(x.date)}</span>
+        <span className="rf">{[x.type,x.text].filter(Boolean).join(' · ')||'—'}</span>
+      </div>) : <div className="dbxEmpty">No recent activity.</div>}
     </div>
   </div>;
 }
 
-function DealerTable({headers,rows,row,pageSize=35}) {
+function DealerTable({headers,rows,row,pageSize=35,rowProps,wrapClass=''}) {
   const [page,setPage]=useState(1);
   const totalPages=Math.max(1,Math.ceil((rows?.length||0)/pageSize));
   const current=Math.min(page,totalPages);
   useEffect(()=>{if(page>totalPages)setPage(totalPages)},[page,totalPages]);
   const visible=(rows||[]).slice((current-1)*pageSize,current*pageSize);
   return <div className="card">
-    <div className="tablewrap dealerTable"><table className="table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead>
-      <tbody>{visible.map((v,i)=><tr key={v?.id ?? v?.chassis_no ?? v?.challan_no ?? v?.bill_no ?? i}>{row(v)}</tr>)}
+    <div className={"tablewrap dealerTable"+(wrapClass?" "+wrapClass:"")}><table className="table"><thead><tr>{headers.map(h=><th key={h}>{h}</th>)}</tr></thead>
+      <tbody>{visible.map((v,i)=><tr key={v?.id ?? v?.chassis_no ?? v?.challan_no ?? v?.bill_no ?? i} {...(rowProps?rowProps(v):{})}>{row(v)}</tr>)}
       {!visible.length && <tr><td colSpan={headers.length}><div className="dealerEmpty">No records found.</div></td></tr>}</tbody>
     </table></div>
     {totalPages>1 && <div className="dealerTablePager"><button type="button" className="btn" disabled={current<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>Previous</button><span>Page {current} / {totalPages}</span><button type="button" className="btn" disabled={current>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>Next</button></div>}
@@ -752,36 +878,53 @@ function DealerOldRickshawSold() {
     </table></div>}
   </div>;
 }
-function DealerBalancePending() {
+function DealerBalancePending({search='',refreshKey=0}) {
   // Pending > Balance Pending: Billed customers jinka balance amount abhi baaki hai.
+  // Search + Refresh page ke upar toolbar me hain. Mobile: list me sirf naam + balance, touch par poori detail.
   const [rows,setRows]=useState([]);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
-  const [search,setSearch]=useState('');
+  const [open,setOpen]=useState({});
   const load=async()=>{
     try{setError('');const r=await get('/dealer/cash-book/customers?status=BILLED&payable_only=1',{noClientCache:true,timeoutMs:60000});setRows(r.customers||[]);}
     catch(e){setError(e.message||'Could not load balance pending customers.')}
     finally{setLoading(false)}
   };
-  useEffect(()=>{load()},[]);
+  useEffect(()=>{load()},[refreshKey]);
   const q=search.trim().toLowerCase();
   const list=rows.filter(c=>Number(c.balance||0)>0&&(!q||[c.page_no,c.name,c.phone,c.vehicle_no].join(' ').toLowerCase().includes(q)));
   const total=list.reduce((t,c)=>t+Number(c.balance||0),0);
   const money=(n)=>'₹ '+Number(n||0).toLocaleString('en-IN');
   return <div className="dealerPage"><div className="dealerPanel">
-    <div className="dealerPanelHead"><div><h3>Balance Pending</h3><p>Billed customers jinka balance amount abhi baaki hai.</p></div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><input className="input dealerSearch" placeholder="Search page no. / name / mobile…" value={search} onChange={e=>setSearch(e.target.value)}/><button type="button" className="btn" onClick={load}>↻ Refresh</button></div></div>
+    <style>{`
+      .bpChev{display:none}
+      @media(max-width:700px){
+        .dealerBpTable .table tbody tr.bpRow{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:center;padding:13px 14px;cursor:pointer}
+        .dealerBpTable .table tbody tr.bpRow.open{border-color:var(--accent)}
+        .dealerBpTable .table tbody tr.bpRow td:before{display:none}
+        .dealerBpTable .table tbody tr.bpRow td.bpKeep{display:block;border:0;padding:0;min-width:0;overflow-wrap:anywhere}
+        .dealerBpTable .table tbody tr.bpRow td.bpName{grid-area:1/1;text-align:left;font-size:14px}
+        .dealerBpTable .table tbody tr.bpRow td.bpBal{grid-area:1/2;text-align:right;font-size:14px}
+        .dealerBpTable .bpChev{display:inline-block;margin-left:8px;font-size:11px;color:var(--muted);transition:transform .15s}
+        .dealerBpTable tr.open .bpChev{transform:rotate(180deg)}
+        .dealerBpTable .table tbody tr.bpRow td.bpMore{display:none}
+        .dealerBpTable .table tbody tr.bpRow.open td.bpMore{display:flex;grid-column:1/-1;border-bottom:0;border-top:1px solid var(--line);padding:9px 0}
+        .dealerBpTable .table tbody tr.bpRow.open td.bpMore:first-of-type{margin-top:10px}
+        .dealerBpTable .table tbody tr.bpRow.open td.bpMore:before{display:block}
+        .dealerBpTable .table tfoot{display:none}
+      }
+    `}</style>
     {error&&<ErrorBanner message={error}/>}
     {!loading&&<div className="dealerDashboardStats" style={{marginBottom:12,gridTemplateColumns:'repeat(2,minmax(0,1fr))'}}>
       <div className="dealerDashStat" style={{cursor:'default'}}><span>Customers</span><b>{list.length}</b></div>
       <div className="dealerDashStat" style={{cursor:'default'}}><span>Total Balance Pending</span><b>{money(total)}</b></div>
     </div>}
     {loading?<div className="dealerEmpty">Loading…</div>:!list.length?<div className="dealerEmpty">Kisi Billed customer ka balance pending nahi hai.</div>:
-    <div className="tablewrap dealerTable"><table className="table">
+    <div className="tablewrap dealerTable dealerBpTable"><table className="table">
       <thead><tr><th>Date</th><th>Page No.</th><th>Customer</th><th>Mobile</th><th>Vehicle No.</th><th>Sale Amt.</th><th>Loan</th><th>Received</th><th>Balance</th></tr></thead>
-      <tbody>{list.map(c=><tr key={c.id}>
-        <td data-label="Date">{formatDate(c.date)}</td><td data-label="Page No.">{c.page_no||'—'}</td><td data-label="Customer"><b>{c.name||'—'}</b></td><td data-label="Mobile">{c.phone||'—'}</td>
-        <td data-label="Vehicle No.">{c.vehicle_no||'—'}</td><td data-label="Sale Amt.">{money(c.sale_amount)}</td><td data-label="Loan">{money(c.loan_amount)}</td><td data-label="Received">{money(c.paid_amount)}</td><td data-label="Balance"><b>{money(c.balance)}</b></td>
+      <tbody>{list.map(c=><tr key={c.id} className={'bpRow'+(open[c.id]?' open':'')} aria-expanded={!!open[c.id]} onClick={()=>setOpen(m=>({...m,[c.id]:!m[c.id]}))}>
+        <td className="bpMore" data-label="Date">{formatDate(c.date)}</td><td className="bpMore" data-label="Page No.">{c.page_no||'—'}</td><td className="bpKeep bpName" data-label="Customer"><b>{c.name||'—'}</b></td><td className="bpMore" data-label="Mobile">{c.phone||'—'}</td>
+        <td className="bpMore" data-label="Vehicle No.">{c.vehicle_no||'—'}</td><td className="bpMore" data-label="Sale Amt.">{money(c.sale_amount)}</td><td className="bpMore" data-label="Loan">{money(c.loan_amount)}</td><td className="bpMore" data-label="Received">{money(c.paid_amount)}</td><td className="bpKeep bpBal" data-label="Balance"><b>{money(c.balance)}</b><span className="bpChev">▾</span></td>
       </tr>)}</tbody>
       <tfoot><tr><th colSpan="8">Total</th><th>{money(total)}</th></tr></tfoot>
     </table></div>}
@@ -791,7 +934,7 @@ function DealerDealerModulePlaceholder({title,description,onBack}) {
   return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{title}</h3><p>{description}</p></div><button type="button" className="btn" onClick={onBack}>Back</button></div><div className="dealerEmpty">Module screen is ready.</div></div></div>;
 }
 
-function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
+function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,preset=null,onBack}) {
   // Showroom / Branch dealers create their own Pending Sale. It goes to Billing (Open for Approve) exactly like an admin-created one.
   // Dealer = logged-in dealer (auto). Sale type New / Old / Battery comes from the customer's booking.
   const [customers,setCustomers]=useState([]);
@@ -800,7 +943,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
   const [customerId,setCustomerId]=useState('');
   const [item,setItem]=useState('');
   const [batteryQty,setBatteryQty]=useState('1');
-  const [batteryNos,setBatteryNos]=useState(['']);
+  const [batteryNos,setBatteryNos]=useState([preset?.kind==='battery'?preset.battery_no:'']);
   const [saleAmount,setSaleAmount]=useState('');
   const [loanAmount,setLoanAmount]=useState('0');
   const [doNo,setDoNo]=useState('');
@@ -827,8 +970,13 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
   },[]);
 
   const selectedCustomer=customers.find(c=>String(c.id)===String(customerId));
-  const bookedType=String(selectedCustomer?.booking_for||selectedCustomer?.vehicle_no||'').trim().toLowerCase();
-  const type=['new','old','battery'].includes(bookedType)?bookedType:'';
+  const bookingTypeOf=c=>{const t=String(c?.booking_for||c?.vehicle_no||'').trim().toLowerCase();return ['new','old','battery'].includes(t)?t:''};
+  // Opened from a My Stock row: the stock item is already fixed, so only customers whose booking matches that item type are offered.
+  const type=preset?.kind||bookingTypeOf(selectedCustomer);
+  const visibleCustomers=preset?customers.filter(c=>bookingTypeOf(c)===preset.kind):customers;
+  const normCh=v=>String(v||'').trim().toUpperCase();
+  const presetItem=preset?.kind==='new'?vehicles.find(v=>normCh(v.chassis_no)===normCh(preset.chassis_no))?.challan_id:null;
+  useEffect(()=>{if(presetItem)setItem(String(presetItem))},[presetItem]);
   const typeLabel=type==='new'?'New Rickshaw':type==='old'?'Old Rickshaw':type==='battery'?'Battery':'—';
 
   const options=type==='new'
@@ -858,7 +1006,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
   const setBatteryNoAt=(i,v)=>setBatteryNos(cur=>{const nx=[...cur];nx[i]=v;return nx});
 
   useEffect(()=>{
-    setItem('');setBatteryQty('1');setBatteryNos(['']);
+    setItem(presetItem?String(presetItem):'');setBatteryQty('1');setBatteryNos([preset?.kind==='battery'?preset.battery_no:'']);
     if(!selectedCustomer){setSaleAmount('');setLoanAmount('0');setDoNo('');return}
     // Booking is the source of truth for amounts.
     setSaleAmount(String(Number(selectedCustomer.sale_amount||0)||''));
@@ -915,14 +1063,14 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
       {error&&<div className="error" style={{marginBottom:12}}>{error}</div>}
       {loading?<div className="dealerEmpty">Loading customers and stock…</div>:
       <div className="dealerCreateSaleGrid">
-        <label>Dealer
-          <input className="input" value={dealerName||'—'} readOnly />
-        </label>
-
+        {preset&&<div style={{gridColumn:'1 / -1',padding:'8px 12px',borderRadius:8,background:'rgba(56,189,248,.12)',fontSize:13}}>
+          Stock se sale: <b>{preset.kind==='battery'?('Battery '+preset.battery_no):('Chassis '+preset.chassis_no)}</b> — ab sirf customer select karo.
+          {preset.kind==='new'&&vehicles.length>0&&!presetItem&&<div style={{color:'#f87171',marginTop:4}}>Ye gaadi abhi Create Sale ke liye available nahi hai (pending sale ya bill ban chuka hai).</div>}
+        </div>}
         <label>Customer (booking)
           <select className="input" value={customerId} onChange={e=>setCustomerId(e.target.value)}>
-            <option value="">{customers.length?'Select Customer':'No Vehicle Pending Customer'}</option>
-            {customers.map(c=><option key={c.id} value={c.id}>{customerLabel(c)}</option>)}
+            <option value="">{visibleCustomers.length?'Select Customer':(preset?'Is item type ka koi booking customer nahi':'No Vehicle Pending Customer')}</option>
+            {visibleCustomers.map(c=><option key={c.id} value={c.id}>{customerLabel(c)}</option>)}
           </select>
         </label>
 
@@ -936,20 +1084,20 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
 
         {type==='battery' ? <>
           <label>Battery Qty
-            <input className="input" type="number" min="1" max={stockBatteries.length||1} value={batteryQty} onChange={e=>changeBatteryQty(e.target.value)} />
+            <input className="input" type="number" min="1" max={stockBatteries.length||1} value={batteryQty} onChange={e=>changeBatteryQty(e.target.value)} readOnly={Boolean(preset)} />
             <small className="muted">Stock me available: {stockBatteries.length}</small>
           </label>
           {Array.from({length:qtyNum},(_,i)=>{
             const taken=new Set(batteryNos.slice(0,qtyNum).filter((x,j)=>j!==i&&x).map(x=>String(x).trim()));
             return <label key={i}>Battery No. {i+1}
-              <select className="input" value={batteryNos[i]||''} onChange={e=>setBatteryNoAt(i,e.target.value)}>
+              <select className="input" value={batteryNos[i]||''} onChange={e=>setBatteryNoAt(i,e.target.value)} disabled={Boolean(preset)}>
                 <option value="">{stockBatteries.length?'Select Battery No.':'Stock me koi battery nahi hai'}</option>
                 {stockBatteries.filter(b=>!taken.has(String(b.battery_no).trim())).map(b=><option key={b.battery_no} value={String(b.battery_no).trim()}>{[b.battery_no,b.battery_maker].filter(Boolean).join(' · ')}</option>)}
               </select>
             </label>;
           })}
         </> :         <label className="dealerCreateSaleItemField">Select {type?typeLabel:'Stock Item'}
-          <select className="input" value={item} onChange={e=>setItem(e.target.value)} disabled={!type}>
+          <select className="input" value={item} onChange={e=>setItem(e.target.value)} disabled={!type||Boolean(preset)}>
             <option value="">{!type?'Select customer first':options.length?'Select item':'Stock me koi item nahi hai'}</option>
             {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -1027,7 +1175,7 @@ function DealerCreateSaleForm({dealer,stock,oldStock,batteryStock,onBack}) {
 }
 
 function DealerAllExpenses({dealer}){
-  const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[search,setSearch]=useState(''),[cat,setCat]=useState('');
+  const [rows,setRows]=useState([]),[error,setError]=useState(''),[loading,setLoading]=useState(true),[search,setSearch]=useState(''),[cat,setCat]=useState(''),[openRows,setOpenRows]=useState({});
   const [editing,setEditing]=useState(null),[saving,setSaving]=useState(false),[verifiedToday,setVerifiedToday]=useState(false);
   const today=()=>new Date().toISOString().slice(0,10);
   const load=async()=>{
@@ -1061,12 +1209,12 @@ function DealerAllExpenses({dealer}){
     }catch(e){setError(e.message||'Could not update expense')}
     finally{setSaving(false)}
   };
-  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead"><div><h3>All Expenses</h3><p>Shop expenses — category wise</p></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><select className="input" value={cat} onChange={e=>setCat(e.target.value)}><option value="">All Categories</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</select><input className="input dealerSearch" placeholder="Search expense no, customer, page no, remarks…" value={search} onChange={e=>setSearch(e.target.value)}/><button type="button" className="btn" onClick={load}>↻ Refresh</button></div></div>
+  return <div className="dealerPage"><div className="dealerPanel"><div className="dealerPanelHead mxHead"><div><h3>All Expenses</h3><p>Shop expenses — category wise</p></div><div className="mxTools" style={{display:'flex',gap:8,flexWrap:'wrap'}}><select className="input" value={cat} onChange={e=>setCat(e.target.value)}><option value="">All Categories</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</select><input className="input dealerSearch" placeholder="Search expense no, customer, page no, remarks…" value={search} onChange={e=>setSearch(e.target.value)}/><button type="button" className="btn" onClick={load}>↻ Refresh</button></div></div>
     {error&&<div className="error">{error}</div>}
     {!loading&&<div className="card" style={{marginBottom:12,padding:10,background:verifiedToday?'#fef2f2':'#f0fdf4'}}>{verifiedToday?<><b>🔒 Aaj ka Cashbook Admin verified hai.</b> Ab kisi expense me change nahi ho sakta.</>:<><b>✎ Aaj ke expenses editable hain.</b> Admin verification ke baad edit automatically lock ho jayega.</>}</div>}
     {!loading&&!!byCat.length&&<div className="grid" style={{margin:'12px 0'}}><div className="card" style={{padding:10}}><small className="muted">Total{cat?' — '+cat:''}</small><b>{inr(total)}</b></div>{!cat&&byCat.map(([c,v])=><div className="card" key={c} style={{padding:10,cursor:'pointer'}} onClick={()=>setCat(c)}><small className="muted">{c}</small><b>{inr(v)}</b></div>)}</div>}
-    {loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Date</th><th>Expense No.</th><th>Category</th><th>Customer</th><th>Paid To</th><th>Remarks</th><th>Amount</th><th>Action</th></tr></thead><tbody>
-      {filtered.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.expense_no||'—'}</b></td><td>{label(r)}</td><td>{r.customer_name?<><b>Pg {r.customer_page_no||'—'}</b> · {r.customer_name}</>:'—'}</td><td>{r.paid_to||'—'}</td><td>{r.remarks||'—'}</td><td>{inr(r.amount)}</td><td>{canEdit(r)?<button type="button" className="btn" onClick={()=>openEdit(r)}>Edit</button>:<span className="muted">🔒 Locked</span>}</td></tr>)}{!filtered.length&&<tr><td colSpan="8" className="muted">No expenses found.</td></tr>}</tbody><tfoot><tr><th colSpan="7">Total</th><th>{inr(total)}</th></tr></tfoot></table></div>}
+    {loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable mxTable"><table className="table"><thead><tr><th>Date</th><th>Expense No.</th><th>Category</th><th>Customer</th><th>Paid To</th><th>Remarks</th><th>Amount</th><th>Action</th></tr></thead><tbody>
+      {filtered.map(r=><tr key={r.id} className={'mxRow two'+(openRows[r.id]?' open':'')} onClick={()=>setOpenRows(m=>({...m,[r.id]:!m[r.id]}))}><td className="mxK k4" data-label="Date">{formatDate(r.date)}<span className="mxChev">▾</span></td><td className="mxK k3" data-label="Expense No."><b>{r.expense_no||'—'}</b></td><td className="mxK k1" data-label="Category"><b>{label(r)}</b></td><td className="mxM" data-label="Customer">{r.customer_name?<><b>Pg {r.customer_page_no||'—'}</b> · {r.customer_name}</>:'—'}</td><td className="mxM" data-label="Paid To">{r.paid_to||'—'}</td><td className="mxM" data-label="Remarks">{r.remarks||'—'}</td><td className="mxK k2" data-label="Amount"><b>{inr(r.amount)}</b></td><td className="mxM mxAct" data-label="Action" onClick={e=>e.stopPropagation()}>{canEdit(r)?<button type="button" className="btn" onClick={()=>openEdit(r)}>Edit</button>:<span className="muted">🔒 Locked</span>}</td></tr>)}{!filtered.length&&<tr><td colSpan="8" className="muted">No expenses found.</td></tr>}</tbody><tfoot><tr><th colSpan="7">Total</th><th>{inr(total)}</th></tr></tfoot></table></div>}
     {editing&&<div className="modal" style={{zIndex:10000}} onMouseDown={e=>{if(e.target===e.currentTarget&&!saving)setEditing(null)}}><div className="modalbox" style={{maxWidth:560}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}><div><h3 style={{margin:0}}>Edit Expense</h3><p className="muted" style={{margin:'4px 0 0'}}>{editing.expense_no} · {formatDate(editing.date)}</p></div><button type="button" className="btn" onClick={()=>setEditing(null)}>✕</button></div>
       <div className="grid" style={{marginTop:14}}>
@@ -1106,22 +1254,22 @@ function DealerIncentiveRegister({dealer}){
 function DealerAllSale({tab,dealer,invoices,challans,canCashBook,canOldRickshawSales}) {
   // All Sale (upar red strip): Tax Invoice, Old Rickshaw Sale, Battery Sale, Delivery Challan, Incentive Record.
   return <div className="dealerPage">
-    {tab==='invoices'&&<DealerSaleInvoices invoices={invoices}/>}
+    {tab==='invoices'&&<DealerSaleInvoices invoices={invoices} canPrint={!['showroom','branch'].includes(String(dealer?.dealer_category||'dealer').toLowerCase())}/>}
     {tab==='old-rickshaw-sales'&&canOldRickshawSales&&<DealerOldRickshawSold/>}
     {tab==='battery-sales'&&<DealerBatterySales/>}
     {tab==='challans'&&<DealerSaleChallans challans={challans}/>}
     {tab==='incentive'&&canCashBook&&<DealerIncentiveRegister dealer={dealer}/>}
   </div>;
 }
-function DealerSaleInvoices({invoices}) {
+function DealerSaleInvoices({invoices,canPrint=true}) {
   const [search,setSearch]=useState('');
   const [printId,setPrintId]=useState(null);
   const q=search.trim().toLowerCase();
   const rows=(invoices||[]).filter(v=>!q||[v.date,v.bill_no,v.chassis_no,v.product_name,v.buyer_name].join(' ').toLowerCase().includes(q));
   return <div className="dealerPanel">
     <div className="dealerPanelHead"><div><h3>Tax Invoices</h3><p>New Rickshaw ke bane hue tax invoice.</p></div><input className="input dealerSearch" placeholder="Search bill, chassis, buyer…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
-    <DealerTable headers={['Date','Bill No.','Chassis No.','Model','Buyer','Total','Print']} rows={rows} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td><td data-label="Print"><button type="button" className="btn" onClick={()=>setPrintId(i.id)}>🖨 Print</button></td></>}/>
-    {printId&&<TaxInvoicePrintView invoiceId={printId} onClose={()=>setPrintId(null)}/>}
+    <DealerTable headers={canPrint?['Date','Bill No.','Chassis No.','Model','Buyer','Total','Print']:['Date','Bill No.','Chassis No.','Model','Buyer','Total']} rows={rows} pageSize={35} row={i=><><td data-label="Date">{formatDate(i.date)}</td><td data-label="Bill No.">{i.bill_no}</td><td data-label="Chassis No.">{i.chassis_no}</td><td data-label="Model">{i.product_name}</td><td data-label="Buyer">{i.buyer_name}</td><td data-label="Total">{i.bill_total}</td>{canPrint&&<td data-label="Print"><button type="button" className="btn" onClick={()=>setPrintId(i.id)}>🖨 Print</button></td>}</>}/>
+    {canPrint&&printId&&<TaxInvoicePrintView invoiceId={printId} onClose={()=>setPrintId(null)}/>}
   </div>;
 }
 function DealerBatterySales() {

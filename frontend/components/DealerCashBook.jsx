@@ -21,18 +21,23 @@ export function DealerCashBook(){
   const exportDayBook=()=>downloadExcel('/dealer/cash-book?from='+from+'&to='+to,'Cash_Day_Book_'+from+'.xlsx');
   return <>
     {error&&<div className="error">{error}</div>}
-    <div className="grid dealerMetrics">
-      <div className="card"><div className="muted">Opening</div><div className="metric">{money(opening)}</div></div>
-      <div className="card"><div className="muted">Cash Received</div><div className="metric">{money(data.summary?.cash_received)}</div></div>
-      <div className="card"><div className="muted">Expenses</div><div className="metric">{money(data.summary?.expenses)}</div></div>
-      <div className="card"><div className="muted">HO Handover (Accepted)</div><div className="metric">{money(data.summary?.ho_handover)}</div>{Number(data.summary?.pending_handover||0)>0&&<small className="muted">Pending: {money(data.summary?.pending_handover)}</small>}</div>
-      <div className="card"><div className="muted">Closing Cash</div><div className="metric">{money(closing)}</div></div>
+    <style>{`
+      .dealerCashSum{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px}
+      .dealerCashSum .card{padding:14px 16px;border-top:3px solid var(--line)}
+      .dealerCashSum .card .metric{font-size:22px;margin-top:4px}
+      .dealerCashSum .card small{display:block;margin-top:2px}
+      .dealerCashSum .open{border-top-color:#3b82f6}.dealerCashSum .in{border-top-color:#16a36a}.dealerCashSum .out{border-top-color:#8b5cf6}.dealerCashSum .ho{border-top-color:#f59e0b}.dealerCashSum .close{border-top-color:#ef9f27}
+      @media(max-width:1100px){.dealerCashSum{grid-template-columns:repeat(3,minmax(0,1fr))}}
+      @media(max-width:700px){.dealerCashSum{grid-template-columns:1fr 1fr;gap:8px}.dealerCashSum .card{padding:10px 12px}.dealerCashSum .card .metric{font-size:17px}.dealerCashSum .close{grid-column:1/-1}}
+    `}</style>
+    <div className="dealerCashSum">
+      <div className="card open"><div className="muted">Opening</div><div className="metric">{money(opening)}</div></div>
+      <div className="card in"><div className="muted">Cash Received</div><div className="metric">{money(data.summary?.cash_received)}</div></div>
+      <div className="card out"><div className="muted">Expenses</div><div className="metric">{money(data.summary?.expenses)}</div></div>
+      <div className="card ho"><div className="muted">HO Handover (Accepted)</div><div className="metric">{money(data.summary?.ho_handover)}</div>{Number(data.summary?.pending_handover||0)>0&&<small className="muted">Pending: {money(data.summary?.pending_handover)}</small>}</div>
+      <div className="card close"><div className="muted">Closing Cash</div><div className="metric">{money(closing)}</div></div>
     </div>
-    <div className="actions dealerTabs" style={{marginTop:16,flexWrap:'wrap'}}>
-      <input className="input" type="date" value={from} onChange={e=>{setFrom(e.target.value);setTo(e.target.value)}}/>
-      <input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)}/>
-    </div>
-    <DayBookPreview date={from} dealerLabel="Showroom Branch"
+    <DayBookPreview date={from} dealerLabel="Showroom Branch" hideSummary
       receipts={(data.receipts||[]).filter(r=>r.payment_mode==='cash').map(r=>({id:r.id,no:r.receipt_no,date:r.date,particulars:r.customer_name||'Customer Receipt',folio:r.dealer_register_page_no||'',amount:r.amount}))}
       payments={[...(data.expenses||[]).map(e=>({id:'e'+e.id,no:e.expense_no,date:e.date,particulars:(e.category_label||e.category)+(e.customer_name?' - '+e.customer_name:''),folio:e.folio||'',amount:e.amount})),...(data.handovers||[]).map(h=>({id:'h'+h.id,no:h.handover_no,date:h.date,particulars:h.sent_to||'Head Office',folio:h.folio||'',amount:h.amount}))]}
       openingBalance={opening} closingBalance={closing}
