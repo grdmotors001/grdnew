@@ -1,5 +1,5 @@
 // Sale Register + Payment Receivable reports (bade route file se nikale gaye, query/logic same hai).
-import { pool, num, csvResponse, dateWhere } from "./common";
+import { pool, num, csvResponse, dateWhere, SQL_TI_INTRA } from "./common";
 
 // Tax Invoice ke hand-filled Record columns (Accounts > Record tab).
 let tiRecordReady:Promise<void>|null=null;
@@ -20,13 +20,13 @@ export async function taxInvoiceReportRows(u:URL):Promise<any[]>{
   // gst_rate and the stored taxable components directly in SQL.
   const base=`SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,ti.buyer_state,ti.buyer_state_code,ti.product_name,ti.chassis_no,ti.financer_name,ti.dealer_name,ti.amount_received,ti.sale_amount,ti.hypothecation_amount,ti.subsidy_amount,
     GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0) AS taxable_value,
-    CASE WHEN COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'
+    CASE WHEN ${SQL_TI_INTRA}
       THEN GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/200
       ELSE 0 END AS cgst_amount,
-    CASE WHEN COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'
+    CASE WHEN ${SQL_TI_INTRA}
       THEN GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/200
       ELSE 0 END AS sgst_amount,
-    CASE WHEN COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'
+    CASE WHEN ${SQL_TI_INTRA}
       THEN 0
       ELSE GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)*COALESCE(ti.gst_rate,0)/100
     END AS igst_amount,

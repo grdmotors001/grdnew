@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, Money } from './ui';
 import { ProformaInvoicePrintView } from './PrintDocs';
-import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, RtoSelect, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
+import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, RtoSelect, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pinToState, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
 
 // Old Rickshaw / Battery sales are not GST sales: no Tax Invoice, they are completed after approval.
 const isNonGst=t=>['OLD RICKSHAW','BATTERY'].includes(String(t||'').toUpperCase());
@@ -361,7 +361,7 @@ export function CreatePendingSale({initialKind=null,prefill=null,canPickFinancer
         <label className="field"><span>Relation (S/O, D/O, C/O){lockedApproved?' · locked':''}</span><select className="input" disabled={lockedApproved} value={form.buyer_relation||''} onChange={e=>set('buyer_relation',e.target.value)}><option value="">— (Firm / none)</option>{relationOptionsFor(form.buyer_relation).filter(o=>o.value).map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
         <Input label={'Buyer Father/Husband Name'+(lockedApproved?' · locked':'')} value={form.buyer_father_name} onChange={e=>set('buyer_father_name',e.target.value)} disabled={lockedApproved}/>
         <Input label="Buyer Address" value={form.buyer_address} onChange={e=>set('buyer_address',e.target.value)}/>
-        <Input label="Buyer Pin Code *" inputMode="numeric" maxLength={6} placeholder="6 digit pin code" value={form.buyer_pincode||''} onChange={e=>set('buyer_pincode',normPincode(e.target.value))}/>
+        <Input label="Buyer Pin Code *" inputMode="numeric" maxLength={6} placeholder="6 digit pin code" value={form.buyer_pincode||''} onChange={e=>{const p=normPincode(e.target.value);set('buyer_pincode',p);pinToState(p,setForm)}}/>
         <label className="field"><span>Buyer State *</span><select className="input" value={stateValueFor(form.buyer_state)} onChange={e=>setForm(f=>({...f,...stateFields(e.target.value)}))}><option value="">— Select State —</option>{stateOptionsFor(form.buyer_state).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
         <Input label="Buyer State Code (auto)" value={buyerStateCode(form)} readOnly/>
         <label className="field"><span>Intra / Inter State{stateTypeLocked?' (auto from state)':''}</span><select className="input" value={form.state_type} onChange={e=>set('state_type',e.target.value)} disabled={stateTypeLocked}>{STATE_TYPE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
@@ -471,7 +471,7 @@ function TaxInvoiceModal({data,onClose,onSaved}){
     {h('1. Applicant Details')}
     <div className="formgrid">
       {F('Customer Name · locked','buyer_name',locked)}{F('Relation (S/O, D/O, C/O) · locked','buyer_relation',{type:'select',options:relationOptionsFor(form.buyer_relation).filter(o=>o.value),...locked})}{F('Buyer Father/Husband Name · locked','buyer_father_name',locked)}{F('Buyer Address','buyer_address')}
-      {F('Buyer Pin Code *','buyer_pincode',{onChange:v=>set('buyer_pincode',normPincode(v))})}
+      {F('Buyer Pin Code *','buyer_pincode',{onChange:v=>{const p=normPincode(v);set('buyer_pincode',p);pinToState(p,setForm)}})}
       {F('Buyer State *','buyer_state',{type:'select',options:stateOptionsFor(form.buyer_state),value:stateValueFor(form.buyer_state),onChange:v=>setForm(f=>({...f,...stateFields(v)}))})}{F('Buyer State Code (auto)','buyer_state_code',{value:buyerStateCode(form),...locked})}
       {F('Intra/Inter State'+(stateTypeLocked?' (auto from state)':''),'state_type',{type:'select',options:STATE_TYPE_OPTIONS,readOnly:stateTypeLocked})}
       {F('Buyer Mobile','buyer_mobile')}{F('Buyer GSTIN (if any)','buyer_gst_no')}{F('Buyer PAN'+(b2c?' * (required, no GSTIN)':''),'buyer_pan')}{F('Buyer Aadhar'+(b2c?' * (required, no GSTIN)':''),'buyer_aadhar')}

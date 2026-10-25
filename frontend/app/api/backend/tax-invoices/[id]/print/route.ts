@@ -17,10 +17,10 @@ function auth(req:Request){const h=req.headers.get("authorization")||"",t=h.star
 function pick(o:any,...k:string[]){for(const x of k){if(o?.[x]!=null&&String(o[x]).trim()!=="")return o[x]}return ""}
 async function productLogo(name:string,model:string){
   // UMRN code lives on the PRODUCT master (not on vehicle). Match product by name.
-  const r=await pool.query("SELECT to_jsonb(p)->>'umrn_code' AS umrn_code,to_jsonb(p)->>'chassis_item_code' AS chassis_item_code,p.name FROM product p WHERE lower(btrim(p.name)) IN (lower(btrim($1)),lower(btrim($2))) ORDER BY (COALESCE(to_jsonb(p)->>'umrn_code','')<>'') DESC,(p.fro='F') DESC,p.id DESC LIMIT 1",[name||"",model||""]);
+  const r=await pool.query("SELECT to_jsonb(p)->>'umrn_code' AS umrn_code,to_jsonb(p)->>'chassis_item_code' AS chassis_item_code,COALESCE(NULLIF(btrim(COALESCE(to_jsonb(p)->>'hsn_code','')),''),(SELECT btrim(to_jsonb(p2)->>'hsn_code') FROM product p2 WHERE lower(btrim(p2.name))=lower(btrim(p.name)) AND COALESCE(btrim(to_jsonb(p2)->>'hsn_code'),'')<>'' ORDER BY (p2.fro='F') DESC,p2.id DESC LIMIT 1),'') AS hsn_code,p.name FROM product p WHERE lower(btrim(p.name)) IN (lower(btrim($1)),lower(btrim($2))) ORDER BY (COALESCE(to_jsonb(p)->>'umrn_code','')<>'') DESC,(p.fro='F') DESC,p.id DESC LIMIT 1",[name||"",model||""]);
   const x=r.rows[0]||{},umrn=String(x.umrn_code||"").trim();
   const keys=[umrn,String(x.chassis_item_code||"").trim(),String(x.name||name||model||"").trim()].filter((k,i,a)=>k&&a.indexOf(k)===i);
-  return {umrn_code:umrn,logo_keys:keys};
+  return {umrn_code:umrn,logo_keys:keys,hsn_code:String(x.hsn_code||"").trim()};
 }
 async function defaultBank(company:any){
   // Bank Details master: the row ticked "Default". Falls back to the Company Master bank when none is ticked.
@@ -54,6 +54,6 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){
   const so=dealerSellerOverride(x,d,company,bank);company=so.company;bank=so.bank;
   let rto_address="";const rtoName=String(x.rto||x.rto_name||"").trim();
   if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);const rr=rm.rows[0]||{};rto_address=rtoAddressText(rr)}
-  return Response.json({invoice,company,product:{umrn_code:invoice.umrn_code,logo_keys:logo.logo_keys,colour_code:invoice.colour_code,name:invoice.product_name},doc_title:doc==="invoice"?"TAX INVOICE":doc.toUpperCase(),doc_no_label:doc==="invoice"?"Bill No.":"Document No.",rto_address,print_bank_name:bank.name,print_bank_account_no:bank.account_no,print_bank_ifsc:bank.ifsc});
+  return Response.json({invoice,company,product:{hsn_code:logo.hsn_code,umrn_code:invoice.umrn_code,logo_keys:logo.logo_keys,colour_code:invoice.colour_code,name:invoice.product_name},doc_title:doc==="invoice"?"TAX INVOICE":doc.toUpperCase(),doc_no_label:doc==="invoice"?"Bill No.":"Document No.",rto_address,print_bank_name:bank.name,print_bank_account_no:bank.account_no,print_bank_ifsc:bank.ifsc});
  }catch(e:any){console.error("[tax-invoice-print]",e);return Response.json({error:e.message||"Unable to load Tax Invoice print."},{status:500})}
 }

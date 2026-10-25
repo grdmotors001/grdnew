@@ -123,4 +123,16 @@ export const STATE_TYPE_OPTIONS = [
 // Pin code: 6 digits, first digit 1-9. Returns an error message, or '' when OK.
 export const normPincode = (v) => String(v ?? '').replace(/\D/g, '').slice(0, 6);
 export const pincodeError = (f) => (/^[1-9]\d{5}$/.test(clean(f?.buyer_pincode)) ? '' : 'Buyer Pin Code required hai (6 digit).');
+
+// Pin code -> state. Looks the 6-digit pin up in the server pin list and fills Buyer State
+// (+ GST state code); Intra/Inter then follows automatically via useAutoStateType.
+// Unknown pin = nothing changes, user can still pick the state by hand.
+export function pinToState(pin, setForm) {
+  if (!/^[1-9]\d{5}$/.test(String(pin || ''))) return;
+  get('/pincode/' + pin).then((d) => {
+    const st = d && d.state;
+    if (!st) return;
+    setForm((f) => (clean(f.buyer_pincode) === pin ? { ...f, ...stateFields(st) } : f));
+  }).catch(() => {});
+}
 export const STATE_REQUIRED_MSG = 'Buyer State select karo — Intra / Inter state (CGST+SGST / IGST) isi se tay hota hai.';

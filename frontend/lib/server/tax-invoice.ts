@@ -1,7 +1,7 @@
 // Tax Invoice module (bade route file se nikala gaya, logic/queries same hain):
 // tax-invoices list/get/create/cancel/payment/print aur dealer portal ka dealer/tax-invoices (view + edit).
 // TI_CALC wo SQL hai jo taxable/CGST/SGST/IGST/total nikalta hai; baaki modules (reports, dealer portal) bhi ise import karte hain.
-import { pool, num, idOf, ymd, todayDate, columns, json } from "./common";
+import { pool, num, idOf, ymd, todayDate, columns, json, SQL_TI_INTRA } from "./common";
 import { audit } from "./permissions";
 import { ensureTaxInvoiceRecordColumns } from "./reports-sales";
 import { dealerSellerOverride } from "./dealer-invoice";
@@ -9,7 +9,7 @@ import { dealerSellerOverride } from "./dealer-invoice";
 // tax_invoice has no stored taxable/GST/total columns (legacy model computes them). Screens, print and the dealer portal read
 // taxable_value / cgst_amount / sgst_amount / igst_amount / tax_amount / bill_total, so every tax_invoice read that feeds them adds this (alias: ti).
 export const TI_TAXABLE="GREATEST(COALESCE(ti.gst_sale_amount,ti.sale_amount,0)-COALESCE(ti.discount,0),0)";
-export const TI_STATE_INTRA="COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I'";
+export const TI_STATE_INTRA=SQL_TI_INTRA;
 export const TI_CALC=`${TI_TAXABLE} AS taxable_value,
   CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS cgst_amount,
   CASE WHEN ${TI_STATE_INTRA} THEN ${TI_TAXABLE}*COALESCE(ti.gst_rate,0)/200 ELSE 0 END AS sgst_amount,

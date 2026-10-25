@@ -4,7 +4,7 @@ import { get, post, put, del } from '../lib/api';
 import { Field, ErrorBanner, EmptyState, Money, useAsyncAction } from './ui';
 import { formatDate } from '../lib/date';
 import { TaxInvoicePrintView } from './PrintDocs';
-import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
+import { relationOptionsFor, b2cIdError, isB2C, useInvoiceMasters, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pinToState, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -58,7 +58,7 @@ export function TaxInvoicePage() {
   const rtoNames = rtos.map((r) => r.name).filter(Boolean);
   const rtoOptions = (cur) => (cur && !rtoNames.includes(cur) ? [cur, ...rtoNames] : rtoNames).map((n) => ({ value: n, label: n }));
   const b2c = isB2C(form);
-  const { locked: stateTypeLocked } = useAutoStateType(form, (k, v) => setForm((f) => ({ ...f, [k]: v })), open && !editingId);
+  const { locked: stateTypeLocked } = useAutoStateType(form, (k, v) => setForm((f) => ({ ...f, [k]: v })), open);
 
   // New invoice: pre-fill the bank that is ticked "Default" in Bank Details.
   useEffect(() => {
@@ -418,7 +418,7 @@ export function TaxInvoicePage() {
                          onChange={(v) => setForm({ ...form, buyer_relation: v })} />
                   <Field label="Buyer Father/Husband Name" value={form.buyer_father_name} onChange={(v) => setForm({ ...form, buyer_father_name: v })} />
                   <Field label="Buyer Address" value={form.buyer_address} onChange={(v) => setForm({ ...form, buyer_address: v })} />
-                  <Field label="Buyer Pin Code *" value={form.buyer_pincode} onChange={(v) => setForm({ ...form, buyer_pincode: normPincode(v) })} />
+                  <Field label="Buyer Pin Code *" value={form.buyer_pincode} onChange={(v) => { const p = normPincode(v); setForm({ ...form, buyer_pincode: p }); pinToState(p, setForm); }} />
                   <Field label="Buyer Mobile" value={form.buyer_mobile} onChange={(v) => setForm({ ...form, buyer_mobile: v })} />
                   <Field label="Buyer GSTIN (if any)" value={form.buyer_gst_no} onChange={(v) => setForm({ ...form, buyer_gst_no: v })} />
                   <Field label={'Buyer PAN' + (b2c ? ' * (required, no GSTIN)' : '')} value={form.buyer_pan} onChange={(v) => setForm({ ...form, buyer_pan: v.toUpperCase() })} />
@@ -427,8 +427,8 @@ export function TaxInvoicePage() {
                   <Field label="Buyer State *" type="select" value={stateValueFor(form.buyer_state)} options={stateOptionsFor(form.buyer_state)}
                          onChange={(v) => setForm({ ...form, ...stateFields(v) })} />
                   <Field label="Buyer State Code (auto)" value={buyerStateCode(form)} readOnly onChange={() => {}} />
-                  <Field label={'Intra/Inter State' + (stateTypeLocked && !editingId ? ' (auto from state)' : '')} type="select" value={form.state_type}
-                         options={STATE_TYPE_OPTIONS} readOnly={stateTypeLocked && !editingId}
+                  <Field label={'Intra/Inter State' + (stateTypeLocked ? ' (auto from state)' : '')} type="select" value={form.state_type}
+                         options={STATE_TYPE_OPTIONS} readOnly={stateTypeLocked}
                          onChange={(v) => setForm({ ...form, state_type: v })} />
                   <Field label="Mode / Term" value={form.mode_term} onChange={(v) => setForm({ ...form, mode_term: v })} />
                   <Field label="Bank Name" value={form.bank_name} onChange={(v) => setForm({ ...form, bank_name: v })} />

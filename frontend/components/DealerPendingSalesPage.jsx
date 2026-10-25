@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { get, post } from '../lib/api';
 import { Money } from './ui';
-import { relationOptionsFor, RtoSelect, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
+import { relationOptionsFor, RtoSelect, buyerStateCode, stateFields, stateOptionsFor, stateValueFor, useAutoStateType, STATE_TYPE_OPTIONS, normPincode, pinToState, pincodeError, STATE_REQUIRED_MSG } from './invoiceHelpers';
 
 const today=()=>new Date().toISOString().slice(0,10);
 const initial={dealer_id:'',delivery_challan_id:'',application_id:'',date:today(),
@@ -102,7 +102,7 @@ export function DealerPendingSalesPage(){
             <Input label="Buyer PAN" value={form.buyer_pan} onChange={e=>set('buyer_pan',e.target.value)}/>
             <Input label="Buyer Aadhar" value={form.buyer_aadhar} onChange={e=>set('buyer_aadhar',e.target.value)}/>
             <Input label="Buyer Date of Birth" type="date" value={form.buyer_dob} onChange={e=>set('buyer_dob',e.target.value)}/>
-            <Input label="Buyer Pin Code *" inputMode="numeric" maxLength={6} placeholder="6 digit pin code" value={form.buyer_pincode||''} onChange={e=>set('buyer_pincode',normPincode(e.target.value))}/>
+            <Input label="Buyer Pin Code *" inputMode="numeric" maxLength={6} placeholder="6 digit pin code" value={form.buyer_pincode||''} onChange={e=>{const p=normPincode(e.target.value);set('buyer_pincode',p);pinToState(p,setForm)}}/>
             <label className="field"><span>Buyer State *</span><select className="input" value={stateValueFor(form.buyer_state)} onChange={e=>setForm(f=>({...f,...stateFields(e.target.value)}))}><option value="">— Select State —</option>{stateOptionsFor(form.buyer_state).map(n=><option key={n} value={n}>{n}</option>)}</select></label>
             <Input label="Buyer State Code (auto)" value={buyerStateCode(form)} readOnly/>
             <label className="field"><span>Intra / Inter State{stateTypeLocked?' (auto from state)':''}</span><select className="input" value={form.state_type} onChange={e=>set('state_type',e.target.value)} disabled={stateTypeLocked}>{STATE_TYPE_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></label>

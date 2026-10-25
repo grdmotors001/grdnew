@@ -17,3 +17,7 @@ Tax Invoice print: HSN product master se (hsn_code), niche ki "DHAN DHAN..." str
   components/PrintDocs.jsx, lib/server/tax-invoice.ts, lib/server/billing.ts, app/api/[...path]/route.ts
 
 Invoice GST: local sale me CGST 2.5% + SGST 2.5% alag lines, inter-state me IGST 5% (components/PrintDocs.jsx)
+
+GST Intra/Inter: buyer state code vs company state code se (state edit karne par bhi sahi CGST/SGST ya IGST)
+  lib/server/common.ts, lib/server/tax-invoice.ts, lib/server/reports-sales.ts - SQL me intra/inter derive
+  components/TaxInvoicePage.jsx - Edit Tax Invoice me bhi Intra/Inter state auto (state badalne par update)

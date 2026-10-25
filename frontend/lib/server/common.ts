@@ -74,3 +74,8 @@ export function importDate(v:any):string|null{
   return null;
 }
 export function importAmount(v:any):number{if(typeof v==='number')return Number.isFinite(v)?v:0;const t=String(v??'').replace(/[₹,\s]/g,'').replace(/\((.*)\)/,'-$1').replace(/(dr|cr)\.?$/i,'');const n=Number(t);return Number.isFinite(n)?n:0;}
+
+// Intra-state (CGST+SGST) ya inter-state (IGST): buyer state code ko company ke state code se milao (company code = Company Master state_code,
+// warna GSTIN ke pehle 2 digit). Buyer state code na ho ya company code na mile to stored state_type par fallback ('I' = intra).
+// Is se buyer state edit hone par (Delhi -> Haryana) purane invoice ka GST bhi sahi split hota hai.
+export const SQL_TI_INTRA="COALESCE(CASE WHEN COALESCE(NULLIF(btrim(ti.buyer_state_code::text),''),'')<>'' AND (SELECT COALESCE(NULLIF(lpad(btrim(c.state_code::text),2,'0'),'00'),CASE WHEN left(btrim(COALESCE(to_jsonb(c)->>'gst_no','')),2) ~ '^[0-9]{2}$' THEN left(btrim(to_jsonb(c)->>'gst_no'),2) END) FROM company c ORDER BY c.id DESC LIMIT 1) IS NOT NULL THEN lpad(btrim(ti.buyer_state_code::text),2,'0')=(SELECT COALESCE(NULLIF(lpad(btrim(c.state_code::text),2,'0'),'00'),CASE WHEN left(btrim(COALESCE(to_jsonb(c)->>'gst_no','')),2) ~ '^[0-9]{2}$' THEN left(btrim(to_jsonb(c)->>'gst_no'),2) END) FROM company c ORDER BY c.id DESC LIMIT 1) END,COALESCE(NULLIF(UPPER(TRIM(ti.state_type)),''),'I')='I')";
