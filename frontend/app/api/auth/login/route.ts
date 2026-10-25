@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
+import { ensurePinSchema, signPinToken } from "../../../../lib/server/pin";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, ssl: { rejectUnauthorized: false } });
 const secret = process.env.JWT_SECRET || "grd-node-change-this-secret";
@@ -33,9 +34,14 @@ export async function POST(req:Request){
     const q=await pool.query('SELECT * FROM "user" WHERE username=$1 OR mobile=$1 LIMIT 1',[userid]);
     const user=q.rows[0];
     if(user && verifyWerkzeug(user.password_hash,password)){
-      const otpToken=jwt.sign({pending:true,sub:user.id,username:user.username},secret,{expiresIn:"10m"});
-      const {password_hash,...safe}=user;
-      return Response.json({otp_required:true,otp_token:otpToken,user:safe,role:user.department||"staff"});
+      // OTP removed. If the user has a PIN -> ask for it; otherwise offer "Set PIN" (with Skip).
+      await ensurePinSchema(pool);
+      const pr=await pool.query('SELECT login_pin_hash FROM "user" WHERE id=$1',[user.id]);
+      const hasPin=Boolean(pr.rows[0]?.login_pin_hash);
+      const {password_hash,login_pin_hash,pin_failed_attempts,pin_locked_until,...safe}=user;
+      return Response.json(hasPin
+        ? {pin_required:true,pin_token:signPinToken(user,"pin_verify"),user:safe,role:user.department||"staff"}
+        : {pin_setup:true,pin_token:signPinToken(user,"pin_setup"),user:safe,role:user.department||"staff"});
     }
 
     // One login screen: if the ID belongs to a Dealer, authenticate it here

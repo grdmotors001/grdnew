@@ -47,8 +47,11 @@ export function GRDLogin({ onLogin }) {
   const [mode, setMode] = useState('staff');
   const [userid, setUserid] = useState('');
   const [password, setPassword] = useState('');
-  const [otpToken, setOtpToken] = useState('');
-  const [otp, setOtp] = useState('');
+  // step: 'login' (ID + password) -> 'pin' (PIN already set) or 'setpin' (no PIN yet, can skip)
+  const [step, setStep] = useState('login');
+  const [pinToken, setPinToken] = useState('');
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -70,8 +73,12 @@ export function GRDLogin({ onLogin }) {
         } else {
           onLogin(data.user);
         }
+      } else if (data.pin_required || data.pin_setup) {
+        setPinToken(data.pin_token);
+        setPin(''); setConfirmPin('');
+        setStep(data.pin_required ? 'pin' : 'setpin');
       } else {
-        setOtpToken(data.otp_token);
+        throw new Error('Login failed');
       }
     } catch (e) {
       setError(e.message || 'Login failed');
@@ -80,26 +87,66 @@ export function GRDLogin({ onLogin }) {
     }
   };
 
-  const verify = async (e) => {
+  const finishLogin = (data) => {
+    setToken(data.token);
+    setPortalKind(data.portal === 'dealer' ? 'dealer' : 'staff');
+    if (data.portal === 'dealer') {
+      try { window.localStorage.setItem('grd_dealer_profile', JSON.stringify(data.dealer || data.user)); } catch {}
+      onLogin({ ...(data.dealer || data.user), is_dealer: true, role: data.role });
+    } else {
+      onLogin(data.user);
+    }
+  };
+
+  const backToLogin = () => {
+    setStep('login'); setPinToken(''); setPin(''); setConfirmPin(''); setError('');
+  };
+
+  // PIN already set -> enter it (this replaces the old OTP step)
+  const verifyPin = async (e) => {
     e.preventDefault();
     setError('');
     setBusy(true);
     try {
-      const data = await post('/auth/verify-otp', { otp_token: otpToken, otp });
-      setToken(data.token);
-      setPortalKind(data.portal === 'dealer' ? 'dealer' : 'staff');
-      if (data.portal === 'dealer') {
-        try { window.localStorage.setItem('grd_dealer_profile', JSON.stringify(data.dealer || data.user)); } catch {}
-        onLogin({ ...(data.dealer || data.user), is_dealer: true, role: data.role });
-      } else {
-        onLogin(data.user);
-      }
+      finishLogin(await post('/auth/verify-pin', { pin_token: pinToken, pin }));
     } catch (e) {
-      setError(e.message || 'OTP verification failed');
+      setError(e.message || 'PIN verification failed');
+      setPin('');
     } finally {
       setBusy(false);
     }
   };
+
+  // No PIN yet -> set one now
+  const savePin = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (pin.length !== 4) { setError('PIN 4 digit ka hona chahiye.'); return; }
+    if (pin !== confirmPin) { setError('PIN aur Confirm PIN match nahi kar rahe.'); return; }
+    setBusy(true);
+    try {
+      finishLogin(await post('/auth/set-pin', { pin_token: pinToken, pin, confirm_pin: confirmPin }));
+    } catch (e) {
+      setError(e.message || 'Could not set PIN');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // No PIN yet -> skip for now (will be asked again next login)
+  const skipPin = async () => {
+    setError('');
+    setBusy(true);
+    try {
+      finishLogin(await post('/auth/skip-pin', { pin_token: pinToken }));
+    } catch (e) {
+      setError(e.message || 'Could not continue');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onlyDigits = (v) => v.replace(/\D/g, '').slice(0, 4);
 
   const socialLinks = [
     ['Instagram', 'https://www.instagram.com/grdmotorsofficial/'],
@@ -261,10 +308,10 @@ export function GRDLogin({ onLogin }) {
 
       <section className="loginCard">
         <div className="badge">{FeatureIcon.shield}ADMIN · STAFF · DEALER · CUSTOMER</div>
-        <h2 className="title">{otpToken ? <>Verify <em>OTP</em></> : <>Welcome <em>Back!</em></>}</h2>
-        <p className="sub">{otpToken ? 'Enter the OTP sent for secure staff verification.' : 'Login to access your G.R.D. Motors account — you will land on your own dashboard automatically.'}</p>
+        <h2 className="title">{step === 'pin' ? <>Enter <em>PIN</em></> : step === 'setpin' ? <>Set <em>PIN</em></> : <>Welcome <em>Back!</em></>}</h2>
+        <p className="sub">{step === 'pin' ? 'Apna 4 digit PIN daalein.' : step === 'setpin' ? 'Agle login se OTP ki jagah yahi PIN use hoga. Chahein to abhi skip kar sakte hain.' : 'Login to access your G.R.D. Motors account — you will land on your own dashboard automatically.'}</p>
         <div className="divider"/>
-        {!otpToken ? <form onSubmit={submit}>
+        {step === 'login' ? <form onSubmit={submit}>
           <div style={{padding:'10px 12px',borderRadius:10,background:'#eef7ff',color:'#24557a',fontSize:11,fontWeight:800}}>
             🔐 Single Login — Admin · Staff · Salesman · Dealer
           </div>
@@ -275,12 +322,18 @@ export function GRDLogin({ onLogin }) {
           <button className="loginBtn" disabled={busy}>{busy?'Checking…':'→ Login'}</button>
           <div className="help">Use the same login here for Admin, Staff, Salesman and Dealer. Customer login remains in the customer portal.</div>
           <div className="secure">🛡️ Your data is safe and secure with G.R.D. Motors.</div>
-        </form> : <form onSubmit={verify}>
+        </form> : step === 'pin' ? <form onSubmit={verifyPin}>
           {error && <div className="error">{error}</div>}
-          <div className="field"><label>OTP</label><div className="wrap"><span className="icon">🔢</span><input className="input" inputMode="numeric" maxLength={4} value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,'').slice(0,4))} autoFocus required placeholder="Enter 4 digit OTP"/></div></div>
-          <div className="otpNote">Temporary OTP for testing: <b>1234</b></div>
-          <button className="loginBtn" disabled={busy}>{busy?'Verifying…':'✓ Verify & Login'}</button>
-          <button type="button" className="tab" style={{width:'100%',marginTop:9}} onClick={()=>{setOtpToken('');setOtp('');setError('')}}>← Back</button>
+          <div className="field"><label>PIN</label><div className="wrap"><span className="icon">🔢</span><input className="input" type="password" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={pin} onChange={e=>setPin(onlyDigits(e.target.value))} autoFocus required placeholder="Enter 4 digit PIN"/></div></div>
+          <button className="loginBtn" disabled={busy || pin.length !== 4}>{busy?'Verifying…':'✓ Verify & Login'}</button>
+          <button type="button" className="tab" style={{width:'100%',marginTop:9}} onClick={backToLogin}>← Back</button>
+        </form> : <form onSubmit={savePin}>
+          {error && <div className="error">{error}</div>}
+          <div className="field"><label>New PIN</label><div className="wrap"><span className="icon">🔢</span><input className="input" type="password" inputMode="numeric" autoComplete="new-password" maxLength={4} value={pin} onChange={e=>setPin(onlyDigits(e.target.value))} autoFocus required placeholder="Enter 4 digit PIN"/></div></div>
+          <div className="field"><label>Confirm PIN</label><div className="wrap"><span className="icon">🔢</span><input className="input" type="password" inputMode="numeric" autoComplete="new-password" maxLength={4} value={confirmPin} onChange={e=>setConfirmPin(onlyDigits(e.target.value))} required placeholder="Re-enter PIN"/></div></div>
+          <button className="loginBtn" disabled={busy || pin.length !== 4 || confirmPin.length !== 4}>{busy?'Saving…':'✓ Set PIN & Login'}</button>
+          <button type="button" className="tab" style={{width:'100%',marginTop:9}} disabled={busy} onClick={skipPin}>Skip for now</button>
+          <button type="button" className="tab" style={{width:'100%',marginTop:9}} disabled={busy} onClick={backToLogin}>← Back</button>
         </form>}
       </section>
 

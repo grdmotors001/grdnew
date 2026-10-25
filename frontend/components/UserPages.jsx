@@ -337,6 +337,7 @@ export function PasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const { busy, error, run } = useAsyncAction();
   const [done, setDone] = useState(false);
+  const [pinDone, setPinDone] = useState(false);
 
   useEffect(() => {
     get('/users')
@@ -358,6 +359,7 @@ export function PasswordPage() {
       <b>Reset Password</b>
       <ErrorBanner message={error} />
       {done && <div className="muted" style={{ margin: '10px 0' }}>Password updated.</div>}
+      {pinDone && <div className="muted" style={{ margin: '10px 0' }}>PIN reset ho gaya. User next login par naya PIN set karega.</div>}
       <form onSubmit={submit}>
         <div className="field" style={{ marginTop: 12 }}>
           <label>User</label>
@@ -375,6 +377,12 @@ export function PasswordPage() {
           <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
         </div>
         <button className="btn primary" style={{ marginTop: 16 }} disabled={busy}>{busy ? 'Saving…' : 'Update Password'}</button>
+        <button type="button" className="btn" style={{ marginTop: 16, marginLeft: 8 }} disabled={busy || !userId}
+          onClick={() => {
+            if (!window.confirm('Is user ka login PIN reset karein? User ko next login par naya PIN set karna hoga.')) return;
+            setDone(false);
+            run(async () => { await post(`/users/${userId}/reset-pin`, {}); setPinDone(true); });
+          }}>Reset PIN</button>
       </form>
     </div>
   );

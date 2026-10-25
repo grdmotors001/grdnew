@@ -1168,7 +1168,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const ucols=await columns("user");
       const wanted=["id","username","mobile","department","is_super_user","allowed_modules","full_name","email","date_of_birth","address"];
       const select=wanted.filter((c)=>ucols.has(c)).map((c)=>'"'+c+'"').join(",");
-      const r=await pool.query('SELECT '+(select||'id,username')+' FROM "user" WHERE id=$1',[num(a.sub)]);
+      const pinSel=ucols.has("login_pin_hash")?', (login_pin_hash IS NOT NULL) AS has_pin':', false AS has_pin';
+      const r=await pool.query('SELECT '+(select||'id,username')+pinSel+' FROM "user" WHERE id=$1',[num(a.sub)]);
       return Response.json({user:r.rows[0]||null});
     }
     if(p==="reports/payment-receivable")return paymentReceivableReport(req);
@@ -1640,6 +1641,16 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const crypto=await import("crypto"),salt=crypto.randomBytes(16).toString("hex"),hash=crypto.pbkdf2Sync(np,salt,260000,32,"sha256").toString("hex"),value="pbkdf2:sha256:260000$"+salt+"$"+hash;
       const r=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2 RETURNING id,username',[value,uid]);
       await audit(a,'users/password','edit',uid,{password:'(old)'},{password:'(changed)'},null,r.rows[0]?.username);
+      return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
+    }
+    if(p.startsWith("users/") && p.endsWith("/reset-pin")){
+      const uid=idOf(path[path.length-2]);
+      if(!uid)return Response.json({error:"User id required."},{status:400});
+      await pool.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS login_pin_hash text');
+      await pool.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS pin_failed_attempts integer NOT NULL DEFAULT 0');
+      await pool.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS pin_locked_until timestamptz');
+      const r=await pool.query('UPDATE "user" SET login_pin_hash=NULL,pin_failed_attempts=0,pin_locked_until=NULL WHERE id=$1 RETURNING id,username',[uid]);
+      await audit(a,'users/pin','edit',uid,{pin:'(old)'},{pin:'(reset)'},null,r.rows[0]?.username);
       return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
     }
     if(p.startsWith("users/") && p.endsWith("/option-setting")){

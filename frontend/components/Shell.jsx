@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { get, post, setToken } from '../lib/api';
+import { get } from '../lib/api';
 import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups, VOUCHER_SHORTCUTS, VOUCHER_PAGE_FOR } from '../lib/menu';
 import { THEMES, useTheme } from '../lib/theme';
 import { ChatWidget } from './ChatWidget';
@@ -64,52 +64,6 @@ const ICONS = {
   'nav-settings': Settings2,
 };
 
-export function Login({ onLogin }) {
-  const [mode, setMode] = useState('staff');
-  const [userid, setUserid] = useState('');
-  const [password, setPassword] = useState('');
-  const [otpToken, setOtpToken] = useState('');
-  const [otp, setOtp] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (e) => {
-    e.preventDefault(); setError(''); setBusy(true);
-    try {
-      const data = await post(mode === 'dealer' ? '/auth/dealer-login' : '/auth/login', { userid, password });
-      if (mode === 'dealer') { setToken(data.token); onLogin({ ...data.dealer, is_dealer: true }); }
-      else setOtpToken(data.otp_token);
-    } catch (e) { setError(e.message); } finally { setBusy(false); }
-  };
-
-  const verify = async (e) => {
-    e.preventDefault(); setError(''); setBusy(true);
-    try { const data = await post('/auth/verify-otp', { otp_token: otpToken, otp }); setToken(data.token); onLogin(data.user); }
-    catch (e) { setError(e.message); } finally { setBusy(false); }
-  };
-
-  return <div className="login">
-    <div className="loginbox" style={{maxWidth:430}}>
-      <div style={{textAlign:'center',marginBottom:22}}>
-        <div style={{width:64,height:64,borderRadius:18,margin:'0 auto 12px',display:'grid',placeItems:'center',fontSize:30,fontWeight:800,background:'var(--accent)',color:'#fff',boxShadow:'0 10px 30px rgba(37,99,235,.22)'}}>G</div>
-        <h1 style={{marginBottom:5}}>G.R.D. MOTORS</h1>
-        <p className="muted">{otpToken ? 'Secure OTP Verification' : mode === 'dealer' ? 'Dealer Portal' : 'eBill Management System'}</p>
-      </div>
-      {!otpToken ? <form onSubmit={submit}>
-        <div className="loginModes"><button type="button" className={'btn'+(mode==='staff'?' primary':'')} onClick={()=>{setMode('staff');setUserid('')}}>Staff Login</button><button type="button" className={'btn'+(mode==='dealer'?' primary':'')} onClick={()=>{setMode('dealer');setUserid('')}}>Dealer Login</button></div>
-        {error&&<div className="error">{error}</div>}
-        <div className="field"><label>{mode==='dealer'?'Dealer ID':'Username / Mobile No.'}</label><input value={userid} onChange={e=>setUserid(e.target.value)} autoFocus required placeholder={mode==='dealer'?'Enter Dealer ID':'Enter username or mobile number'}/></div>
-        <div className="field" style={{marginTop:12}}><label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required placeholder="Enter password"/></div>
-        <button className="btn primary" style={{width:'100%',marginTop:18}} disabled={busy}>{busy?'Checking…':'Continue →'}</button>
-      </form> : <form onSubmit={verify}>
-        {error&&<div className="error">{error}</div>}
-        <div className="field"><label>OTP</label><input inputMode="numeric" maxLength={4} value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,'').slice(0,4))} autoFocus required placeholder="Enter 4 digit OTP"/></div>
-        <button className="btn primary" style={{width:'100%',marginTop:14}} disabled={busy}>{busy?'Verifying…':'Verify & Login'}</button>
-        <button type="button" className="btn" style={{width:'100%',marginTop:8}} onClick={()=>{setOtpToken('');setOtp('');setError('')}}>← Back</button>
-      </form>}
-    </div>
-  </div>;
-}
 function NavItem({ icon: Icon, label, active, collapsed, onClick }) {
   return (<button
       className={'navbtn' + (active ? ' active' : '')}
