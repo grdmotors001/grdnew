@@ -29,7 +29,7 @@ function toJpeg(file) {
   });
 }
 
-// Uploads a finished-good logo, saved server-side as public/UMRN/<code>.jpg.
+// Uploads a finished-good logo, stored in the database (Vercel's file system is read-only).
 function LogoUploadField({ umrnCode }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -81,10 +81,13 @@ function LogoUploadField({ umrnCode }) {
         {code && (
           <img
             key={version}
-            src={`/UMRN/${code}.jpg?v=${version}`}
+            src={`/api/umrn-logo/${encodeURIComponent(code)}?v=${version}`}
             alt=""
             style={{ width: 40, height: 40, objectFit: 'contain', border: '1px solid #e4e7ec', borderRadius: 6, background: '#fff' }}
-            onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
+            onError={(e) => {
+              const el = e.currentTarget;
+              if (!el.dataset.fb) { el.dataset.fb = '1'; el.src = `/UMRN/${code}.jpg`; } else el.style.visibility = 'hidden';
+            }}
           />
         )}
         <input type="file" accept="image/*" onChange={handleFile} disabled={busy} />
@@ -92,7 +95,7 @@ function LogoUploadField({ umrnCode }) {
       {busy && <div style={{ fontSize: 12, color: '#667085', marginTop: 4 }}>Uploading…</div>}
       {msg && <div style={{ fontSize: 12, color: ok ? '#12b76a' : '#d92d2d', marginTop: 4 }}>{msg}</div>}
       <div style={{ fontSize: 11, color: '#98a2b3', marginTop: 4 }}>
-        Saved as public/UMRN/{code || '<UMRN Code>'}.jpg — Delivery Challan &amp; Invoice prints pick it up automatically.
+        Saved in the database for UMRN Code {code || '<UMRN Code>'} — Delivery Challan &amp; Invoice prints pick it up automatically.
       </div>
     </div>
   );
@@ -252,10 +255,13 @@ function LogoStatusCell({ umrnCode, fro }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       {!failed && (
         <img
-          src={`/UMRN/${code}.jpg`}
+          src={`/api/umrn-logo/${encodeURIComponent(code)}`}
           alt=""
           onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
+          onError={(e) => {
+            const el = e.currentTarget;
+            if (!el.dataset.fb) { el.dataset.fb = '1'; el.src = `/UMRN/${code}.jpg`; } else setFailed(true);
+          }}
           style={{ width: 26, height: 26, objectFit: 'contain', border: '1px solid #e4e7ec', borderRadius: 5, background: '#fff', display: loaded ? 'block' : 'none' }}
         />
       )}

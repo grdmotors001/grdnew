@@ -325,6 +325,8 @@ function UMRNLogo({ umrn, keys, alt = '', className, style }) {
     [t, t.toLowerCase(), t.toUpperCase()].forEach((v) => { if (!list.includes(v)) list.push(v); });
   });
   const candidates = [];
+  // Logos uploaded from Product Master live in the database; try those first, then the static /UMRN/ files.
+  [...new Set(list.map((k) => k.toLowerCase()))].forEach((k) => candidates.push(`/api/umrn-logo/${encodeURIComponent(k)}`));
   list.forEach((k) => UMRN_LOGO_EXTENSIONS.forEach((ext) => candidates.push(`/UMRN/${encodeURIComponent(k)}.${ext}`)));
   const sig = candidates.join('|');
 
