@@ -43,6 +43,7 @@ export function DayBookPreview({
   onPrint,
   onExport,
   hideSummary=false, // true: parent page already shows Opening / Cash In / Out / Closing cards
+  preset, rangeFrom, rangeTo, onPresetChange, onRangeChange, // optional: period dropdown (2 days / 7 days / 1 month / range) instead of single-date nav
 }) {
   const [search,setSearch]=useState('');
   const [page,setPage]=useState(1);
@@ -73,6 +74,34 @@ export function DayBookPreview({
   const goPrev=()=>onPrev?onPrev():onDateChange?.(shift(date,-1));
   const goNext=()=>onNext?onNext():onDateChange?.(shift(date,1));
   const ref=row=>row.no?(row.type==='DEBIT'?'Receipt':'Voucher')+': '+row.no+(row.folio?' · Page '+row.folio:''):'';
+
+  const periodLabel=onPresetChange&&rangeFrom&&rangeTo?(rangeFrom===rangeTo?formatDate(rangeFrom):formatDate(rangeFrom)+' to '+formatDate(rangeTo)):dateLabel;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // Print: alag hidden frame me poori day book (sab rows, sidebar/topbar ke bina). window.print() poore app page ko print karta tha.
+  const printBook=()=>{
+    const body=rows.map(r=>'<tr><td>'+esc(formatDate(r.date||date))+'</td><td><b>'+esc(r.particulars||'—')+'</b>'+(r.no?'<div class="ref">'+esc(ref(r))+'</div>':'')+'</td><td class="n">'+(r.debit?money(r.debit):'')+'</td><td class="n">'+(r.credit?money(r.credit):'')+'</td><td class="n">'+money(r.running)+'</td></tr>').join('');
+    const html='<!doctype html><html><head><meta charset="utf-8"><title>Cash Day Book '+esc(periodLabel)+'</title><style>'
+      +'@page{size:A4;margin:12mm}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11px;margin:0}'
+      +'h1{font-size:16px;margin:0}.sub{color:#444;margin:3px 0 10px}'
+      +'.sum{display:flex;gap:8px;margin-bottom:10px}.sum div{flex:1;border:1px solid #999;padding:6px 8px}.sum span{display:block;font-size:9px;text-transform:uppercase;color:#555}.sum b{font-size:13px}'
+      +'table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:4px 6px;text-align:left;vertical-align:top}th{background:#eee;font-size:10px;text-transform:uppercase}'
+      +'.n{text-align:right;white-space:nowrap}.ref{font-size:9px;color:#555}tfoot td{font-weight:bold;background:#f5f5f5}thead{display:table-header-group}tr{page-break-inside:avoid}'
+      +'</style></head><body>'
+      +'<h1>Cash / Day Book</h1><div class="sub">G.R.D. MOTORS · '+esc(dealerLabel)+' · '+esc(periodLabel)+'</div>'
+      +'<div class="sum"><div><span>Opening Balance</span><b>₹'+money(openingBalance)+'</b></div><div><span>Total Debit · Cash In</span><b>₹'+money(totalReceipts)+'</b></div><div><span>Total Credit · Cash Out</span><b>₹'+money(totalPayments)+'</b></div><div><span>Closing Balance</span><b>₹'+money(close)+'</b></div></div>'
+      +'<table><thead><tr><th>Date</th><th>Particulars</th><th class="n">Debit</th><th class="n">Credit</th><th class="n">Balance</th></tr></thead><tbody>'
+      +'<tr><td>'+esc(formatDate(rangeFrom||date))+'</td><td><b>Opening Balance</b></td><td></td><td></td><td class="n">'+money(openingBalance)+'</td></tr>'
+      +(body||'<tr><td colspan="5" style="text-align:center;padding:14px">No cash transactions for this period.</td></tr>')
+      +'</tbody><tfoot><tr><td colspan="2">Total</td><td class="n">'+money(totalReceipts)+'</td><td class="n">'+money(totalPayments)+'</td><td class="n">'+money(close)+'</td></tr></tfoot></table>'
+      +'</body></html>';
+    const fr=document.createElement('iframe');
+    fr.setAttribute('aria-hidden','true');
+    fr.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(fr);
+    const d=fr.contentWindow.document;d.open();d.write(html);d.close();
+    const go=()=>{try{fr.contentWindow.focus();fr.contentWindow.print()}finally{setTimeout(()=>fr.remove(),1500)}};
+    if(fr.contentWindow.document.readyState==='complete')setTimeout(go,150);else fr.onload=()=>setTimeout(go,150);
+  };
 
   return <div className="grdDb">
     <style>{`
@@ -141,13 +170,24 @@ export function DayBookPreview({
     <div className="grdDbTop">
       <div className="grdDbTitle"><div className="grdDbIcon">📖</div><div><h2>Cash / Day Book</h2><p>G.R.D. MOTORS · {dealerLabel}</p></div></div>
       <div className="grdDbTools">
-        <div className="grdDbNav">
+        {onPresetChange?<>
+          <select className="grdDbSearch" style={{width:150}} aria-label="Period" value={preset||'2d'} onChange={e=>onPresetChange(e.target.value)}>
+            <option value="2d">Last 2 days</option>
+            <option value="7d">7 days</option>
+            <option value="1m">1 month</option>
+            <option value="range">Select range</option>
+          </select>
+          {preset==='range'&&<div className="grdDbNav">
+            <input aria-label="From date" type="date" value={rangeFrom||''} max={rangeTo||undefined} onChange={e=>onRangeChange?.(e.target.value,rangeTo)}/>
+            <input aria-label="To date" type="date" value={rangeTo||''} min={rangeFrom||undefined} onChange={e=>onRangeChange?.(rangeFrom,e.target.value)}/>
+          </div>}
+        </>:<div className="grdDbNav">
           <button type="button" aria-label="Previous day" onClick={goPrev}>‹</button>
           <input aria-label="Select date" type="date" value={date} onChange={e=>onDateChange?onDateChange(e.target.value):null}/>
           <button type="button" aria-label="Next day" onClick={goNext}>›</button>
-        </div>
+        </div>}
         <input className="grdDbSearch" placeholder="Search" value={search} onChange={e=>setSearch(e.target.value)}/>
-        <button type="button" className="grdDbBtn" onClick={()=>onPrint?onPrint():window.print()}>🖨 Print</button>
+        <button type="button" className="grdDbBtn" onClick={()=>onPrint?onPrint():printBook()}>🖨 Print</button>
         <button type="button" className="grdDbBtn primary" onClick={onExport}>⇩ Export</button>
       </div>
     </div>
@@ -198,7 +238,7 @@ export function DayBookPreview({
         </div>)}
       </div>
 
-      {!rows.length&&<div className="grdDbEmpty">No cash transactions for this date.</div>}
+      {!rows.length&&<div className="grdDbEmpty">No cash transactions for this period.</div>}
       <Pagination page={page} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={setPageSize}/>
       {!hideSummary&&<div className="grdDbFoot">
         <span>Debit <span className="debit">₹{money(totalReceipts)}</span></span>

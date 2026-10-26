@@ -31,8 +31,8 @@ export function DealerCashReceiptPage({dealer,modal=false,onClose,onCreated}={})
   const selected=useMemo(()=>customers.find(x=>String(x.id)===String(form.customer_id)),[customers,form.customer_id]);
   const balance=Number(selected?.balance||0);
   // Balance Payment dropdown me sirf outstanding customers.
-  // Tax invoice se bani rows (id 'bill-…', from_bill) read-only hain — unka cash-register record nahi hota, isliye unpar receipt nahi ban sakti.
-  const payableCustomers=useMemo(()=>customers.filter(c=>Number(c.balance||0)>0&&!c.from_bill&&/^\d+$/.test(String(c.id))),[customers]);
+  // Tax invoice se bani rows (id 'bill-…') par bhi receipt ban sakti hai: pehli receipt par backend unhe register customer bana deta hai.
+  const payableCustomers=useMemo(()=>customers.filter(c=>Number(c.balance||0)>0),[customers]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const changeType=v=>{

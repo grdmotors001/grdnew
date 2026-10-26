@@ -75,6 +75,27 @@ export function ensureDealerCashSchema():Promise<void>{
   }
   return dealerCashSchemaReady;
 }
+// Auto serial: har branch/dealer ka apna series, har mahine 0001 se.
+//   Dealer / Branch : <DEALER CODE>-YYMM0001   (jaise K03-26100001 ya K-03-26100001)
+//   Head Office     : HO-YYMM0001              (dealerId = null do)
+// Counter table me row lock hone se do receipts ek saath bhi same number nahi payengi; transaction rollback ho to number wapas free.
+let serialTableReady:Promise<void>|null=null;
+export async function nextSerial(client:any,dealerId:number|null,dateStr?:string):Promise<string>{
+  if(!serialTableReady){
+    serialTableReady=pool.query("CREATE TABLE IF NOT EXISTS serial_counter (scope text NOT NULL,yymm text NOT NULL,last_no integer NOT NULL DEFAULT 0,PRIMARY KEY(scope,yymm))").then(()=>{}).catch((e:any)=>{serialTableReady=null;throw e});
+  }
+  await serialTableReady;
+  const d=dateStr&&/^\d{4}-\d{2}/.test(dateStr)?dateStr:new Date().toISOString();
+  const yymm=d.slice(2,4)+d.slice(5,7);
+  let prefix="HO",scope="HO";
+  if(dealerId){
+    const r=await client.query("SELECT code FROM dealer WHERE id=$1::int",[dealerId]);
+    prefix=String(r.rows[0]?.code||"").trim().toUpperCase().replace(/\s+/g,"")||("D"+dealerId);
+    scope="D"+dealerId;
+  }
+  const c=await client.query("INSERT INTO serial_counter (scope,yymm,last_no) VALUES ($1::text,$2::text,1) ON CONFLICT (scope,yymm) DO UPDATE SET last_no=serial_counter.last_no+1 RETURNING last_no",[scope,yymm]);
+  return prefix+"-"+yymm+String(c.rows[0].last_no).padStart(4,"0");
+}
 // Dealer ke haath me cash = cash receipts - expenses - ACCEPTED handovers. Pending handover abhi dealer ke paas hi maana jata hai.
 export async function dealerCashPosition(did:number,client:any=pool){
   const r=await client.query("SELECT (SELECT COALESCE(SUM(amount),0) FROM dealer_cash_receipt WHERE dealer_id=$1 AND lower(COALESCE(payment_mode,'cash'))='cash') AS rc,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_expense WHERE dealer_id=$1) AS ex,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_handover WHERE dealer_id=$1 AND lower(COALESCE(status,'pending'))='accepted') AS acc,(SELECT COALESCE(SUM(amount),0) FROM dealer_cash_handover WHERE dealer_id=$1 AND lower(COALESCE(status,'pending'))='pending') AS pend",[did]);
@@ -97,7 +118,7 @@ async function ensureDealerCashSchemaOnce(){
   await pool.query("CREATE TABLE IF NOT EXISTS dealer_cash_handover (id bigserial PRIMARY KEY,dealer_id integer NOT NULL,date date NOT NULL DEFAULT CURRENT_DATE,handover_no text,amount numeric NOT NULL DEFAULT 0,sent_to text,remarks text,folio text,status text NOT NULL DEFAULT 'pending',created_at timestamptz NOT NULL DEFAULT now())");
   const defs:any={
     // Older DBs already have dealer_cash_customer without these columns (CREATE TABLE IF NOT EXISTS skips them).
-    dealer_cash_customer:{dealer_id:"integer",name:"text",full_name:"text",phone:"text",customer_phone:"text",page_no:"text",vehicle_no:"text",sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",paid_amount:"numeric NOT NULL DEFAULT 0",status:"text NOT NULL DEFAULT 'VEHICLE_PENDING'",date:"date",created_at:"timestamptz NOT NULL DEFAULT now()"},
+    dealer_cash_customer:{dealer_id:"integer",name:"text",full_name:"text",phone:"text",customer_phone:"text",page_no:"text",vehicle_no:"text",sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",paid_amount:"numeric NOT NULL DEFAULT 0",status:"text NOT NULL DEFAULT 'VEHICLE_PENDING'",date:"date",created_at:"timestamptz NOT NULL DEFAULT now()",source_invoice_id:"bigint"},
     dealer_cash_receipt:{dealer_id:"integer",customer_id:"bigint",date:"date NOT NULL DEFAULT CURRENT_DATE",receipt_date:"date",receipt_type:"text",payment_mode:"text NOT NULL DEFAULT 'cash'",receipt_no:"text",customer_name:"text",customer_phone:"text",dealer_register_page_no:"text",sale_amount:"numeric NOT NULL DEFAULT 0",loan_amount:"numeric NOT NULL DEFAULT 0",amount:"numeric NOT NULL DEFAULT 0",reference_no:"text",remarks:"text",request_id:"text"},
     dealer_cash_expense:{dealer_id:"integer",date:"date",expense_date:"date",expense_no:"text",category:"text",category_label:"text",amount:"numeric NOT NULL DEFAULT 0",paid_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'ACTIVE'",customer_id:"bigint",customer_name:"text",customer_page_no:"text"},
     dealer_cash_handover:{dealer_id:"integer",date:"date",handover_date:"date",handover_no:"text",amount:"numeric NOT NULL DEFAULT 0",sent_to:"text",remarks:"text",folio:"text",status:"text NOT NULL DEFAULT 'pending'",accepted_at:"timestamptz",accepted_by:"text",reject_reason:"text",day_book_id:"bigint"}
@@ -277,13 +298,15 @@ export async function dealerCashbookGet(req:Request,path:string[],a:any,deps:Cas
       if(dRow&&["showroom","branch"].includes(String(dRow.c||""))){
         const ir=await pool.query("SELECT ti.id,ti.date,ti.bill_no,ti.buyer_name,to_jsonb(ti)->>'buyer_mobile' AS mobile,to_jsonb(ti)->>'vehicle_reg_no' AS reg,to_jsonb(ti)->>'dealer_page_no' AS pg,COALESCE(ti.sale_amount,0) AS sale_amount,COALESCE(ti.hypothecation_amount,0) AS loan,COALESCE(ti.amount_received,0) AS paid FROM tax_invoice ti WHERE COALESCE(ti.cancelled,false)=false AND (ti.dealer_id=$1 OR lower(btrim(ti.dealer_name))=$2) ORDER BY ti.date DESC,ti.id DESC LIMIT 3000",[did,String(dRow.n||"")]);
         const haveReg=new Set<string>(),havePg=new Set<string>();
+        const haveInv=new Set<string>(customers.map((c:any)=>String(c.source_invoice_id||"")).filter(Boolean));
         for(const c of customers){const g=normReg(c.vehicle_no);if(g.length>=5)haveReg.add(g);const pg=String(c.page_no||"").trim();if(pg)havePg.add(pg+"|"+normPhone(c.phone))}
         const norm=(v:any)=>String(v??"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim();
         for(const x of ir.rows){
           if(norm(x.buyer_name)===norm(dRow.n))continue; // dealer ke naam ka bill customer nahi hai
+          if(haveInv.has(String(x.id)))continue; // is bill par receipt ban chuki hai: register customer ban gaya
           const g=normReg(x.reg),pg=String(x.pg||"").trim();
           if((g.length>=5&&haveReg.has(g))||(pg&&havePg.has(pg+"|"+normPhone(x.mobile))))continue;
-          customers.push({id:"bill-"+x.id,from_bill:true,invoice_id:x.id,page_no:pg,date:ymd(x.date),name:String(x.buyer_name||"").trim(),phone:String(x.mobile||"").trim(),vehicle_no:String(x.reg||"").trim(),status:"BILLED",sale_amount:num(x.sale_amount),loan_amount:num(x.loan),paid_amount:num(x.paid),balance:Math.max(0,num(x.sale_amount)-num(x.paid)),bill_no:x.bill_no});
+          customers.push({id:"bill-"+x.id,from_bill:true,invoice_id:x.id,page_no:pg,date:ymd(x.date),name:String(x.buyer_name||"").trim(),phone:String(x.mobile||"").trim(),vehicle_no:String(x.reg||"").trim(),status:"BILLED",sale_amount:num(x.sale_amount),loan_amount:num(x.loan),paid_amount:num(x.paid),balance:Math.max(0,num(x.sale_amount)-num(x.loan)-num(x.paid)),bill_no:x.bill_no});
         }
         customers.sort((x:any,y:any)=>String(y.date||"").localeCompare(String(x.date||"")));
       }
@@ -407,6 +430,21 @@ export async function dealerCashbookPost(path:string[],b:any,a:any):Promise<Resp
         await client.query("BEGIN");
         let cid=customerId;
         if(type==="balance_payment"){
+          const billRef=/^bill-(\d+)$/.exec(String(b.customer_id||""));
+          if(billRef){
+            // Old-app tax invoice customer: pehli receipt par register me customer bana do (sale/loan/received bill se), phir normal balance payment.
+            const invId=Number(billRef[1]);
+            const ex=await client.query("SELECT id FROM dealer_cash_customer WHERE dealer_id=$1::int AND source_invoice_id=$2::bigint LIMIT 1",[did,invId]);
+            if(ex.rowCount)cid=ex.rows[0].id;
+            else{
+              const ir=await client.query("SELECT to_jsonb(ti) AS j FROM tax_invoice ti WHERE ti.id=$1::bigint AND COALESCE(ti.cancelled,false)=false AND (ti.dealer_id=$2::int OR lower(btrim(COALESCE(ti.dealer_name,'')))=(SELECT lower(btrim(name)) FROM dealer WHERE id=$2::int))",[invId,did]);
+              if(!ir.rowCount)throw new Error("Customer bill not found.");
+              const t=ir.rows[0].j,nm=String(t.buyer_name||"").trim(),ph=String(t.buyer_mobile||"").trim();
+              const ins=await client.query("INSERT INTO dealer_cash_customer (dealer_id,name,full_name,phone,customer_phone,page_no,vehicle_no,sale_amount,loan_amount,paid_amount,status,date,source_invoice_id) VALUES ($1::int,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::numeric,$9::numeric,$10::numeric,'BILLED',$11::date,$12::bigint) RETURNING id",
+                [did,nm,nm,ph,ph,String(t.dealer_page_no||"").trim()||null,String(t.vehicle_reg_no||"").trim(),num(t.sale_amount),num(t.hypothecation_amount),num(t.amount_received),t.date||null,invId]);
+              cid=ins.rows[0].id;
+            }
+          }
           if(!cid)throw new Error("Previous customer is required.");
           const chk=await client.query("SELECT * FROM dealer_cash_customer WHERE id=$1 AND dealer_id=$2 FOR UPDATE",[cid,did]);
           if(!chk.rowCount)throw new Error("Customer not found.");
@@ -425,7 +463,7 @@ export async function dealerCashbookPost(path:string[],b:any,a:any):Promise<Resp
           const rr=await client.query('INSERT INTO dealer_cash_customer ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
           cid=rr.rows[0].id;
         }
-        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||"-",customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_date:date,receipt_no:"RC-"+Date.now()};
+        const input:any={dealer_id:did,customer_id:cid,date:date||null,receipt_type:type,customer_name:String(b.customer_name||"").trim()||"-",customer_phone:String(b.customer_phone||"").trim()||null,dealer_register_page_no:String(b.dealer_register_page_no||"").trim()||null,sale_amount:num(b.sale_amount),loan_amount:num(b.loan_amount),amount:num(b.amount),payment_mode:String(b.payment_mode||"cash"),reference_no:String(b.reference_no||"").trim()||null,remarks:String(b.remarks||"").trim()||null,request_id:String(b.request_id||"").trim()||null,receipt_date:date,receipt_no:await nextSerial(client,did,date)};
         const keys=Object.keys(input).filter(k=>rc.has(k));
         const rr=await client.query('INSERT INTO dealer_cash_receipt ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING *',keys.map(k=>input[k]));
         const receipt=rr.rows[0];

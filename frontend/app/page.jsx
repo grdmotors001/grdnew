@@ -159,7 +159,8 @@ const CUSTOM_PAGES = {
 function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user }) {
   // Vouchers tab keys (v-*) open the existing page of the same voucher.
   if (CUSTOM_PAGES[rawActive] && rawActive.startsWith('v-')) return CUSTOM_PAGES[rawActive]({ setActive, optionUserId, setOptionUserId, user });
-  const active = VOUCHER_PAGE_FOR[rawActive] || rawActive;
+  // VOUCHER_PAGE_FOR sirf permission/redirect ke liye hai. Jis key ka apna page hai (jaise showroom-stock) wo apna hi page kholega.
+  const active = CUSTOM_PAGES[rawActive] ? rawActive : (VOUCHER_PAGE_FOR[rawActive] || rawActive);
   if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
   if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} setOptionUserId={setOptionUserId} />;
   const render = CUSTOM_PAGES[active];

@@ -74,7 +74,7 @@ function DealerProfileForm({ dealer }) {
     } finally { setSaving(false); }
   };
 
-  const ro = (v) => ({ ...S.input, ...S.ro, value: v ?? '', readOnly: true });
+  const ro = (v) => ({ style: { ...S.input, ...S.ro }, value: v ?? '', readOnly: true });
   const inp = (k, type = 'text', force = false) => { const can = editable || force; return { style: { ...S.input, ...(can ? null : S.ro) }, type, value: form[k] ?? '', onChange: set(k), readOnly: !can }; };
 
   return (
