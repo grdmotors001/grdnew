@@ -49,15 +49,14 @@ export async function POST(req:Request){
     const dr=await pool.query("SELECT * FROM dealer WHERE login_id=$1 LIMIT 1",[userid]);
     const dealer=dr.rows[0];
     if(dealer && !dealer.blocked && verifyWerkzeug(dealer.password_hash,password)){
-      const portalModules=String(dealer.portal_modules||"").replace(/[{}"\[\]]/g,"").split(",").map((x:string)=>x.trim()).filter(Boolean);
-      const safeDealer={
-        id:dealer.id,code:dealer.code,name:dealer.name,login_id:dealer.login_id,
-        dealer_category:dealer.dealer_category||"dealer",registration_type:dealer.registration_type||"registered",purchase_access:Boolean(dealer.purchase_access)&&String(dealer.registration_type||"registered").toLowerCase()!=="unregistered",
-        portal_modules:portalModules,
-        state:dealer.state||"",state_code:dealer.state_code||"",bank_name:dealer.bank_name||"",bank_account_no:dealer.bank_account_no||"",bank_ifsc:dealer.bank_ifsc||""
-      };
-      const token=jwt.sign({sub:dealer.id,username:dealer.login_id,dealer_id:dealer.id,scope:"dealer",portal_modules:portalModules,role:"dealer"},secret,{expiresIn:"12h"});
-      return Response.json({success:true,token,dealer:safeDealer,user:safeDealer,portal:"dealer",role:"dealer"});
+      // Dealer ko bhi staff jaisa PIN: PIN set hai to poochho, nahi to Set PIN (skip ke option ke saath).
+      await ensurePinSchema(pool);
+      const pr=await pool.query("SELECT 1 FROM dealer_login_pin WHERE dealer_id=$1::int",[dealer.id]);
+      const who={id:dealer.id,username:dealer.login_id};
+      const safe={id:dealer.id,code:dealer.code,name:dealer.name,login_id:dealer.login_id};
+      return Response.json(pr.rowCount
+        ? {pin_required:true,pin_token:signPinToken(who,"pin_verify","dealer"),user:safe,role:"dealer"}
+        : {pin_setup:true,pin_token:signPinToken(who,"pin_setup","dealer"),user:safe,role:"dealer"});
     }
 
     return Response.json({error:"Invalid Username/Mobile, Dealer ID or Password."},{status:401});

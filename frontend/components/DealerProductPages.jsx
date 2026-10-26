@@ -224,7 +224,13 @@ export function DealerPage() {
             </div>
             <div className="actions" style={{ marginTop: 18, justifyContent: 'space-between' }}>
               {editingId ? (
-                <button type="button" className="btn danger" disabled={busy} onClick={() => remove(editingId)}>Delete</button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="btn danger" disabled={busy} onClick={() => remove(editingId)}>Delete</button>
+                  <button type="button" className="btn" disabled={busy} onClick={() => {
+                    if (!window.confirm('Is dealer ka login PIN reset karein? Dealer ko next login par naya PIN set karna hoga.')) return;
+                    run(async () => { await post(`/dealers/${editingId}/reset-pin`, {}); window.alert('PIN reset ho gaya. Dealer next login par naya PIN set karega.'); });
+                  }}>Reset PIN</button>
+                </div>
               ) : <span />}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="btn" onClick={() => { setOpen(false); setEditingId(null); }}>Cancel</button>

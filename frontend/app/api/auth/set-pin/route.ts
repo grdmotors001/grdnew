@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
-import { ensurePinSchema, readPinToken, hashPin, isValidPin, buildStaffSession, jwtSecret } from "../../../../lib/server/pin";
+import { ensurePinSchema, readPinToken, hashPin, isValidPin, buildStaffSession, buildDealerSession, pinStore, jwtSecret } from "../../../../lib/server/pin";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, ssl: { rejectUnauthorized: false } });
 
@@ -34,17 +34,26 @@ export async function POST(req: Request) {
 
     if (b.pin_token) {
       const p = readPinToken(b.pin_token, "pin_setup");
-      const q = await pool.query('SELECT login_pin_hash FROM "user" WHERE id=$1 LIMIT 1', [p.sub]);
-      if (!q.rows[0]) return Response.json({ error: "User not found." }, { status: 404 });
-      if (q.rows[0].login_pin_hash) return Response.json({ error: "PIN already set. Please login again." }, { status: 400 });
-      await pool.query('UPDATE "user" SET login_pin_hash=$1, pin_failed_attempts=0, pin_locked_until=NULL WHERE id=$2', [hashPin(pin), p.sub]);
-      const s = await buildStaffSession(pool, Number(p.sub));
+      const store = pinStore(pool, p.kind);
+      const cur: any = await store.get(Number(p.sub));
+      if (cur.missing) return Response.json({ error: "User not found." }, { status: 404 });
+      if (cur.hash) return Response.json({ error: "PIN already set. Please login again." }, { status: 400 });
+      await store.set(Number(p.sub), hashPin(pin));
+      const s = p.kind === "dealer" ? await buildDealerSession(pool, Number(p.sub)) : await buildStaffSession(pool, Number(p.sub));
       return Response.json(s.body, { status: s.status });
     }
 
     const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
     let a: any;
     try { a = jwt.verify(bearer, jwtSecret); } catch { return Response.json({ error: "Authentication required." }, { status: 401 }); }
+    if (a.scope === "dealer" && String(a.role || "") !== "salesman") {
+      const did = Number(a.dealer_id || a.sub);
+      const q = await pool.query("SELECT password_hash FROM dealer WHERE id=$1::int LIMIT 1", [did]);
+      if (!q.rows[0]) return Response.json({ error: "Dealer not found." }, { status: 404 });
+      if (!verifyPassword(q.rows[0].password_hash, String(b.current_password || ""))) return Response.json({ error: "Current password is incorrect." }, { status: 400 });
+      await pinStore(pool, "dealer").set(did, hashPin(pin));
+      return Response.json({ success: true, has_pin: true });
+    }
     if (a.scope !== "staff") return Response.json({ error: "Staff PIN only." }, { status: 403 });
     const q = await pool.query('SELECT password_hash FROM "user" WHERE id=$1 LIMIT 1', [a.sub]);
     if (!q.rows[0]) return Response.json({ error: "User not found." }, { status: 404 });

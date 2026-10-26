@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { ensurePinSchema, readPinToken, buildStaffSession } from "../../../../lib/server/pin";
+import { ensurePinSchema, readPinToken, buildStaffSession, buildDealerSession, pinStore } from "../../../../lib/server/pin";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, ssl: { rejectUnauthorized: false } });
 
@@ -10,10 +10,10 @@ export async function POST(req: Request) {
     const b = await req.json().catch(() => ({}));
     const p = readPinToken(b.pin_token, "pin_setup");
     await ensurePinSchema(pool);
-    const q = await pool.query('SELECT login_pin_hash FROM "user" WHERE id=$1 LIMIT 1', [p.sub]);
-    if (!q.rows[0]) return Response.json({ error: "User not found." }, { status: 404 });
-    if (q.rows[0].login_pin_hash) return Response.json({ error: "PIN already set. Please login again." }, { status: 400 });
-    const s = await buildStaffSession(pool, Number(p.sub));
+    const cur: any = await pinStore(pool, p.kind).get(Number(p.sub));
+    if (cur.missing) return Response.json({ error: "User not found." }, { status: 404 });
+    if (cur.hash) return Response.json({ error: "PIN already set. Please login again." }, { status: 400 });
+    const s = p.kind === "dealer" ? await buildDealerSession(pool, Number(p.sub)) : await buildStaffSession(pool, Number(p.sub));
     return Response.json(s.body, { status: s.status });
   } catch (e: any) {
     return Response.json({ error: e.message || "Could not continue" }, { status: 401 });

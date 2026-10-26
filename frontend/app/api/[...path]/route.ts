@@ -7,6 +7,7 @@ import { expenseVoucherGet, expenseVoucherPost, expenseVoucherDelete } from "../
 import { bankLedgerGet, bankLedgerPost, bankLedgerMutation, ensureBankLedgerSchema } from "../../../lib/server/bank-ledger";
 import { insuranceRtoGet, insuranceRtoPost, insuranceRtoMutation } from "../../../lib/server/insurance-rto";
 import { reportsGet } from "../../../lib/server/reports";
+import { ensurePinSchema, pinStore } from "../../../lib/server/pin";
 import { productionGet, productionPost, productionMutation } from "../../../lib/server/production";
 import { ensureDealerCashSchema, dealerCashPosition, enrichCashCustomers, dealerCashbookGet, dealerCashbookPost, dealerCashbookMutation, cashbookAdminGet, cashbookAdminPost } from "../../../lib/server/dealer-cashbook";
 import { ensureLoanWorkflowBridgeSchema, chfplBridge, loanGet, loanWebhookPost, loanPost } from "../../../lib/server/loan";
@@ -1135,7 +1136,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const select=wanted.filter((c)=>dcols.has(c)).map((c)=>'"'+c+'"').join(",");
       const r=await pool.query('SELECT '+(select||'id,name')+' FROM dealer WHERE id=$1',[num(a.dealer_id)]);
       if(!r.rowCount)return Response.json({error:"Dealer not found."},{status:404});
-      return Response.json({profile:{...r.rows[0],kind:"dealer",editable:false}});
+      await ensurePinSchema(pool as any);
+      const hp=await pool.query("SELECT 1 FROM dealer_login_pin WHERE dealer_id=$1::int",[num(a.dealer_id)]);
+      return Response.json({profile:{...r.rows[0],kind:"dealer",editable:false,has_pin:hp.rowCount>0}});
     }
     if(p==="dealer/stock"&&a.scope==="dealer"){
       const dr=await pool.query("SELECT id,name FROM dealer WHERE id=$1",[num(a.dealer_id)]);
@@ -1714,6 +1717,16 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const r=await pool.query('UPDATE "user" SET password_hash=$1 WHERE id=$2 RETURNING id,username',[value,uid]);
       await audit(a,'users/password','edit',uid,{password:'(old)'},{password:'(changed)'},null,r.rows[0]?.username);
       return Response.json({success:r.rowCount>0,user:r.rows[0]||null});
+    }
+    if(p.startsWith("dealers/") && p.endsWith("/reset-pin")){
+      if(a.scope!=="staff")return Response.json({error:"Only admin/staff can reset a dealer PIN."},{status:403});
+      const did=idOf(path[path.length-2]);
+      if(!did)return Response.json({error:"Dealer id required."},{status:400});
+      await ensurePinSchema(pool as any);
+      await pinStore(pool as any,"dealer").reset(did);
+      const dn=await pool.query("SELECT name FROM dealer WHERE id=$1::int",[did]);
+      await audit(a,'dealers/pin','edit',did,{pin:'(old)'},{pin:'(reset)'},did,dn.rows[0]?.name);
+      return Response.json({success:true});
     }
     if(p.startsWith("users/") && p.endsWith("/reset-pin")){
       const uid=idOf(path[path.length-2]);

@@ -29,6 +29,7 @@ export function DealerProfilePage({ dealer }) {
     <div style={S.wrap}>
       <DealerProfileForm dealer={dealer} />
       <DealerPasswordCard />
+      <DealerPinCard />
     </div>
   );
 }
@@ -158,5 +159,56 @@ function DealerPasswordCard() {
         </form>
       </div>
     </>
+  );
+}
+
+
+// Dealer ka Login PIN: login ke baad password ke saath ye 4 digit PIN poocha jata hai (staff jaisa).
+function DealerPinCard() {
+  const [hasPin, setHasPin] = useState(false);
+  const [form, setForm] = useState({ current_password: '', pin: '', confirm_pin: '' });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    get('/dealer/profile').then((r) => { if (alive) setHasPin(Boolean((r?.profile || r || {}).has_pin)); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const digits = (v) => v.replace(/\D/g, '').slice(0, 4);
+  const save = async (e) => {
+    e.preventDefault();
+    setMessage(''); setError('');
+    if (form.pin !== form.confirm_pin) { setError('PIN aur Confirm PIN match nahi kar rahe.'); return; }
+    setSaving(true);
+    try {
+      await post('/auth/set-pin', form);
+      setForm({ current_password: '', pin: '', confirm_pin: '' });
+      setHasPin(true);
+      setMessage('PIN saved. Agle login par yahi PIN poocha jayega.');
+    } catch (err) {
+      setError(err?.message || 'Could not save PIN.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={S.card}>
+      <h3 style={S.h}>Login PIN</h3>
+      <p style={S.sub}>{hasPin ? 'PIN set hai. Naya PIN daal kar change kar sakte hain.' : 'PIN set nahi hai. PIN set karne par login ke baad yahi PIN poocha jayega.'}</p>
+      {error && <div style={S.err}>{error}</div>}
+      {message && <div style={S.ok}>{message}</div>}
+      <form onSubmit={save}>
+        <div style={S.grid}>
+          <Row label="Current Password"><input type="password" required autoComplete="current-password" style={S.input} value={form.current_password} onChange={(e) => setForm({ ...form, current_password: e.target.value })} /></Row>
+          <Row label={hasPin ? 'New PIN (4 digit)' : 'PIN (4 digit)'}><input type="password" inputMode="numeric" maxLength={4} required autoComplete="off" style={S.input} value={form.pin} onChange={(e) => setForm({ ...form, pin: digits(e.target.value) })} /></Row>
+          <Row label="Confirm PIN"><input type="password" inputMode="numeric" maxLength={4} required autoComplete="off" style={S.input} value={form.confirm_pin} onChange={(e) => setForm({ ...form, confirm_pin: digits(e.target.value) })} /></Row>
+        </div>
+        <button className="btn primary" style={S.btn} disabled={saving || form.pin.length !== 4}>{saving ? 'Saving…' : hasPin ? 'Change PIN' : 'Set PIN'}</button>
+      </form>
+    </div>
   );
 }

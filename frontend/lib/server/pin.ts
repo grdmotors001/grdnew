@@ -14,6 +14,8 @@ export function ensurePinSchema(pool: Pool): Promise<void> {
       await pool.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS login_pin_hash text');
       await pool.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS pin_failed_attempts integer NOT NULL DEFAULT 0');
       await pool.query('ALTER TABLE "user" ADD COLUMN IF NOT EXISTS pin_locked_until timestamptz');
+      // Dealer PIN alag table me (dealer table generic list/edit APIs se nikalti hai, hash wahan se leak na ho).
+      await pool.query("CREATE TABLE IF NOT EXISTS dealer_login_pin (dealer_id integer PRIMARY KEY,pin_hash text NOT NULL,failed_attempts integer NOT NULL DEFAULT 0,locked_until timestamptz,updated_at timestamptz NOT NULL DEFAULT now())");
     })().catch((e) => { pinSchemaReady = null; throw e; });
   }
   return pinSchemaReady;
@@ -35,15 +37,66 @@ export function verifyPinHash(hash: string, pin: string) {
   return actual.length === m[3].length && crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(m[3]));
 }
 
+export type PinKind = "staff" | "dealer";
+
 // Short-lived token issued after a correct password. purpose: "pin_verify" (PIN already set) or "pin_setup" (no PIN yet).
-export function signPinToken(user: any, purpose: "pin_verify" | "pin_setup") {
-  return jwt.sign({ pin_step: purpose, sub: user.id, username: user.username }, jwtSecret, { expiresIn: "10m" });
+// kind "dealer": sub = dealer.id.
+export function signPinToken(user: any, purpose: "pin_verify" | "pin_setup", kind: PinKind = "staff") {
+  return jwt.sign({ pin_step: purpose, kind, sub: user.id, username: user.username }, jwtSecret, { expiresIn: "10m" });
 }
 
 export function readPinToken(token: string, purpose: "pin_verify" | "pin_setup") {
   const p: any = jwt.verify(String(token || ""), jwtSecret);
   if (p.pin_step !== purpose) throw new Error("Session expired. Please login again.");
+  p.kind = p.kind === "dealer" ? "dealer" : "staff";
   return p;
+}
+
+// Staff PIN "user" table me, Dealer PIN dealer_login_pin me. Dono ke liye ek hi interface.
+export function pinStore(pool: Pool, kind: PinKind) {
+  if (kind === "dealer") {
+    return {
+      async get(id: number) {
+        const r = await pool.query("SELECT pin_hash AS hash, failed_attempts AS attempts, locked_until AS locked FROM dealer_login_pin WHERE dealer_id=$1::int", [id]);
+        return r.rows[0] || { hash: null, attempts: 0, locked: null };
+      },
+      async set(id: number, hash: string) {
+        await pool.query("INSERT INTO dealer_login_pin (dealer_id,pin_hash,failed_attempts,locked_until,updated_at) VALUES ($1::int,$2::text,0,NULL,now()) ON CONFLICT (dealer_id) DO UPDATE SET pin_hash=EXCLUDED.pin_hash,failed_attempts=0,locked_until=NULL,updated_at=now()", [id, hash]);
+      },
+      async fail(id: number, attempts: number) { await pool.query("UPDATE dealer_login_pin SET failed_attempts=$1::int WHERE dealer_id=$2::int", [attempts, id]); },
+      async lock(id: number) { await pool.query(`UPDATE dealer_login_pin SET failed_attempts=0, locked_until=now()+interval '${PIN_LOCK_MINUTES} minutes' WHERE dealer_id=$1::int`, [id]); },
+      async clearFails(id: number) { await pool.query("UPDATE dealer_login_pin SET failed_attempts=0, locked_until=NULL WHERE dealer_id=$1::int", [id]); },
+      async reset(id: number) { await pool.query("DELETE FROM dealer_login_pin WHERE dealer_id=$1::int", [id]); },
+    };
+  }
+  return {
+    async get(id: number) {
+      const r = await pool.query('SELECT login_pin_hash AS hash, pin_failed_attempts AS attempts, pin_locked_until AS locked FROM "user" WHERE id=$1 LIMIT 1', [id]);
+      return r.rows[0] || { hash: null, attempts: 0, locked: null, missing: true };
+    },
+    async set(id: number, hash: string) { await pool.query('UPDATE "user" SET login_pin_hash=$1, pin_failed_attempts=0, pin_locked_until=NULL WHERE id=$2', [hash, id]); },
+    async fail(id: number, attempts: number) { await pool.query('UPDATE "user" SET pin_failed_attempts=$1 WHERE id=$2', [attempts, id]); },
+    async lock(id: number) { await pool.query(`UPDATE "user" SET pin_failed_attempts=0, pin_locked_until=now()+interval '${PIN_LOCK_MINUTES} minutes' WHERE id=$1`, [id]); },
+    async clearFails(id: number) { await pool.query('UPDATE "user" SET pin_failed_attempts=0, pin_locked_until=NULL WHERE id=$1', [id]); },
+    async reset(id: number) { await pool.query('UPDATE "user" SET login_pin_hash=NULL,pin_failed_attempts=0,pin_locked_until=NULL WHERE id=$1', [id]); },
+  };
+}
+
+// Final dealer session (same payload jo login route pehle seedha deta tha).
+export async function buildDealerSession(pool: Pool, dealerId: number) {
+  const q = await pool.query("SELECT * FROM dealer WHERE id=$1::int LIMIT 1", [dealerId]);
+  const dealer = q.rows[0];
+  if (!dealer || dealer.blocked) return { status: 403, body: { error: "Dealer login is blocked or not found." } };
+  const portalModules = String(dealer.portal_modules || "").replace(/[{}"\[\]]/g, "").split(",").map((x: string) => x.trim()).filter(Boolean);
+  const safeDealer = {
+    id: dealer.id, code: dealer.code, name: dealer.name, login_id: dealer.login_id,
+    dealer_category: dealer.dealer_category || "dealer", registration_type: dealer.registration_type || "registered",
+    purchase_access: Boolean(dealer.purchase_access) && String(dealer.registration_type || "registered").toLowerCase() !== "unregistered",
+    portal_modules: portalModules,
+    state: dealer.state || "", state_code: dealer.state_code || "", bank_name: dealer.bank_name || "", bank_account_no: dealer.bank_account_no || "", bank_ifsc: dealer.bank_ifsc || "",
+  };
+  const token = jwt.sign({ sub: dealer.id, username: dealer.login_id, dealer_id: dealer.id, scope: "dealer", portal_modules: portalModules, role: "dealer" }, jwtSecret, { expiresIn: "12h" });
+  return { status: 200, body: { success: true, token, dealer: safeDealer, user: safeDealer, portal: "dealer", role: "dealer" } };
 }
 
 // Final staff session (same payload the old verify-otp route returned).
