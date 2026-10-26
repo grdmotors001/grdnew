@@ -30,7 +30,7 @@ const DEALER_EXPENSE_CATEGORIES = [
 const dealerHeaderSections = [
   {label:'Stock', items:[['stock','New Stock'],['old-stock','Old Rickshaw Stock'],['battery-stock','Battery Stock'],['seized-vehicles','Seized Vehicle']]},
   {label:'Bahikhata', items:[['cashbook','Cashbook'],['all-customers','All Customers'],['all-receipt','All Receipt'],['all-expenses','All Expenses'],['handover-create','Cash Handover'],['payments','Online Payment']]},
-  {label:'Pending', items:[['balance-pending','Balance Pending']]},
+  {label:'Pending', items:[['balance-pending','Balance Pending'],['loan-status','Loan Status']]},
   {label:'All Sale', items:[['invoices','Tax Invoice'],['old-rickshaw-sales','Old Rickshaw Sale'],['battery-sales','Battery Sale'],['challans','Delivery Challan'],['incentive','Incentive Record']]},
   {label:'Loan Status', items:[['loan-status','All'],['loan-pending','Pending'],['loan-approved','Approved'],['loan-billed','Billed']]},
   {label:'Battery Adjustment', items:[['battery-stock','Battery Stock'],['battery-swap','Battery Exchange'],['battery-withdrawal','Battery Withdrawal'],['battery-addition','Battery Fitting']]},
@@ -331,6 +331,7 @@ export function DealerPortal({ dealer, onLogout }) {
 
     <main className="dealerMain">
       <header className="dealerTopbar grdTopHeader">
+        <style>{`@media(max-width:700px){.dealerTopbar.grdTopHeader .dealerMobileMenu,.dealerTopbar .grdHelpWrap,.dealerTopbar .grdHeaderIcon[aria-label="Notifications"]{display:none!important}}`}</style>
         <button className="dealerMobileMenu" onClick={()=>setMobileNav(v=>!v)}>☰</button>
         {activeHeaderSection ? (() => {
           const section = dealerHeaderSections.find(s => s.label === activeHeaderSection);
@@ -345,7 +346,7 @@ export function DealerPortal({ dealer, onLogout }) {
             (!['old-stock','balance-pending'].includes(key) || canPendingFlow)
           );
           return (
-            <div className={"moduleStrip dealerModuleStrip"+((activeHeaderSection==='Bahikhata'||activeHeaderSection==='Battery Adjustment')?' bkStripHide':'')} aria-label={activeHeaderSection}>
+            <div className={"moduleStrip dealerModuleStrip"+(['Bahikhata','Battery Adjustment','Stock','Pending'].includes(activeHeaderSection)?' bkStripHide':'')} aria-label={activeHeaderSection}>
               {items.map(([key,label]) => (
                 <button type="button" key={key}
                   className={'moduleStripItem'+(tab===key?' active':'')}
@@ -361,7 +362,7 @@ export function DealerPortal({ dealer, onLogout }) {
           </div>
         )}
         <div className="grdHeaderActions">
-          <HelpButton storageKey="grd_dealer_help_seen_v1" sections={[
+          <span className="grdHelpWrap" style={{display:'contents'}}><HelpButton storageKey="grd_dealer_help_seen_v1" sections={[
             { title: 'Search & Navigation', rows: [
               ['Ctrl|K', 'Menu search kholo (kisi bhi option ko naam se dhoondo)'],
               ['/', 'Menu search kholo (jab koi box khula na ho)'],
@@ -374,7 +375,7 @@ export function DealerPortal({ dealer, onLogout }) {
               ...(canCreateSale ? [['Create Sale', 'Naya sale (Showroom / Branch)']] : []),
               ...(canCashBook ? [['Create Receipt', 'Cash receipt (Showroom)'], ['Shop Expense', 'Shop ka kharcha (Showroom)']] : []),
             ] },
-          ]} />
+          ]} /></span>
           <button type="button" className="grdHeaderIcon" title="Office Chat" aria-label="Office Chat" onClick={()=>{ if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen(v=>!v); }}>💬</button>
           <button type="button" className="grdHeaderIcon" title="Notifications" aria-label="Notifications">🔔</button>
           <div className="themePaletteWrap">
@@ -431,7 +432,7 @@ export function DealerPortal({ dealer, onLogout }) {
       })()}
       {error && <div className="error dealerError">{error}</div>}
 
-      {(activeHeaderSection==='Bahikhata' || activeHeaderSection==='Battery Adjustment') && !standaloneForm && <>
+      {['Bahikhata','Battery Adjustment','Stock','Pending'].includes(activeHeaderSection) && <>
         <style>{`
           .bkBlocks{display:none}
           .mxChev,.mxOnlyMobile{display:none}
@@ -471,16 +472,20 @@ export function DealerPortal({ dealer, onLogout }) {
             .bkBlock:active{transform:scale(.97)}
           }
         `}</style>
-        <div className="bkBlocks" role="tablist" aria-label={activeHeaderSection} style={activeHeaderSection==='Battery Adjustment'?{gridTemplateColumns:'repeat(2,minmax(0,1fr))'}:undefined}>
-          {(activeHeaderSection==='Battery Adjustment'
+        {['Bahikhata','Battery Adjustment','Stock','Pending'].includes(activeHeaderSection) && <div className="bkBlocks" role="tablist" aria-label={activeHeaderSection} style={{gridTemplateColumns:'repeat(2,minmax(0,1fr))'}}>
+          {(activeHeaderSection==='Stock'
+            ? [['stock','📦'],['old-stock','🛺'],['battery-stock','🔋'],['seized-vehicles','🚫']]
+            : activeHeaderSection==='Pending'
+            ? [['balance-pending','💰'],['loan-status','🏦']]
+            : activeHeaderSection==='Battery Adjustment'
             ? [['battery-swap','🔄'],['battery-withdrawal','⬇️'],['battery-addition','🔌'],['battery-stock','🔋']]
-            : [['cashbook','📒'],['all-customers','👥'],['all-receipt','🧾'],['all-expenses','💸'],['handover-create','🤝'],['payments','📲']])
+            : [['cashbook','📒'],['all-expenses','💸'],['handover-create','🤝'],['payments','📲']])
             .map(([key,icon])=>{const it=dealerHeaderSections.find(x=>x.label===activeHeaderSection).items.find(x=>x[0]===key); return it?{key,icon,label:it[1]}:null})
             .filter(b=>b
               && (!['cashbook','handover-create'].includes(b.key) || canCashBook)
-              && (b.key!=='battery-swap' || canBatterySwap) && (b.key!=='battery-withdrawal' || canBatteryWithdrawal) && (b.key!=='battery-addition' || canBatteryAddition))
+              && (!['old-stock','balance-pending'].includes(b.key) || canPendingFlow) && (b.key!=='battery-swap' || canBatterySwap) && (b.key!=='battery-withdrawal' || canBatteryWithdrawal) && (b.key!=='battery-addition' || canBatteryAddition))
             .map(b=><button type="button" role="tab" key={b.key} className={'bkBlock'+((tab===b.key||(b.key==='handover-create'&&tab==='cash-handover'))?' active':'')} aria-selected={tab===b.key} onClick={()=>setTab(b.key)}><i>{b.icon}</i><span>{b.label}</span></button>)}
-        </div>
+        </div>}
       </>}
 
       <nav className="dealerBottomNav dealerBottomNavForce" aria-label="Dealer bottom navigation">
@@ -540,7 +545,7 @@ export function DealerPortal({ dealer, onLogout }) {
 {tab==='old-stock' && canPendingFlow && <div className="dealerOldStockPage"><div className="dealerOldStockHead"><div><div className="dealerOldStockKicker">STOCK</div><h2>Old Rickshaw Stock</h2><p>Factory challan se dealer ko receive hue Old Rickshaw yahan dikhte hain.</p></div><button type="button" className="btn" onClick={()=>get('/dealer/old-rickshaws').then(setOldStock).catch(e=>setError(e.message))}>↻ Refresh</button></div>{oldSaleNotice&&<div className="muted" style={{margin:'0 0 10px',color:'#15803d',fontWeight:700}}>{oldSaleNotice}</div>}<div className="dealerOldStockGrid"><div className="dealerOldStockStat"><span>Unsold Stock</span><b>{unsoldOldStock.length}</b></div><div className="dealerOldStockStat"><span>Available</span><b>{unsoldOldStock.filter(v=>!v.pending_sale_id).length}</b></div><div className="dealerOldStockStat"><span>Pending Sale</span><b>{unsoldOldStock.filter(v=>v.pending_sale_id).length}</b></div></div><div className="card dealerOldStockCard"><div className="tablewrap dealerTable dealerOldStockTableWrap"><table className="table dealerOldStockTable"><thead><tr><th>Date</th><th>Vehicle No.</th><th>Model</th><th>Owner / Customer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{unsoldOldStock.map(v=><tr key={v.id}><td data-label="Date">{formatDate(v.date||v.sale_date)}</td><td data-label="Vehicle No."><b>{v.vehicle_reg_no||'—'}</b></td><td data-label="Model">{v.model_name||'—'}</td><td data-label="Owner / Customer">{v.owner_name||v.sold_to||'—'}</td><td data-label="Amount">{v.sale_amount?'₹ '+Number(v.sale_amount).toLocaleString('en-IN'):'—'}</td><td data-label="Status"><span className={'dealerOldStockStatus '+(String(v.status||'').toLowerCase()==='sold'?'sold':'available')}>{v.pending_sale_id?'PENDING SALE':String(v.status||'available').toUpperCase()}</span></td><td data-label="Action">{canOldRickshawSales&&!v.pending_sale_id?<button type="button" className="btn primary" onClick={()=>{setOldSaleNotice('');setOldSaleRow(v)}}>Create Sale</button>:<span className="muted">—</span>}</td></tr>)}{!unsoldOldStock.length&&<tr><td colSpan="7"><div className="dealerEmpty">No Old Rickshaw in stock.</div></td></tr>}</tbody></table></div></div>{oldSaleRow&&<OldRickshawSaleModal manual={isUnregistered} row={oldSaleRow} onClose={()=>setOldSaleRow(null)} onDone={(msg)=>{setOldSaleRow(null);setOldSaleNotice(msg);get('/dealer/old-rickshaws').then(setOldStock).catch(()=>{})}}/>}</div>}
         {tab==='battery-stock' && <DealerTable headers={canCreateSale?['Date','Battery Maker','Battery No.','Reference','Action']:['Date','Battery Maker','Battery No.','Reference']} rows={filteredBatteryStock} pageSize={35} row={v=><><td data-label="Date">{formatDate(v.date)}</td><td data-label="Battery Maker">{v.battery_maker||'—'}</td><td data-label="Battery No."><b>{v.battery_no}</b></td><td data-label="Reference">{v.reference_no||'—'}</td>{canCreateSale&&<td data-label="Action"><button type="button" className="btn primary" onClick={()=>startSaleFromStock({kind:'battery',battery_no:String(v.battery_no||'').trim()})}>Create Sale</button></td>}</>}/>}
         {tab==='challans' && <DealerTable headers={['Date','Challan No.','Chassis No.','Model','Destination']} rows={filteredChallans} pageSize={35} row={c=><><td data-label="Date">{formatDate(c.date)}</td><td data-label="Challan No.">{c.challan_no}</td><td data-label="Chassis No.">{c.chassis_no}</td><td data-label="Model">{c.product_name}</td><td data-label="Destination">{c.destination}</td></>}/>}
-        {tab==='all-receipt' && <DealerAllReceiptsPage dealer={dealer} />}
+        {tab==='all-receipt' && <DealerAllReceiptsPage dealer={dealer} canCreate={canCashBook} />}
         {tab==='all-customers' && <DealerAllCustomersPage />}
         {tab==='handover-create' && <DealerHandoverCreatePage />}
         {!['cashbook','receipt-create','repair-receipt','expenses-create','handover-create','cash-handover','all-receipt','all-customers','purchases','payments','ledger','pending-sales','balance-pending','stock','old-stock','battery-stock','challans','invoices','loan-status','seized-vehicles'].includes(tab) && tab!=='dashboard' && <div className="dealerPanel"><div className="dealerPanelHead"><div><h3>{dealerHeaderSections.flatMap(s=>s.items).find(x=>x[0]===tab)?.[1] || 'Dealer Module'}</h3><p>This module is available from the top header.</p></div></div><div className="dealerEmpty">Module screen ready — records will appear here.</div></div>}
@@ -586,6 +591,8 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
       .dbxStat b{font-size:24px;line-height:1.1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
       .dbxStat.hero{background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 65%,#000));border-color:transparent;color:#fff}
       .dbxStat.hero .ic{background:#ffffff26}.dbxStat.hero span.l{color:#ffffffcc}
+      .dbxActions .dbxMob{display:none}
+      .dbxStat .t{display:flex;flex-direction:column;gap:2px;min-width:0}
       .dbxFeed{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden}
       .dbxFeedHead{padding:14px 16px;border-bottom:1px solid var(--line)}
       .dbxFeedHead h3{margin:0;font-size:16px;color:var(--ink)}.dbxFeedHead p{margin:2px 0 0;font-size:12px;color:var(--muted)}
@@ -599,6 +606,7 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
       @media(max-width:1000px){.dbxStats{grid-template-columns:repeat(3,minmax(0,1fr))}}
       @media(max-width:700px){
         .dbxActions{grid-template-columns:1fr 1fr}
+        .dbxActions .dbxMob{display:flex}
         .dbxAct{flex-direction:row;justify-content:flex-start;gap:10px;min-height:54px;padding:10px 14px;font-size:14px;text-align:left}
         .dbxAct i{font-size:20px}
         .dbxStats{grid-template-columns:1fr 1fr;gap:8px}
@@ -617,6 +625,8 @@ function DealerDashboard({dealerName,stockCount,challanCount,invoiceCount,loanCo
 
     <div className="dbxActions">
       {actions.map(a=><button key={a.label} type="button" className="dbxAct" onClick={a.onClick}><i>{a.icon}</i><span>{a.label}</span></button>)}
+      <button type="button" className="dbxAct dbxMob" onClick={()=>onOpen('all-customers')}><i>👥</i><span>All Customers</span></button>
+      <button type="button" className="dbxAct dbxMob" onClick={()=>onOpen('all-receipt')}><i>🧾</i><span>All Receipt</span></button>
     </div>
 
     <div className="dbxStats">
@@ -686,12 +696,22 @@ function BatteryAdjustmentShell({title,description,onBack,children}) {
 function DealerBatteryWithdrawal({dealer,onBack}) {
   const [form,setForm]=useState({date:new Date().toISOString().slice(0,10),battery_maker:'',battery_no:'',reference_no:''});
   const [saving,setSaving]=useState(false), [error,setError]=useState(''), [message,setMessage]=useState('');
-  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{const res=await post('/battery-withdrawal',form);setMessage(res?.removed_from_rickshaw?'Battery removed from rickshaw and added back to stock.':'Battery stock added successfully.');setForm({...form,battery_no:'',reference_no:''});}catch(err){setError(err.message||'Could not save withdrawal.')}finally{setSaving(false);}};
+  const [fitted,setFitted]=useState([]), [pick,setPick]=useState('');
+  const loadFitted=()=>Promise.all([get('/dealer/rickshaw-battery-options?type=new'),get('/dealer/rickshaw-battery-options?type=old')]).then(([n,o])=>{
+    const out=[];
+    [['new',n.rickshaws],['old',o.rickshaws]].forEach(([t,list])=>(list||[]).forEach(r=>(r.battery_numbers||[]).forEach(no=>out.push({value:t+'|'+r.id+'|'+no,no,maker:r.battery_maker||'',label:[no,r.battery_maker,r.reg_no||r.chassis_no,r.model_name].filter(Boolean).join(' · ')}))));
+    setFitted(out);
+  }).catch(()=>{});
+  useEffect(()=>{loadFitted()},[]);
+  const pickFitted=(v)=>{setPick(v);const f=fitted.find(x=>x.value===v);if(f)setForm(x=>({...x,battery_no:f.no,battery_maker:f.maker||x.battery_maker}));};
+  const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{const res=await post('/battery-withdrawal',form);setMessage(res?.removed_from_rickshaw?'Battery removed from rickshaw and added back to stock.':'Battery stock added successfully.');setForm({...form,battery_no:'',reference_no:''});setPick('');loadFitted();}catch(err){setError(err.message||'Could not save withdrawal.')}finally{setSaving(false);}};
   return <BatteryAdjustmentShell title="Battery Withdrawal" description="Withdraw a battery (from a rickshaw or received) back into this dealer's battery stock. If it is fitted on your rickshaw it is removed from there." onBack={onBack}>
     <form onSubmit={submit} className="formgrid" style={{padding:16}}>
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+      <Field label="Rickshaw par lagi Battery (dropdown)" type="select" value={pick} options={fitted.map(f=>({value:f.value,label:f.label}))} onChange={pickFitted}/>
+      <div className="muted" style={{gridColumn:'1/-1',fontSize:12,marginTop:-6}}>Rickshaw se nikalni hai to yahan se chuno — Battery No. aur Maker apne aap bhar jayenge. Bahar se aayi (received) battery ke liye "Select..." rehne do aur neeche khud likho.</div>
       <Field label="Battery Maker" value={form.battery_maker} onChange={v=>setForm({...form,battery_maker:v})}/>
-      <Field label="Battery No." value={form.battery_no} onChange={v=>setForm({...form,battery_no:v})} required/>
+      <Field label="Battery No." value={form.battery_no} onChange={v=>{setPick('');setForm({...form,battery_no:v})}} required/>
       <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
       {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
       {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(34,160,90,.16)',color:'var(--ink,#147a42)'}}>{message}</div>}
@@ -706,7 +726,9 @@ function DealerBatteryAddition({dealer,onBack}) {
   const [saving,setSaving]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
   const load=()=>get('/dealer/battery-adjustment').then(setData).catch(e=>setError(e.message||'Could not load battery stock.'));
   useEffect(()=>{load();get('/masters/battery-maker').then(d=>{const rows=Array.isArray(d)?d:(d?.masters||d?.rows||d?.data||[]);setMakers(rows.map(x=>typeof x==='string'?x:(x.name||x.maker||x.battery_maker||'')).filter(Boolean))}).catch(()=>{})},[]);
-  const fromFactory=form.source==='factory';
+  // Sirf wahi rickshaw jisme abhi koi battery nahi lagi.
+  const freeVehicles=(data.vehicles||[]).filter(v=>![v.battery_no1,v.battery_no2,v.battery_no3,v.battery_no4].some(x=>String(x||'').trim()));
+  const fromFactory=false; // Dealer login: battery hamesha apne stock se hi lagti hai (Source option hata diya)
   const selected=data.batteries.find(x=>String(x.battery_no)===String(form.battery_no));
   const makerOptions=[...new Set([...makers,...data.batteries.map(x=>String(x.battery_maker||'').trim()).filter(Boolean)])];
   const setSource=v=>setForm({...form,source:v,battery_no:'',battery_maker:''});
@@ -719,23 +741,17 @@ function DealerBatteryAddition({dealer,onBack}) {
     }catch(err){setError(err.message||'Could not fit battery.')}finally{setSaving(false);}};
   return <BatteryAdjustmentShell title="Battery Fitting" description="Fit a battery to a vehicle — from your dealer stock or directly from the factory." onBack={onBack}>
     <form onSubmit={submit} className="formgrid" style={{padding:16}}>
-      <Field label="Battery kahan se aayi? (Source)" type="select" value={form.source} options={[{value:'dealer',label:'Dealer Stock se'},{value:'factory',label:'Factory se'}]} onChange={setSource}/>
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Vehicle" type="select" value={form.vehicle_id} options={[{value:'',label:'Select Vehicle'},...data.vehicles.map(v=>({value:v.id,label:[v.chassis_no,v.model_name].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,vehicle_id:v})} required/>
-      {fromFactory
-        ? <>
-            {makerOptions.length
-              ? <Field label="Battery Maker" type="select" value={form.battery_maker} options={[{value:'',label:'Select Maker'},...makerOptions.map(m=>({value:m,label:m}))]} onChange={v=>setForm({...form,battery_maker:v})} required/>
-              : <Field label="Battery Maker" value={form.battery_maker} onChange={v=>setForm({...form,battery_maker:v})} required/>}
-            <Field label="Battery No." value={form.battery_no} onChange={v=>setForm({...form,battery_no:v})} required/>
-          </>
-        : <Field label="Battery" type="select" value={form.battery_no} options={[{value:'',label:'Select Battery'},...data.batteries.map(v=>({value:v.battery_no,label:[v.battery_no,v.battery_maker].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,battery_no:v})} required/>}
-      <Field label="Battery Position" type="select" value={String(form.position)} options={[1,2,3,4].map(x=>({value:String(x),label:'Battery No. '+x}))} onChange={v=>setForm({...form,position:Number(v)})}/>
-      <Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>
+      {data.batteries.length
+        ? <Field label="Battery (apne stock se)" type="select" value={form.battery_no} options={[{value:'',label:'Select Battery'},...data.batteries.map(v=>({value:v.battery_no,label:[v.battery_no,v.battery_maker].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,battery_no:v,vehicle_id:v?form.vehicle_id:''})} required/>
+        : <div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(214,150,20,.14)',fontSize:13}}>Aapke battery stock me abhi koi battery nahi hai.</div>}
+      {form.battery_no&&(freeVehicles.length?<Field label="Vehicle (jisme lagani hai)" type="select" value={form.vehicle_id} options={[{value:'',label:'Select Vehicle'},...freeVehicles.map(v=>({value:v.id,label:[v.chassis_no,v.model_name].filter(Boolean).join(' · ')}))]} onChange={v=>setForm({...form,vehicle_id:v})} required/>:<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(214,150,20,.14)',fontSize:13}}>Aapke stock me koi bina battery wali rickshaw nahi hai.</div>)}
+      {form.battery_no&&<Field label="Battery Position" type="select" value={String(form.position)} options={[1,2,3,4].map(x=>({value:String(x),label:'Battery No. '+x}))} onChange={v=>setForm({...form,position:Number(v)})}/>}
+      {form.battery_no&&<Field label="Reference No." value={form.reference_no} onChange={v=>setForm({...form,reference_no:v})}/>}
       {fromFactory&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(214,150,20,.14)',fontSize:12}}>Factory battery: ye battery aapke dealer stock se nahi kategi. Save karne par battery challan / factory register mein "is dealer ko gayi, is rickshaw par lagi" ka record ban jayega.</div>}
       {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
       {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(34,160,90,.16)',color:'var(--ink,#147a42)'}}>{message}</div>}
-      <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving||(!fromFactory&&!data.batteries.length)}>{saving?'Saving…':(fromFactory?'Fit Factory Battery':'Fit Battery')}</button></div>
+      <div className="actions" style={{gridColumn:'1/-1'}}><button className="btn primary" disabled={saving||!form.battery_no||!form.vehicle_id}>{saving?'Saving…':(fromFactory?'Fit Factory Battery':'Fit Battery')}</button></div>
     </form>
   </BatteryAdjustmentShell>;
 }
@@ -746,17 +762,18 @@ function DealerBatterySwap({dealer,onBack}) {
   const load=()=>Promise.all([get('/dealer/rickshaw-battery-options?type=new'),get('/dealer/rickshaw-battery-options?type=old')]).then(([n,o])=>setStock({new:n.rickshaws||[],old:o.rickshaws||[]})).catch(e=>setError(e.message||'Could not load rickshaws.'));
   useEffect(()=>{load()},[]);
   const typeOptions=[{value:'new',label:'New Rickshaw'},{value:'old',label:'Old Rickshaw'}];
-  const opts=(type,placeholder,skipType,skipId)=>[{value:'',label:placeholder},...(stock[type]||[]).filter(r=>!(type===skipType&&String(r.id)===String(skipId))).map(r=>({value:r.id,label:[r.reg_no||r.chassis_no,r.model_name,r.has_battery?('Battery: '+(r.battery_maker||'—')+' | '+(r.battery_numbers||[]).join(', ')):'NO BATTERY'].filter(Boolean).join(' · ')}))];
+  const opts=(type,placeholder,skipType,skipId,need)=>[{value:'',label:placeholder},...(stock[type]||[]).filter(r=>!(type===skipType&&String(r.id)===String(skipId))&&(need==='has'?r.has_battery:need==='empty'?!r.has_battery:true)).map(r=>({value:r.id,label:[r.reg_no||r.chassis_no,r.model_name,r.has_battery?('Battery: '+(r.battery_maker||'—')+' | '+(r.battery_numbers||[]).join(', ')):'NO BATTERY'].filter(Boolean).join(' · ')}))];
   const submit=async(e)=>{e.preventDefault();setSaving(true);setError('');setMessage('');try{await post('/battery-swap-vouchers',{...form,from_id:Number(form.from_id),to_id:Number(form.to_id)});setMessage('Battery exchange completed successfully.');setForm({...form,from_id:'',to_id:'',remarks:''});load();}catch(err){setError(err.message||'Could not exchange batteries.')}finally{setSaving(false);}};
   const total=stock.new.length+stock.old.length;
   return <BatteryAdjustmentShell title="Battery Exchange" description="Exchange batteries between rickshaws in your stock: New ⇄ New, Old ⇄ Old, New ⇄ Old or Old ⇄ New." onBack={onBack}>
     <form onSubmit={submit} className="formgrid" style={{padding:16}}>
       <Field label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
-      <Field label="Mode" type="select" value={form.mode} options={[{value:'swap',label:'Exchange / Swap'},{value:'transfer',label:'Transfer'}]} onChange={v=>setForm({...form,mode:v})}/>
+      <Field label="Mode" type="select" value={form.mode} options={[{value:'swap',label:'Exchange / Swap — dono ki battery badlo'},{value:'transfer',label:'Transfer — ek se doosri me shift'}]} onChange={v=>setForm({...form,mode:v,to_id:''})}/>
+      <div className="muted" style={{gridColumn:'1/-1',fontSize:12,marginTop:-6}}>{form.mode==='transfer'?'Transfer: Source rickshaw ki battery Target rickshaw me chali jati hai. Target me pehle se battery nahi honi chahiye; Source khali ho jata hai.':'Exchange / Swap: Source aur Target rickshaw ki batteries aapas me badal jati hain (Source ki battery Target me, Target ki Source me).'}</div>
       <Field label="From Rickshaw Type" type="select" value={form.from_type} options={typeOptions} onChange={v=>{setError('');setForm({...form,from_type:v,from_id:''})}}/>
-      <Field label="Source Rickshaw" type="select" value={form.from_id} options={opts(form.from_type,'Select Source Rickshaw')} onChange={v=>{setError('');setForm({...form,from_id:v})}} required/>
+      <Field label="Source Rickshaw" type="select" value={form.from_id} options={opts(form.from_type,'Select Source Rickshaw',null,null,'has')} onChange={v=>{setError('');setForm({...form,from_id:v})}} required/>
       <Field label="To Rickshaw Type" type="select" value={form.to_type} options={typeOptions} onChange={v=>{setError('');setForm({...form,to_type:v,to_id:''})}}/>
-      <Field label="Target Rickshaw" type="select" value={form.to_id} options={opts(form.to_type,'Select Target Rickshaw',form.from_type,form.from_id)} onChange={v=>{setError('');setForm({...form,to_id:v})}} required/>
+      <Field label="Target Rickshaw" type="select" value={form.to_id} options={opts(form.to_type,'Select Target Rickshaw',form.from_type,form.from_id,form.mode==='transfer'?'empty':'any')} onChange={v=>{setError('');setForm({...form,to_id:v})}} required/>
       <Field label="Remarks" value={form.remarks} onChange={v=>setForm({...form,remarks:v})}/>
       {error&&<div style={{gridColumn:'1/-1'}}><ErrorBanner message={error}/></div>}
       {message&&<div style={{gridColumn:'1/-1',padding:10,borderRadius:8,background:'rgba(34,160,90,.16)',color:'var(--ink,#147a42)'}}>{message}</div>}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { get, post, put } from '../lib/api';
 import { printCashReceipt } from '../lib/printReceipt';
+import { DealerCashReceiptPage } from './DealerCashReceiptPage';
 import { CustomerDocumentsModal, CustomerDocumentsPanel, DEALER_DOC_GROUPS } from './CustomerDocuments';
 
 // Customer Register row -> documents ka reference (real customer = customer_id, bill se bani row = invoice_id).
@@ -24,7 +25,8 @@ const categories = [
 // Ye kharche aksar bill banne se pehle hote hain, isliye inme customer (page no. / naam) select karna hota hai.
 const CUSTOMER_CATEGORIES = ['pcc', 'll', 'dl', 'makhi_commission'];
 
-export function DealerAllReceiptsPage({ dealer } = {}) {
+export function DealerAllReceiptsPage({ dealer, canCreate = false } = {}) {
+  const [creating, setCreating] = useState(false);
   const [rows, setRows] = useState([]);
   const [custs, setCusts] = useState([]);
   const [editing, setEditing] = useState(null);
@@ -57,7 +59,7 @@ export function DealerAllReceiptsPage({ dealer } = {}) {
   };
   return (
     <div className="card">
-      <div className="pageHeader mxHead"><div><h2>All Receipts</h2><p className="muted">Receipt correction: only Page No. and Loan Amount can be edited.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
+      <div className="pageHeader mxHead"><div><h2>All Receipts</h2><p className="muted">Receipt correction: only Page No. and Loan Amount can be edited.</p></div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{canCreate && <button className="btn primary" onClick={() => setCreating(true)}>＋ Create Receipt</button>}<button className="btn" onClick={load}>↻ Refresh</button></div></div>
       {error && <div className="error">{error}</div>}
       <input className="input" style={{width:'100%',maxWidth:420,margin:'0 0 12px'}} placeholder="Search receipt no., name, mobile, page no…" value={search} onChange={(e) => setSearch(e.target.value)} />
       <div className="tablewrap dealerTable mxTable"><table className="table">
@@ -68,6 +70,11 @@ export function DealerAllReceiptsPage({ dealer } = {}) {
           <td className="mxM mxAct" data-label="" onClick={(e) => e.stopPropagation()}><div className="actions"><button className="btn" title="58mm thermal receipt print" onClick={() => printRow(r)}>🖨 Print</button><button className="btn" onClick={() => setEditing({...r})}>Edit</button></div></td>
         </tr>)}{!filteredRows.length && <tr><td colSpan="7" className="muted">No receipts found.</td></tr>}</tbody>
       </table></div>
+      {creating && <div className="modal" style={{zIndex:10000}} onMouseDown={(e) => { if (e.target === e.currentTarget) setCreating(false); }}>
+        <div className="modalbox" style={{ maxWidth: 820, width: '100%', maxHeight: '92vh', overflowY: 'auto' }}>
+          <DealerCashReceiptPage modal dealer={dealer} onClose={() => setCreating(false)} onCreated={load} />
+        </div>
+      </div>}
       {editing && <div className="modal" style={{zIndex:10000}} onMouseDown={(e)=>{if(e.target===e.currentTarget)setEditing(null)}}>
         <div className="modalbox" style={{maxWidth:520}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>

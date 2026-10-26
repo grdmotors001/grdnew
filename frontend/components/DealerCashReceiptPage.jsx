@@ -7,7 +7,7 @@ import { printCashReceipt } from '../lib/printReceipt';
 
 const today=()=>new Date().toISOString().slice(0,10);
 
-export function DealerCashReceiptPage({dealer}={}) {
+export function DealerCashReceiptPage({dealer,modal=false,onClose,onCreated}={}) {
   const [customers,setCustomers]=useState([]);
   const [type,setType]=useState('new_booking');
   const [form,setForm]=useState({
@@ -31,7 +31,8 @@ export function DealerCashReceiptPage({dealer}={}) {
   const selected=useMemo(()=>customers.find(x=>String(x.id)===String(form.customer_id)),[customers,form.customer_id]);
   const balance=Number(selected?.balance||0);
   // Balance Payment dropdown me sirf outstanding customers.
-  const payableCustomers=useMemo(()=>customers.filter(c=>Number(c.balance||0)>0),[customers]);
+  // Tax invoice se bani rows (id 'bill-…', from_bill) read-only hain — unka cash-register record nahi hota, isliye unpar receipt nahi ban sakti.
+  const payableCustomers=useMemo(()=>customers.filter(c=>Number(c.balance||0)>0&&!c.from_bill&&/^\d+$/.test(String(c.id))),[customers]);
 
   const set=(k,v)=>setForm(x=>({...x,[k]:v}));
   const changeType=v=>{
@@ -46,7 +47,7 @@ export function DealerCashReceiptPage({dealer}={}) {
     if(!submissionId) setSubmissionId(requestId);
     try{
       const payload=type==='balance_payment'
-        ? {receipt_type:type,date:form.date,customer_id:Number(form.customer_id),amount:Number(form.amount),payment_mode:form.payment_mode,reference_no:form.reference_no,remarks:form.remarks,request_id:requestId}
+        ? {receipt_type:type,date:form.date,customer_id:/^\d+$/.test(String(form.customer_id))?Number(form.customer_id):form.customer_id,amount:Number(form.amount),payment_mode:form.payment_mode,reference_no:form.reference_no,remarks:form.remarks,request_id:requestId}
         : {receipt_type:type,date:form.date,customer_name:form.customer_name,customer_phone:form.customer_phone,
            dealer_register_page_no:form.page_no,sale_amount:Number(form.sale_amount),booking_for:form.booking_for,loan_amount:Number(form.loan_amount||0),
            amount:Number(form.amount),payment_mode:form.payment_mode,reference_no:form.reference_no,remarks:form.remarks,request_id:requestId};
@@ -55,18 +56,21 @@ export function DealerCashReceiptPage({dealer}={}) {
       const balanceAfter=type==='balance_payment'
         ? Math.max(0,balance-Number(form.amount||0))
         : Math.max(0,Number(form.sale_amount||0)-Number(form.loan_amount||0)-Number(form.amount||0));
-      setReceipt({...r.receipt,balance_after:balanceAfter}); await loadCustomers();
+      setReceipt({...r.receipt,balance_after:balanceAfter}); await loadCustomers(); onCreated?.();
       setForm(x=>({...x,customer_id:'',customer_name:'',customer_phone:'',page_no:'',sale_amount:'',loan_amount:'',amount:'',reference_no:'',remarks:''}));
       setSubmissionId('');
     }catch(e){setError(e.message||'Could not create receipt')}
     finally{setSaving(false)}
   };
 
-  return <div className="dealerLoanPage">
-    <div className="dealerPanel" style={{maxWidth:980}}>
-      <div className="dealerPanelHead">
-        <div><h3>Customer Cash Receipt</h3><p>Booking aur customer balance payment ki receipt yahin se banegi.</p></div>
-        <button type="button" className="btn" onClick={loadCustomers}>↻ Refresh</button>
+  return <div className={modal?'':'dealerLoanPage'}>
+    <div className={modal?'':'dealerPanel'} style={modal?undefined:{maxWidth:980}}>
+      <div className="dealerPanelHead" style={modal?{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,marginBottom:10}:undefined}>
+        <div><h3 style={{margin:0}}>Customer Cash Receipt</h3><p className="muted" style={{margin:'2px 0 0'}}>Booking aur customer balance payment ki receipt yahin se banegi.</p></div>
+        <div style={{display:'flex',gap:8}}>
+          <button type="button" className="btn" onClick={loadCustomers}>↻ Refresh</button>
+          {modal&&<button type="button" className="btn" onClick={onClose} aria-label="Close">✕ Close</button>}
+        </div>
       </div>
       <ErrorBanner message={error}/>
       {receipt&&<div className="card" style={{padding:12,marginBottom:14,border:'1px solid #b7e4c7',background:'#f1fff5',color:'#176b35'}}>
@@ -85,7 +89,7 @@ export function DealerCashReceiptPage({dealer}={}) {
           <div className="grid">
             <Field label="Previous Customer" type="select" value={form.customer_id}
               options={[{value:'',label:'Select Previous Customer'},...payableCustomers.map(c=>({value:c.id,label:`${c.name} — ${c.phone||'No Mobile'} — Balance ₹${Number(c.balance||0).toLocaleString('en-IN')}`}))]}
-              onChange={v=>set('customer_id',v)} required/>
+              onChange={v=>{setError('');set('customer_id',v)}} required/>
             <Field label="Date" type="date" value={form.date} onChange={v=>set('date',v)} required/>
             <div className="card" style={{padding:10}}><small className="muted">Sale Amount</small><b>₹ {Number(selected?.sale_amount||0).toLocaleString('en-IN')}</b></div>
             <div className="card" style={{padding:10}}><small className="muted">Loan Amount</small><b>₹ {Number(selected?.loan_amount||0).toLocaleString('en-IN')}</b></div>
@@ -118,12 +122,12 @@ export function DealerCashReceiptPage({dealer}={}) {
       </form>
     </div>
 
-    <div className="dealerPanel" style={{maxWidth:980,marginTop:14}}>
+    {!modal&&<div className="dealerPanel" style={{maxWidth:980,marginTop:14}}>
       <div className="dealerPanelHead"><div><h3>Previous Customers</h3><p>Balance Payment ke liye customer yahin se select hoga.</p></div></div>
       {loading?<div className="dealerEmpty">Loading…</div>:<div className="tablewrap dealerTable"><table className="table"><thead><tr><th>Customer</th><th>Mobile</th><th>Type</th><th>Sale</th><th>Loan</th><th>Paid</th><th>Balance</th></tr></thead><tbody>
         {customers.map(c=><tr key={c.id}><td><b>{c.name}</b></td><td>{c.phone||'—'}</td><td>{c.vehicle_no||'—'}</td><td>₹ {Number(c.sale_amount||0).toLocaleString('en-IN')}</td><td>₹ {Number(c.loan_amount||0).toLocaleString('en-IN')}</td><td>₹ {Number(c.paid_amount||0).toLocaleString('en-IN')}</td><td><b>₹ {Number(c.balance||0).toLocaleString('en-IN')}</b></td></tr>)}
         {!customers.length&&<tr><td colSpan="7" className="muted">No previous customers found.</td></tr>}
       </tbody></table></div>}
-    </div>
+    </div>}
   </div>;
 }
