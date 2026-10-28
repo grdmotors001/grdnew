@@ -11,6 +11,7 @@ export function ExpensePaymentVoucherPage(){
   const EMPTY_MASTERS={expense_types:[],account_heads:[],pay_to_types:[],dealers:[],staff:[],mechanics:[],fabricators:[]};
   const [masters,setMasters]=useState(EMPTY_MASTERS);
   const [partyMasters,setPartyMasters]=useState([]);
+  const [hrEmps,setHrEmps]=useState([]),[hrSal,setHrSal]=useState({});
   const [rickshaws,setRickshaws]=useState([]),[incentiveRows,setIncentiveRows]=useState([]),[bookingRows,setBookingRows]=useState([]),[partyRickshaws,setPartyRickshaws]=useState([]),[selected,setSelected]=useState([]);
   const [rows,setRows]=useState([]),[saving,setSaving]=useState(false),[loading,setLoading]=useState(true);
   const [viewRow,setViewRow]=useState(null),[copied,setCopied]=useState(false);
@@ -82,10 +83,14 @@ export function ExpensePaymentVoucherPage(){
       setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',staff_name:'',vehicle_id:'',vehicle_ids:[],amount:'',work_qty:1,rate_per_unit:''}));
     }else if(v==='incentive'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'dealer',pay_to_name:'',vehicle_id:'',vehicle_ids:[],amount:''}));
+    }else if(isSalaryType(v)){
+      setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',staff_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:''}));
     }else if(v==='insurance'||v==='rto_expense'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:''}));
     }else setForm(x=>({...x,expense_type:v,vehicle_id:'',vehicle_ids:[],amount:''}));
   };
+  const isSalaryName=n=>/salary/i.test(String(n||''));
+  const isSalaryType=id=>isSalaryName(masters.expense_types.find(x=>String(x.id)===String(id))?.name);
   const onDealer=v=>{const d=masters.dealers.find(x=>String(x.id)===v);setForm(x=>({...x,dealer_id:v,pay_to_name:d?.name||'',vehicle_id:''}))};
   const toggle=id=>setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const allSelected=rickshaws.length>0&&rickshaws.every(r=>selected.includes(r.vehicle_id));
@@ -140,6 +145,15 @@ export function ExpensePaymentVoucherPage(){
   }
 
   const et=form.expense_type;
+  const isSalary=isSalaryType(et);
+  const salMonth=String(form.date||'').slice(0,7);
+  useEffect(()=>{
+    if(!isSalary)return;
+    let off=false;
+    get('/hr/employees').then(x=>{if(!off)setHrEmps((x.employees||x.rows||[]).filter(e=>e.active!==false))}).catch(()=>{if(!off)setHrEmps([])});
+    get('/hr/salary?month='+salMonth).then(x=>{if(off)return;const m={};(x.salaries||x.rows||[]).forEach(r=>{m[r.employee_id]=r.net_salary});setHrSal(m)}).catch(()=>{if(!off)setHrSal({})});
+    return()=>{off=true};
+  },[isSalary,salMonth]);
   const showRick=et==='passing_exp'||et==='assembly'||et==='incentive';
   const selectedTotal=selected.length*Number(form.rate_per_unit||form.amount||0);
   return <div className="page">
@@ -151,11 +165,14 @@ export function ExpensePaymentVoucherPage(){
         <select className="input" value={form.expense_type} onChange={e=>onExpenseType(e.target.value)}>{masters.expense_types.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>
         <select className="input" value={form.account_head} onChange={e=>set('account_head',e.target.value)} required={HEAD_REQUIRED.includes(et)}><option value="">{HEAD_REQUIRED.includes(et)?'Select Account Head':'Account Head (optional)'}</option>{masters.account_heads.filter(h=>h.expense_type===et).map(h=><option key={h.id} value={h.name}>{h.name} — {h.sub_category}</option>)}</select>
         {et==='assembly'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}} required><option value="">Select Assembler / Mechanic</option>{masters.mechanics.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
+        {isSalary&&(hrEmps.length
+          ? <select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required><option value="">Select Employee (Salary Payable)</option>{hrEmps.map(x=><option key={x.id} value={x.name}>{x.name}{x.employee_code?' ('+x.employee_code+')':''}{x.location?' - '+x.location:''}{hrSal[x.id]!=null?' | Payable ₹'+Math.round(Number(hrSal[x.id])).toLocaleString('en-IN'):''}</option>)}</select>
+          : <input className="input" placeholder="Pay To Name (employee)" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required/>)}
         {et==='fabrication'&&<select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required><option value="">Select Fabricator</option>{masters.fabricators.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
-        {et!=='assembly'&&et!=='fabrication'&&<select className="input" value={form.pay_to_type} onChange={e=>set('pay_to_type',e.target.value)}><option value="dealer">Dealer</option><option value="staff">Staff / Salesman</option><option value="other">Other</option></select>}
-        {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='dealer'&&<select className="input" value={form.dealer_id} onChange={e=>onDealer(e.target.value)}><option value="">Select Dealer</option>{masters.dealers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>}
-        {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='staff'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}}><option value="">Select Staff / Salesman</option>{masters.staff.map(x=><option key={x.name} value={x.name}>{x.name}</option>)}</select>}
-        {et!=='assembly'&&et!=='fabrication'&&form.pay_to_type==='other'&&(
+        {et!=='assembly'&&et!=='fabrication'&&!isSalary&&<select className="input" value={form.pay_to_type} onChange={e=>set('pay_to_type',e.target.value)}><option value="dealer">Dealer</option><option value="staff">Staff / Salesman</option><option value="other">Other</option></select>}
+        {et!=='assembly'&&et!=='fabrication'&&!isSalary&&form.pay_to_type==='dealer'&&<select className="input" value={form.dealer_id} onChange={e=>onDealer(e.target.value)}><option value="">Select Dealer</option>{masters.dealers.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>}
+        {et!=='assembly'&&et!=='fabrication'&&!isSalary&&form.pay_to_type==='staff'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}}><option value="">Select Staff / Salesman</option>{masters.staff.map(x=><option key={x.name} value={x.name}>{x.name}</option>)}</select>}
+        {et!=='assembly'&&et!=='fabrication'&&!isSalary&&form.pay_to_type==='other'&&(
           et==='insurance'||et==='rto_expense'
             ? <select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required>
                 <option value="">Select {et==='insurance'?'Insurance Provider / Agent':'RTO Passing Person / Provider'}</option>

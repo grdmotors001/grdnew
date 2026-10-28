@@ -147,13 +147,15 @@ export async function epvCanApprove(a:any):Promise<boolean>{
 // - Paid mark + Cash Book (day_book) entry sirf Cashier department ka user karega; entry usi ke naam se banegi.
 const epvWho=(a:any)=>String(a?.username||a?.sub||"");
 export const epvIsCashier=(a:any)=>String(a?.department||"").trim().toLowerCase()==="cashier";
+// Cash voucher Cashier ke Mark Paid se paid hota hai. Bank/UPI/Cheque voucher approve hote hi seedha Paid (Cashier ka kaam nahi).
+export const epvIsCash=(v:any)=>{const m=String(v?.payment_mode||"cash").trim().toLowerCase();return m===""||m==="cash";};
 export function epvIsOwn(v:any,a:any){const c=String(v?.created_by||"").trim().toLowerCase(),me=epvWho(a).trim().toLowerCase();return !!c&&!!me&&c===me;}
 // UI ke liye har row par: current user is voucher ko approve / Paid kar sakta hai ya nahi.
 export function epvWithFlags(v:any,a:any,canApproveRight:boolean){
   const st=String(v.status||"").toLowerCase(),ps=String(v.payment_status||"").toLowerCase();
   return {...v,
     can_approve:st==="pending"&&canApproveRight&&(isAdmin(a)||!epvIsOwn(v,a)),
-    can_pay:st==="approved"&&ps!=="paid"&&epvIsCashier(a),
+    can_pay:st==="approved"&&ps!=="paid"&&epvIsCashier(a)&&epvIsCash(v),
     own_voucher:epvIsOwn(v,a)};
 }
 export function epvFail(msg:string,status:number){return Object.assign(new Error(msg),{status});}
@@ -398,7 +400,12 @@ export async function epvApproval(id:number,b:any,a:any):Promise<Response>{
       upd=await client.query("UPDATE expense_payment_voucher SET status='rejected',reject_reason=$1,approved_by=$2,approved_at=NOW() WHERE id=$3 RETURNING *",[reason,who,id]);
     }else{
       // Approve par sirf status badalta hai. Cash Book (day_book) entry Cashier ke "Mark Paid" par banti hai.
-      upd=await client.query("UPDATE expense_payment_voucher SET status='approved',approved_by=$1,approved_at=NOW() WHERE id=$2 RETURNING *",[who,id]);
+      if(epvIsCash(old)){
+        upd=await client.query("UPDATE expense_payment_voucher SET status='approved',approved_by=$1,approved_at=NOW() WHERE id=$2 RETURNING *",[who,id]);
+      }else{
+        // Bank / UPI / Cheque: approve hote hi Paid (Cash Book entry nahi banti, Cashier ka kaam nahi).
+        upd=await client.query("UPDATE expense_payment_voucher SET status='approved',approved_by=$1,approved_at=NOW(),payment_status='paid',paid_at=NOW(),paid_by=$3 WHERE id=$2 RETURNING *",[who,id,"Bank (direct)"]);
+      }
     }
     await client.query("COMMIT");
     const voucher=epvWithFlags(epvOut(upd.rows[0]),a,true);
@@ -422,6 +429,7 @@ export async function epvMarkPaid(id:number,a:any):Promise<Response>{
     if(!cur.rowCount)throw epvFail("Voucher nahi mila.",404);
     const old=epvOut(cur.rows[0]);
     if(old.status!=="approved"||old.payment_status==="paid")throw epvFail("Sirf approved aur unpaid voucher Paid mark ho sakta hai.",409);
+    if(!epvIsCash(old))throw epvFail("Bank / UPI / Cheque payment seedha Paid hoti hai, Cashier Mark Paid nahi karta.",409);
     // Purane approved vouchers (jinki entry approve par pehle hi ban chuki hai) ki dobara entry nahi banegi.
     const dayBookId=old.day_book_id||await epvPostDayBook(client,old,who);
     const upd=await client.query("UPDATE expense_payment_voucher SET payment_status='paid',paid_at=NOW(),paid_by=$1,day_book_id=$2 WHERE id=$3 RETURNING *",[who,dayBookId,id]);

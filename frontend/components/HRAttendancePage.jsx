@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get, post } from '../lib/api';
+import { HRDashboard } from './HRDashboard';
 
 const emptyEmployee = { employee_code:'', name:'', department:'', designation:'', location:'', mobile:'', photo_url:'', joining_date:'', machine_user_id:'', basic_salary:'', hra:'', other_allowance:'', overtime_rate:'' };
 const timeIST = (v) => { if(!v) return '-'; const d=new Date(v); return isNaN(d)?'-':d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Kolkata'}); };
@@ -21,7 +22,7 @@ const slipMath = (r, f) => {
 const lateText = (m) => { m=Number(m||0); return m>0 ? (m>=60?Math.floor(m/60)+'h ':'')+(m%60)+'m' : '-'; };
 
 export function HRAttendancePage() {
-  const [tab,setTab]=useState('employees');
+  const [tab,setTab]=useState('dashboard');
   const [employees,setEmployees]=useState([]);
   const [attendance,setAttendance]=useState([]);
   const [salaries,setSalaries]=useState([]);
@@ -188,7 +189,7 @@ export function HRAttendancePage() {
     w.document.close();
   };
 
-  const tabName={employees:'Employees',attendance:'Attendance',timing:'Dept Timing',salary:'Salary'};
+  const tabName={dashboard:'Dashboard',employees:'Employees',attendance:'Attendance',timing:'Dept Timing',salary:'Salary'};
   const inp=(k,type)=><input type={type||'text'} value={edit[k]} onChange={e=>setEdit({...edit,[k]:e.target.value})} style={{width:type==='number'?80:110}}/>;
 
   return <div className="page">
@@ -233,6 +234,7 @@ export function HRAttendancePage() {
       </tbody></table></div>
     </>}
 
+    {tab==='dashboard' && <HRDashboard />}
     {tab==='attendance' && <>
       <div className="card" style={{marginBottom:16}}>
         <h3>Import Attendance (Smart Office report)</h3>
