@@ -84,7 +84,7 @@ export function ExpensePaymentVoucherPage(){
     }else if(v==='incentive'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'dealer',pay_to_name:'',vehicle_id:'',vehicle_ids:[],amount:''}));
     }else if(isSalaryType(v)){
-      setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',staff_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:''}));
+      setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',staff_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:'',hr_employee_id:'',salary_month:String(x.date||'').slice(0,7)}));
     }else if(v==='insurance'||v==='rto_expense'){
       setForm(x=>({...x,expense_type:v,pay_to_type:'other',pay_to_name:'',dealer_id:'',vehicle_id:'',vehicle_ids:[],amount:''}));
     }else setForm(x=>({...x,expense_type:v,vehicle_id:'',vehicle_ids:[],amount:''}));
@@ -146,12 +146,12 @@ export function ExpensePaymentVoucherPage(){
 
   const et=form.expense_type;
   const isSalary=isSalaryType(et);
-  const salMonth=String(form.date||'').slice(0,7);
+  const salMonth=form.salary_month||String(form.date||'').slice(0,7);
   useEffect(()=>{
     if(!isSalary)return;
     let off=false;
     get('/hr/employees').then(x=>{if(!off)setHrEmps((x.employees||x.rows||[]).filter(e=>e.active!==false))}).catch(()=>{if(!off)setHrEmps([])});
-    get('/hr/salary?month='+salMonth).then(x=>{if(off)return;const m={};(x.salaries||x.rows||[]).forEach(r=>{m[r.employee_id]=r.net_salary});setHrSal(m)}).catch(()=>{if(!off)setHrSal({})});
+    get('/hr/salary?month='+salMonth).then(x=>{if(off)return;const m={};(x.salaries||x.rows||[]).forEach(r=>{m[r.employee_id]={net:Number(r.net_salary||0),paid:Number(r.paid_amount||0)}});setHrSal(m)}).catch(()=>{if(!off)setHrSal({})});
     return()=>{off=true};
   },[isSalary,salMonth]);
   const showRick=et==='passing_exp'||et==='assembly'||et==='incentive';
@@ -165,8 +165,9 @@ export function ExpensePaymentVoucherPage(){
         <select className="input" value={form.expense_type} onChange={e=>onExpenseType(e.target.value)}>{masters.expense_types.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select>
         <select className="input" value={form.account_head} onChange={e=>set('account_head',e.target.value)} required={HEAD_REQUIRED.includes(et)}><option value="">{HEAD_REQUIRED.includes(et)?'Select Account Head':'Account Head (optional)'}</option>{masters.account_heads.filter(h=>h.expense_type===et).map(h=><option key={h.id} value={h.name}>{h.name} — {h.sub_category}</option>)}</select>
         {et==='assembly'&&<select className="input" value={form.staff_name} onChange={e=>{set('staff_name',e.target.value);set('pay_to_name',e.target.value)}} required><option value="">Select Assembler / Mechanic</option>{masters.mechanics.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
+        {isSalary&&<div style={{display:'flex',flexDirection:'column',gap:4}}><label className="muted" style={{fontSize:12}}>Salary Month</label><input className="input" type="month" value={salMonth} onChange={e=>set('salary_month',e.target.value)} required/></div>}
         {isSalary&&(hrEmps.length
-          ? <select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required><option value="">Select Employee (Salary Payable)</option>{hrEmps.map(x=><option key={x.id} value={x.name}>{x.name}{x.employee_code?' ('+x.employee_code+')':''}{x.location?' - '+x.location:''}{hrSal[x.id]!=null?' | Payable ₹'+Math.round(Number(hrSal[x.id])).toLocaleString('en-IN'):''}</option>)}</select>
+          ? <select className="input" value={form.hr_employee_id||''} onChange={e=>{const emp=hrEmps.find(x=>String(x.id)===e.target.value);setForm(f=>({...f,hr_employee_id:e.target.value,pay_to_name:emp?.name||'',salary_month:f.salary_month||String(f.date||'').slice(0,7)}))}} required><option value="">Select Employee (Salary Payable)</option>{hrEmps.map(x=>{const s=hrSal[x.id];return <option key={x.id} value={x.id}>{x.name}{x.employee_code?' ('+x.employee_code+')':''}{x.location?' - '+x.location:''}{s?' | Payable ₹'+Math.round(s.net).toLocaleString('en-IN')+(s.paid>0?' | Paid ₹'+Math.round(s.paid).toLocaleString('en-IN')+' | Baaki ₹'+Math.max(0,Math.round(s.net-s.paid)).toLocaleString('en-IN'):''):''}</option>})}</select>
           : <input className="input" placeholder="Pay To Name (employee)" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required/>)}
         {et==='fabrication'&&<select className="input" value={form.pay_to_name} onChange={e=>set('pay_to_name',e.target.value)} required><option value="">Select Fabricator</option>{masters.fabricators.map(x=><option key={x.id} value={x.name}>{x.name}</option>)}</select>}
         {et!=='assembly'&&et!=='fabrication'&&!isSalary&&<select className="input" value={form.pay_to_type} onChange={e=>set('pay_to_type',e.target.value)}><option value="dealer">Dealer</option><option value="staff">Staff / Salesman</option><option value="other">Other</option></select>}

@@ -1,10 +1,10 @@
 import { salesmanMasterList, salesmanMasterWrite } from "../../../lib/server/salesman-master";
-import { hrSalaryOne, HR_SALARY_SELECT } from "../../../lib/server/hr-salary";
+import { hrSalaryOne, HR_SALARY_SELECT, HR_SALARY_SELECT_PLAIN } from "../../../lib/server/hr-salary";
 import { types } from "pg";
 import { pool, secret, auth, num, idOf, ymd, columns, addColumns, dateWhere, json, normKey, rowGetter, importDate, importAmount } from "../../../lib/server/common";
 import { ensureTaxInvoiceRecordColumns, saleRegisterReport, paymentReceivableReport } from "../../../lib/server/reports-sales";
 import { actionFor, audit, assignedDealerIds, isSalesman, enforceDealerScope, dealerReadFilter, actionAllowed, ensureSecuritySchema, isAdmin, canRead, canWrite } from "../../../lib/server/permissions";
-import { expenseVoucherGet, expenseVoucherPost, expenseVoucherDelete } from "../../../lib/server/expense-voucher";
+import { expenseVoucherGet, expenseVoucherPost, expenseVoucherDelete, ensureEpvSchema } from "../../../lib/server/expense-voucher";
 import { bankLedgerGet, bankLedgerPost, bankLedgerMutation, ensureBankLedgerSchema } from "../../../lib/server/bank-ledger";
 import { insuranceRtoGet, insuranceRtoPost, insuranceRtoMutation } from "../../../lib/server/insurance-rto";
 import { reportsGet } from "../../../lib/server/reports";
@@ -1055,7 +1055,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       }
       if(p==="hr/salary"){
         const month=String(new URL(req.url).searchParams.get("month")||"").trim();
-        const r=await pool.query(HR_SALARY_SELECT,[month]);
+        await ensureEpvSchema().catch(()=>{});
+        let r:any;
+        try{ r=await pool.query(HR_SALARY_SELECT,[month]); }catch(_e){ r=await pool.query(HR_SALARY_SELECT_PLAIN,[month]); }
         return Response.json({salaries:r.rows,rows:r.rows});
       }
     }

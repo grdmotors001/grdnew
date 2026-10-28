@@ -43,8 +43,19 @@ export async function hrSalaryOne(pool: any, e: any, month: string, adj: any | n
 }
 
 // Salary list / slip ke liye: employee ki detail + late summary ke saath.
-export const HR_SALARY_SELECT =
+const EPV_PAID_SUB = (extra: string) => "FROM expense_payment_voucher v WHERE v.hr_employee_id=s.employee_id AND v.salary_month=s.salary_month AND " + extra;
+export const HR_SALARY_SELECT_PLAIN =
   "SELECT s.*,e.employee_code,e.name AS employee_name,e.department,e.designation,e.location,e.basic_salary,e.hra,e.other_allowance,e.overtime_rate," +
   "(SELECT COUNT(*) FROM hr_attendance a WHERE a.employee_id=s.employee_id AND to_char(a.work_date,'YYYY-MM')=s.salary_month AND a.late_minutes>0)::int AS late_days," +
   "(SELECT COALESCE(SUM(a.late_minutes),0) FROM hr_attendance a WHERE a.employee_id=s.employee_id AND to_char(a.work_date,'YYYY-MM')=s.salary_month)::int AS late_total_minutes " +
+  "FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE ($1='' OR s.salary_month=$1) ORDER BY e.name";
+// Salary voucher (Expense Payment Voucher) se Paid / Baaki: paid = payment_status 'paid', in_process = banaya par abhi paid nahi (rejected chhodkar).
+export const HR_SALARY_SELECT =
+  "SELECT s.*,e.employee_code,e.name AS employee_name,e.department,e.designation,e.location,e.basic_salary,e.hra,e.other_allowance,e.overtime_rate," +
+  "(SELECT COUNT(*) FROM hr_attendance a WHERE a.employee_id=s.employee_id AND to_char(a.work_date,'YYYY-MM')=s.salary_month AND a.late_minutes>0)::int AS late_days," +
+  "(SELECT COALESCE(SUM(a.late_minutes),0) FROM hr_attendance a WHERE a.employee_id=s.employee_id AND to_char(a.work_date,'YYYY-MM')=s.salary_month)::int AS late_total_minutes," +
+  "(SELECT COALESCE(SUM(v.amount),0) " + EPV_PAID_SUB("lower(COALESCE(v.payment_status,''))='paid'") + ")::numeric AS paid_amount," +
+  "(SELECT string_agg(DISTINCT lower(COALESCE(NULLIF(v.payment_mode,''),'cash')),', ') " + EPV_PAID_SUB("lower(COALESCE(v.payment_status,''))='paid'") + ") AS paid_modes," +
+  "(SELECT MAX(v.paid_at) " + EPV_PAID_SUB("lower(COALESCE(v.payment_status,''))='paid'") + ") AS last_paid_at," +
+  "(SELECT COALESCE(SUM(v.amount),0) " + EPV_PAID_SUB("lower(COALESCE(v.payment_status,''))<>'paid' AND lower(COALESCE(v.status,'')) NOT IN ('rejected','cancelled','canceled')") + ")::numeric AS in_process_amount " +
   "FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE ($1='' OR s.salary_month=$1) ORDER BY e.name";

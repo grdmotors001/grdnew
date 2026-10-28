@@ -80,10 +80,10 @@ export function HRDashboard() {
 
     // payable: processed salary ho to wahi, warna estimate (basic/30 x present + allowances)
     const sal = salaries.filter(s => empIds.has(String(s.employee_id)));
-    let payable = 0, estimated = false;
+    let payable = 0, paidAmt = 0, estimated = false;
     const byDept = {};
     if (sal.length) {
-      for (const s of sal) { payable += num(s.net_salary); const k = s.department || 'Other'; byDept[k] = (byDept[k] || 0) + num(s.net_salary); }
+      for (const s of sal) { payable += num(s.net_salary); paidAmt += num(s.paid_amount); const k = s.department || 'Other'; byDept[k] = (byDept[k] || 0) + num(s.net_salary); }
     } else {
       estimated = true;
       const pd = {};
@@ -106,7 +106,7 @@ export function HRDashboard() {
     // location wise aaj
     const locMap = {};
     for (const e of emps) { const k = e.location || 'No location'; locMap[k] = locMap[k] || { total: 0, present: 0 }; locMap[k].total++; if (presentIds.has(String(e.id))) locMap[k].present++; }
-    return { present: presentIds.size, absentList, late, payable, estimated, perDay, deptData, locMap, processed: sal.length };
+    return { present: presentIds.size, absentList, late, payable, paidAmt, estimated, perDay, deptData, locMap, processed: sal.length };
   }, [att, emps, salaries, empIds, day, month]);
 
   return <div>
@@ -122,7 +122,7 @@ export function HRDashboard() {
       <Kpi label="Total Employees" value={emps.length} sub={loc || 'All locations'} color="#3f7edb" />
       <Kpi label="Present" value={d.present} sub={day} color="#279d8c" />
       <Kpi label="Absent" value={d.absentList.length} sub={d.late ? d.late + ' late aaye' : day} color="#c0392b" />
-      <Kpi label={'Payable (' + month + ')'} value={'₹ ' + money(d.payable)} sub={d.estimated ? 'Estimate - Salary tab me Process Salary baaki hai' : d.processed + ' employees ki salary processed'} color="#8b67c9" />
+      <Kpi label={'Payable (' + month + ')'} value={'₹ ' + money(d.payable)} sub={d.estimated ? 'Estimate - Salary tab me Process Salary baaki hai' : 'Paid ₹ ' + money(d.paidAmt) + ' · Baaki ₹ ' + money(Math.max(0, d.payable - d.paidAmt))} color="#8b67c9" />
     </div>
 
     <div className="card" style={{ marginBottom: 14 }}>

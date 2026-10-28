@@ -101,7 +101,7 @@ export function ensureEpvSchema():Promise<void>{
         vehicle_id:"integer",chassis_no:"text",customer_name:"text",bill_no:"text",payment_mode:"text DEFAULT 'cash'",amount:"numeric NOT NULL DEFAULT 0",
         remarks:"text",attachment_url:"text",work_model_name:"text",work_qty:"numeric",rate_per_unit:"numeric",on_account:"boolean DEFAULT false",
         status:"text NOT NULL DEFAULT 'pending'",payment_status:"text DEFAULT 'unpaid'",approved_by:"text",approved_at:"timestamptz",reject_reason:"text",
-        paid_at:"timestamptz",paid_by:"text",day_book_id:"bigint",account_head:"text",account_sub_category:"text",created_by:"text",created_at:"timestamptz NOT NULL DEFAULT now()"
+        paid_at:"timestamptz",paid_by:"text",day_book_id:"bigint",account_head:"text",account_sub_category:"text",hr_employee_id:"bigint",salary_month:"text",created_by:"text",created_at:"timestamptz NOT NULL DEFAULT now()"
       };
       for(const col of Object.keys(defs))await pool.query('ALTER TABLE expense_payment_voucher ADD COLUMN IF NOT EXISTS "'+col+'" '+defs[col]);
       // Incentive: ONE voucher + N rickshaw lines (approval aur payment isi ek voucher par).
@@ -325,6 +325,16 @@ export async function epvCreate(b:any,a:any):Promise<Response>{
     if(et==="passing_exp"){const vid=idOf(b.vehicle_id);if(!vid)return bad("Rickshaw select karo.");ids.push(vid);perVehicle=true;}
   }
   if(!payTo)return bad("Pay To select / enter karo.");
+  // Salary voucher: HR employee + salary month se link (HR Salary tab me Paid / Balance dikhane ke liye).
+  let hrEmpId:number|null=null,salMonth:string|null=null;
+  if(idOf(b.hr_employee_id)&&/salary/i.test(String(_t.name||""))){
+    hrEmpId=idOf(b.hr_employee_id) as number;
+    const he=await pool.query("SELECT id,name FROM hr_employee WHERE id=$1",[hrEmpId]).catch(()=>({rows:[] as any[]}));
+    if(!he.rows.length)return bad("Employee HR me nahi mila.");
+    payTo=String(he.rows[0].name||payTo);
+    const sm=String(b.salary_month||"").trim();
+    salMonth=/^\d{4}-(0[1-9]|1[0-2])$/.test(sm)?sm:date.slice(0,7);
+  }
   // Account Head (Account Head Master, Direct / Indirect Expense) - Balance Sheet aur Profit & Loss isi se banta hai.
   const headIn=String(b.account_head||"").trim();
   let head:any=null;
@@ -364,7 +374,7 @@ export async function epvCreate(b:any,a:any):Promise<Response>{
         dealer_id:payToType==="dealer"?dealerId:null,staff_name:payToType==="staff"?payTo:null,vehicle_id:vh?Number(vh.id):null,chassis_no:vh?.chassis_no||null,customer_name:vh?.buyer_name||null,
         bill_no:String(b.bill_no||"").trim()||vh?.bill_no||null,payment_mode:mode,amount:amountEach,remarks:String(b.remarks||"").trim()||null,attachment_url:String(b.attachment_url||"").trim()||null,
         work_model_name:et==="fabrication"?model||null:(vh?.model_name||null),work_qty:et==="fabrication"?qty:(perVehicle?1:null),rate_per_unit:(et==="fabrication"||et==="assembly")?rate:null,
-        on_account:onAccount,account_head:head?.name||null,account_sub_category:head?.sub_category||EPV_TYPE_CAT[et]||null,status:"pending",payment_status:"unpaid",created_by:String(a?.username||a?.sub||"")};
+        on_account:onAccount,account_head:head?.name||null,account_sub_category:head?.sub_category||EPV_TYPE_CAT[et]||null,status:"pending",payment_status:"unpaid",hr_employee_id:hrEmpId,salary_month:salMonth,created_by:String(a?.username||a?.sub||"")};
       const uids=single?[...new Set(ids)]:[];
       if(single){const vl=uids.map(id=>vmap.get(id));entry.amount=amountEach*uids.length;entry.chassis_no=vl.map((x:any)=>x?.chassis_no).filter(Boolean).join(", ")||null;entry.work_qty=uids.length;entry.rate_per_unit=amountEach;}
       const keys=Object.keys(entry).filter(k=>cols.has(k));
