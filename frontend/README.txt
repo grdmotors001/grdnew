@@ -1,23 +1,20 @@
-Activity Log: Credit Note + New Invoice
+HR: Salary Slip (Excel jaisi, employee-wise)
 
-Is zip me 3 files hain (same path par overwrite karein):
-  app/api/[...path]/route.ts   - Credit Note issue / Cancel Challan par audit entry; activity-log me 'credit-notes' shamil
-  lib/server/billing.ts        - Pending Sales -> Save Invoice (new bill) par "Bill (Tax Invoice) created" audit entry
-  components/StockPages.jsx    - Activity Log page me "Credit Note" filter + details (CN no, bill, chassis, amount, reason)
-  lib/server/production.ts     - Production Voucher create par audit entry (edit/delete pehle se logged the)
+Pehle pichla zip (HR_Import_Update.zip) lagaa lein. Phir is zip ki 3 files same path par overwrite karein:
+  app/api/[...path]/route.ts        - hr/salary (slip ke fields), hr/salary/process, naya hr/salary/adjust
+  components/HRAttendancePage.jsx   - Salary tab: employee search + "Slip" button + slip + Print
+  lib/server/hr-salary.ts           - NAYI file: salary ka calculation (Process Salary aur Slip dono yahi use karte hain)
 
-Salesman: Delivery Challan Edit me read-only, sirf Dealer Master se
-  components/DeliveryChallanPage.jsx, components/ReportPages.jsx - Edit form me Salesman readOnly
-  lib/server/delivery-challan.ts - create par dealer master se; edit (PUT) me salesman ignore; register/filter/print me dealer master wala salesman
-  lib/server/reports-sales.ts    - sale report me salesman pehle dealer master se
+Naya SQL chalane ki zaroorat nahi (naye columns apne aap ban jate hain).
 
-Challan print: components/PrintDocs.jsx - Battery box sirf lagi hui battery ke hisaab se (1-4), koi nahi to 1 blank; numbers ki jagah ➤
+Use karne ka tareeka:
+  1. HR -> Attendance & Salary -> Salary tab -> mahina chunein -> "Process Salary".
+  2. Employee ki row me "Slip" dabayein.
+  3. Slip me Present Days, Extra Sundays/Nights (din), Holiday Deducted (din), Salary Loan Advances, PL Loan, Paid date bharein -> Save.
+  4. "Print" se slip print/PDF.
 
-Tax Invoice print: HSN product master se (hsn_code), niche ki "DHAN DHAN..." strip hata di (header me hai)
-  components/PrintDocs.jsx, lib/server/tax-invoice.ts, lib/server/billing.ts, app/api/[...path]/route.ts
-
-Invoice GST: local sale me CGST 2.5% + SGST 2.5% alag lines, inter-state me IGST 5% (components/PrintDocs.jsx)
-
-GST Intra/Inter: buyer state code vs company state code se (state edit karne par bhi sahi CGST/SGST ya IGST)
-  lib/server/common.ts, lib/server/tax-invoice.ts, lib/server/reports-sales.ts - SQL me intra/inter derive
-  components/TaxInvoicePage.jsx - Edit Tax Invoice me bhi Intra/Inter state auto (state badalne par update)
+Formula:
+  Per-day = Salary / 30 (mahina 31 din ka ho tab bhi 30, aapki Excel slip jaisa)
+  Net = Per-day x Present + Allowances + OT + (Per-day x Extra) - (Per-day x Holiday Deducted) - Advance - PL Loan
+  Present Days badalne par wo "Manual" ho jata hai aur Process Salary dobara chalane par bhi bana rehta hai.
+  Extra / Holiday / Advance / PL Loan bhi dobara Process Salary par bache rehte hain.

@@ -1,4 +1,5 @@
 import { salesmanMasterList, salesmanMasterWrite } from "../../../lib/server/salesman-master";
+import { hrSalaryOne, HR_SALARY_SELECT } from "../../../lib/server/hr-salary";
 import { types } from "pg";
 import { pool, secret, auth, num, idOf, ymd, columns, addColumns, dateWhere, json, normKey, rowGetter, importDate, importAmount } from "../../../lib/server/common";
 import { ensureTaxInvoiceRecordColumns, saleRegisterReport, paymentReceivableReport } from "../../../lib/server/reports-sales";
@@ -519,6 +520,47 @@ async function ensureHRSchemas(){
   await pool.query("CREATE TABLE IF NOT EXISTS hr_employee (id bigserial PRIMARY KEY, employee_code text NOT NULL UNIQUE, name text NOT NULL, department text, designation text, mobile text, photo_url text, joining_date date, machine_user_id text, basic_salary numeric NOT NULL DEFAULT 0, hra numeric NOT NULL DEFAULT 0, other_allowance numeric NOT NULL DEFAULT 0, overtime_rate numeric NOT NULL DEFAULT 0, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS hr_attendance (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, work_date date NOT NULL, first_in timestamptz, last_out timestamptz, status text NOT NULL DEFAULT 'Present', work_hours numeric NOT NULL DEFAULT 0, overtime_hours numeric NOT NULL DEFAULT 0, UNIQUE(employee_id,work_date))");
   await pool.query("CREATE TABLE IF NOT EXISTS hr_salary (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, salary_month text NOT NULL, working_days numeric NOT NULL DEFAULT 0, present_days numeric NOT NULL DEFAULT 0, overtime_hours numeric NOT NULL DEFAULT 0, basic_earned numeric NOT NULL DEFAULT 0, allowances numeric NOT NULL DEFAULT 0, overtime_amount numeric NOT NULL DEFAULT 0, net_salary numeric NOT NULL DEFAULT 0, status text NOT NULL DEFAULT 'PROCESSED', UNIQUE(employee_id,salary_month))");
+  await pool.query("ALTER TABLE hr_employee ADD COLUMN IF NOT EXISTS location text");
+  await pool.query("ALTER TABLE hr_employee ADD COLUMN IF NOT EXISTS user_id bigint");
+  await pool.query("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS late_minutes integer NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS single_punch boolean NOT NULL DEFAULT false");
+  // Department-wise duty time: late = first_in - (start_time + grace)
+  for(const c of ["extra_days","holiday_days","advance","pl_loan"])await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS "+c+" numeric NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS present_override numeric");
+  await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS paid_on date");
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_department_timing (department text PRIMARY KEY, start_time text NOT NULL DEFAULT '09:30', grace_minutes integer NOT NULL DEFAULT 0)");
+  await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS office_hours numeric NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS ot_start_after integer NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS half_day_min numeric NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS full_day_min numeric NOT NULL DEFAULT 0");
+}
+// Late minutes (IST) department timing se nikalta hai. month = 'YYYY-MM' ya '' (sab).
+async function hrRecalcLate(month:string){
+  // Din ka status punch ke ghanton (last out - first in) se: half_day_min se kam = Absent, full_day_min se kam = Half Day, baaki Present.
+  // Dono 0 ho to rule band (sab Present). Single punch wali row ko nahi chhedta.
+  await pool.query(`UPDATE hr_attendance a SET status=x.st FROM (
+      SELECT a2.id,CASE WHEN COALESCE(t.half_day_min,0)>0 AND h<COALESCE(t.half_day_min,0) THEN 'Absent'
+                        WHEN COALESCE(t.full_day_min,0)>0 AND h<COALESCE(t.full_day_min,0) THEN 'Half Day' ELSE 'Present' END AS st
+      FROM hr_attendance a2 JOIN hr_employee e ON e.id=a2.employee_id
+      LEFT JOIN hr_department_timing t ON lower(trim(t.department))=lower(trim(e.department)),
+      LATERAL (SELECT EXTRACT(EPOCH FROM (a2.last_out-a2.first_in))/3600.0 AS h) q
+      WHERE a2.first_in IS NOT NULL AND a2.last_out IS NOT NULL AND NOT a2.single_punch AND a2.status IN ('Present','Half Day','Absent')
+        AND ($1='' OR to_char(a2.work_date,'YYYY-MM')=$1)
+    ) x WHERE a.id=x.id AND a.status<>x.st`,[month]);
+  await pool.query(`UPDATE hr_attendance a SET late_minutes=COALESCE((
+      SELECT GREATEST(0,FLOOR(EXTRACT(EPOCH FROM ((a.first_in AT TIME ZONE 'Asia/Kolkata')::time-(t.start_time::time+(t.grace_minutes::text||' minutes')::interval)))/60))::int
+      FROM hr_employee e JOIN hr_department_timing t ON lower(trim(t.department))=lower(trim(e.department))
+      WHERE e.id=a.employee_id AND a.status IN ('Present','Half Day') AND a.first_in IS NOT NULL),0)
+    WHERE ($1='' OR to_char(a.work_date,'YYYY-MM')=$1)`,[month]);
+  // OT: jis department me Office Hours set hain wahan OT punch se nikalta hai (machine ka OT use nahi hota).
+  // Office end = duty start + office hours. Office end ke baad ka extra time tabhi OT jab "OT Start After" minutes ya zyada ho (kam extra = OT nahi).
+  await pool.query(`UPDATE hr_attendance a SET overtime_hours=x.ot FROM (
+      SELECT a2.id,CASE WHEN em>0 AND em>=t.ot_start_after THEN ROUND((em/60.0)::numeric,2) ELSE 0 END AS ot
+      FROM hr_attendance a2 JOIN hr_employee e ON e.id=a2.employee_id
+      JOIN hr_department_timing t ON lower(trim(t.department))=lower(trim(e.department)) AND t.office_hours>0,
+      LATERAL (SELECT FLOOR(EXTRACT(EPOCH FROM ((a2.last_out AT TIME ZONE 'Asia/Kolkata')::time-(t.start_time::time+((t.office_hours*60)::int::text||' minutes')::interval)))/60) AS em) q
+      WHERE a2.status='Present' AND a2.last_out IS NOT NULL AND NOT a2.single_punch AND ($1='' OR to_char(a2.work_date,'YYYY-MM')=$1)
+    ) x WHERE a.id=x.id`,[month]);
 }
 let dealerPincodeReady:Promise<void>|null=null;
 // Dealer Master me Pin Code field: column pehli baar use hone par apne aap ban jata hai.
@@ -807,7 +849,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // Notifications: jinke paas permission nahi (jaise Salesman) unko 403 ki jagah khali list -> header me error/console spam nahi.
     if(p==="notifications"&&!canRead(a,p))return Response.json({notifications:[],branch_cash_limits:[],count:0});
     // Har logged-in staff ko menu (nav-config), dashboard aur apna profile chahiye; ye allowed_modules se block nahi hone chahiye.
-    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="auth/me");
+    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance");
     if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     // Dealer Master form ko salesman list aur sub-group list chahiye: jiske paas Dealer module ka view right hai use ye 2 lookup read allowed (warna dropdown khali rehta tha).
     const dealerLookup=a?.scope==="staff"&&(p==="masters/salesman"||p==="sub-groups")&&(await actionAllowed(a,"dealer","view"));
@@ -974,18 +1016,46 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     if(p.startsWith("hr/")){
       await ensureHRSchemas();
-    if(p==="hr/employees"){
+    // Apni salary (sirf dekhna): token ke user se hi employee dhundhta hai; koi id/param nahi leta, isliye dusre ki salary nahi dikhti.
+    // Apna punch in/out (sirf dekhna): token ke user ki hi attendance, mahine ke hisaab se.
+    if(p==="hr/my-attendance"){
+      if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
+      const uid=idOf(a.sub);
+      const emp=(await pool.query("SELECT id,employee_code,name,department FROM hr_employee WHERE active=true AND (user_id=$1 OR (user_id IS NULL AND lower(btrim(employee_code))=lower(btrim($2)))) ORDER BY (user_id=$1) DESC NULLS LAST,id LIMIT 1",[uid,String(a.username||"")])).rows[0];
+      if(!emp)return Response.json({linked:false,employee:null,attendance:[]});
+      let month=String(new URL(req.url).searchParams.get("month")||"").trim();
+      if(!/^\d{4}-\d{2}$/.test(month))month=new Date().toISOString().slice(0,7);
+      const r=await pool.query("SELECT work_date,first_in,last_out,status,work_hours,overtime_hours,late_minutes,single_punch FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date ASC",[emp.id,month]);
+      return Response.json({linked:true,month,employee:emp,attendance:r.rows});
+    }
+    if(p==="hr/my-salary"){
+      if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
+      const uid=idOf(a.sub);
+      const emp=(await pool.query("SELECT * FROM hr_employee WHERE active=true AND (user_id=$1 OR (user_id IS NULL AND lower(btrim(employee_code))=lower(btrim($2)))) ORDER BY (user_id=$1) DESC NULLS LAST,id LIMIT 1",[uid,String(a.username||"")])).rows[0];
+      if(!emp)return Response.json({linked:false,employee:null,salaries:[]});
+      const sal=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name,e.department,e.designation,e.location,e.basic_salary,e.hra,e.other_allowance,e.overtime_rate,(SELECT COUNT(*) FROM hr_attendance x WHERE x.employee_id=s.employee_id AND to_char(x.work_date,'YYYY-MM')=s.salary_month AND x.late_minutes>0)::int AS late_days FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE s.employee_id=$1 ORDER BY s.salary_month DESC LIMIT 24",[emp.id]);
+      return Response.json({linked:true,employee:{id:emp.id,employee_code:emp.employee_code,name:emp.name,department:emp.department,designation:emp.designation,location:emp.location},salaries:sal.rows});
+    }
+        if(p==="hr/employees"){
         const r=await pool.query("SELECT * FROM hr_employee ORDER BY id DESC");
         return Response.json({employees:r.rows,rows:r.rows});
       }
       if(p==="hr/attendance"){
         const month=String(new URL(req.url).searchParams.get("month")||"").trim();
-        const r=await pool.query("SELECT a.*,e.employee_code,e.name AS employee_name FROM hr_attendance a JOIN hr_employee e ON e.id=a.employee_id WHERE ($1='' OR to_char(a.work_date,'YYYY-MM')=$1) ORDER BY a.work_date DESC,a.id DESC",[month]);
+        const empId=idOf(new URL(req.url).searchParams.get("employee_id"));
+        const r=await pool.query("SELECT a.*,e.employee_code,e.name AS employee_name FROM hr_attendance a JOIN hr_employee e ON e.id=a.employee_id WHERE ($1='' OR to_char(a.work_date,'YYYY-MM')=$1) AND ($2::bigint IS NULL OR a.employee_id=$2::bigint) ORDER BY a.work_date "+(empId?"ASC":"DESC")+",a.id DESC",[month,empId]);
         return Response.json({attendance:r.rows,rows:r.rows});
+      }
+      if(p==="hr/department-timings"){
+        const t=await pool.query("SELECT department,start_time,grace_minutes,office_hours,ot_start_after,half_day_min,full_day_min FROM hr_department_timing ORDER BY department");
+        const d=await pool.query("SELECT DISTINCT trim(department) AS department FROM hr_employee WHERE department IS NOT NULL AND trim(department)<>'' ORDER BY 1");
+        const have=new Set(t.rows.map((x:any)=>String(x.department).toLowerCase()));
+        const timings=[...t.rows,...d.rows.filter((x:any)=>!have.has(String(x.department).toLowerCase())).map((x:any)=>({department:x.department,start_time:"",grace_minutes:0,office_hours:0,ot_start_after:0,half_day_min:0,full_day_min:0}))];
+        return Response.json({timings,rows:timings});
       }
       if(p==="hr/salary"){
         const month=String(new URL(req.url).searchParams.get("month")||"").trim();
-        const r=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE ($1='' OR s.salary_month=$1) ORDER BY e.name",[month]);
+        const r=await pool.query(HR_SALARY_SELECT,[month]);
         return Response.json({salaries:r.rows,rows:r.rows});
       }
     }
@@ -1485,21 +1555,90 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     {const pp=await productionPost(req,path,b,a);if(pp)return pp;}
     if(p==="hr/employees"){
       await ensureHRSchemas();
-      const r=await pool.query("INSERT INTO hr_employee (employee_code,name,department,designation,mobile,photo_url,joining_date,machine_user_id,basic_salary,hra,other_allowance,overtime_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",[String(b.employee_code||"").trim(),String(b.name||"").trim(),b.department||null,b.designation||null,b.mobile||null,b.photo_url||null,b.joining_date||null,b.machine_user_id||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate)]);
+      const r=await pool.query("INSERT INTO hr_employee (employee_code,name,department,designation,mobile,photo_url,joining_date,machine_user_id,basic_salary,hra,other_allowance,overtime_rate,location,user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *",[String(b.employee_code||"").trim(),String(b.name||"").trim(),b.department||null,b.designation||null,b.mobile||null,b.photo_url||null,b.joining_date||null,b.machine_user_id||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate),String(b.location||"").trim()||null,idOf(b.user_id)]);
       return Response.json({success:true,employee:r.rows[0],row:r.rows[0]},{status:201});
+    }
+    if(p==="hr/employees/update"){
+      await ensureHRSchemas();
+      const id=Number(b.id); if(!id)return Response.json({error:"Employee id is required."},{status:400});
+      const r=await pool.query("UPDATE hr_employee SET name=COALESCE(NULLIF($2,''),name),department=$3,designation=$4,location=$5,machine_user_id=$6,basic_salary=$7,hra=$8,other_allowance=$9,overtime_rate=$10,active=$11,mobile=COALESCE(NULLIF($12,''),mobile),user_id=COALESCE($13::bigint,user_id) WHERE id=$1 RETURNING *",[id,String(b.name||"").trim(),String(b.department||"").trim()||null,String(b.designation||"").trim()||null,String(b.location||"").trim()||null,String(b.machine_user_id||"").trim()||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate),b.active===false?false:true,String(b.mobile||"").trim(),idOf(b.user_id)]);
+      if(!r.rowCount)return Response.json({error:"Employee not found."},{status:404});
+      await hrRecalcLate("");
+      return Response.json({success:true,employee:r.rows[0]});
+    }
+    if(p==="hr/department-timings"){
+      await ensureHRSchemas();
+      const dept=String(b.department||"").trim(),st=String(b.start_time||"").trim();
+      if(!dept)return Response.json({error:"Department is required."},{status:400});
+      if(!/^([01]?\d|2[0-3]):[0-5]\d$/.test(st))return Response.json({error:"Duty start time HH:MM me dein (jaise 09:30)."},{status:400});
+      const grace=Math.max(0,Math.floor(num(b.grace_minutes)));
+      const oh=Math.min(24,Math.max(0,num(b.office_hours))),ota=Math.max(0,Math.floor(num(b.ot_start_after)));
+      await pool.query("INSERT INTO hr_department_timing (department,start_time,grace_minutes,office_hours,ot_start_after,half_day_min,full_day_min) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (department) DO UPDATE SET start_time=EXCLUDED.start_time,grace_minutes=EXCLUDED.grace_minutes,office_hours=EXCLUDED.office_hours,ot_start_after=EXCLUDED.ot_start_after,half_day_min=EXCLUDED.half_day_min,full_day_min=EXCLUDED.full_day_min",[dept,st.padStart(5,"0"),grace,oh,ota,Math.min(24,Math.max(0,num(b.half_day_min))),Math.min(24,Math.max(0,num(b.full_day_min)))]);
+      await hrRecalcLate("");
+      return Response.json({success:true});
+    }
+    if(p==="hr/attendance/recalc"){
+      await ensureHRSchemas();
+      await hrRecalcLate(String(b.month||"").trim());
+      return Response.json({success:true});
+    }
+    if(p==="hr/attendance/import"){
+      await ensureHRSchemas();
+      const loc=String(b.location||"").trim(),create=b.create_missing!==false;
+      const incoming:any[]=Array.isArray(b.employees)?b.employees:[];
+      if(!incoming.length)return Response.json({error:"Import ke liye koi employee data nahi mila."},{status:400});
+      const all=(await pool.query("SELECT id,employee_code,machine_user_id,location FROM hr_employee")).rows as any[];
+      const usedCodes=new Set(all.map((x:any)=>String(x.employee_code)));
+      const ids:number[]=[],dates:string[]=[],ins:(string|null)[]=[],outs:(string|null)[]=[],sts:string[]=[],hrs:number[]=[],ots:number[]=[],sps:boolean[]=[];
+      const months=new Set<string>();
+      let created=0,matched=0,skipped=0;const createdNames:string[]=[];
+      for(const e of incoming){
+        const code=String(e.code||"").trim(),name=String(e.name||"").trim();
+        const rows:any[]=(Array.isArray(e.rows)?e.rows:[]).filter((r:any)=>r&&r.status==="Present"&&/^\d{4}-\d{2}-\d{2}$/.test(String(r.work_date||"")));
+        if(!code||!rows.length){skipped++;continue;}
+        let emp=all.find((x:any)=>String(x.machine_user_id||"")===code&&String(x.location||"")===loc);
+        if(!emp&&loc)emp=all.find((x:any)=>String(x.machine_user_id||"")===code&&!String(x.location||"").trim());
+        if(emp&&loc&&!String(emp.location||"").trim()){await pool.query("UPDATE hr_employee SET location=$2 WHERE id=$1",[emp.id,loc]);emp.location=loc;}
+        if(emp)matched++;
+        else if(create){
+          let ec=loc?loc+"-"+code:code,n=2;while(usedCodes.has(ec))ec=(loc?loc+"-"+code:code)+"-"+n++;
+          usedCodes.add(ec);
+          const ins1=await pool.query("INSERT INTO hr_employee (employee_code,name,machine_user_id,location) VALUES ($1,$2,$3,$4) RETURNING id,employee_code,machine_user_id,location",[ec,name||ec,code,loc||null]);
+          emp=ins1.rows[0];all.push(emp);created++;createdNames.push(name||ec);
+        }else{skipped++;continue;}
+        for(const r of rows){
+          const t=String(r.first_in||"").trim(),o=String(r.last_out||"").trim();
+          ids.push(emp.id);dates.push(String(r.work_date));
+          ins.push(t?r.work_date+"T"+t+"+05:30":null);
+          outs.push(o?r.work_date+"T"+o+"+05:30":null);
+          sts.push("Present");hrs.push(num(r.work_hours));ots.push(num(r.overtime_hours));sps.push(Boolean(r.single_punch));
+          months.add(String(r.work_date).slice(0,7));
+        }
+      }
+      if(ids.length){
+        await pool.query("INSERT INTO hr_attendance (employee_id,work_date,first_in,last_out,status,work_hours,overtime_hours,single_punch) SELECT * FROM unnest($1::bigint[],$2::date[],$3::timestamptz[],$4::timestamptz[],$5::text[],$6::numeric[],$7::numeric[],$8::boolean[]) ON CONFLICT (employee_id,work_date) DO UPDATE SET first_in=EXCLUDED.first_in,last_out=EXCLUDED.last_out,status=EXCLUDED.status,work_hours=EXCLUDED.work_hours,overtime_hours=EXCLUDED.overtime_hours,single_punch=EXCLUDED.single_punch",[ids,dates,ins,outs,sts,hrs,ots,sps]);
+        for(const m of months)await hrRecalcLate(m);
+      }
+      return Response.json({success:true,imported_days:ids.length,matched,created,created_names:createdNames,skipped_no_attendance:skipped,months:[...months]});
     }
     if(p==="hr/salary/process"){
       await ensureHRSchemas();
       const month=String(b.month||"").trim(); if(!/^\d{4}-\d{2}$/.test(month))return Response.json({error:"Valid salary month is required."},{status:400});
-      const days=new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate();
       const emps=await pool.query("SELECT * FROM hr_employee WHERE active=true ORDER BY id");
-      for(const e of emps.rows){
-        const att=await pool.query("SELECT COALESCE(SUM(CASE WHEN status='Present' THEN 1 ELSE 0 END),0) AS present,COALESCE(SUM(overtime_hours),0) AS ot FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2",[e.id,month]);
-        const present=Number(att.rows[0]?.present||0),ot=Number(att.rows[0]?.ot||0),basic=Number(e.basic_salary||0)*present/days,allow=Number(e.hra||0)+Number(e.other_allowance||0),otamt=ot*Number(e.overtime_rate||0),net=basic+allow+otamt;
-        await pool.query("INSERT INTO hr_salary (employee_id,salary_month,working_days,present_days,overtime_hours,basic_earned,allowances,overtime_amount,net_salary,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'PROCESSED') ON CONFLICT(employee_id,salary_month) DO UPDATE SET working_days=EXCLUDED.working_days,present_days=EXCLUDED.present_days,overtime_hours=EXCLUDED.overtime_hours,basic_earned=EXCLUDED.basic_earned,allowances=EXCLUDED.allowances,overtime_amount=EXCLUDED.overtime_amount,net_salary=EXCLUDED.net_salary,status='PROCESSED'",[e.id,month,days,present,ot,basic,allow,otamt,net]);
-      }
-      const r=await pool.query("SELECT s.*,e.employee_code,e.name AS employee_name FROM hr_salary s JOIN hr_employee e ON e.id=s.employee_id WHERE s.salary_month=$1 ORDER BY e.name",[month]);
+      for(const e of emps.rows)await hrSalaryOne(pool,e,month,null);
+      const r=await pool.query(HR_SALARY_SELECT,[month]);
       return Response.json({success:true,salaries:r.rows,rows:r.rows});
+    }
+    if(p==="hr/salary/adjust"){
+      await ensureHRSchemas();
+      const month=String(b.month||"").trim(),id=Number(b.employee_id);
+      if(!/^\d{4}-\d{2}$/.test(month)||!id)return Response.json({error:"Employee aur salary month zaroori hai."},{status:400});
+      const e=(await pool.query("SELECT * FROM hr_employee WHERE id=$1",[id])).rows[0];
+      if(!e)return Response.json({error:"Employee not found."},{status:404});
+      await hrSalaryOne(pool,e,month,b);
+      const r=await pool.query(HR_SALARY_SELECT,[month]);
+      const row=r.rows.find((x:any)=>Number(x.employee_id)===id);
+      return Response.json({success:true,salary:row,salaries:r.rows});
     }
     if(p==="admin/nav-tabs"){
       const label=String(b.label||"").trim(); if(!label)return Response.json({error:"Tab name is required."},{status:400});

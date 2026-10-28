@@ -60,7 +60,7 @@ const ICONS = {
   'sale-register': BarChart3, 'gst-register': FileText, 'hypothecation-register': FileText, 'vehicle-no-register': FileText, 'sale-record': FileText,
   'payment-receivable-report': Wallet, 'subsidy-report': Gift, ledger: BookOpen,
   'day-book': Calendar, 'ledger-v': BookOpen, password: Key,
-  'backup-restore': Database, 'hr-attendance': Users, profile: UserCog,
+  'backup-restore': Database, 'hr-attendance': Users, 'my-salary': UserCog, profile: UserCog,
   'nav-settings': Settings2,
 };
 
@@ -116,6 +116,11 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     navGroups[targetGroup] = [...(navGroups[targetGroup] || []), ['loan-application-view', 'Loan Application']];
   }
 
+  if (!user?.is_dealer && !Object.values(navGroups).flat().some(([key]) => key === 'my-salary')) {
+    const tg = navGroups['System'] ? 'System' : (navGroups['HR'] ? 'HR' : Object.keys(navGroups)[0]);
+    if (tg) navGroups[tg] = [...navGroups[tg], ['my-salary', 'My Salary']];
+  }
+
   if (navGroups['Reports'] && !Object.values(navGroups).flat().some(([key]) => key === 'vehicle-no-register')) {
     const list = [...navGroups['Reports']];
     const at = list.findIndex(([key]) => key === 'hypothecation-register');
@@ -151,7 +156,8 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   // Some legacy user rows have department=Admin but is_super_user=false and/or an empty allowed_modules list.
   const isAdminUser = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
   // Voucher tab keys (v-*) follow the permission of the page they open.
-  const canOpen = (key) => (user?.allowed_modules || []).includes(VOUCHER_PAGE_FOR[key] || key);
+  // 'my-salary' har staff user ko dikhti hai (server sirf usi ki apni salary deta hai).
+  const canOpen = (key) => key === 'my-salary' || (user?.allowed_modules || []).includes(VOUCHER_PAGE_FOR[key] || key);
   const allowedFor = (items) => isAdminUser ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : canOpen(key));
   // Help me dikhane ke liye shortcuts: voucher F-keys sirf wahi jo is user ko dikhte hain.
   const helpSections = [
