@@ -1598,9 +1598,15 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         const code=String(e.code||"").trim(),name=String(e.name||"").trim();
         const rows:any[]=(Array.isArray(e.rows)?e.rows:[]).filter((r:any)=>r&&r.status==="Present"&&/^\d{4}-\d{2}-\d{2}$/.test(String(r.work_date||"")));
         if(!code||!rows.length){skipped++;continue;}
-        let emp=all.find((x:any)=>String(x.machine_user_id||"")===code&&String(x.location||"")===loc);
-        if(!emp&&loc)emp=all.find((x:any)=>String(x.machine_user_id||"")===code&&!String(x.location||"").trim());
+        // Match ke liye spaces/capital/leading zero ignore karo ("02" == "2", "Factory" == "factory").
+        const nz=(v:any)=>String(v??"").trim().toLowerCase().replace(/^0+(?=\d)/,"");
+        const cN=nz(code),locN=nz(loc);
+        let emp=all.find((x:any)=>nz(x.machine_user_id)===cN&&nz(x.location)===locN);
+        // Purana employee jiski location khali hai: machine ID se, ya (machine ID khali ho to) employee code se match karo.
+        if(!emp&&loc)emp=all.find((x:any)=>nz(x.machine_user_id)===cN&&!String(x.location||"").trim());
+        if(!emp&&loc)emp=all.find((x:any)=>!String(x.machine_user_id||"").trim()&&!String(x.location||"").trim()&&nz(x.employee_code)===cN);
         if(emp&&loc&&!String(emp.location||"").trim()){await pool.query("UPDATE hr_employee SET location=$2 WHERE id=$1",[emp.id,loc]);emp.location=loc;}
+        if(emp&&!String(emp.machine_user_id||"").trim()){await pool.query("UPDATE hr_employee SET machine_user_id=$2 WHERE id=$1",[emp.id,code]);emp.machine_user_id=code;}
         if(emp)matched++;
         else if(create){
           let ec=loc?loc+"-"+code:code,n=2;while(usedCodes.has(ec))ec=(loc?loc+"-"+code:code)+"-"+n++;
