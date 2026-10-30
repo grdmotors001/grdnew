@@ -496,6 +496,11 @@ export function DeliveryChallanPage() {
               </div></div>
               <Field label="Motor No." value={editRow.motor_no} readOnly />
               <Field label="Formula Name" value={editRow?.formula_name || formVehicle?.formula_name || ''} readOnly />
+               <Field label="Battery Maker" value={editRow.battery_maker || ''} readOnly />
+               <Field label="Battery No. 1" value={editRow.battery_no1 || ''} readOnly />
+               <Field label="Battery No. 2" value={editRow.battery_no2 || ''} readOnly />
+               <Field label="Battery No. 3" value={editRow.battery_no3 || ''} readOnly />
+               <Field label="Battery No. 4" value={editRow.battery_no4 || ''} readOnly />
                <div style={{ gridColumn: '1 / -1' }} className="muted">
                  Battery details are locked after Challan creation. Battery changes will be recorded only through Battery Withdrawal / Swap / Fit.
                </div>
