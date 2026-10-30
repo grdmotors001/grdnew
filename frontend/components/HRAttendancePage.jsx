@@ -48,6 +48,12 @@ export function HRAttendancePage() {
   // salary slip
   const [salSearch,setSalSearch]=useState('');
   const [slip,setSlip]=useState(null);
+  const [ledger,setLedger]=useState(null); // Employees tab: naam par click -> salary ledger {emp,rows,loading}
+  const openLedger=async(e)=>{
+    setError(''); setLedger({emp:e,rows:[],loading:true});
+    try { const r=await get('/hr/salary?month=&employee_id='+e.id); setLedger({emp:e,rows:r.salaries||r.rows||[],loading:false}); }
+    catch(err){ setError(err.message||'Ledger load nahi hua.'); setLedger({emp:e,rows:[],loading:false}); }
+  };
   const [attView,setAttView]=useState(null); // {employee_id,name,month,rows,loading}
   const [slipForm,setSlipForm]=useState({});
   // department timing
@@ -229,9 +235,40 @@ export function HRAttendancePage() {
       <div className="card tableWrap" style={{marginTop:16}}><table className="table reportTable"><thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Location</th><th>Machine ID</th><th>Basic</th><th>HRA</th><th>Other</th><th>OT/Hr</th><th>Status</th><th></th></tr></thead><tbody>
         {employees.filter(e=>{const q=empSearch.trim().toLowerCase();return !q||[e.name,e.employee_code,e.department,e.location].some(v=>String(v||'').toLowerCase().includes(q));}).map(e=> editId===e.id
           ? <tr key={e.id}><td>{e.employee_code}</td><td>{inp('name')}</td><td>{inp('department')}</td><td>{inp('designation')}</td><td>{inp('location')}</td><td>{inp('machine_user_id')}</td><td>{inp('basic_salary','number')}</td><td>{inp('hra','number')}</td><td>{inp('other_allowance','number')}</td><td>{inp('overtime_rate','number')}</td><td><select value={edit.active?'1':'0'} onChange={ev=>setEdit({...edit,active:ev.target.value==='1'})}><option value="1">Active</option><option value="0">Inactive</option></select></td><td style={{whiteSpace:'nowrap'}}><button className="btn primary" disabled={busy} onClick={saveEdit}>Save</button> <button className="btn" onClick={()=>setEditId(null)}>Cancel</button></td></tr>
-          : <tr key={e.id}><td>{e.employee_code}</td><td>{e.name}</td><td>{e.department||'-'}</td><td>{e.designation||'-'}</td><td>{e.location||'-'}</td><td>{e.machine_user_id||'-'}</td><td>{Number(e.basic_salary||0).toFixed(2)}</td><td>{Number(e.hra||0).toFixed(2)}</td><td>{Number(e.other_allowance||0).toFixed(2)}</td><td>{Number(e.overtime_rate||0).toFixed(2)}</td><td>{e.active?'Active':'Inactive'}</td><td><button className="btn" onClick={()=>startEdit(e)}>Edit</button> <button className="btn" onClick={()=>{setError('');setNotice('');setUserPick('');setFromUser(e);}}>User se</button></td></tr>)}
+          : <tr key={e.id}><td>{e.employee_code}</td><td><a href="#" title="Salary ledger dekhein" style={{fontWeight:600,textDecoration:'underline'}} onClick={ev=>{ev.preventDefault();openLedger(e);}}>{e.name}</a></td><td>{e.department||'-'}</td><td>{e.designation||'-'}</td><td>{e.location||'-'}</td><td>{e.machine_user_id||'-'}</td><td>{Number(e.basic_salary||0).toFixed(2)}</td><td>{Number(e.hra||0).toFixed(2)}</td><td>{Number(e.other_allowance||0).toFixed(2)}</td><td>{Number(e.overtime_rate||0).toFixed(2)}</td><td>{e.active?'Active':'Inactive'}</td><td><button className="btn" onClick={()=>startEdit(e)}>Edit</button> <button className="btn" onClick={()=>{setError('');setNotice('');setUserPick('');setFromUser(e);}}>User se</button></td></tr>)}
         {!employees.length&&<tr><td colSpan="12" className="muted">No employees found.</td></tr>}
       </tbody></table></div>
+      {ledger && (()=>{
+        const rows=[...ledger.rows].sort((a,b)=>String(a.salary_month).localeCompare(String(b.salary_month)));
+        let run=0;
+        const lines=rows.map(x=>{
+          const net=num(x.net_salary), paid=num(x.paid_amount), bal=Math.max(0,net-paid), inproc=num(x.in_process_amount);
+          run+=net-paid;
+          const st=paid>0&&bal<=0.5?['Paid','#1e8e3e']:paid>0?['Partial','#d17b08']:inproc>0?['Voucher bana','#3f7edb']:['Unpaid','#c0392b'];
+          const modes=String(x.paid_modes||'').split(', ').filter(Boolean).map(mm=>mm==='cash'?'Cash':mm==='upi'?'UPI':mm==='cheque'?'Cheque':'Bank').join(' + ');
+          return {x,net,paid,bal,st,modes,run};
+        });
+        const totNet=lines.reduce((a,l)=>a+l.net,0), totPaid=lines.reduce((a,l)=>a+l.paid,0), totBal=lines.reduce((a,l)=>a+l.bal,0);
+        const monthName=(m)=>{ if(!/^\d{4}-\d{2}$/.test(m||'')) return m||''; const [y,mo]=m.split('-').map(Number); return new Date(y,mo-1,1).toLocaleDateString('en-IN',{month:'short',year:'numeric'}); };
+        return <div className="modal"><div className="modalbox" style={{maxWidth:900}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><div><h2 style={{margin:0}}>{ledger.emp.name} · Salary Ledger</h2><div className="muted">{ledger.emp.employee_code} · {ledger.emp.department||'-'} · {ledger.emp.location||'-'}</div></div><button className="btn" onClick={()=>setLedger(null)}>Close</button></div>
+          {error && <div className="error" style={{marginTop:10}}>{error}</div>}
+          <div className="muted" style={{margin:'10px 0'}}>Kul Payable: <strong>{money(totNet)}</strong> · Kul Paid: <strong style={{color:'#1e8e3e'}}>{money(totPaid)}</strong> · Kul Baaki: <strong style={totBal>0.5?{color:'#c0392b'}:undefined}>{money(totBal)}</strong></div>
+          <div className="tableWrap" style={{maxHeight:'60vh',overflow:'auto'}}><table className="table reportTable"><thead><tr><th>Mahina</th><th>Present</th><th>Salary Payable</th><th>Paid</th><th>Baaki</th><th>Running Baaki</th><th>Status</th></tr></thead><tbody>
+            {lines.map(({x,net,paid,bal,st,modes,run:rb})=><tr key={x.id||x.salary_month}>
+              <td>{monthName(x.salary_month)}</td>
+              <td>{x.present_days}</td>
+              <td><strong>{money(net)}</strong></td>
+              <td>{paid>0?money(paid):'-'}{(modes||x.last_paid_at)&&<div className="muted" style={{fontSize:11}}>{modes}{x.last_paid_at?(modes?' · ':'')+dmy(x.last_paid_at):''}</div>}</td>
+              <td style={bal>0.5?{color:'#c0392b',fontWeight:600}:undefined}>{bal>0.5?money(bal):'-'}</td>
+              <td>{money(rb)}</td>
+              <td><span style={{color:st[1],fontWeight:700}}>{st[0]}</span></td>
+            </tr>)}
+            {!lines.length && <tr><td colSpan="7" className="muted">{ledger.loading?'Loading…':'Is employee ki koi salary abhi process nahi hui. Salary tab me "Process Salary" chalayein.'}</td></tr>}
+            {lines.length>0 && <tr style={{fontWeight:800}}><td>Total</td><td></td><td>{money(totNet)}</td><td>{money(totPaid)}</td><td>{money(totBal)}</td><td></td><td></td></tr>}
+          </tbody></table></div>
+          <p className="muted" style={{fontSize:12,marginTop:8}}>Sirf wahi mahine dikhte hain jinki salary process ho chuki hai. Paid wahi hai jo Expense Payment Voucher me "paid" mark hua hai.</p>
+        </div></div>; })()}
     </>}
 
     {tab==='dashboard' && <HRDashboard />}

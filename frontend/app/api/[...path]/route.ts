@@ -1055,9 +1055,13 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       }
       if(p==="hr/salary"){
         const month=String(new URL(req.url).searchParams.get("month")||"").trim();
+        // employee_id diya ho (Employees tab ka ledger) to sirf us employee ki saari months, purani se nayi.
+        const empId=Number(new URL(req.url).searchParams.get("employee_id")||0)||0;
+        const forEmp=(sql:string)=>empId?sql.replace("ORDER BY e.name","AND s.employee_id=$2 ORDER BY s.salary_month"):sql;
+        const qArgs:any[]=empId?[month,empId]:[month];
         await ensureEpvSchema().catch(()=>{});
         let r:any;
-        try{ r=await pool.query(HR_SALARY_SELECT,[month]); }catch(_e){ r=await pool.query(HR_SALARY_SELECT_PLAIN,[month]); }
+        try{ r=await pool.query(forEmp(HR_SALARY_SELECT),qArgs); }catch(_e){ r=await pool.query(forEmp(HR_SALARY_SELECT_PLAIN),qArgs); }
         return Response.json({salaries:r.rows,rows:r.rows});
       }
     }
