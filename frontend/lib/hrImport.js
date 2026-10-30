@@ -36,24 +36,29 @@ function hhmmToHours(v) {
 
 export function parseSmartOfficeReport(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: false });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+  // Smart Office kabhi har employee ki alag sheet banata hai (Sheet1, Sheet2 ...),
+  // kabhi sab ek hi sheet par. Isliye saari sheets padho.
+  const grids = wb.SheetNames.map((n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }));
 
   // Report ki period: "01-Sep-2026 To 30-Sep-2026"
   let year = 0, month = 0, period = '';
-  for (let r = 0; r < Math.min(grid.length, 20) && !year; r++) {
-    for (const c of grid[r]) {
-      const m = txt(c).match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})\s*To\s*(\d{1,2})-([A-Za-z]{3})-(\d{4})/i);
-      if (m) { year = Number(m[3]); month = MONTHS[m[2].toLowerCase()] || 0; period = txt(c); break; }
+  for (const grid of grids) {
+    for (let r = 0; r < Math.min(grid.length, 20) && !year; r++) {
+      for (const c of grid[r]) {
+        const m = txt(c).match(/(\d{1,2})-([A-Za-z]{3})-(\d{4})\s*To\s*(\d{1,2})-([A-Za-z]{3})-(\d{4})/i);
+        if (m) { year = Number(m[3]); month = MONTHS[m[2].toLowerCase()] || 0; period = txt(c); break; }
+      }
     }
+    if (year) break;
   }
   if (!year || !month) throw new Error('Report ki date range ("01-Sep-2026 To 30-Sep-2026") nahi mili. Smart Office ki Monthly Detailed Report upload karein.');
 
+  const employees = [];
+  let blocks = 0;
+  for (const grid of grids) {
   const starts = [];
   grid.forEach((row, i) => { if (/^Employee Code/i.test(txt(row[1]))) starts.push(i); });
-  if (!starts.length) throw new Error('Is file me "Employee Code" wale blocks nahi mile. Monthly Detailed Report (.xls) upload karein.');
-
-  const employees = [];
+  blocks += starts.length;
   starts.forEach((s, idx) => {
     const end = idx + 1 < starts.length ? starts[idx + 1] : grid.length;
     const head = grid[s];
@@ -73,11 +78,17 @@ export function parseSmartOfficeReport(arrayBuffer) {
       const label = txt(grid[r][1]);
       if (label && !(label in rowOf)) rowOf[label] = r;
     }
-    const dayRow = grid[rowOf['Days']];
+    // Din wali row ("1-Sat", "2-Sun" ...): kabhi col B me "Days" label hota hai, kabhi
+    // (jaise is report me) label khali hota hai — isliye label par nahi, cells dekh kar pehchano.
+    let dayRow = null;
+    for (let r = s + 1; r < end && !dayRow; r++) {
+      const hits = grid[r].filter((c) => /^\d{1,2}-[A-Za-z]{3}$/.test(txt(c))).length;
+      if (hits >= 5) dayRow = grid[r];
+    }
     if (!dayRow) return;
     const days = [];
     dayRow.forEach((c, col) => {
-      const m = txt(c).match(/^(\d{1,2})-([A-Za-z]{3})/);
+      const m = txt(c).match(/^(\d{1,2})-([A-Za-z]{3})$/);
       if (m) days.push({ col, day: Number(m[1]), mon: MONTHS[m[2].toLowerCase()] });
     });
     const get = (label, col) => (rowOf[label] !== undefined ? grid[rowOf[label]][col] : '');
@@ -102,6 +113,8 @@ export function parseSmartOfficeReport(arrayBuffer) {
     }
     employees.push({ code, name, rows });
   });
+  }
+  if (!blocks) throw new Error('Is file me "Employee Code" wale blocks nahi mile. Monthly Detailed Report (.xls) upload karein.');
 
   const presentDays = employees.reduce((n, e) => n + e.rows.filter((r) => r.status === 'Present').length, 0);
   return { year, month, period, employees, presentDays };
