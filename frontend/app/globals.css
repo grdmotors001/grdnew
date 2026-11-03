@@ -697,3 +697,36 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
 [data-theme="lavender-soft"] .navGroupButton.active{background:#fff;color:#4F4175}
 [data-theme="lavender-soft"] .moduleStripItem.active,
 [data-theme="lavender-soft"] .tiTab.active{color:var(--accent)}
+
+/* ===== Curved sidebar active item (DESKTOP ONLY - mobile drawer untouched) ===== */
+@media(min-width:701px){
+.sidebar{--sb-pad:14px;--nav-active:#fff;--nav-active-ink:var(--accent)}
+.sidebar.collapsed{--sb-pad:10px}
+.sidebarNav{margin-right:calc(var(--sb-pad) * -1);padding:20px 0;overflow-x:hidden}
+.sidebarNav .navbtn,.sidebarNav .navGroupButton{
+  position:relative;width:auto;margin:3px var(--sb-pad) 3px 0;
+  background:transparent;border:0;border-radius:26px;box-shadow:none;
+  padding:13px 16px;font-size:14px;font-weight:600;color:#ffffffd9;overflow:visible;
+}
+.sidebarNav .navGroupHead{margin:0}
+.sidebarNav .navbtn{width:calc(100% - var(--sb-pad))}
+.sidebarNav .navGroupButton{width:calc(100% - var(--sb-pad))}
+.sidebarNav .navbtn:hover,.sidebarNav .navGroupButton:hover{background:#ffffff1a;color:#fff}
+.sidebarNav .navbtn.active,.sidebarNav .navGroupButton.active{
+  width:100%;margin-right:0;border-radius:26px 0 0 26px;
+  background:var(--nav-active);color:var(--nav-active-ink);box-shadow:none;
+}
+.sidebarNav .navbtn.active .navicon{color:var(--nav-active-ink)}
+.sidebarNav .navbtn.active::before,.sidebarNav .navbtn.active::after,
+.sidebarNav .navGroupButton.active::before,.sidebarNav .navGroupButton.active::after{
+  content:"";position:absolute;right:0;width:26px;height:26px;background:transparent;pointer-events:none;
+}
+.sidebarNav .navbtn.active::before,.sidebarNav .navGroupButton.active::before{
+  top:-26px;border-bottom-right-radius:26px;box-shadow:10px 10px 0 10px var(--nav-active);
+}
+.sidebarNav .navbtn.active::after,.sidebarNav .navGroupButton.active::after{
+  bottom:-26px;border-top-right-radius:26px;box-shadow:10px -10px 0 10px var(--nav-active);
+}
+.sidebarNav .navGroupButton.active .navGroupCount{background:color-mix(in srgb,var(--accent) 15%,white);color:var(--accent)}
+.sidebar.collapsed .sidebarNav .navbtn,.sidebar.collapsed .sidebarNav .navGroupButton{justify-content:center;padding:13px 8px}
+}

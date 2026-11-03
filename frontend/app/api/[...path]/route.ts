@@ -849,7 +849,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // Notifications: jinke paas permission nahi (jaise Salesman) unko 403 ki jagah khali list -> header me error/console spam nahi.
     if(p==="notifications"&&!canRead(a,p))return Response.json({notifications:[],branch_cash_limits:[],count:0});
     // Har logged-in staff ko menu (nav-config), dashboard aur apna profile chahiye; ye allowed_modules se block nahi hone chahiye.
-    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance");
+    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="dashboard/trend"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance");
     if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     // Dealer Master form ko salesman list aur sub-group list chahiye: jiske paas Dealer module ka view right hai use ye 2 lookup read allowed (warna dropdown khali rehta tha).
     const dealerLookup=a?.scope==="staff"&&(p==="masters/salesman"||p==="sub-groups")&&(await actionAllowed(a,"dealer","view"));
@@ -1092,6 +1092,28 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     {const x=await gstHypSubsidyReport(req,path,{purchaseBillTotals});if(x)return x;}
     {const pg=await productionGet(req,path,a);if(pg)return pg;}
     {const x=await taxInvoiceGet(req,path,a,SALES_DEPS);if(x)return x;}
+    // Dashboard "Monthly Delivery / Billed / Production" live chart: koi bhi period (from..to, YYYY-MM), max 120 mahine.
+    if(p==="dashboard/trend"){
+      const u=new URL(req.url);
+      const okM=(v:any)=>/^\d{4}-(0[1-9]|1[0-2])$/.test(String(v||""));
+      const nowM=new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"}).slice(0,7);
+      const addM=(ym:string,n:number)=>{const [y,m]=ym.split("-").map(Number);const d=new Date(y,m-1+n,1);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");};
+      let to:string=okM(u.searchParams.get("to"))?String(u.searchParams.get("to")):nowM;
+      let from:string=okM(u.searchParams.get("from"))?String(u.searchParams.get("from")):addM(to,-11);
+      if(from>to){const t=from;from=to;to=t;}
+      if(from<addM(to,-119))from=addM(to,-119);
+      const [tr,mn]=await Promise.all([
+        pool.query(`WITH m AS (SELECT g::date AS d,TO_CHAR(g,'YYYY-MM') AS month FROM generate_series($1::date,$2::date,INTERVAL '1 month') g)
+          SELECT m.month,
+            (SELECT COUNT(*)::int FROM delivery_challan x WHERE COALESCE(x.cancelled,false)=false AND x.date>=m.d AND x.date<m.d+INTERVAL '1 month') AS delivery_challan,
+            (SELECT COUNT(*)::int FROM tax_invoice x WHERE COALESCE(x.cancelled,false)=false AND x.date>=m.d AND x.date<m.d+INTERVAL '1 month') AS tax_invoice,
+            (SELECT COALESCE(SUM(COALESCE(x.quantity,0)),0)::int FROM production_voucher x WHERE x.date>=m.d AND x.date<m.d+INTERVAL '1 month') AS production
+          FROM m ORDER BY m.d`,[from+"-01",to+"-01"]),
+        pool.query(`SELECT TO_CHAR(LEAST((SELECT MIN(date) FROM delivery_challan WHERE COALESCE(cancelled,false)=false),(SELECT MIN(date) FROM tax_invoice WHERE COALESCE(cancelled,false)=false),(SELECT MIN(date) FROM production_voucher)),'YYYY-MM') AS m`)
+      ]);
+      const rows=tr.rows.map((r:any)=>({...r,production:isSalesman(a)?0:r.production}));
+      return Response.json({from,to,rows,min_month:mn.rows[0]?.m||null,server_time:new Date().toISOString()});
+    }
     if(p==="dashboard"){
       const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production,todayChallans,todayBills,todayProduction,mfgMonthly]=await Promise.all([
         pool.query("SELECT * FROM vehicle ORDER BY id DESC LIMIT 100"),

@@ -3,14 +3,17 @@
 import { useEffect, useState } from 'react';
 import { get } from '../lib/api';
 import { EmptyState } from './ui';
+import { MonthlyTrendChart } from './MonthlyTrendChart';
 import { formatDate } from '../lib/date';
-import { Factory, Truck, Receipt, Users, ClipboardList } from 'lucide-react';
+import { Factory, Truck, Receipt, Users, ClipboardList, UserCheck, UserX } from 'lucide-react';
 
 const maxBy = (rows, key) => Math.max(1, ...(rows || []).map(r => Number(r[key] || 0)));
 const monthLabel = (m) => {
   const d = new Date(String(m || '') + '-01T00:00:00');
   return Number.isNaN(d.getTime()) ? m : d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 };
+
+const istToday=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'});
 
 const Card = ({label,value,sub,onClick,icon:Icon}) => {
   const body=<><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}><span className="muted">{label}</span>{Icon&&<Icon size={19}/>}</div><div className="metric" style={{marginTop:6}}>{value}</div>{sub&&<div className="muted" style={{marginTop:4}}>{sub}</div>}</>;
@@ -20,8 +23,18 @@ const Card = ({label,value,sub,onClick,icon:Icon}) => {
 export function Dashboard({ setActive }) {
   const [d,setD]=useState(null);
   const [error,setError]=useState('');
+  const [hr,setHr]=useState(null);
 
-  const load=()=>get('/dashboard').then(setD).catch(e=>setError(e.message||'Could not load dashboard'));
+  // Employee / absent count (HR data). Fail ho to dashboard na tute, bas cards '—' dikhayenge.
+  const loadHr=()=>{
+    const day=istToday();
+    return Promise.all([get('/hr/employees'),get('/hr/attendance?month='+day.slice(0,7))]).then(([e,a])=>{
+      const emps=(e.employees||[]).filter(x=>x.active!==false);
+      const presentIds=new Set((a.attendance||[]).filter(r=>String(r.work_date||'').slice(0,10)===day&&(r.status==='Present'||r.status==='Half Day')).map(r=>String(r.employee_id)));
+      setHr({total:emps.length,present:emps.filter(x=>presentIds.has(String(x.id))).length,absent:emps.filter(x=>!presentIds.has(String(x.id))).length});
+    }).catch(()=>setHr({total:null,present:null,absent:null}));
+  };
+  const load=()=>{loadHr();return get('/dashboard').then(setD).catch(e=>setError(e.message||'Could not load dashboard'));};
   useEffect(()=>{load();},[]);
 
   if(error)return <div className="error">{error}</div>;
@@ -44,6 +57,12 @@ export function Dashboard({ setActive }) {
       <Card label="Today Bill" value={Number(d.today_bills?.length||0).toLocaleString('en-IN')} sub="Today's tax invoices" icon={Receipt} onClick={()=>setActive('tax-invoice')} />
       <Card label="Today Production" value={Number((d.today_production||[]).reduce((s,r)=>s+Number(r.quantity||0),0)).toLocaleString('en-IN')} sub="Vehicles produced today" icon={Factory} onClick={()=>setActive('production-voucher')} />
       <Card label="Dealers" value={Number(d.dealers||0).toLocaleString('en-IN')} sub="Active dealer accounts" icon={Users} onClick={()=>setActive('dealer')} />
+    </div>
+
+    <div className="grid" style={{marginTop:14}}>
+      <Card label="Total Employees" value={hr?.total==null?'—':Number(hr.total).toLocaleString('en-IN')} sub="Active employees" icon={Users} onClick={()=>setActive('hr-attendance')} />
+      <Card label="Present Today" value={hr?.present==null?'—':Number(hr.present).toLocaleString('en-IN')} sub="Aaj punch kiya" icon={UserCheck} onClick={()=>setActive('hr-attendance')} />
+      <Card label="Absent Today" value={hr?.absent==null?'—':Number(hr.absent).toLocaleString('en-IN')} sub="Aaj koi punch nahi" icon={UserX} onClick={()=>setActive('hr-attendance')} />
     </div>
 
     <div className="grid" style={{marginTop:14}}>
@@ -95,77 +114,7 @@ export function Dashboard({ setActive }) {
       </div>
     </div>
 
-    <div className="card" style={{marginTop:14}}>
-      <div className="pageHeader"><div><h3 style={{margin:0}}>Monthly Delivery / Billed / Production</h3><p className="muted">Last 12 months</p></div></div>
-      {(() => {
-        const base = d.monthly || [], pm = d.manufacturing_monthly || [];
-        const months = Array.from(new Set([...base.map(r => r.month), ...pm.map(r => r.month)])).sort();
-        if (!months.length) return <EmptyState text="No monthly data found."/>;
-        const bMap = Object.fromEntries(base.map(r => [r.month, r]));
-        const pMap = Object.fromEntries(pm.map(r => [r.month, Number(r.quantity || 0)]));
-        const rows = months.map(m => ({ month: m, delivery_challan: Number(bMap[m]?.delivery_challan || 0), tax_invoice: Number(bMap[m]?.tax_invoice || 0), production: pMap[m] || 0 }));
-        const W = 900, H = 280, L = 44, R = 20, T = 20, B = 36;
-        const vals = rows.flatMap(r => [r.delivery_challan, r.tax_invoice, r.production]);
-        const rawMax = Math.max(1, ...vals);
-        const pow = Math.pow(10, Math.floor(Math.log10(rawMax / 4)));
-        const step = [1, 2, 2.5, 5, 10].map(m => m * pow).find(st => rawMax / st <= 6) || 10 * pow;
-        const max = Math.ceil(rawMax / step) * step;
-        const x = i => L + (rows.length === 1 ? (W - L - R) / 2 : i * (W - L - R) / (rows.length - 1));
-        const y = v => T + (H - T - B) * (1 - v / max);
-        const ticks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
-        const DC = 'var(--theme-accent)', BILL = 'var(--success,#16a34a)', PROD = '#f59e0b';
-        const line = key => rows.map((r, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(Number(r[key]||0)).toFixed(1)).join(' ');
-        const series = [['delivery_challan', DC, 'Delivery Challan', -9], ['tax_invoice', BILL, 'Tax Invoice (Billed)', 17], ['production', PROD, 'Production', 29]];
-        return <>
-          <div style={{display:'flex',gap:16,fontSize:12,marginBottom:6,flexWrap:'wrap'}}>
-            {series.map(([k, c, n]) => <span key={k}><span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:c,marginRight:6}} />{n}</span>)}
-          </div>
-          <div style={{overflowX:'auto'}}>
-            <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',minWidth:560,height:'auto',display:'block'}} role="img" aria-label="Monthly delivery challan, tax invoice and production line graph">
-              {ticks.map(t => <g key={t}>
-                <line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth="1" />
-                <text x={L - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill="currentColor" opacity="0.65">{t}</text>
-              </g>)}
-              {rows.map((r, i) => <text key={r.month} x={x(i)} y={H - 12} textAnchor="middle" fontSize="11" fill="currentColor" opacity="0.65">{monthLabel(r.month)}</text>)}
-              {series.map(([k, c, n, dy]) => <g key={k}>
-                <path d={line(k)} fill="none" stroke={c} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" strokeDasharray={k === 'production' ? '6 4' : undefined} />
-                {rows.map((r, i) => {
-                  const v = Number(r[k]||0);
-                  return <g key={r.month}>
-                    <circle cx={x(i)} cy={y(v)} r="4" fill={c} stroke="#fff" strokeWidth="1.5"><title>{monthLabel(r.month) + ' • ' + n + ': ' + v.toLocaleString('en-IN')}</title></circle>
-                    <text x={x(i)} y={y(v) + dy} textAnchor="middle" fontSize="10" fill={c} fontWeight="600">{v.toLocaleString('en-IN')}</text>
-                  </g>;
-                })}
-              </g>)}
-            </svg>
-          </div>
-        </>;
-      })()}
-    </div>
-
-    <div className="card" style={{marginTop:14}}>
-      <div className="pageHeader"><div><h3 style={{margin:0}}>Today Production</h3><p className="muted">Model name and quantity.</p></div></div>
-      {!d.today_production?.length?<EmptyState text="No production today."/>:<div className="tablewrap"><table className="table">
-        <thead><tr><th>Date</th><th>Model Name</th><th>Qty</th></tr></thead>
-        <tbody>{d.today_production.map(r=><tr key={r.id}><td>{formatDate(r.date)}</td><td><b>{r.model_name||'—'}</b></td><td>{Number(r.quantity||0).toLocaleString('en-IN')}</td></tr>)}</tbody>
-      </table></div>}
-    </div>
-
-    <div className="card" style={{marginTop:14}}>
-      <div className="pageHeader"><div><h3 style={{margin:0}}>Today Delivery Challan</h3><p className="muted">Model, dealer, chassis and battery.</p></div></div>
-      {!d.today_challans?.length?<EmptyState text="No challan today."/>:<div className="tablewrap"><table className="table">
-        <thead><tr><th>Model</th><th>Dealer</th><th>Chassis</th><th>Battery Name</th></tr></thead>
-        <tbody>{d.today_challans.map(r=><tr key={r.id}><td><b>{r.model_name||'—'}</b></td><td>{r.dealer_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.battery_name||'—'}</td></tr>)}</tbody>
-      </table></div>}
-    </div>
-
-    <div className="card" style={{marginTop:14}}>
-      <div className="pageHeader"><div><h3 style={{margin:0}}>Today Bills</h3><p className="muted">Dealer, financer, chassis and battery.</p></div></div>
-      {!d.today_bills?.length?<EmptyState text="No bill today."/>:<div className="tablewrap"><table className="table">
-        <thead><tr><th>Bill No.</th><th>Dealer</th><th>Financer</th><th>Chassis</th><th>Battery Name</th></tr></thead>
-        <tbody>{d.today_bills.map(r=><tr key={r.id}><td><b>{r.bill_no||'—'}</b></td><td>{r.dealer_name||'—'}</td><td>{r.financer_name||'—'}</td><td>{r.chassis_no||'—'}</td><td>{r.battery_name||'—'}</td></tr>)}</tbody>
-      </table></div>}
-    </div>
+    <MonthlyTrendChart />
 
     <div className="card" style={{marginTop:14}}>
       <div className="pageHeader"><div><h3 style={{margin:0}}>Quick Access</h3><p className="muted">Open the modules used most often.</p></div></div>
