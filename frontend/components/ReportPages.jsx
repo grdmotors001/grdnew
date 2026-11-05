@@ -6,6 +6,7 @@ import { formatDate } from '../lib/date';
 import { DeliveryChallanPrintView } from './PrintDocs';
 import { DayBookPreview, Pagination } from './DayBookPreview';
 import { PartyLedgerView } from './PartyLedgers';
+import { printBankReceipt, guessPayType } from './bankReceiptPrint';
 
 function useReport(path, extraParams = {}) {
   const [from, setFrom] = useState('');
@@ -1213,6 +1214,36 @@ export function DayBookPage({ voucher, payMode } = {}) {
   const totalOut=rows.reduce((s,x)=>s+x.payment,0);
   const bankOptions=[...new Set([...banks.map(b=>b.name),...bankRows.map(r=>r.bank_name)].filter(Boolean))];
 
+  // ---- Bank Receipt print (A5 landscape template) ----
+  const printRow=x=>{
+    const r=x.raw||{};
+    const isBank=x.src==='bank';
+    const narr=isBank?(r.narration||r.upi_ref||''):(x.narration||'');
+    printBankReceipt({
+      cash:x.bank==='Cash',
+      no:isBank?((x.bank==='Cash'?'CS B':'BT B')+x.id):((x.bank==='Cash'?'CS ':'BT ')+(x.no||x.id)),
+      date:x.date,party:x.party,
+      payType:guessPayType({narration:narr,bank:x.bank,cheque:isBank?r.cheque_no:''}),
+      utr:narr,bank:x.bank,amount:x.receipt,
+    });
+  };
+  const printForm=()=>{
+    const bn=form.bank_id?(bankName(form.bank_id)||'Bank'):'Cash';
+    printBankReceipt({
+      cash:!form.bank_id,
+      no:(form.bank_id?'BT ':'CS ')+(form.vr_no||form.id||''),date:form.date,party:form.dealer_name||'',
+      payType:guessPayType({narration:form.narration,bank:bn}),
+      utr:form.narration||'',bank:bn,amount:Number(form.credit_received||0),
+    });
+  };
+  const printEdit=()=>{
+    printBankReceipt({
+      no:'BT B'+edit.id,date:ymd10(bankRows.find(b=>b.id===edit.id)?.entry_date),party:edit.party_name||'',
+      payType:guessPayType({narration:edit.narration,bank:edit.bank_name,cheque:bankRows.find(b=>b.id===edit.id)?.cheque_no}),
+      utr:edit.narration||bankRows.find(b=>b.id===edit.id)?.upi_ref||'',bank:edit.bank_name,amount:Math.abs(Number(edit.amount||0)),
+    });
+  };
+
   // ---- Print / Export (filtered saari rows, sirf current page nahi) ----
   const rangeLabel=(from||to)?`${from?formatDate(from):'Start'} to ${to?formatDate(to):'Today'}`:'All dates';
   const printReport=()=>{
@@ -1369,16 +1400,17 @@ export function DayBookPage({ voucher, payMode } = {}) {
 
     <div className="tablewrap">
       <table className="table">
-        <thead><tr><th>Date</th><th>Vr. No.</th><th>Party / Particulars</th><th>Narration</th><th>Bank / Cash</th>{showIn&&<th style={{textAlign:'right'}}>Receipt</th>}{showOut&&<th style={{textAlign:'right'}}>Payment</th>}</tr></thead>
+        <thead><tr><th>Date</th><th>Vr. No.</th><th>Party / Particulars</th><th>Narration</th><th>Bank / Cash</th>{showIn&&<th style={{textAlign:'right'}}>Receipt</th>}{showOut&&<th style={{textAlign:'right'}}>Payment</th>}<th style={{width:40}}></th></tr></thead>
         <tbody>
           {paged.map(x=><tr key={x.key} onClick={()=>onRow(x)} style={{cursor:'pointer'}} title={x.src==='bank'?'Bank entry — click to edit':'Click to edit'}>
             <td style={{whiteSpace:'nowrap'}}>{formatDate(x.date)}</td><td>{x.no||'—'}</td><td><b>{x.party||'—'}</b></td><td>{x.narration||'—'}</td><td>{tag(x.bank)}</td>
             {showIn&&<td style={{textAlign:'right',fontWeight:700,color:'var(--green)'}}>{x.receipt?inr(x.receipt):''}</td>}
             {showOut&&<td style={{textAlign:'right',fontWeight:700,color:'var(--red)'}}>{x.payment?inr(x.payment):''}</td>}
+            <td style={{textAlign:'center'}}>{x.receipt>0&&<button type="button" className="btn" title="Print Bank Receipt" style={{padding:'2px 8px'}} onClick={e=>{e.stopPropagation();printRow(x)}}>🖨</button>}</td>
           </tr>)}
-          {!rows.length&&<tr><td colSpan={voucher?6:7} className="muted" style={{textAlign:'center'}}>No entries found.</td></tr>}
+          {!rows.length&&<tr><td colSpan={voucher?7:8} className="muted" style={{textAlign:'center'}}>No entries found.</td></tr>}
         </tbody>
-        {rows.length>0&&<tfoot><tr><td colSpan={5} style={{fontWeight:800}}>Total ({rows.length} entries)</td>{showIn&&<td style={{textAlign:'right',fontWeight:800}}>{inr(totalIn)}</td>}{showOut&&<td style={{textAlign:'right',fontWeight:800}}>{inr(totalOut)}</td>}</tr></tfoot>}
+        {rows.length>0&&<tfoot><tr><td colSpan={5} style={{fontWeight:800}}>Total ({rows.length} entries)</td>{showIn&&<td style={{textAlign:'right',fontWeight:800}}>{inr(totalIn)}</td>}{showOut&&<td style={{textAlign:'right',fontWeight:800}}>{inr(totalOut)}</td>}<td/></tr></tfoot>}
       </table>
       <Pagination page={page} pageSize={pageSize} total={rows.length} onPage={setPage} onPageSize={setPageSize}/>
     </div>
@@ -1414,7 +1446,7 @@ export function DayBookPage({ voucher, payMode } = {}) {
       </div>
       <div className="actions" style={{marginTop:18,justifyContent:form.id?'space-between':'flex-end',display:'flex'}}>
         {form.id?<button type="button" className="btn danger" onClick={remove}>Delete</button>:<span/>}
-        <div style={{display:'flex',gap:8}}><button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary">Save</button></div>
+        <div style={{display:'flex',gap:8}}>{form.id&&Number(form.credit_received||0)>0&&<button type="button" className="btn" onClick={printForm}>🖨 Print Receipt</button>}<button type="button" className="btn" onClick={()=>setOpen(false)}>Cancel</button><button className="btn primary">Save</button></div>
       </div>
     </form></div>}
 
@@ -1428,7 +1460,7 @@ export function DayBookPage({ voucher, payMode } = {}) {
         <Field label="Narration" value={edit.narration} onChange={v=>setEdit({...edit,narration:v})}/>
         <Field label="Status" type="select" value={edit.status} options={[{value:'POSTED',label:'Posted'},{value:'SUSPENSE',label:'Back to Suspense'},{value:'CANCELLED',label:'Cancelled'}]} onChange={v=>setEdit({...edit,status:v})}/>
       </div>
-      <div className="actions" style={{justifyContent:'flex-end',marginTop:14,display:'flex',gap:8}}><button className="btn" onClick={()=>{setEdit(null);setError('')}}>Close</button><button className="btn primary" onClick={saveBank} disabled={busy}>{busy?'Saving…':'Save'}</button></div>
+      <div className="actions" style={{justifyContent:'flex-end',marginTop:14,display:'flex',gap:8}}>{edit._was!=='SUSPENSE'&&edit.entry_type==='RECEIPT'&&<button className="btn" onClick={printEdit}>🖨 Print Receipt</button>}<button className="btn" onClick={()=>{setEdit(null);setError('')}}>Close</button><button className="btn primary" onClick={saveBank} disabled={busy}>{busy?'Saving…':'Save'}</button></div>
     </div></div>}
   </div>;
 }

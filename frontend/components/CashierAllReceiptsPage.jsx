@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { get } from '../lib/api';
 import { Money, ErrorBanner } from './ui';
+import { printBankReceipt } from './bankReceiptPrint';
 
 const fmtDate = d => { const x = String(d || '').slice(0, 10).split('-'); return x.length === 3 ? `${x[2]}-${x[1]}-${x[0]}` : (d || '—'); };
 
@@ -30,6 +31,10 @@ export function CashierAllReceiptsPage() {
     return !q || [r.vr_no, r.party, r.narration, r.amount].join(' ').toLowerCase().includes(q);
   });
   const total = list.reduce((t, r) => t + Number(r.amount || 0), 0);
+  const printCash = r => printBankReceipt({
+    cash: true, no: 'CS ' + (r.vr_no ?? r.id), date: String(r.date || '').slice(0, 10), party: r.party || '',
+    payType: 'CASH', utr: r.narration || '', bank: 'Cash', amount: Number(r.amount || 0),
+  });
 
   return (
     <div>
@@ -46,16 +51,17 @@ export function CashierAllReceiptsPage() {
         <button className="btn" onClick={() => { setSearch(''); setFrom(''); setTo(''); }}>Clear</button>
       </div>
       <div className="tablewrap"><table className="table">
-        <thead><tr><th>Date</th><th>Vr. No.</th><th>Received From</th><th>Narration</th><th>Amount</th></tr></thead>
+        <thead><tr><th>Date</th><th>Vr. No.</th><th>Received From</th><th>Narration</th><th>Amount</th><th style={{ width: 40 }}></th></tr></thead>
         <tbody>
           {list.map(r => (
             <tr key={r.id}>
               <td>{fmtDate(r.date)}</td><td><b>{r.vr_no ?? '—'}</b></td><td>{r.party || '—'}</td>
               <td>{r.narration || '—'}</td><td><b><Money value={r.amount} /></b></td>
+              <td style={{ textAlign: 'center' }}><button type="button" className="btn" title="Print Cash Receipt" style={{ padding: '2px 8px' }} onClick={() => printCash(r)}>🖨</button></td>
             </tr>
           ))}
-          {!loading && !list.length && <tr><td colSpan="5" className="muted">Koi cash receipt nahi mili.</td></tr>}
-          {loading && <tr><td colSpan="5" className="muted">Loading…</td></tr>}
+          {!loading && !list.length && <tr><td colSpan="6" className="muted">Koi cash receipt nahi mili.</td></tr>}
+          {loading && <tr><td colSpan="6" className="muted">Loading…</td></tr>}
         </tbody>
       </table></div>
     </div>
