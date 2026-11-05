@@ -730,3 +730,14 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
 .sidebarNav .navGroupButton.active .navGroupCount{background:color-mix(in srgb,var(--accent) 15%,white);color:var(--accent)}
 .sidebar.collapsed .sidebarNav .navbtn,.sidebar.collapsed .sidebarNav .navGroupButton{justify-content:center;padding:13px 8px}
 }
+
+
+/* ===== Header icons (help/chat/bell) -> sidebar bottom-left (DESKTOP ONLY) ===== */
+.sidebarActions{display:none}
+@media(min-width:701px){
+  .grdTopHeader .grdHeaderActions{display:none !important}
+  .sidebarFooter{flex-wrap:wrap}
+  .sidebarActions{display:flex;flex:0 0 100%;align-items:center;justify-content:flex-start;gap:10px;padding-bottom:10px}
+  .sidebar.collapsed .sidebarFooter{flex-wrap:nowrap}
+  .sidebar.collapsed .sidebarActions{flex:none;flex-direction:column;gap:6px;padding-bottom:6px}
+}

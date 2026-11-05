@@ -300,6 +300,14 @@ export function Shell({ active, setActive, user, onLogout, children }) {
           })}
         </nav>
         <div className="sidebarFooter">
+          {/* Desktop only: header ke icons (help / chat / notifications) yahan neeche left me. Mobile me topbar wale hi chalte hain. */}
+          <div className="sidebarActions">
+            <HelpButton sections={helpSections} />
+            <button type="button" className="grdHeaderIcon" title="Office Chat" onClick={() => setChatOpen((v) => !v)}><MessageCircle size={18} /></button>
+            <button type="button" className="grdHeaderIcon" title={notificationCount > 0 ? String(notificationCount) + ' unread notifications' : 'Notifications'} onClick={() => selectMenu('notifications')}>
+              <span aria-hidden="true">🔔</span>{notificationCount > 0 && <span>{notificationCount > 99 ? '99+' : notificationCount}</span>}
+            </button>
+          </div>
           <div className="sidebarAvatar">{initial}</div>
           {!collapsed && (
             <div className="sidebarFooterInfo">
