@@ -204,6 +204,13 @@ export function HRAttendancePage() {
   };
 
   const tabName={dashboard:'Dashboard',employees:'Employees',attendance:'Attendance',punches:'Outlet Punches',outlets:'Outlets',timing:'Dept Timing',salary:'Salary'};
+  const makeLogin=async(e)=>{
+    setError(''); setNotice('');
+    const pw=window.prompt((e.user_id?'Naya password':'Login password')+' likhein ('+e.name+', login = mobile '+(e.mobile||'-')+'):');
+    if(!pw)return;
+    try{ const r=await post('/hr/employees/login',{employee_id:e.id,password:pw}); setNotice(e.name+': '+(r.note||'ho gaya')+' Login ID (mobile): '+r.username); await load(); }
+    catch(err){ setError(err.message||'Login nahi bana.'); }
+  };
   const saveOutlet=async(o,extra)=>{
     try{
       const e={...(outEdit[o.id]||{}),...(extra||{})};
@@ -292,7 +299,7 @@ export function HRAttendancePage() {
       <div className="card tableWrap" style={{marginTop:16}}><table className="table reportTable"><thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Designation</th><th>Location</th><th>Machine ID</th><th>Basic</th><th>HRA</th><th>Other</th><th>OT/Hr</th><th>Status</th><th></th></tr></thead><tbody>
         {employees.filter(e=>{const q=empSearch.trim().toLowerCase();return !q||[e.name,e.employee_code,e.department,e.location].some(v=>String(v||'').toLowerCase().includes(q));}).map(e=> editId===e.id
           ? <tr key={e.id}><td>{e.employee_code}</td><td>{inp('name')}</td><td>{inp('department')}</td><td>{inp('designation')}</td><td>{inp('location')}</td><td>{inp('machine_user_id')}</td><td>{inp('basic_salary','number')}</td><td>{inp('hra','number')}</td><td>{inp('other_allowance','number')}</td><td>{inp('overtime_rate','number')}</td><td><select value={edit.active?'1':'0'} onChange={ev=>setEdit({...edit,active:ev.target.value==='1'})}><option value="1">Active</option><option value="0">Inactive</option></select></td><td style={{whiteSpace:'nowrap'}}><button className="btn primary" disabled={busy} onClick={saveEdit}>Save</button> <button className="btn" onClick={()=>setEditId(null)}>Cancel</button></td></tr>
-          : <tr key={e.id}><td>{e.employee_code}</td><td><a href="#" title="Salary ledger dekhein" style={{fontWeight:600,textDecoration:'underline'}} onClick={ev=>{ev.preventDefault();openLedger(e);}}>{e.name}</a></td><td>{e.department||'-'}</td><td>{e.designation||'-'}</td><td>{e.location||'-'}</td><td>{e.machine_user_id||'-'}</td><td>{Number(e.basic_salary||0).toFixed(2)}</td><td>{Number(e.hra||0).toFixed(2)}</td><td>{Number(e.other_allowance||0).toFixed(2)}</td><td>{Number(e.overtime_rate||0).toFixed(2)}</td><td>{e.active?'Active':'Inactive'}</td><td><button className="btn" onClick={()=>startEdit(e)}>Edit</button> <button className="btn" onClick={()=>{setError('');setNotice('');setUserPick('');setFromUser(e);}}>User se</button></td></tr>)}
+          : <tr key={e.id}><td>{e.employee_code}</td><td><a href="#" title="Salary ledger dekhein" style={{fontWeight:600,textDecoration:'underline'}} onClick={ev=>{ev.preventDefault();openLedger(e);}}>{e.name}</a></td><td>{e.department||'-'}</td><td>{e.designation||'-'}</td><td>{e.location||'-'}</td><td>{e.machine_user_id||'-'}</td><td>{Number(e.basic_salary||0).toFixed(2)}</td><td>{Number(e.hra||0).toFixed(2)}</td><td>{Number(e.other_allowance||0).toFixed(2)}</td><td>{Number(e.overtime_rate||0).toFixed(2)}</td><td>{e.active?'Active':'Inactive'}</td><td><button className="btn" onClick={()=>startEdit(e)}>Edit</button> <button className="btn" onClick={()=>{setError('');setNotice('');setUserPick('');setFromUser(e);}}>User se</button> <button className="btn" onClick={()=>makeLogin(e)}>{e.user_id?'Password badlein':'Login banayein'}</button></td></tr>)}
         {!employees.length&&<tr><td colSpan="12" className="muted">No employees found.</td></tr>}
       </tbody></table></div>
       {ledger && (()=>{

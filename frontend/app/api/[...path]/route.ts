@@ -1661,6 +1661,41 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const r=await pool.query("INSERT INTO hr_employee (employee_code,name,department,designation,mobile,photo_url,joining_date,machine_user_id,basic_salary,hra,other_allowance,overtime_rate,location,user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *",[String(b.employee_code||"").trim(),String(b.name||"").trim(),b.department||null,b.designation||null,b.mobile||null,b.photo_url||null,b.joining_date||null,b.machine_user_id||null,num(b.basic_salary),num(b.hra),num(b.other_allowance),num(b.overtime_rate),String(b.location||"").trim()||null,idOf(b.user_id)]);
       return Response.json({success:true,employee:r.rows[0],row:r.rows[0]},{status:201});
     }
+    // Employee ko seedha login dena: mobile + password se staff user banta hai (koi module permission nahi), employee se jud jata hai.
+    if(p==="hr/employees/login"){
+      await ensureHRSchemas();
+      const id=Number(b.employee_id),pw=String(b.password||"");
+      if(!id)return Response.json({error:"Employee chunein."},{status:400});
+      if(pw.length<4)return Response.json({error:"Password kam se kam 4 akshar ka rakhein."},{status:400});
+      const emp=(await pool.query("SELECT * FROM hr_employee WHERE id=$1",[id])).rows[0];
+      if(!emp)return Response.json({error:"Employee nahi mila."},{status:404});
+      const mobile=String(emp.mobile||"").replace(/\D/g,"").slice(-10);
+      if(mobile.length!==10)return Response.json({error:"Pehle employee ka 10 anko wala Mobile number save karein (Edit)."},{status:400});
+      const dept=String(emp.department||"").trim()||"Staff";
+      if(dept.toLowerCase()==="admin")return Response.json({error:"Admin department ke employee ko yahan se login nahi diya ja sakta."},{status:400});
+      const crypto=await import("crypto"),salt=crypto.randomBytes(16).toString("hex");
+      const hash="pbkdf2:sha256:260000$"+salt+"$"+crypto.pbkdf2Sync(pw,salt,260000,32,"sha256").toString("hex");
+      if(emp.user_id){
+        const u=await pool.query('UPDATE "user" SET password_hash=$2 WHERE id=$1 RETURNING username',[emp.user_id,hash]);
+        if(u.rowCount)return Response.json({success:true,username:u.rows[0].username,note:"Password badal diya."});
+      }
+      const dup=await pool.query('SELECT id FROM "user" WHERE username=$1 OR mobile=$1 LIMIT 1',[mobile]);
+      if(dup.rowCount)return Response.json({error:"Is mobile/username ka user pehle se hai. Users page me wo user dekhein, ya 'User se' button se employee se jodein."},{status:400});
+      const cols=await columns("user");
+      const f:any={username:mobile,password_hash:hash};
+      if(cols.has("mobile"))f.mobile=mobile;
+      if(cols.has("full_name"))f.full_name=emp.name;
+      if(cols.has("department"))f.department=dept;
+      if(cols.has("is_super_user"))f.is_super_user=false;
+      if(cols.has("allowed_modules")){
+        const meta=await pool.query("SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='user' AND column_name='allowed_modules'");
+        f.allowed_modules=String(meta.rows[0]?.data_type||"").toLowerCase()==="array"?[]:"";
+      }
+      const keys=Object.keys(f);
+      const ins=await pool.query('INSERT INTO "user" ('+keys.map(k=>'"'+k+'"').join(",")+') VALUES ('+keys.map((_,i)=>"$"+(i+1)).join(",")+') RETURNING id,username',keys.map(k=>f[k]));
+      await pool.query("UPDATE hr_employee SET user_id=$2 WHERE id=$1",[id,ins.rows[0].id]);
+      return Response.json({success:true,username:ins.rows[0].username,note:"Login ban gaya."});
+    }
     if(p==="hr/employees/update"){
       await ensureHRSchemas();
       const id=Number(b.id); if(!id)return Response.json({error:"Employee id is required."},{status:400});
