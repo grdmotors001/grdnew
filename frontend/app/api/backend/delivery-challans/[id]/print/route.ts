@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import QRCode from "qrcode";
 import { Pool } from "pg";
 export const dynamic="force-dynamic";
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3,ssl:{rejectUnauthorized:false}});
@@ -28,6 +29,10 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){
   }
   const logo=await productLogo(challan.product_name,v.model_name||"");challan.umrn_code=logo.umrn_code||v.umrn_code||"";(challan as any).logo_keys=logo.logo_keys;
   const company=(await pool.query("SELECT * FROM company ORDER BY id DESC LIMIT 1")).rows[0]||{};
-  return Response.json({challan,company});
+  // Warranty QR: public warranty page ka link (APP URL .env me NEXT_PUBLIC_APP_URL se, warna request ka origin)
+  let warranty_qr_data_url="",warranty_url="";
+  try{const base=(process.env.NEXT_PUBLIC_APP_URL||new URL(req.url).origin).replace(/\/$/,"");const ch=String(challan.chassis_no||"").trim();
+    if(ch){warranty_url=base+"/warranty/"+encodeURIComponent(ch);warranty_qr_data_url=await QRCode.toDataURL(warranty_url,{margin:0,width:300})}}catch{}
+  return Response.json({challan,company,warranty_qr_data_url,warranty_url});
  }catch(e:any){console.error("[delivery-challan-print]",e);return Response.json({error:e.message||"Unable to load Delivery Challan print."},{status:500})}
 }

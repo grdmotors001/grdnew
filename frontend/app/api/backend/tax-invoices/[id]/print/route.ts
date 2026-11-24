@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import QRCode from "qrcode";
 import { Pool } from "pg";
 import { dealerSellerOverride } from "../../../../../../lib/server/dealer-invoice";
 import { SQL_TI_INTRA } from "../../../../../../lib/server/common";
@@ -56,6 +57,8 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string}>}){
   const so=dealerSellerOverride(x,d,company,bank);company=so.company;bank=so.bank;
   let rto_address="";const rtoName=String(x.rto||x.rto_name||"").trim();
   if(rtoName){const rm=await pool.query("SELECT * FROM simple_master WHERE lower(kind)='rto' AND lower(name)=lower($1) ORDER BY id DESC LIMIT 1",[rtoName]);const rr=rm.rows[0]||{};rto_address=rtoAddressText(rr)}
-  return Response.json({invoice,company,product:{hsn_code:logo.hsn_code,umrn_code:invoice.umrn_code,logo_keys:logo.logo_keys,colour_code:invoice.colour_code,name:invoice.product_name},doc_title:doc==="invoice"?"TAX INVOICE":doc.toUpperCase(),doc_no_label:doc==="invoice"?"Bill No.":"Document No.",rto_address,print_bank_name:bank.name,print_bank_account_no:bank.account_no,print_bank_ifsc:bank.ifsc});
+  // E-invoice QR: NIC ka SignedQRCode (JWT string) seedha QR me encode hota hai
+  let qr_data_url="";try{if(x.signed_qr_code)qr_data_url=await QRCode.toDataURL(String(x.signed_qr_code),{errorCorrectionLevel:"L",margin:0,width:420})}catch{}
+  return Response.json({qr_data_url,invoice,company,product:{hsn_code:logo.hsn_code,umrn_code:invoice.umrn_code,logo_keys:logo.logo_keys,colour_code:invoice.colour_code,name:invoice.product_name},doc_title:doc==="invoice"?"TAX INVOICE":doc.toUpperCase(),doc_no_label:doc==="invoice"?"Bill No.":"Document No.",rto_address,print_bank_name:bank.name,print_bank_account_no:bank.account_no,print_bank_ifsc:bank.ifsc});
  }catch(e:any){console.error("[tax-invoice-print]",e);return Response.json({error:e.message||"Unable to load Tax Invoice print."},{status:500})}
 }

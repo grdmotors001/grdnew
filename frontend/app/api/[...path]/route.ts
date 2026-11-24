@@ -533,7 +533,26 @@ async function ensureHRSchemas(){
   await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS ot_start_after integer NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS half_day_min numeric NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS full_day_min numeric NOT NULL DEFAULT 0");
+  // Outlet punch (selfie + GPS): outlet ki location aur har punch ka log (selfie alag table me, taaki attendance list bhaari na ho).
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_outlet (id bigserial PRIMARY KEY, name text NOT NULL UNIQUE, latitude numeric, longitude numeric, radius_m integer NOT NULL DEFAULT 150, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())");
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_punch_log (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, work_date date NOT NULL, kind text NOT NULL, punched_at timestamptz NOT NULL DEFAULT now(), outlet_id bigint, latitude numeric, longitude numeric, accuracy_m numeric, distance_m numeric, selfie text)");
+  await pool.query("CREATE INDEX IF NOT EXISTS hr_punch_log_date_idx ON hr_punch_log (work_date, employee_id)");
+  if(!hrOutletSeeded){
+    for(const n of ["Guruji Automobile","Singh E-Rickshaw","Keshavpur","Maa Bandla Mukhi","Bhajanpura"])await pool.query("INSERT INTO hr_outlet (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",[n]);
+    hrOutletSeeded=true;
+  }
 }
+let hrOutletSeeded=false;
+// Login user -> uska employee (user_id se, nahi to employee_code = username).
+async function hrSelfEmployee(a:any){
+  return (await pool.query("SELECT id,employee_code,name,department,location FROM hr_employee WHERE active=true AND (user_id=$1 OR (user_id IS NULL AND lower(btrim(employee_code))=lower(btrim($2)))) ORDER BY (user_id=$1) DESC NULLS LAST,id LIMIT 1",[idOf(a.sub),String(a.username||"")])).rows[0];
+}
+function hrDistanceM(lat1:number,lng1:number,lat2:number,lng2:number){
+  const R=6371000,rad=(x:number)=>x*Math.PI/180,dLat=rad(lat2-lat1),dLng=rad(lng2-lng1);
+  const h=Math.sin(dLat/2)**2+Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+const hrTodayIST=()=>new Date(Date.now()+19800000).toISOString().slice(0,10);
 // Late minutes (IST) department timing se nikalta hai. month = 'YYYY-MM' ya '' (sab).
 async function hrRecalcLate(month:string){
   // Din ka status punch ke ghanton (last out - first in) se: half_day_min se kam = Absent, full_day_min se kam = Half Day, baaki Present.
@@ -849,7 +868,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // Notifications: jinke paas permission nahi (jaise Salesman) unko 403 ki jagah khali list -> header me error/console spam nahi.
     if(p==="notifications"&&!canRead(a,p))return Response.json({notifications:[],branch_cash_limits:[],count:0});
     // Har logged-in staff ko menu (nav-config), dashboard aur apna profile chahiye; ye allowed_modules se block nahi hone chahiye.
-    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="dashboard/trend"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance");
+    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="dashboard/trend"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance"||p==="hr/punch-status");
     if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     // Dealer Master form ko salesman list aur sub-group list chahiye: jiske paas Dealer module ka view right hai use ye 2 lookup read allowed (warna dropdown khali rehta tha).
     const dealerLookup=a?.scope==="staff"&&(p==="masters/salesman"||p==="sub-groups")&&(await actionAllowed(a,"dealer","view"));
@@ -1027,6 +1046,31 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!/^\d{4}-\d{2}$/.test(month))month=new Date().toISOString().slice(0,7);
       const r=await pool.query("SELECT work_date,first_in,last_out,status,work_hours,overtime_hours,late_minutes,single_punch FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date ASC",[emp.id,month]);
       return Response.json({linked:true,month,employee:emp,attendance:r.rows});
+    }
+    // Outlet punch: apna aaj ka status + apne outlet ki info (sirf token ke user ka).
+    if(p==="hr/punch-status"){
+      if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
+      const emp=await hrSelfEmployee(a);
+      if(!emp)return Response.json({linked:false});
+      const outlet=(await pool.query("SELECT id,name,latitude,longitude,radius_m FROM hr_outlet WHERE active=true AND lower(btrim(name))=lower(btrim($1)) LIMIT 1",[String(emp.location||"")])).rows[0]||null;
+      const today=(await pool.query("SELECT first_in,last_out,single_punch FROM hr_attendance WHERE employee_id=$1 AND work_date=$2",[emp.id,hrTodayIST()])).rows[0]||null;
+      return Response.json({linked:true,employee:emp,outlet:outlet?{name:outlet.name,radius_m:outlet.radius_m,has_location:outlet.latitude!==null&&outlet.longitude!==null}:null,today});
+    }
+    if(p==="hr/outlets"){
+      const r=await pool.query("SELECT * FROM hr_outlet ORDER BY name");
+      return Response.json({outlets:r.rows,rows:r.rows});
+    }
+    // Punch log (admin): din ke hisaab se; selfie alag se hr/punch-photo se.
+    if(p==="hr/punch-log"){
+      let date=String(new URL(req.url).searchParams.get("date")||"").trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date))date=hrTodayIST();
+      const r=await pool.query("SELECT l.id,l.kind,l.punched_at,l.latitude,l.longitude,l.accuracy_m,l.distance_m,e.name AS employee_name,e.employee_code,e.location,(l.selfie IS NOT NULL) AS has_selfie FROM hr_punch_log l JOIN hr_employee e ON e.id=l.employee_id WHERE l.work_date=$1 ORDER BY l.punched_at",[date]);
+      return Response.json({date,rows:r.rows});
+    }
+    if(p==="hr/punch-photo"){
+      const id=idOf(new URL(req.url).searchParams.get("id"));
+      const r=id?await pool.query("SELECT selfie FROM hr_punch_log WHERE id=$1",[id]):{rows:[]} as any;
+      return Response.json({selfie:r.rows[0]?.selfie||null});
     }
     if(p==="hr/my-salary"){
       if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
@@ -1575,6 +1619,37 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       return Response.json({success:true});
     }
 
+    // Outlet Punch In/Out (selfie + GPS): har staff apna hi punch kar sakta hai; server outlet ke radius ki jaanch karta hai.
+    if(p==="hr/punch"){
+      if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
+      await ensureHRSchemas();
+      const kind=String(b.action||"")==="out"?"out":String(b.action||"")==="in"?"in":"";
+      if(!kind)return Response.json({error:"action 'in' ya 'out' chahiye."},{status:400});
+      const emp=await hrSelfEmployee(a);
+      if(!emp)return Response.json({error:"Aapka login kisi employee se juda nahi hai. Admin se HR > Employees me login link karwayein."},{status:400});
+      const outlet=(await pool.query("SELECT * FROM hr_outlet WHERE active=true AND lower(btrim(name))=lower(btrim($1)) LIMIT 1",[String(emp.location||"")])).rows[0];
+      if(!outlet)return Response.json({error:"Aapka outlet set nahi hai. Admin se Employee ki Location outlet ke naam par set karwayein."},{status:400});
+      if(outlet.latitude===null||outlet.longitude===null)return Response.json({error:"Outlet \""+outlet.name+"\" ki location abhi set nahi hui. Admin HR > Outlets me set karein."},{status:400});
+      const lat=Number(b.latitude),lng=Number(b.longitude),acc=Number(b.accuracy)||0;
+      if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return Response.json({error:"Phone ki location nahi mili. GPS/Location permission on karein."},{status:400});
+      const selfie=String(b.selfie||"");
+      if(!/^data:image\/(jpeg|png|webp);base64,/.test(selfie)||selfie.length>600000)return Response.json({error:"Selfie chahiye (chhoti photo)."},{status:400});
+      const dist=Math.round(hrDistanceM(lat,lng,Number(outlet.latitude),Number(outlet.longitude)));
+      if(dist>Number(outlet.radius_m||150))return Response.json({error:"Aap outlet \""+outlet.name+"\" se "+dist+" meter door hain (limit "+outlet.radius_m+" m). Outlet par aakar punch karein."},{status:400});
+      const date=hrTodayIST(),month=date.slice(0,7);
+      const cur=(await pool.query("SELECT id,first_in,last_out,single_punch FROM hr_attendance WHERE employee_id=$1 AND work_date=$2",[emp.id,date])).rows[0];
+      if(kind==="in"){
+        if(cur?.first_in)return Response.json({error:"Aaj ka Punch In ho chuka hai."},{status:400});
+        await pool.query("INSERT INTO hr_attendance (employee_id,work_date,first_in,status,single_punch) VALUES ($1,$2,now(),'Present',true) ON CONFLICT (employee_id,work_date) DO UPDATE SET first_in=now(),last_out=NULL,status='Present',single_punch=true",[emp.id,date]);
+      }else{
+        if(!cur?.first_in)return Response.json({error:"Pehle Punch In karein."},{status:400});
+        if(cur.last_out&&!cur.single_punch)return Response.json({error:"Aaj ka Punch Out ho chuka hai."},{status:400});
+        await pool.query("UPDATE hr_attendance SET last_out=now(),single_punch=false,work_hours=ROUND((EXTRACT(EPOCH FROM (now()-first_in))/3600.0)::numeric,2) WHERE id=$1",[cur.id]);
+      }
+      await pool.query("INSERT INTO hr_punch_log (employee_id,work_date,kind,outlet_id,latitude,longitude,accuracy_m,distance_m,selfie) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",[emp.id,date,kind,outlet.id,lat,lng,acc,dist,selfie]);
+      await hrRecalcLate(month);
+      return Response.json({success:true,action:kind,distance_m:dist,outlet:outlet.name});
+    }
     if(!canWrite(a,p))return Response.json({error:"Forbidden."},{status:403});
     if(p==="expense-payment-voucher"||p.startsWith("expense-payment-voucher/")){const evp=await expenseVoucherPost(path,b,a);if(evp)return evp;}
     { const cm=await chassisMasterWrite(path,"POST",b);if(cm)return cm; }
@@ -1654,6 +1729,19 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         for(const m of months)await hrRecalcLate(m);
       }
       return Response.json({success:true,imported_days:ids.length,matched,created,created_names:createdNames,skipped_no_attendance:skipped,months:[...months]});
+    }
+    if(p==="hr/outlets/save"){
+      await ensureHRSchemas();
+      const name=String(b.name||"").trim();
+      if(!name)return Response.json({error:"Outlet ka naam likhein."},{status:400});
+      const lat=b.latitude===""||b.latitude==null?null:Number(b.latitude),lng=b.longitude===""||b.longitude==null?null:Number(b.longitude);
+      if((lat!==null&&(!Number.isFinite(lat)||Math.abs(lat)>90))||(lng!==null&&(!Number.isFinite(lng)||Math.abs(lng)>180)))return Response.json({error:"Latitude/Longitude galat hai."},{status:400});
+      const radius=Math.min(2000,Math.max(30,Math.round(Number(b.radius_m)||150)));
+      const id=idOf(b.id);
+      const r=id
+        ?await pool.query("UPDATE hr_outlet SET name=$2,latitude=$3,longitude=$4,radius_m=$5,active=$6 WHERE id=$1 RETURNING *",[id,name,lat,lng,radius,b.active!==false])
+        :await pool.query("INSERT INTO hr_outlet (name,latitude,longitude,radius_m) VALUES ($1,$2,$3,$4) ON CONFLICT (name) DO UPDATE SET latitude=EXCLUDED.latitude,longitude=EXCLUDED.longitude,radius_m=EXCLUDED.radius_m RETURNING *",[name,lat,lng,radius]);
+      return Response.json({success:true,outlet:r.rows[0]});
     }
     if(p==="hr/salary/process"){
       await ensureHRSchemas();

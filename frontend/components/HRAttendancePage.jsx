@@ -23,6 +23,12 @@ const lateText = (m) => { m=Number(m||0); return m>0 ? (m>=60?Math.floor(m/60)+'
 
 export function HRAttendancePage() {
   const [tab,setTab]=useState('dashboard');
+  const [outlets,setOutlets]=useState([]);
+  const [outEdit,setOutEdit]=useState({}); // outlet id -> {latitude,longitude,radius_m}
+  const [newOutlet,setNewOutlet]=useState('');
+  const [punchDate,setPunchDate]=useState(new Date(Date.now()+19800000).toISOString().slice(0,10));
+  const [punchRows,setPunchRows]=useState([]);
+  const [photo,setPhoto]=useState(null); // {name,src}
   const [employees,setEmployees]=useState([]);
   const [attendance,setAttendance]=useState([]);
   const [salaries,setSalaries]=useState([]);
@@ -69,10 +75,12 @@ export function HRAttendancePage() {
       if(tab==='employees'){ try{ const u=await get('/users'); setUsers(u.rows||u.data||u.items||[]); }catch(_){ setUsers([]); } }
       if(tab==='attendance'){ const a=await get('/hr/attendance?month='+month); setAttendance(a.attendance||[]); }
       if(tab==='salary'){ const s=await get('/hr/salary?month='+month); setSalaries(s.salaries||[]); }
+      if(tab==='outlets'){ const o=await get('/hr/outlets'); setOutlets(o.outlets||[]); setOutEdit({}); }
+      if(tab==='punches'){ const r=await get('/hr/punch-log?date='+punchDate); setPunchRows(r.rows||[]); }
       if(tab==='timing'){ const t=await get('/hr/department-timings'); setTimings(t.timings||[]); setTimeEdit({}); }
     } catch(err){ setError(err.message); }
   };
-  useEffect(()=>{ load(); },[tab,month]);
+  useEffect(()=>{ load(); },[tab,month,punchDate]);
 
   const saveEmployee=async(e)=>{
     e.preventDefault(); setBusy(true); setError('');
@@ -195,7 +203,29 @@ export function HRAttendancePage() {
     w.document.close();
   };
 
-  const tabName={dashboard:'Dashboard',employees:'Employees',attendance:'Attendance',timing:'Dept Timing',salary:'Salary'};
+  const tabName={dashboard:'Dashboard',employees:'Employees',attendance:'Attendance',punches:'Outlet Punches',outlets:'Outlets',timing:'Dept Timing',salary:'Salary'};
+  const saveOutlet=async(o,extra)=>{
+    try{
+      const e={...(outEdit[o.id]||{}),...(extra||{})};
+      await post('/hr/outlets/save',{id:o.id,name:o.name,latitude:e.latitude??o.latitude,longitude:e.longitude??o.longitude,radius_m:e.radius_m??o.radius_m,active:o.active});
+      setNotice(o.name+': save ho gaya.'); await load();
+    }catch(err){ setError(err.message||'Outlet save nahi hua.'); }
+  };
+  const setHere=(o)=>{
+    if(!navigator.geolocation){ setError('Is browser me location support nahi hai.'); return; }
+    if(!window.confirm('"'+o.name+'" ki location abhi aapki current jagah par set hogi. Kya aap us outlet par khade hain?'))return;
+    navigator.geolocation.getCurrentPosition(
+      pos=>saveOutlet(o,{latitude:Number(pos.coords.latitude.toFixed(6)),longitude:Number(pos.coords.longitude.toFixed(6))}),
+      ()=>setError('Location nahi mili. Location permission allow karein aur outlet par jaakar dobara try karein.'),
+      {enableHighAccuracy:true,timeout:20000,maximumAge:0});
+  };
+  const addOutlet=async()=>{
+    const name=newOutlet.trim(); if(!name)return;
+    try{ await post('/hr/outlets/save',{name,radius_m:150}); setNewOutlet(''); await load(); }catch(err){ setError(err.message||'Outlet add nahi hua.'); }
+  };
+  const showPhoto=async(r)=>{
+    try{ const d=await get('/hr/punch-photo?id='+r.id,{noClientCache:true}); setPhoto({name:r.employee_name+' • '+(r.kind==='in'?'Punch In':'Punch Out'),src:d.selfie}); }catch(err){ setError(err.message||'Photo nahi mili.'); }
+  };
   const inp=(k,type)=><input type={type||'text'} value={edit[k]} onChange={e=>setEdit({...edit,[k]:e.target.value})} style={{width:type==='number'?80:110}}/>;
 
   return <div className="page">
@@ -205,6 +235,33 @@ export function HRAttendancePage() {
     <div className="tabs" style={{marginBottom:16}}>
       {Object.keys(tabName).map(x=><button key={x} className={'btn'+(tab===x?' primary':'')} onClick={()=>{setTab(x);setNotice('');}}>{tabName[x]}</button>)}
     </div>
+
+    {tab==='outlets' && <div className="card tableWrap">
+      <p className="muted">Har outlet ki location set karein: <strong>outlet par khade hokar</strong> "Yahan set karein" dabayein. Employee ki <strong>Location</strong> (Employees tab) outlet ke naam jaisi honi chahiye, tabhi uska punch chalega. Radius = outlet se kitni door tak punch allowed hai (meter).</p>
+      <table className="table reportTable"><thead><tr><th>Outlet</th><th>Latitude</th><th>Longitude</th><th>Radius (m)</th><th>Status</th><th></th></tr></thead><tbody>
+        {outlets.map(o=>{ const e=outEdit[o.id]||{}; return <tr key={o.id}>
+          <td>{o.name}</td>
+          <td><input style={{width:110}} value={e.latitude??(o.latitude??'')} onChange={ev=>setOutEdit({...outEdit,[o.id]:{...e,latitude:ev.target.value}})}/></td>
+          <td><input style={{width:110}} value={e.longitude??(o.longitude??'')} onChange={ev=>setOutEdit({...outEdit,[o.id]:{...e,longitude:ev.target.value}})}/></td>
+          <td><input type="number" style={{width:80}} value={e.radius_m??o.radius_m} onChange={ev=>setOutEdit({...outEdit,[o.id]:{...e,radius_m:ev.target.value}})}/></td>
+          <td>{o.latitude!==null&&o.longitude!==null?<span style={{color:'#1e8e3e'}}>Location set</span>:<span style={{color:'#c0392b'}}>Location baaki</span>}</td>
+          <td><button className="btn primary" onClick={()=>setHere(o)}>Yahan set karein</button> <button className="btn" onClick={()=>saveOutlet(o)}>Save</button></td>
+        </tr>; })}
+        {!outlets.length&&<tr><td colSpan="6" className="muted">Koi outlet nahi.</td></tr>}
+      </tbody></table>
+      <div className="toolbar" style={{marginTop:12}}><div className="field"><label>Naya outlet</label><input value={newOutlet} onChange={e=>setNewOutlet(e.target.value)} placeholder="Outlet ka naam"/></div><button className="btn" onClick={addOutlet}>Add</button></div>
+    </div>}
+
+    {tab==='punches' && <div className="card tableWrap">
+      <div className="toolbar"><div className="field"><label>Date</label><input type="date" value={punchDate} onChange={e=>setPunchDate(e.target.value)}/></div></div>
+      <table className="table reportTable"><thead><tr><th>Employee</th><th>Outlet</th><th>Punch</th><th>Time</th><th>Outlet se door (m)</th><th>Selfie</th></tr></thead><tbody>
+        {punchRows.map(r=><tr key={r.id}><td>{r.employee_name}</td><td>{r.location||'-'}</td><td>{r.kind==='in'?'In':'Out'}</td><td>{timeIST(r.punched_at)}</td><td>{r.distance_m!==null?Math.round(r.distance_m):'-'}</td><td>{r.has_selfie?<button className="btn" onClick={()=>showPhoto(r)}>Dekhein</button>:'-'}</td></tr>)}
+        {!punchRows.length&&<tr><td colSpan="6" className="muted">Is din koi outlet punch nahi.</td></tr>}
+      </tbody></table>
+      {photo&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}} onClick={()=>setPhoto(null)}>
+        <div className="card" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}><div style={{fontWeight:700,marginBottom:8}}>{photo.name}</div>{photo.src?<img src={photo.src} alt="selfie" style={{width:'100%',borderRadius:8,transform:'scaleX(-1)'}}/>:<div className="muted">Photo nahi mili.</div>}<div className="actions" style={{marginTop:10}}><button className="btn" onClick={()=>setPhoto(null)}>Band karein</button></div></div>
+      </div>}
+    </div>}
 
     {tab==='employees' && <>
       <div className="card toolbar" style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>

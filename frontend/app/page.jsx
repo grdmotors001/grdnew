@@ -51,6 +51,7 @@ import { SeizedStockPage } from '../components/SeizedStockPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
 import { MySalaryPage } from '../components/MySalaryPage';
+import { PunchPage } from '../components/PunchPage';
 import { NotificationPage } from '../components/NotificationPage';
 import { ShowroomBatteryStockPage, ShowroomAllCustomersPage, ShowroomExpensesReportsPage } from '../components/ShowroomReportsPages';
 import { ProfilePage } from '../components/ProfilePage';
@@ -156,6 +157,7 @@ const CUSTOM_PAGES = {
   'backup-restore': ({ user }) => <BackupRestorePage user={user} />,
   'hr-attendance': () => <HRAttendancePage />,
   'my-salary': () => <MySalaryPage />,
+  'punch': () => <PunchPage />,
 };
 
 function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user }) {
@@ -171,7 +173,7 @@ function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserI
 }
 
 // lib/menu (keyForPath/routeForKey) abhi 'vehicle-no-register' nahi jaanta, isliye refresh/click par Dashboard khul jata tha.
-const EXTRA_KEYS = ['vehicle-no-register', 'my-salary'];
+const EXTRA_KEYS = ['vehicle-no-register', 'my-salary', 'punch'];
 const keyFromPath = (path) => { const k = String(path || '').replace(/^\//, ''); return EXTRA_KEYS.includes(k) ? k : keyForPath(path); };
 const pathFromKey = (key) => (EXTRA_KEYS.includes(key) ? '/' + key : routeForKey(key).path);
 
