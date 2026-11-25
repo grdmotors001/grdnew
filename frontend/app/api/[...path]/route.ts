@@ -1566,7 +1566,9 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
 
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     await ensureSecuritySchema();
-    if(!(await actionAllowed(a,p,"create")))return Response.json({error:"Forbidden."},{status:403});
+    // Punch In/Out: har staff apna hi punch karta hai (employee login ke paas koi module right nahi hota); handler khud staff + outlet + radius check karta hai.
+    const selfPunch=a?.scope==="staff"&&p==="hr/punch";
+    if(!selfPunch&&!(await actionAllowed(a,p,"create")))return Response.json({error:"Forbidden."},{status:403});
 
     {const x=await deliveryChallanPost(req,path,b,a,SALES_DEPS);if(x)return x;}
 

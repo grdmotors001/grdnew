@@ -757,3 +757,5 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
   .adminBottomNavForce{left:10px !important;right:10px !important;width:auto !important;max-width:calc(100vw - 20px) !important;box-sizing:border-box !important}
   .adminBottomNavForce button{overflow:hidden}
 }
+
+@media(max-width:700px){.adminBottomNavForce.cols4{grid-template-columns:repeat(4,1fr) !important}}

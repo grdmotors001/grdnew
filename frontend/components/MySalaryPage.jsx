@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { get } from '../lib/api';
 
-// Apni salary slip - sirf dekhne ke liye (koi edit / save nahi). Server token ke user ki hi salary deta hai.
+// Apni salary (mobile-friendly cards, slip jaisa table nahi) - sirf dekhne ke liye (koi edit / save nahi). Server token ke user ki hi salary deta hai.
 const MONTH_DAYS = 30;
 const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 const money = (v) => num(v).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -40,19 +40,18 @@ export function MySalaryPage() {
   const salaries = data?.salaries || [];
   const r = salaries.find((x) => x.salary_month === month);
 
-  const cell = { border: '1px solid #333', padding: '10px 12px', textAlign: 'center' };
-  const hd = { ...cell, background: '#0b3361', color: '#fff', fontWeight: 800, fontSize: 14, letterSpacing: .5 };
-  const lab = { ...cell, background: '#e3edf9', fontWeight: 800, fontSize: 13 };
-  const val = { ...cell, fontWeight: 700, fontSize: 16 };
-  const band = ['#e3edf9', '#ffffff'];
-  const row = (i, label, a, b, c) => (
-    <tr key={label}>
-      <th style={{ ...lab, background: band[i % 2], textAlign: 'left', textTransform: 'uppercase' }}>{label}</th>
-      <td style={{ ...val, background: band[i % 2] }}>{a ?? '-'}</td>
-      <td style={{ ...val, background: band[i % 2] }}>{b ?? '-'}</td>
-      <td style={{ ...val, background: band[i % 2] }}>{c ?? '-'}</td>
-    </tr>
-  );
+  const stat = (label, val, color) => <div style={{ flex: '1 1 45%', background: 'var(--card)', border: '1px solid var(--line)', borderTop: '3px solid ' + color, borderRadius: 12, padding: '10px 12px' }}>
+    <div className="muted" style={{ fontSize: 12 }}>{label}</div>
+    <div style={{ fontSize: 22, fontWeight: 800, color }}>{val}</div>
+  </div>;
+  const line = (label, value, sub, tone) => <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '11px 0', borderBottom: '1px solid var(--line)' }}>
+    <div><div style={{ fontWeight: 600 }}>{label}</div>{sub ? <div className="muted" style={{ fontSize: 12 }}>{sub}</div> : null}</div>
+    <div style={{ fontWeight: 700, color: tone || 'inherit', whiteSpace: 'nowrap' }}>{value}</div>
+  </div>;
+  const section = (title, children) => <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 14px', marginTop: 12 }}>
+    <div style={{ fontWeight: 800, fontSize: 13, letterSpacing: .4, textTransform: 'uppercase', color: 'var(--muted)' }}>{title}</div>
+    {children}
+  </div>;
 
   let body = null;
   if (r) {
@@ -60,45 +59,48 @@ export function MySalaryPage() {
     const present = num(r.present_days), extra = num(r.extra_days), hol = num(r.holiday_days);
     const allow = num(r.allowances), ot = num(r.overtime_amount);
     const absent = Math.max(0, MONTH_DAYS - present);
-    let i = 0;
+    const paid = !!dmy(r.paid_on);
     body = (
-      <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 14, border: '2px solid #0b3361', color: '#111' }}>
-        <tbody>
-          <tr><th style={{ ...hd, fontSize: 22, padding: '12px 8px' }} colSpan="3">CASH SALARIES</th><th style={{ ...hd, fontSize: 18 }}>EXTRA DETAILS</th></tr>
-          <tr>
-            <th style={lab}>EMPLOYEE NAME</th>
-            <td style={{ ...cell, background: '#fff', fontWeight: 700, fontSize: 17 }} colSpan="2">{r.employee_name}</td>
-            <td style={{ ...cell, background: '#fff', padding: 0 }}><div style={{ display: 'flex', alignItems: 'stretch' }}><div style={{ ...lab, border: 0, borderRight: '1px solid #333', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>PAY DATE</div><div style={{ flex: 1, fontWeight: 700, fontSize: 16, padding: '10px 6px', textAlign: 'center' }}>{monthEnd(r.salary_month)}</div></div></td>
-          </tr>
-          <tr><th style={hd}>DESCRIPTION</th><th style={hd}>AMOUNT (₹)</th><th style={hd}>PER DAY (₹)</th><th style={hd}>DAYS / EXTRA</th></tr>
-          {row(i++, 'Salary (Monthly)', money(r.basic_salary), Math.round(perDay), MONTH_DAYS)}
-          {row(i++, 'Present Days', present, '-', present)}
-          {row(i++, 'Present Extra Sundays or Nights', extra, Math.round(perDay * extra), extra)}
-          {row(i++, 'Absent Days', absent, '-', absent)}
-          {row(i++, 'Holiday Deducted', hol, Math.round(perDay * hol), hol)}
-          {allow > 0 && row(i++, 'Allowances (HRA + Other)', money(allow), '-', '-')}
-          {ot > 0 && row(i++, 'Overtime (' + num(r.overtime_hours).toFixed(1) + ' hr)', money(ot), '-', '-')}
-          {row(i++, 'Salary Loan Advances', money(r.advance), '-', '-')}
-          {row(i++, 'PL Loan', money(r.pl_loan), '-', '-')}
-          <tr>
-            <th style={{ ...lab, background: '#e2f0d9', fontSize: 22, padding: '16px 8px' }}>NET SALARY</th>
-            <td style={{ ...cell, background: '#176b1c', color: '#fff', fontWeight: 800, fontSize: 26 }}>{money(r.net_salary)}</td>
-            <td style={{ ...val, background: '#e2f0d9' }}>-</td>
-            <td style={{ ...cell, background: '#eef6e8', padding: 0 }}><div style={{ display: 'flex', alignItems: 'stretch' }}><div style={{ ...lab, border: 0, borderRight: '1px solid #333', background: '#e2f0d9', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>RELEASE DATE</div><div style={{ flex: 1, fontWeight: 700, fontSize: 16, padding: '10px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{dmy(r.paid_on) || 'Abhi baaki'}</div></div></td>
-          </tr>
-        </tbody>
-      </table>
+      <div style={{ marginTop: 14 }}>
+        <div style={{ borderRadius: 18, padding: '18px 16px', color: '#fff', background: 'linear-gradient(135deg, color-mix(in srgb, var(--accent) 85%, black), var(--accent))', boxShadow: '0 8px 22px color-mix(in srgb, var(--accent) 35%, transparent)' }}>
+          <div style={{ opacity: .85, fontSize: 13 }}>{monthName(r.salary_month)}</div>
+          <div style={{ opacity: .85, fontSize: 12, marginTop: 2 }}>Aapki net salary</div>
+          <div style={{ fontSize: 36, fontWeight: 800, lineHeight: 1.15, marginTop: 4 }}>₹ {money(r.net_salary)}</div>
+          <div style={{ marginTop: 10, display: 'inline-block', background: paid ? '#ffffff' : '#ffffff33', color: paid ? 'var(--accent)' : '#fff', borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 700 }}>{paid ? 'Mil chuki: ' + dmy(r.paid_on) : 'Abhi baaki hai'}</div>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+          {stat('Present din', present, '#1e8e3e')}
+          {stat('Absent din', absent, '#c0392b')}
+          {stat('Extra din', extra, '#2563eb')}
+          {stat('Holiday', hol, '#b7791f')}
+        </div>
+
+        {section('Kamai', <>
+          {line('Monthly salary', '₹ ' + money(r.basic_salary), '₹ ' + Math.round(perDay) + ' per din')}
+          {extra > 0 && line('Extra Sunday / Raat', '₹ ' + money(Math.round(perDay * extra)), extra + ' din')}
+          {allow > 0 && line('Allowances (HRA + Other)', '₹ ' + money(allow))}
+          {ot > 0 && line('Overtime', '₹ ' + money(ot), num(r.overtime_hours).toFixed(1) + ' ghante')}
+        </>)}
+
+        {section('Katauti', <>
+          {line('Holiday katauti', '₹ ' + money(Math.round(perDay * hol)), hol + ' din', hol > 0 ? '#c0392b' : undefined)}
+          {line('Salary advance', '₹ ' + money(r.advance), null, num(r.advance) > 0 ? '#c0392b' : undefined)}
+          {line('PL loan', '₹ ' + money(r.pl_loan), null, num(r.pl_loan) > 0 ? '#c0392b' : undefined)}
+        </>)}
+        <p className="muted" style={{ marginTop: 10, fontSize: 12 }}>Late: {r.late_days || 0} din</p>
+      </div>
     );
   }
 
   return <div className="page">
-    <div className="pageHeader"><div><h2>My Salary</h2><p className="muted">Aapki apni salary slip aur punch in / out (sirf dekhne ke liye).</p></div></div>
+    <div className="pageHeader"><div><h2>My Salary</h2><p className="muted">Aapki salary aur attendance (sirf dekhne ke liye).</p></div></div>
     {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
     {!data && !error && <div className="card">Loading…</div>}
     {data && !data.linked && <div className="card">Aapka account abhi kisi employee se jura nahi hai. Kripya HR / Admin se kahein ki Employees me aapko aapke user se link kar dein.</div>}
     {data?.linked && <div className="tabs" style={{ marginBottom: 12 }}>
-      <button className={'btn' + (tab === 'salary' ? ' primary' : '')} onClick={() => setTab('salary')}>Salary Slip</button>{' '}
-      <button className={'btn' + (tab === 'attendance' ? ' primary' : '')} onClick={() => setTab('attendance')}>Punch In / Out</button>
+      <button className={'btn' + (tab === 'salary' ? ' primary' : '')} onClick={() => setTab('salary')}>Salary</button>{' '}
+      <button className={'btn' + (tab === 'attendance' ? ' primary' : '')} onClick={() => setTab('attendance')}>Attendance</button>
     </div>}
     {data?.linked && tab === 'attendance' && (() => {
       const rows = att?.attendance || [];
@@ -116,13 +118,13 @@ export function MySalaryPage() {
         </tbody></table></div>
       </div>;
     })()}
-    {data?.linked && tab === 'salary' && <div className="card">
+    {data?.linked && tab === 'salary' && <div>
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap', justifyContent: 'space-between' }}>
         <div><strong style={{ fontSize: 18 }}>{data.employee.name}</strong><div className="muted">{data.employee.employee_code} · {data.employee.department || '-'} · {data.employee.designation || '-'}</div></div>
         {salaries.length > 0 && <div className="field" style={{ minWidth: 220 }}><label>Mahina</label>
           <select value={month} onChange={(e) => setMonth(e.target.value)}>{salaries.map((x) => <option key={x.salary_month} value={x.salary_month}>{monthName(x.salary_month)}</option>)}</select></div>}
       </div>
-      {!salaries.length && <p className="muted" style={{ marginTop: 14 }}>Abhi koi salary slip nahi bani hai.</p>}
+      {!salaries.length && <p className="muted" style={{ marginTop: 14 }}>Abhi is mahine ki salary tay nahi hui hai.</p>}
       {body}
       {r && <p className="muted" style={{ marginTop: 8 }}>Late: {r.late_days || 0} din.</p>}
     </div>}

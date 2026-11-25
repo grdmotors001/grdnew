@@ -68,10 +68,14 @@ export function PunchPage() {
 
   return <div className="page">
     <div className="pageHeader"><div><h2>Punch In / Out</h2><p className="muted">Outlet par aakar selfie ke saath punch karein. Location outlet ke paas honi chahiye.</p></div></div>
-    {error && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
+    {error && !action && <div className="error" style={{ marginBottom: 12 }}>{error}</div>}
     {notice && <div className="card" style={{ marginBottom: 12 }}>{notice}</div>}
     {st && !st.linked && <div className="card">Aapka login kisi employee se juda nahi hai. Admin se HR &gt; Employees me link karwayein.</div>}
-    {st?.linked && <div className="card" style={{ maxWidth: 460 }}>
+    {st?.linked && !st.outlet && <div className="card" style={{ maxWidth: 460 }}>
+      <div style={{ fontWeight: 700, fontSize: 18 }}>{st.employee.name}</div>
+      <div className="muted" style={{ marginTop: 6 }}>Is app se Punch In/Out sirf outlet wale employees ke liye hai. Aapki Location ({st.employee.location || 'set nahi'}) kisi outlet se match nahi karti, isliye yahan se punch nahi ho sakta. Zarurat ho to admin se HR &gt; Employees me Location outlet ke naam par set karwayein.</div>
+    </div>}
+    {st?.linked && st.outlet && <div className="card" style={{ maxWidth: 460 }}>
       <div style={{ fontWeight: 700, fontSize: 18 }}>{st.employee.name}</div>
       <div className="muted">Outlet: {st.outlet ? st.outlet.name : (st.employee.location || 'set nahi')}{st.outlet && !st.outlet.has_location ? ' (location abhi admin ne set nahi ki)' : ''}</div>
       <div style={{ margin: '14px 0' }}>
@@ -79,15 +83,23 @@ export function PunchPage() {
         <div>Aaj Punch Out: <strong>{punchedOut ? timeIST(today?.last_out) : '-'}</strong></div>
       </div>
       {!action && <div className="actions">
-        <button className="btn primary" disabled={busy || punchedIn} onClick={() => openCam('in')}>Punch In</button>
-        <button className="btn" disabled={busy || !punchedIn || punchedOut} onClick={() => openCam('out')}>Punch Out</button>
+        <button className="btn primary" disabled={busy || punchedIn || !st.outlet.has_location} onClick={() => openCam('in')}>Punch In</button>
+        <button className="btn" disabled={busy || !punchedIn || punchedOut || !st.outlet.has_location} onClick={() => openCam('out')}>Punch Out</button>
       </div>}
-      {action && <div>
-        <div className="muted" style={{ marginBottom: 6 }}>{action === 'in' ? 'Punch In' : 'Punch Out'}: apna chehra camera me dikhayein, phir "Photo lekar Punch" dabayein.</div>
-        {camErr ? <div className="error">{camErr}</div> : <video ref={videoRef} playsInline muted style={{ width: '100%', borderRadius: 8, background: '#000', transform: 'scaleX(-1)' }} />}
-        <div className="actions" style={{ marginTop: 10 }}>
-          <button className="btn primary" disabled={busy || !!camErr} onClick={submit}>{busy ? 'Ho raha hai…' : 'Photo lekar Punch'}</button>
-          <button className="btn" disabled={busy} onClick={cancel}>Cancel</button>
+      {action && <div style={{ position: 'fixed', inset: 0, zIndex: 10000, background: '#000', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ color: '#fff', padding: 'max(12px, env(safe-area-inset-top)) 16px 10px', textAlign: 'center' }}>
+          <div style={{ fontWeight: 800, fontSize: 17 }}>{action === 'in' ? 'Punch In' : 'Punch Out'}</div>
+          <div style={{ fontSize: 13, opacity: .8, marginTop: 2 }}>Apna chehra camera me dikhayein, phir Take Selfie dabayein.</div>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px' }}>
+          {camErr
+            ? <div className="error" style={{ margin: 0 }}>{camErr}</div>
+            : <video ref={videoRef} playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 14, background: '#000', transform: 'scaleX(-1)' }} />}
+        </div>
+        {error && <div className="error" style={{ margin: '10px 12px 0' }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 10, padding: '12px 16px max(16px, env(safe-area-inset-bottom))' }}>
+          <button className="btn" style={{ flex: 1, padding: '14px 0', fontSize: 16 }} disabled={busy} onClick={cancel}>Cancel</button>
+          <button className="btn primary" style={{ flex: 2, padding: '14px 0', fontSize: 17, fontWeight: 800 }} disabled={busy || !!camErr} onClick={submit}>{busy ? 'Ho raha hai…' : 'Take Selfie'}</button>
         </div>
       </div>}
     </div>}

@@ -95,6 +95,12 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
   const [customTabs, setCustomTabs] = useState(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  // App se Punch In/Out sirf unhe jinki Location kisi active outlet se match karti hai (server bhi yehi check karta hai).
+  const [punchAllowed, setPunchAllowed] = useState(false);
+  useEffect(() => {
+    if (user?.is_dealer) return;
+    get('/hr/punch-status', { noClientCache: true }).then((d) => setPunchAllowed(!!(d?.linked && d.outlet))).catch(() => setPunchAllowed(false));
+  }, []);
   useEffect(() => {
     get('/nav-config').then((d) => setCustomTabs(d?.custom ? d.tabs : null)).catch(() => setCustomTabs(null));
   }, []);
@@ -131,6 +137,11 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
     for (const k of Object.keys(navGroups)) delete navGroups[k];
     navGroups['Mera Kaam'] = [['punch', 'Punch In/Out'], ['my-salary', 'My Salary'], ['profile', 'My Profile']];
     iconByGroup['Mera Kaam'] = Users;
+  }
+
+  // Outlet ke bina wale employee/staff ko Punch In/Out option dikhana hi nahi.
+  if (!punchAllowed) {
+    for (const k of Object.keys(navGroups)) navGroups[k] = navGroups[k].filter(([key]) => key !== 'punch');
   }
 
   if (navGroups['Reports'] && !Object.values(navGroups).flat().some(([key]) => key === 'vehicle-no-register')) {
@@ -387,13 +398,13 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
         </div>
         <div className={employeeMode ? 'employeeBottomPad' : undefined}>{children}</div>
       </main>
-      {employeeMode && <nav className="adminBottomNav adminBottomNavForce" aria-label="Employee bottom navigation">
+      {employeeMode && <nav className={'adminBottomNav adminBottomNavForce' + (punchAllowed ? '' : ' cols4')} aria-label="Employee bottom navigation">
         <button type="button" className={active === 'dashboard' ? 'active' : ''} onClick={() => selectMenu('dashboard')}>
           <LayoutDashboard size={18} /><small>Home</small>
         </button>
-        <button type="button" className={active === 'punch' ? 'active' : ''} onClick={() => selectMenu('punch')}>
+        {punchAllowed && <button type="button" className={active === 'punch' ? 'active' : ''} onClick={() => selectMenu('punch')}>
           <span style={{fontSize:18,lineHeight:1}}>⏱</span><small>Punch</small>
-        </button>
+        </button>}
         <button type="button" className={active === 'my-salary' ? 'active' : ''} onClick={() => selectMenu('my-salary')}>
           <span style={{fontSize:18,lineHeight:1}}>₹</span><small>Salary</small>
         </button>

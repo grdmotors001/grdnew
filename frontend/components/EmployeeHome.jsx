@@ -19,7 +19,8 @@ export function EmployeeHome({ setActive, user }) {
   const t = d.today, h = hourIST();
   const punchedIn = !!t?.first_in, punchedOut = !!t?.last_out && !t?.single_punch;
   let rem = null;
-  if (!punchedIn) rem = { tone: h >= 11 ? '#c0392b' : '#b7791f', text: h >= 11 ? 'Aapne abhi tak Punch In nahi kiya. Late ho rahe hain, abhi Punch In karein.' : 'Reminder: duty shuru karte hi Punch In karna na bhoolein.', btn: 'Punch In' };
+  if (!d.outlet) rem = null; // outlet wale hi app se punch karte hain
+  else if (!punchedIn) rem = { tone: h >= 11 ? '#c0392b' : '#b7791f', text: h >= 11 ? 'Aapne abhi tak Punch In nahi kiya. Late ho rahe hain, abhi Punch In karein.' : 'Reminder: duty shuru karte hi Punch In karna na bhoolein.', btn: 'Punch In' };
   else if (!punchedOut) rem = { tone: h >= 17 ? '#c0392b' : '#2563eb', text: h >= 17 ? 'Duty khatam ho rahi hai, ghar jaane se pehle Punch Out zaroor karein.' : 'Punch In ho gaya (' + timeIST(t.first_in) + '). Shaam ko Punch Out karna na bhoolein.', btn: 'Punch Out' };
   else rem = { tone: '#1e8e3e', text: 'Aaj ka punch poora ho gaya. In ' + timeIST(t.first_in) + ' • Out ' + timeIST(t.last_out), btn: null };
 
@@ -29,10 +30,10 @@ export function EmployeeHome({ setActive, user }) {
   return <div className="page">
     <div className="pageHeader"><div><h2>Namaste, {d.employee.name}</h2><p className="muted">{d.outlet ? d.outlet.name : (d.employee.location || d.employee.department || '')}</p></div></div>
 
-    <div className="card" style={{ borderLeft: '4px solid ' + rem.tone, marginBottom: 12 }}>
+    {rem && <div className="card" style={{ borderLeft: '4px solid ' + rem.tone, marginBottom: 12 }}>
       <div style={{ fontWeight: 600 }}>{rem.text}</div>
       {rem.btn && <div className="actions" style={{ marginTop: 10 }}><button className="btn primary" onClick={() => setActive('punch')}>{rem.btn}</button></div>}
-    </div>
+    </div>}
 
     {d.profile_missing?.length > 0 && <div className="card" style={{ borderLeft: '4px solid #b7791f', marginBottom: 12 }}>
       <div style={{ fontWeight: 600 }}>Aapki profile adhoori hai</div>
