@@ -1,9 +1,9 @@
 import crypto from "crypto";
 import { Pool } from "pg";
-import { ensureOtpSchema, cleanMobile, findEmployeeUser, hashOtp, sendWhatsAppOtp, OTP_TTL_MIN, OTP_RESEND_SEC, OTP_MAX_PER_HOUR } from "../../../../../lib/server/employeeOtp";
+import { ensureOtpSchema, cleanMobile, findEmployeeUser, hashOtp, sendOtpMessage, OTP_TTL_MIN, OTP_RESEND_SEC, OTP_MAX_PER_HOUR } from "../../../../../lib/server/employeeOtp";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, ssl: { rejectUnauthorized: false } });
-const GENERIC = { success: true, message: "Agar ye number registered hai to WhatsApp par OTP bhej diya gaya hai." };
+const GENERIC = { success: true, message: "Agar ye number registered hai to mobile par OTP bhej diya gaya hai." };
 
 export async function POST(req: Request) {
   try {
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
          window_start=CASE WHEN now()-employee_login_otp.window_start<interval '1 hour' THEN employee_login_otp.window_start ELSE now() END,
          sent_count=CASE WHEN now()-employee_login_otp.window_start<interval '1 hour' THEN employee_login_otp.sent_count+1 ELSE 1 END`,
       [u.id, hashOtp(u.id, otp), String(OTP_TTL_MIN)]);
-    try { await sendWhatsAppOtp(mobile, otp); }
+    try { await sendOtpMessage(mobile, otp); }
     catch (e: any) {
       await pool.query("DELETE FROM employee_login_otp WHERE user_id=$1", [u.id]);
       return Response.json({ error: e.message || "OTP nahi bheja ja saka." }, { status: 502 });

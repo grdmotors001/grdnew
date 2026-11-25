@@ -33,10 +33,30 @@ export async function findEmployeeUser(pool: any, mobile10: string) {
   return hasMods || isAdmin ? null : u;
 }
 
-// WhatsApp Cloud API: approved "Authentication" template se OTP bhejna.
-export async function sendWhatsAppOtp(mobile10: string, otp: string) {
+// Fast2SMS (wallet wala, ₹100 se shuru): OTP route par "Your OTP: {#var#}" SMS jata hai.
+// FAST2SMS_ROUTE: "otp" (default) ya "q" (Quick SMS, alag rate).
+async function sendFast2Sms(mobile10: string, otp: string) {
+  const key = process.env.FAST2SMS_API_KEY as string;
+  const route = (process.env.FAST2SMS_ROUTE || "otp").trim();
+  const body: any = route === "q"
+    ? { route: "q", message: "Your GRD Motors login OTP is " + otp + ". Valid for " + OTP_TTL_MIN + " minutes. Do not share it.", numbers: mobile10, flash: 0 }
+    : { route: "otp", variables_values: otp, numbers: mobile10, flash: 0 };
+  const res = await fetch("https://www.fast2sms.com/dev/bulkV2", {
+    method: "POST",
+    headers: { authorization: key, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok || data?.return !== true) {
+    console.error("[fast2sms-otp]", res.status, JSON.stringify(data).slice(0, 300));
+    throw new Error("OTP SMS nahi bhej paye. Thodi der baad dobara try karein.");
+  }
+}
+
+// WhatsApp Cloud API (Meta): approved "Authentication" template se OTP.
+async function sendMetaWhatsApp(mobile10: string, otp: string) {
   const token = process.env.WHATSAPP_TOKEN, phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID, template = process.env.WHATSAPP_OTP_TEMPLATE;
-  if (!token || !phoneId || !template) throw new Error("WhatsApp OTP abhi configure nahi hai.");
+  if (!token || !phoneId || !template) throw new Error("OTP abhi configure nahi hai.");
   const res = await fetch("https://graph.facebook.com/v21.0/" + phoneId + "/messages", {
     method: "POST",
     headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
@@ -59,4 +79,10 @@ export async function sendWhatsAppOtp(mobile10: string, otp: string) {
     console.error("[whatsapp-otp]", res.status, t.slice(0, 300));
     throw new Error("WhatsApp par OTP nahi bhej paye.");
   }
+}
+
+// Jo provider configure hai wahi use hoga: pehle Fast2SMS, nahi to Meta WhatsApp.
+export async function sendOtpMessage(mobile10: string, otp: string) {
+  if (process.env.FAST2SMS_API_KEY) return sendFast2Sms(mobile10, otp);
+  return sendMetaWhatsApp(mobile10, otp);
 }

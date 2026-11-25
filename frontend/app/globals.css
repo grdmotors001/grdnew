@@ -741,3 +741,7 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
   .sidebar.collapsed .sidebarFooter{flex-wrap:nowrap}
   .sidebar.collapsed .sidebarActions{flex:none;flex-direction:column;gap:6px;padding-bottom:6px}
 }
+
+/* Employee mode: fixed bottom bar ke peeche content na chhupe */
+.employeeBottomPad{padding-bottom:0}
+@media(max-width:700px){.employeeBottomPad{padding-bottom:96px}}

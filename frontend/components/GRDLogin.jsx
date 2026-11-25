@@ -151,7 +151,7 @@ export function GRDLogin({ onLogin }) {
 
   const onlyDigits = (v) => v.replace(/\D/g, '').slice(0, 4);
 
-  // Employee login: mobile -> WhatsApp OTP -> login (sirf employee login ke liye server chalne deta hai).
+  // Employee login: mobile -> OTP -> login (sirf employee login ke liye server chalne deta hai).
   const sendOtp = async (e) => {
     if (e) e.preventDefault();
     setError(''); setOtpInfo('');
@@ -342,14 +342,14 @@ export function GRDLogin({ onLogin }) {
           <div className="field"><label>Username / Mobile / Dealer ID</label><div className="wrap"><span className="icon">👤</span><input className="input" value={userid} onChange={e=>setUserid(e.target.value)} autoFocus required placeholder="Enter username, mobile number or Dealer ID"/></div></div>
           <div className="field"><label>Password</label><div className="wrap"><span className="icon">🔐</span><input className="input" type={showPassword?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} required placeholder="Enter password"/><button type="button" className="eye" onClick={()=>setShowPassword(v=>!v)}>{showPassword?'◉':'◌'}</button></div></div>
           <div className="forgot"><button type="button">Forgot Password?</button></div>
-          <button type="button" className="tab" style={{width:'100%',marginBottom:9}} onClick={() => { setError(''); setOtpInfo(''); setStep('otpmobile'); }}>📲 Employee? WhatsApp OTP se login</button>
+          <button type="button" className="tab" style={{width:'100%',marginBottom:9}} onClick={() => { setError(''); setOtpInfo(''); setStep('otpmobile'); }}>📲 Employee? OTP se login</button>
           <button className="loginBtn" disabled={busy}>{busy?'Checking…':'→ Login'}</button>
           <div className="help">Use the same login here for Admin, Staff, Salesman and Dealer. Customer login remains in the customer portal.</div>
           <div className="secure">🛡️ Your data is safe and secure with G.R.D. Motors.</div>
         </form> : step === 'otpmobile' ? <form onSubmit={sendOtp}>
           {error && <div className="error">{error}</div>}
           <div className="field"><label>Mobile number</label><div className="wrap"><span className="icon">📱</span><input className="input" type="tel" inputMode="numeric" autoFocus maxLength={10} value={otpMobile} onChange={e=>setOtpMobile(e.target.value.replace(/\D/g,'').slice(0,10))} placeholder="10 anko ka mobile number"/></div></div>
-          <button className="loginBtn" disabled={busy || otpMobile.length !== 10}>{busy?'Bhej rahe hain…':'→ WhatsApp par OTP bhejein'}</button>
+          <button className="loginBtn" disabled={busy || otpMobile.length !== 10}>{busy?'Bhej rahe hain…':'→ OTP bhejein'}</button>
           <button type="button" className="tab" style={{width:'100%',marginTop:9}} onClick={backToLogin}>← Password se login</button>
         </form> : step === 'otpcode' ? <form onSubmit={verifyOtp}>
           {error && <div className="error">{error}</div>}
