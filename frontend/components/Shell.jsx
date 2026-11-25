@@ -8,6 +8,7 @@ import { MenuSearch, MobileSearchSheet } from './MenuSearch';
 import { HelpButton } from './HelpButton';
 import { enableTableSort } from '../lib/tableSort';
 import { Field } from './ui';
+import { HRTabContext, HR_TABS } from './hrTabContext';
 import {
   LayoutDashboard, Building2, Users, Package, BatteryCharging, Landmark, HandCoins,
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
@@ -97,6 +98,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
   const [notificationCount, setNotificationCount] = useState(0);
   // App se Punch In/Out sirf unhe jinki Location kisi active outlet se match karti hai (server bhi yehi check karta hai).
   const [punchAllowed, setPunchAllowed] = useState(false);
+  const [hrTab, setHrTab] = useState('dashboard');
   useEffect(() => {
     if (user?.is_dealer) return;
     get('/hr/punch-status', { noClientCache: true }).then((d) => setPunchAllowed(!!(d?.linked && d.outlet))).catch(() => setPunchAllowed(false));
@@ -139,6 +141,24 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
     iconByGroup['Mera Kaam'] = Users;
   }
 
+  // Company Details aur User Master ab System group me (HR me nahi).
+  if (!employeeMode) {
+    const MOVE_TO_SYSTEM = ['company', 'user'];
+    const moved = [];
+    for (const k of Object.keys(navGroups)) {
+      if (k === 'System') continue;
+      const keep = [];
+      for (const it of navGroups[k]) (MOVE_TO_SYSTEM.includes(it[0]) ? moved : keep).push(it);
+      navGroups[k] = keep;
+    }
+    if (moved.length) {
+      moved.sort((a, b) => MOVE_TO_SYSTEM.indexOf(a[0]) - MOVE_TO_SYSTEM.indexOf(b[0]));
+      const sysExisting = (navGroups['System'] || []).filter(([key]) => !MOVE_TO_SYSTEM.includes(key));
+      navGroups['System'] = [...moved, ...sysExisting];
+      if (!iconByGroup['System']) iconByGroup['System'] = 'Settings2';
+    }
+  }
+
   // Outlet ke bina wale employee/staff ko Punch In/Out option dikhana hi nahi.
   if (!punchAllowed) {
     for (const k of Object.keys(navGroups)) navGroups[k] = navGroups[k].filter(([key]) => key !== 'punch');
@@ -171,9 +191,10 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
   };
 
   const initial = (user?.username || '?').charAt(0).toUpperCase();
+  const foundGroup = Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0];
   const activeGroup = employeeMode ? (active === 'dashboard' ? 'Dashboard' : 'Mera Kaam') : active === 'vehicle-no-register' ? 'Reports' : customTabs
-    ? (Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0] || 'Dashboard')
-    : groupForKey(active);
+    ? (foundGroup || 'Dashboard')
+    : (foundGroup || groupForKey(active));
   const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);
   // Admin users must retain the full staff sidebar after a fresh login/session restore.
   // Some legacy user rows have department=Admin but is_super_user=false and/or an empty allowed_modules list.
@@ -355,7 +376,17 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
             <div className="title">{active === 'dashboard' ? 'Dashboard' : activeGroup}</div>
             <div className="subtitle">{active === 'dashboard' ? 'Admin Overview' : labelFor(active)} · {user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
           </div>
-          {employeeMode ? null : activeGroup === 'Showroom' ? (
+          {employeeMode ? null : active === 'hr-attendance' ? (
+            <div className="moduleStrip" aria-label="HR Attendance & Salary">
+              {HR_TABS.map(([key, label]) => (
+                <button key={key} type="button"
+                  className={'moduleStripItem' + (hrTab === key ? ' active' : '')}
+                  onClick={() => setHrTab(key)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : activeGroup === 'Showroom' ? (
             <div className="moduleStrip showroomModuleStrip" aria-label="Showroom">
               {SHOWROOM_SECTIONS.map(section => {
                 const items = allowedFor(section.items);
@@ -396,7 +427,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
             <div className="grdHeaderUser"><div className="grdHeaderAvatar">{initial}</div><strong>{user?.username || 'admin'}</strong><span>⌄</span></div>
           </div>
         </div>
-        <div className={employeeMode ? 'employeeBottomPad' : undefined}>{children}</div>
+        <div className={employeeMode ? 'employeeBottomPad' : undefined}><HRTabContext.Provider value={{ tab: hrTab, setTab: setHrTab }}>{children}</HRTabContext.Provider></div>
       </main>
       {employeeMode && <nav className={'adminBottomNav adminBottomNavForce' + (punchAllowed ? '' : ' cols4')} aria-label="Employee bottom navigation">
         <button type="button" className={active === 'dashboard' ? 'active' : ''} onClick={() => selectMenu('dashboard')}>

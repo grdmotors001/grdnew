@@ -536,6 +536,7 @@ async function ensureHRSchemas(){
   // Outlet punch (selfie + GPS): outlet ki location aur har punch ka log (selfie alag table me, taaki attendance list bhaari na ho).
   await pool.query("CREATE TABLE IF NOT EXISTS hr_outlet (id bigserial PRIMARY KEY, name text NOT NULL UNIQUE, latitude numeric, longitude numeric, radius_m integer NOT NULL DEFAULT 150, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS hr_punch_log (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, work_date date NOT NULL, kind text NOT NULL, punched_at timestamptz NOT NULL DEFAULT now(), outlet_id bigint, latitude numeric, longitude numeric, accuracy_m numeric, distance_m numeric, selfie text)");
+  await pool.query("ALTER TABLE hr_punch_log ADD COLUMN IF NOT EXISTS thumb text");
   await pool.query("CREATE INDEX IF NOT EXISTS hr_punch_log_date_idx ON hr_punch_log (work_date, employee_id)");
   if(!hrOutletSeeded){
     for(const n of ["Guruji Automobile","Singh E-Rickshaw","Keshavpur","Maa Bandla Mukhi","Bhajanpura"])await pool.query("INSERT INTO hr_outlet (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",[n]);
@@ -1094,7 +1095,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="hr/punch-log"){
       let date=String(new URL(req.url).searchParams.get("date")||"").trim();
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))date=hrTodayIST();
-      const r=await pool.query("SELECT l.id,l.kind,l.punched_at,l.latitude,l.longitude,l.accuracy_m,l.distance_m,e.name AS employee_name,e.employee_code,e.location,(l.selfie IS NOT NULL) AS has_selfie FROM hr_punch_log l JOIN hr_employee e ON e.id=l.employee_id WHERE l.work_date=$1 ORDER BY l.punched_at",[date]);
+      const r=await pool.query("SELECT l.id,l.kind,l.punched_at,l.latitude,l.longitude,l.accuracy_m,l.distance_m,l.thumb,e.name AS employee_name,e.employee_code,e.location,(l.selfie IS NOT NULL) AS has_selfie FROM hr_punch_log l JOIN hr_employee e ON e.id=l.employee_id WHERE l.work_date=$1 ORDER BY l.punched_at",[date]);
       return Response.json({date,rows:r.rows});
     }
     if(p==="hr/punch-photo"){
@@ -1666,6 +1667,8 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return Response.json({error:"Phone ki location nahi mili. GPS/Location permission on karein."},{status:400});
       const selfie=String(b.selfie||"");
       if(!/^data:image\/(jpeg|png|webp);base64,/.test(selfie)||selfie.length>600000)return Response.json({error:"Selfie chahiye (chhoti photo)."},{status:400});
+      const thumbRaw=String(b.thumb||"");
+      const thumb=/^data:image\/(jpeg|png|webp);base64,/.test(thumbRaw)&&thumbRaw.length<=40000?thumbRaw:null;
       const dist=Math.round(hrDistanceM(lat,lng,Number(outlet.latitude),Number(outlet.longitude)));
       if(dist>Number(outlet.radius_m||150))return Response.json({error:"Aap outlet \""+outlet.name+"\" se "+dist+" meter door hain (limit "+outlet.radius_m+" m). Outlet par aakar punch karein."},{status:400});
       const date=hrTodayIST(),month=date.slice(0,7);
@@ -1678,7 +1681,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         if(cur.last_out&&!cur.single_punch)return Response.json({error:"Aaj ka Punch Out ho chuka hai."},{status:400});
         await pool.query("UPDATE hr_attendance SET last_out=now(),single_punch=false,work_hours=ROUND((EXTRACT(EPOCH FROM (now()-first_in))/3600.0)::numeric,2) WHERE id=$1",[cur.id]);
       }
-      await pool.query("INSERT INTO hr_punch_log (employee_id,work_date,kind,outlet_id,latitude,longitude,accuracy_m,distance_m,selfie) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",[emp.id,date,kind,outlet.id,lat,lng,acc,dist,selfie]);
+      await pool.query("INSERT INTO hr_punch_log (employee_id,work_date,kind,outlet_id,latitude,longitude,accuracy_m,distance_m,selfie,thumb) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[emp.id,date,kind,outlet.id,lat,lng,acc,dist,selfie,thumb]);
       await hrRecalcLate(month);
       return Response.json({success:true,action:kind,distance_m:dist,outlet:outlet.name});
     }

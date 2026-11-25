@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { get, post } from '../lib/api';
 import { HRDashboard } from './HRDashboard';
+import { HRTabContext } from './hrTabContext';
 
 const emptyEmployee = { employee_code:'', name:'', department:'', designation:'', location:'', mobile:'', photo_url:'', joining_date:'', machine_user_id:'', basic_salary:'', hra:'', other_allowance:'', overtime_rate:'' };
 const timeIST = (v) => { if(!v) return '-'; const d=new Date(v); return isNaN(d)?'-':d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Kolkata'}); };
@@ -25,7 +26,10 @@ const inTone=(x)=>(!x.first_in||x.status==='Absent')?undefined:(Number(x.late_mi
 const rowTint=(x)=>(!x.first_in||x.status==='Absent')?undefined:{background:Number(x.late_minutes)>0?'rgba(192,57,43,.12)':'rgba(30,142,58,.12)'};
 
 export function HRAttendancePage() {
-  const [tab,setTab]=useState('dashboard');
+  const hrCtx=useContext(HRTabContext); // Shell ke header me tabs hon to wahi use hota hai
+  const [localTab,setLocalTab]=useState('dashboard');
+  const tab=hrCtx?hrCtx.tab:localTab;
+  const setTab=hrCtx?hrCtx.setTab:setLocalTab;
   const [outlets,setOutlets]=useState([]);
   const [outEdit,setOutEdit]=useState({}); // outlet id -> {latitude,longitude,radius_m}
   const [newOutlet,setNewOutlet]=useState('');
@@ -249,9 +253,9 @@ export function HRAttendancePage() {
     <div className="pageHeader"><div><h2>HR • Attendance & Salary</h2><p className="muted">Employees, attendance, department timing aur monthly salary.</p></div></div>
     {error && <div className="error" style={{marginBottom:12}}>{error}</div>}
     {notice && <div className="card" style={{marginBottom:12}}>{notice}</div>}
-    <div className="tabs" style={{marginBottom:16}}>
+    {!hrCtx&&<div className="tabs" style={{marginBottom:16}}>
       {Object.keys(tabName).map(x=><button key={x} className={'btn'+(tab===x?' primary':'')} onClick={()=>{setTab(x);setNotice('');}}>{tabName[x]}</button>)}
-    </div>
+    </div>}
 
     {tab==='outlets' && <div className="card tableWrap">
       <p className="muted">Har outlet ki location set karein: <strong>outlet par khade hokar</strong> "Yahan set karein" dabayein. Employee ki <strong>Location</strong> (Employees tab) outlet ke naam jaisi honi chahiye, tabhi uska punch chalega. Radius = outlet se kitni door tak punch allowed hai (meter).</p>
@@ -272,11 +276,11 @@ export function HRAttendancePage() {
     {tab==='punches' && <div className="card tableWrap">
       <div className="toolbar"><div className="field"><label>Date</label><input type="date" value={punchDate} onChange={e=>setPunchDate(e.target.value)}/></div></div>
       <table className="table reportTable"><thead><tr><th>Employee</th><th>Outlet</th><th>Punch</th><th>Time</th><th>Outlet se door (m)</th><th>Coordinates</th><th>Selfie</th></tr></thead><tbody>
-        {punchRows.map(r=><tr key={r.id}><td>{r.employee_name}</td><td>{r.location||'-'}</td><td>{r.kind==='in'?'In':'Out'}</td><td>{timeIST(r.punched_at)}</td><td>{r.distance_m!==null?Math.round(r.distance_m):'-'}</td><td>{r.latitude!==null&&r.longitude!==null?<a href={'https://www.google.com/maps?q='+r.latitude+','+r.longitude} target="_blank" rel="noreferrer">{Number(r.latitude).toFixed(5)}, {Number(r.longitude).toFixed(5)}</a>:'-'}</td><td>{r.has_selfie?<button className="btn" onClick={()=>showPhoto(r)}>Dekhein</button>:'-'}</td></tr>)}
+        {punchRows.map(r=><tr key={r.id}><td>{r.employee_name}</td><td>{r.location||'-'}</td><td>{r.kind==='in'?'In':'Out'}</td><td>{timeIST(r.punched_at)}</td><td>{r.distance_m!==null?Math.round(r.distance_m):'-'}</td><td>{r.latitude!==null&&r.longitude!==null?<a href={'https://www.google.com/maps?q='+r.latitude+','+r.longitude} target="_blank" rel="noreferrer">{Number(r.latitude).toFixed(5)}, {Number(r.longitude).toFixed(5)}</a>:'-'}</td><td>{r.thumb?<img src={r.thumb} alt="selfie" title="Badi photo dekhein" onClick={()=>showPhoto(r)} style={{width:44,height:44,objectFit:'cover',borderRadius:8,cursor:'pointer',border:'1px solid var(--line)',display:'block'}}/>:(r.has_selfie?<button className="btn" onClick={()=>showPhoto(r)}>Dekhein</button>:'-')}</td></tr>)}
         {!punchRows.length&&<tr><td colSpan="7" className="muted">Is din koi outlet punch nahi.</td></tr>}
       </tbody></table>
       {photo&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}} onClick={()=>setPhoto(null)}>
-        <div className="card" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}><div style={{fontWeight:700,marginBottom:8}}>{photo.name}</div>{photo.src?<img src={photo.src} alt="selfie" style={{width:'100%',borderRadius:8,transform:'scaleX(-1)'}}/>:<div className="muted">Photo nahi mili.</div>}<div className="actions" style={{marginTop:10}}><button className="btn" onClick={()=>setPhoto(null)}>Band karein</button></div></div>
+        <div className="card" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}><div style={{fontWeight:700,marginBottom:8}}>{photo.name}</div>{photo.src?<img src={photo.src} alt="selfie" style={{width:'100%',borderRadius:8}}/>:<div className="muted">Photo nahi mili.</div>}<div className="actions" style={{marginTop:10}}><button className="btn" onClick={()=>setPhoto(null)}>Band karein</button></div></div>
       </div>}
     </div>}
 

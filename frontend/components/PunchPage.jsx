@@ -52,7 +52,13 @@ export function PunchPage() {
       const w = 480, h = Math.round((v.videoHeight / v.videoWidth) * w);
       const c = document.createElement('canvas'); c.width = w; c.height = h;
       const g = c.getContext('2d');
-      g.drawImage(v, 0, 0, w, h);
+      // Preview mirror jaisa dikhta hai, isliye saved photo bhi usi tarah (seedha, mirror) rakhte hain; likhawat (watermark) baad me seedhi likhi jati hai.
+      g.save(); g.translate(w, 0); g.scale(-1, 1); g.drawImage(v, 0, 0, w, h); g.restore();
+      // Chhota thumbnail (HR ki list ke liye), watermark se pehle ki saaf photo se.
+      const tw = 96, th = Math.round((v.videoHeight / v.videoWidth) * tw);
+      const tc = document.createElement('canvas'); tc.width = tw; tc.height = th;
+      tc.getContext('2d').drawImage(c, 0, 0, tw, th);
+      const thumb = tc.toDataURL('image/jpeg', 0.6);
       // Neeche ek patti: punch type, outlet, date-time (IST) aur GPS coordinates selfie ke andar hi likhe jayenge.
       const stamp = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
       const lines = [
@@ -65,7 +71,7 @@ export function PunchPage() {
       g.fillStyle = '#fff'; g.textBaseline = 'top';
       lines.forEach((t, i) => { g.font = (i === 0 ? 'bold ' : '') + '14px sans-serif'; g.fillText(t, 10, h - barH + 7 + i * lh, w - 20); });
       const selfie = c.toDataURL('image/jpeg', 0.7);
-      const r = await post('/hr/punch', { action, ...pos, selfie });
+      const r = await post('/hr/punch', { action, ...pos, selfie, thumb });
       setNotice((action === 'in' ? 'Punch In ho gaya' : 'Punch Out ho gaya') + ' (outlet se ' + r.distance_m + ' m door).');
       stopCam(); setAction('');
       await load();
