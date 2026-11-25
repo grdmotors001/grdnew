@@ -49,6 +49,9 @@ export function GRDLogin({ onLogin }) {
   const [password, setPassword] = useState('');
   // step: 'login' (ID + password) -> 'pin' (PIN already set) or 'setpin' (no PIN yet, can skip)
   const [step, setStep] = useState('login');
+  const [otpMobile, setOtpMobile] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpInfo, setOtpInfo] = useState('');
   const [pinToken, setPinToken] = useState('');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -99,7 +102,7 @@ export function GRDLogin({ onLogin }) {
   };
 
   const backToLogin = () => {
-    setStep('login'); setPinToken(''); setPin(''); setConfirmPin(''); setError('');
+    setStep('login'); setPinToken(''); setPin(''); setConfirmPin(''); setError(''); setOtpCode(''); setOtpInfo('');
   };
 
   // PIN already set -> enter it (this replaces the old OTP step)
@@ -147,6 +150,26 @@ export function GRDLogin({ onLogin }) {
   };
 
   const onlyDigits = (v) => v.replace(/\D/g, '').slice(0, 4);
+
+  // Employee login: mobile -> WhatsApp OTP -> login (sirf employee login ke liye server chalne deta hai).
+  const sendOtp = async (e) => {
+    if (e) e.preventDefault();
+    setError(''); setOtpInfo('');
+    if (otpMobile.replace(/\D/g, '').length < 10) { setError('10 anko ka mobile number likhein.'); return; }
+    setBusy(true);
+    try {
+      const r = await post('/auth/employee-otp/send', { mobile: otpMobile });
+      setOtpInfo(r.message || 'OTP bhej diya gaya hai.'); setOtpCode(''); setStep('otpcode');
+    } catch (err) { setError(err.message || 'OTP nahi bheja ja saka.'); }
+    finally { setBusy(false); }
+  };
+  const verifyOtp = async (e) => {
+    e.preventDefault();
+    setError(''); setBusy(true);
+    try { finishLogin(await post('/auth/employee-otp/verify', { mobile: otpMobile, otp: otpCode })); }
+    catch (err) { setError(err.message || 'OTP verify nahi ho saka.'); setOtpCode(''); }
+    finally { setBusy(false); }
+  };
 
   const socialLinks = [
     ['Instagram', 'https://www.instagram.com/grdmotorsofficial/'],
@@ -319,9 +342,22 @@ export function GRDLogin({ onLogin }) {
           <div className="field"><label>Username / Mobile / Dealer ID</label><div className="wrap"><span className="icon">👤</span><input className="input" value={userid} onChange={e=>setUserid(e.target.value)} autoFocus required placeholder="Enter username, mobile number or Dealer ID"/></div></div>
           <div className="field"><label>Password</label><div className="wrap"><span className="icon">🔐</span><input className="input" type={showPassword?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} required placeholder="Enter password"/><button type="button" className="eye" onClick={()=>setShowPassword(v=>!v)}>{showPassword?'◉':'◌'}</button></div></div>
           <div className="forgot"><button type="button">Forgot Password?</button></div>
+          <button type="button" className="tab" style={{width:'100%',marginBottom:9}} onClick={() => { setError(''); setOtpInfo(''); setStep('otpmobile'); }}>📲 Employee? WhatsApp OTP se login</button>
           <button className="loginBtn" disabled={busy}>{busy?'Checking…':'→ Login'}</button>
           <div className="help">Use the same login here for Admin, Staff, Salesman and Dealer. Customer login remains in the customer portal.</div>
           <div className="secure">🛡️ Your data is safe and secure with G.R.D. Motors.</div>
+        </form> : step === 'otpmobile' ? <form onSubmit={sendOtp}>
+          {error && <div className="error">{error}</div>}
+          <div className="field"><label>Mobile number</label><div className="wrap"><span className="icon">📱</span><input className="input" type="tel" inputMode="numeric" autoFocus maxLength={10} value={otpMobile} onChange={e=>setOtpMobile(e.target.value.replace(/\D/g,'').slice(0,10))} placeholder="10 anko ka mobile number"/></div></div>
+          <button className="loginBtn" disabled={busy || otpMobile.length !== 10}>{busy?'Bhej rahe hain…':'→ WhatsApp par OTP bhejein'}</button>
+          <button type="button" className="tab" style={{width:'100%',marginTop:9}} onClick={backToLogin}>← Password se login</button>
+        </form> : step === 'otpcode' ? <form onSubmit={verifyOtp}>
+          {error && <div className="error">{error}</div>}
+          {otpInfo && <div style={{padding:'10px 12px',borderRadius:10,background:'#eef7ff',color:'#24557a',fontSize:11,fontWeight:800,marginBottom:8}}>{otpInfo}</div>}
+          <div className="field"><label>OTP</label><div className="wrap"><span className="icon">🔢</span><input className="input" type="tel" inputMode="numeric" autoComplete="one-time-code" autoFocus maxLength={6} value={otpCode} onChange={e=>setOtpCode(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="6 anko ka OTP"/></div></div>
+          <button className="loginBtn" disabled={busy || otpCode.length !== 6}>{busy?'Verifying…':'✓ Verify & Login'}</button>
+          <button type="button" className="tab" style={{width:'100%',marginTop:9}} disabled={busy} onClick={sendOtp}>OTP dobara bhejein</button>
+          <button type="button" className="tab" style={{width:'100%',marginTop:9}} onClick={backToLogin}>← Back</button>
         </form> : step === 'pin' ? <form onSubmit={verifyPin}>
           {error && <div className="error">{error}</div>}
           <div className="field"><label>PIN</label><div className="wrap"><span className="icon">🔢</span><input className="input" type="password" inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={pin} onChange={e=>setPin(onlyDigits(e.target.value))} autoFocus required placeholder="Enter 4 digit PIN"/></div></div>
