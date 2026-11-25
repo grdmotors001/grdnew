@@ -39,7 +39,7 @@ async function sendFast2Sms(mobile10: string, otp: string) {
   const key = process.env.FAST2SMS_API_KEY as string;
   const route = (process.env.FAST2SMS_ROUTE || "otp").trim();
   const body: any = route === "q"
-    ? { route: "q", message: "Your GRD Motors login OTP is " + otp + ". Valid for " + OTP_TTL_MIN + " minutes. Do not share it.", numbers: mobile10, flash: 0 }
+    ? { route: "q", message: "Your GRD Motors login OTP is " + otp + ". Valid for " + OTP_TTL_MIN + " minutes. Do not share it.", numbers: mobile10, language: "english", flash: 0 }
     : { route: "otp", variables_values: otp, numbers: mobile10, flash: 0 };
   const res = await fetch("https://www.fast2sms.com/dev/bulkV2", {
     method: "POST",
@@ -49,7 +49,9 @@ async function sendFast2Sms(mobile10: string, otp: string) {
   const data: any = await res.json().catch(() => ({}));
   if (!res.ok || data?.return !== true) {
     console.error("[fast2sms-otp]", res.status, JSON.stringify(data).slice(0, 300));
-    throw new Error("OTP SMS nahi bhej paye. Thodi der baad dobara try karein.");
+    // Fast2SMS ka jawab secret nahi hota (jaise "recharge karein"), isliye wahi dikhate hain taaki kaaran pata chale.
+    const why = Array.isArray(data?.message) ? data.message.join(" ") : String(data?.message || "");
+    throw new Error("OTP SMS nahi bhej paye." + (why ? " Fast2SMS: " + why.slice(0, 200) : ""));
   }
 }
 
