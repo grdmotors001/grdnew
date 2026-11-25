@@ -21,6 +21,9 @@ const slipMath = (r, f) => {
 };
 const lateText = (m) => { m=Number(m||0); return m>0 ? (m>=60?Math.floor(m/60)+'h ':'')+(m%60)+'m' : '-'; };
 
+const inTone=(x)=>(!x.first_in||x.status==='Absent')?undefined:(Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:700}:{color:'#1e8e3e',fontWeight:700});
+const rowTint=(x)=>(!x.first_in||x.status==='Absent')?undefined:{background:Number(x.late_minutes)>0?'rgba(192,57,43,.12)':'rgba(30,142,58,.12)'};
+
 export function HRAttendancePage() {
   const [tab,setTab]=useState('dashboard');
   const [outlets,setOutlets]=useState([]);
@@ -261,9 +264,9 @@ export function HRAttendancePage() {
 
     {tab==='punches' && <div className="card tableWrap">
       <div className="toolbar"><div className="field"><label>Date</label><input type="date" value={punchDate} onChange={e=>setPunchDate(e.target.value)}/></div></div>
-      <table className="table reportTable"><thead><tr><th>Employee</th><th>Outlet</th><th>Punch</th><th>Time</th><th>Outlet se door (m)</th><th>Selfie</th></tr></thead><tbody>
-        {punchRows.map(r=><tr key={r.id}><td>{r.employee_name}</td><td>{r.location||'-'}</td><td>{r.kind==='in'?'In':'Out'}</td><td>{timeIST(r.punched_at)}</td><td>{r.distance_m!==null?Math.round(r.distance_m):'-'}</td><td>{r.has_selfie?<button className="btn" onClick={()=>showPhoto(r)}>Dekhein</button>:'-'}</td></tr>)}
-        {!punchRows.length&&<tr><td colSpan="6" className="muted">Is din koi outlet punch nahi.</td></tr>}
+      <table className="table reportTable"><thead><tr><th>Employee</th><th>Outlet</th><th>Punch</th><th>Time</th><th>Outlet se door (m)</th><th>Coordinates</th><th>Selfie</th></tr></thead><tbody>
+        {punchRows.map(r=><tr key={r.id}><td>{r.employee_name}</td><td>{r.location||'-'}</td><td>{r.kind==='in'?'In':'Out'}</td><td>{timeIST(r.punched_at)}</td><td>{r.distance_m!==null?Math.round(r.distance_m):'-'}</td><td>{r.latitude!==null&&r.longitude!==null?<a href={'https://www.google.com/maps?q='+r.latitude+','+r.longitude} target="_blank" rel="noreferrer">{Number(r.latitude).toFixed(5)}, {Number(r.longitude).toFixed(5)}</a>:'-'}</td><td>{r.has_selfie?<button className="btn" onClick={()=>showPhoto(r)}>Dekhein</button>:'-'}</td></tr>)}
+        {!punchRows.length&&<tr><td colSpan="7" className="muted">Is din koi outlet punch nahi.</td></tr>}
       </tbody></table>
       {photo&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}} onClick={()=>setPhoto(null)}>
         <div className="card" style={{maxWidth:380}} onClick={e=>e.stopPropagation()}><div style={{fontWeight:700,marginBottom:8}}>{photo.name}</div>{photo.src?<img src={photo.src} alt="selfie" style={{width:'100%',borderRadius:8,transform:'scaleX(-1)'}}/>:<div className="muted">Photo nahi mili.</div>}<div className="actions" style={{marginTop:10}}><button className="btn" onClick={()=>setPhoto(null)}>Band karein</button></div></div>
@@ -353,7 +356,7 @@ export function HRAttendancePage() {
       </div>
       <div className="card tableWrap"><div className="toolbar"><div className="field"><label>Month</label><input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></div><button className="btn" onClick={load}>Refresh</button><button className="btn" disabled={busy} onClick={recalc}>Late dobara nikalein</button></div>
         <table className="table reportTable"><thead><tr><th>Date</th><th>Employee</th><th>First In</th><th>Last Out</th><th>Status</th><th>Late</th><th>Hours</th><th>OT</th></tr></thead><tbody>
-          {attendance.map(x=><tr key={x.id}><td>{dateText(x.work_date)}</td><td>{x.employee_name}</td><td>{timeIST(x.first_in)}</td><td>{x.single_punch?<span className="muted">1 punch</span>:timeIST(x.last_out)}</td><td>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{Number(x.work_hours||0).toFixed(2)}</td><td>{Number(x.overtime_hours||0).toFixed(2)}</td></tr>)}
+          {attendance.map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{x.employee_name}</td><td style={inTone(x)}>{timeIST(x.first_in)}</td><td>{x.single_punch?<span className="muted">1 punch</span>:timeIST(x.last_out)}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{Number(x.work_hours||0).toFixed(2)}</td><td>{Number(x.overtime_hours||0).toFixed(2)}</td></tr>)}
           {!attendance.length&&<tr><td colSpan="8" className="muted">No attendance records for this month.</td></tr>}
         </tbody></table></div>
     </>}
@@ -392,7 +395,7 @@ export function HRAttendancePage() {
           {error && <div className="error" style={{marginTop:10}}>{error}</div>}
           <div className="muted" style={{margin:'10px 0'}}>Present: <strong>{days}</strong> din{halfDays>0&&<> (Half Day: <strong>{halfDays}</strong>)</>}{absDays>0&&<> · Absent (kam ghante): <strong>{absDays}</strong></>} · Late: <strong>{lateDays}</strong> din · Work: <strong>{hrs.toFixed(2)}</strong> hr · OT: <strong>{ot.toFixed(2)}</strong> hr</div>
           <div className="tableWrap" style={{maxHeight:'60vh',overflow:'auto'}}><table className="table reportTable"><thead><tr><th>Date</th><th>Din</th><th>Punch In</th><th>Punch Out</th><th>Status</th><th>Late</th><th>Work Hrs</th><th>OT Hrs</th></tr></thead><tbody>
-            {rows.map(x=><tr key={x.id}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td>{timeIST(x.first_in)}</td><td>{x.single_punch?<span className="muted">1 punch</span>:timeIST(x.last_out)}</td><td>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{num(x.work_hours).toFixed(2)}</td><td>{num(x.overtime_hours).toFixed(2)}</td></tr>)}
+            {rows.map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td style={inTone(x)}>{timeIST(x.first_in)}</td><td>{x.single_punch?<span className="muted">1 punch</span>:timeIST(x.last_out)}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{num(x.work_hours).toFixed(2)}</td><td>{num(x.overtime_hours).toFixed(2)}</td></tr>)}
             {!rows.length && <tr><td colSpan="8" className="muted">{attView.loading?'Loading…':'Is mahine ki attendance nahi mili.'}</td></tr>}
           </tbody></table></div>
         </div></div>; })()}

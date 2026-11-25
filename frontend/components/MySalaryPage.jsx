@@ -15,6 +15,9 @@ const dateText = (v) => String(v || '').slice(0, 10);
 const dow = (d) => { const t = new Date(dateText(d) + 'T00:00:00'); return isNaN(t) ? '' : t.toLocaleDateString('en-IN', { weekday: 'short' }); };
 const lateText = (m) => { m = Number(m || 0); return m > 0 ? (m >= 60 ? Math.floor(m / 60) + 'h ' : '') + (m % 60) + 'm' : '-'; };
 
+const inTone=(x)=>(!x.first_in||x.status==='Absent')?undefined:(Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:700}:{color:'#1e8e3e',fontWeight:700});
+const rowTint=(x)=>(!x.first_in||x.status==='Absent')?undefined:{background:Number(x.late_minutes)>0?'rgba(192,57,43,.12)':'rgba(30,142,58,.12)'};
+
 export function MySalaryPage() {
   const [tab, setTab] = useState('salary');
   const [attMonth, setAttMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -113,7 +116,7 @@ export function MySalaryPage() {
         </div>
         <div className="muted" style={{ margin: '10px 0' }}>Present: <strong>{days}</strong> din · Late: <strong>{lateDays}</strong> din · Work: <strong>{rows.reduce((a, r) => a + num(r.work_hours), 0).toFixed(2)}</strong> hr · OT: <strong>{rows.reduce((a, r) => a + num(r.overtime_hours), 0).toFixed(2)}</strong> hr</div>
         <div className="tableWrap" style={{ overflow: 'auto' }}><table className="table reportTable"><thead><tr><th>Date</th><th>Din</th><th>Punch In</th><th>Punch Out</th><th>Status</th><th>Late</th><th>Work Hrs</th><th>OT Hrs</th></tr></thead><tbody>
-          {rows.map((x) => <tr key={dateText(x.work_date)}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td>{timeIST(x.first_in)}</td><td>{x.single_punch ? <span className="muted">1 punch</span> : timeIST(x.last_out)}</td><td>{x.status}</td><td style={Number(x.late_minutes) > 0 ? { color: '#c0392b', fontWeight: 600 } : undefined}>{lateText(x.late_minutes)}</td><td>{num(x.work_hours).toFixed(2)}</td><td>{num(x.overtime_hours).toFixed(2)}</td></tr>)}
+          {rows.map((x) => <tr key={dateText(x.work_date)} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td style={inTone(x)}>{timeIST(x.first_in)}</td><td>{x.single_punch ? <span className="muted">1 punch</span> : timeIST(x.last_out)}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes) > 0 ? { color: '#c0392b', fontWeight: 600 } : undefined}>{lateText(x.late_minutes)}</td><td>{num(x.work_hours).toFixed(2)}</td><td>{num(x.overtime_hours).toFixed(2)}</td></tr>)}
           {!rows.length && <tr><td colSpan="8" className="muted">{att ? 'Is mahine ki attendance nahi mili.' : 'Loading…'}</td></tr>}
         </tbody></table></div>
       </div>;

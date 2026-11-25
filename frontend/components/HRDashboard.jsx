@@ -7,9 +7,10 @@ const money = (v) => Math.round(num(v)).toLocaleString('en-IN');
 const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 const dText = (v) => String(v || '').slice(0, 10);
 const MONTH_DAYS = 30;
+const timeIST = (v) => { if (!v) return '-'; const t = new Date(v); return isNaN(t) ? '-' : t.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }); };
 
-function Kpi({ label, value, sub, color }) {
-  return <div className="card" style={{ borderTop: '4px solid ' + color }}>
+function Kpi({ label, value, sub, color, onClick }) {
+  return <div className="card" onClick={onClick} title={onClick ? 'List dekhne ke liye dabayein' : undefined} style={{ borderTop: '4px solid ' + color, cursor: onClick ? 'pointer' : undefined }}>
     <div className="muted" style={{ fontSize: 13 }}>{label}</div>
     <div style={{ fontSize: 30, fontWeight: 800, margin: '6px 0 2px' }}>{value}</div>
     {sub ? <div className="muted" style={{ fontSize: 12 }}>{sub}</div> : null}
@@ -51,6 +52,7 @@ export function HRDashboard() {
   const [loc, setLoc] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [listKind, setListKind] = useState(''); // 'present' | 'absent' => popup list
   const month = day.slice(0, 7);
 
   useEffect(() => {
@@ -77,6 +79,8 @@ export function HRDashboard() {
     const presentIds = new Set(todayRows.map(a => String(a.employee_id)));
     const absentList = emps.filter(e => !presentIds.has(String(e.id)));
     const late = todayRows.filter(a => num(a.late_minutes) > 0).length;
+    const empById = new Map(emps.map(e => [String(e.id), e]));
+    const presentList = todayRows.map(a => ({ ...a, emp: empById.get(String(a.employee_id)) || {} })).sort((x, y) => String(x.first_in || '').localeCompare(String(y.first_in || '')));
 
     // payable: processed salary ho to wahi, warna estimate (basic/30 x present + allowances)
     const sal = salaries.filter(s => empIds.has(String(s.employee_id)));
@@ -106,7 +110,7 @@ export function HRDashboard() {
     // location wise aaj
     const locMap = {};
     for (const e of emps) { const k = e.location || 'No location'; locMap[k] = locMap[k] || { total: 0, present: 0 }; locMap[k].total++; if (presentIds.has(String(e.id))) locMap[k].present++; }
-    return { present: presentIds.size, absentList, late, payable, paidAmt, estimated, perDay, deptData, locMap, processed: sal.length };
+    return { present: presentIds.size, presentList, absentList, late, payable, paidAmt, estimated, perDay, deptData, locMap, processed: sal.length };
   }, [att, emps, salaries, empIds, day, month]);
 
   return <div>
@@ -120,8 +124,8 @@ export function HRDashboard() {
 
     <div className="grid" style={{ marginBottom: 14 }}>
       <Kpi label="Total Employees" value={emps.length} sub={loc || 'All locations'} color="#3f7edb" />
-      <Kpi label="Present" value={d.present} sub={day} color="#279d8c" />
-      <Kpi label="Absent" value={d.absentList.length} sub={d.late ? d.late + ' late aaye' : day} color="#c0392b" />
+      <Kpi label="Present" value={d.present} sub={day + ' · list dekhein'} color="#279d8c" onClick={() => setListKind('present')} />
+      <Kpi label="Absent" value={d.absentList.length} sub={(d.late ? d.late + ' late aaye · ' : '') + 'list dekhein'} color="#c0392b" onClick={() => setListKind('absent')} />
       <Kpi label={'Payable (' + month + ')'} value={'₹ ' + money(d.payable)} sub={d.estimated ? 'Estimate - Salary tab me Process Salary baaki hai' : 'Paid ₹ ' + money(d.paidAmt) + ' · Baaki ₹ ' + money(Math.max(0, d.payable - d.paidAmt))} color="#8b67c9" />
     </div>
 
@@ -152,5 +156,22 @@ export function HRDashboard() {
       </tbody></table></div>
       <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Absent = jinka us din koi punch nahi. Sunday/holiday par bhi sab absent dikhenge.</p>
     </div>
+    {listKind && <div className="modal" onClick={() => setListKind('')}><div className="modalbox" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <div><h3 style={{ margin: 0 }}>{listKind === 'present' ? 'Present' : 'Absent'} ({day}) - {listKind === 'present' ? d.presentList.length : d.absentList.length}</h3><div className="muted" style={{ fontSize: 12 }}>{loc || 'All locations'}</div></div>
+        <button type="button" className="btn" onClick={() => setListKind('')}>Close</button>
+      </div>
+      <div className="tableWrap" style={{ marginTop: 12, maxHeight: '62vh', overflow: 'auto' }}>
+        {listKind === 'present'
+          ? <table className="table"><thead><tr><th>Code</th><th>Name</th><th>Location</th><th>In</th><th>Out</th><th>Late</th></tr></thead><tbody>
+              {d.presentList.map(a => { const isLate = num(a.late_minutes) > 0; return <tr key={a.id || a.employee_id} style={{ background: isLate ? 'rgba(192,57,43,.12)' : 'rgba(30,142,58,.12)' }}><td>{a.emp.employee_code}</td><td>{a.emp.name || a.employee_name}</td><td>{a.emp.location || '-'}</td><td style={{ color: isLate ? '#c0392b' : '#1e8e3e', fontWeight: 700 }}>{timeIST(a.first_in)}</td><td>{a.single_punch ? '1 punch' : timeIST(a.last_out)}</td><td>{isLate ? num(a.late_minutes) + ' min' : '-'}</td></tr>; })}
+              {!d.presentList.length && <tr><td colSpan="6" className="muted">Is din koi present nahi.</td></tr>}
+            </tbody></table>
+          : <table className="table"><thead><tr><th>Code</th><th>Name</th><th>Department</th><th>Location</th></tr></thead><tbody>
+              {d.absentList.map(e => <tr key={e.id}><td>{e.employee_code}</td><td>{e.name}</td><td>{e.department || '-'}</td><td>{e.location || '-'}</td></tr>)}
+              {!d.absentList.length && <tr><td colSpan="4" className="muted">Sab present hain.</td></tr>}
+            </tbody></table>}
+      </div>
+    </div></div>}
   </div>;
 }

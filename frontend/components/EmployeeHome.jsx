@@ -6,6 +6,8 @@ const timeIST = (v) => { if (!v) return '-'; const d = new Date(v); return isNaN
 const dayName = (v) => { const d = new Date(String(v).slice(0, 10) + 'T00:00:00'); return isNaN(d) ? '' : d.toLocaleDateString('en-IN', { weekday: 'short' }); };
 const hourIST = () => Number(new Date().toLocaleString('en-IN', { hour: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' })) % 24;
 
+const inTone=(r)=>(!r.first_in||r.status==='Absent')?undefined:(Number(r.late_minutes)>0?{color:'#c0392b',fontWeight:700}:{color:'#1e8e3e',fontWeight:700});
+const rowTint=(r)=>(!r.first_in||r.status==='Absent')?undefined:{background:Number(r.late_minutes)>0?'rgba(192,57,43,.12)':'rgba(30,142,58,.12)'};
 // Sirf employee login ka Home: punch reminder, mahine ka Present / Late / Absent, profile reminder.
 export function EmployeeHome({ setActive, user }) {
   const [d, setD] = useState(null);
@@ -52,7 +54,7 @@ export function EmployeeHome({ setActive, user }) {
     <div className="card tableWrap">
       <div style={{ fontWeight: 700, marginBottom: 6 }}>Meri Attendance</div>
       <table className="table reportTable"><thead><tr><th>Date</th><th>Din</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>
-        {(d.recent || []).map((r) => <tr key={String(r.work_date)}><td>{String(r.work_date).slice(0, 10)}</td><td>{dayName(r.work_date)}</td><td>{timeIST(r.first_in)}</td><td>{r.single_punch ? '1 punch' : timeIST(r.last_out)}</td><td>{r.status}{r.late_minutes > 0 ? ' • Late ' + r.late_minutes + 'm' : ''}</td></tr>)}
+        {(d.recent || []).map((r) => <tr key={String(r.work_date)} style={rowTint(r)}><td>{String(r.work_date).slice(0, 10)}</td><td>{dayName(r.work_date)}</td><td style={inTone(r)}>{timeIST(r.first_in)}</td><td>{r.single_punch ? '1 punch' : timeIST(r.last_out)}</td><td style={inTone(r)}>{r.status}{r.late_minutes > 0 ? ' • Late ' + r.late_minutes + 'm' : ''}</td></tr>)}
         {!(d.recent || []).length && <tr><td colSpan="5" className="muted">Is mahine abhi koi attendance nahi.</td></tr>}
       </tbody></table>
     </div>
