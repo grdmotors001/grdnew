@@ -70,12 +70,19 @@ export function HRAttendancePage() {
   const [newDept,setNewDept]=useState('');
 
   const locations=[...new Set(employees.map(e=>e.location).filter(Boolean))];
+  // Employee form ke dropdown: Department = Dept Timing ke departments + jo employees me pehle se hain; Location = Outlets + pehle se bhari locations (jaise factory).
+  const uniqSorted=(arr)=>[...new Set(arr.map(v=>String(v||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const deptOptions=uniqSorted([...timings.map(t=>t.department),...employees.map(e=>e.department)]);
+  const locOptions=uniqSorted([...outlets.filter(o=>o.active!==false).map(o=>o.name),...employees.map(e=>e.location)]);
+  const optionsFor=(k)=>k==='department'?deptOptions:locOptions;
+  const dropdown=(k,value,onChange,style)=>{ const list=optionsFor(k); const has=!value||list.some(v=>v.toLowerCase()===String(value).trim().toLowerCase()); return <select value={value||''} onChange={onChange} style={style}><option value="">-- Select --</option>{!has&&<option value={value}>{value}</option>}{list.map(v=><option key={v} value={v}>{v}</option>)}</select>; };
 
   const load=async()=>{
     setError('');
     try {
       const e=await get('/hr/employees'); setEmployees(e.employees||[]);
       if(tab==='employees'){ try{ const u=await get('/users'); setUsers(u.rows||u.data||u.items||[]); }catch(_){ setUsers([]); } }
+      if(tab==='employees'){ try{ const t=await get('/hr/department-timings'); setTimings(t.timings||[]); }catch(_){} try{ const o=await get('/hr/outlets'); setOutlets(o.outlets||[]); }catch(_){} }
       if(tab==='attendance'){ const a=await get('/hr/attendance?month='+month); setAttendance(a.attendance||[]); }
       if(tab==='salary'){ const s=await get('/hr/salary?month='+month); setSalaries(s.salaries||[]); }
       if(tab==='outlets'){ const o=await get('/hr/outlets'); setOutlets(o.outlets||[]); setOutEdit({}); }
@@ -236,7 +243,7 @@ export function HRAttendancePage() {
   const showPhoto=async(r)=>{
     try{ const d=await get('/hr/punch-photo?id='+r.id,{noClientCache:true}); setPhoto({name:r.employee_name+' • '+(r.kind==='in'?'Punch In':'Punch Out'),src:d.selfie}); }catch(err){ setError(err.message||'Photo nahi mili.'); }
   };
-  const inp=(k,type)=><input type={type||'text'} value={edit[k]} onChange={e=>setEdit({...edit,[k]:e.target.value})} style={{width:type==='number'?80:110}}/>;
+  const inp=(k,type)=>(k==='department'||k==='location')?dropdown(k,edit[k],e=>setEdit({...edit,[k]:e.target.value}),{width:140}):<input type={type||'text'} value={edit[k]} onChange={e=>setEdit({...edit,[k]:e.target.value})} style={{width:type==='number'?80:110}}/>;
 
   return <div className="page">
     <div className="pageHeader"><div><h2>HR • Attendance & Salary</h2><p className="muted">Employees, attendance, department timing aur monthly salary.</p></div></div>
@@ -286,7 +293,7 @@ export function HRAttendancePage() {
             <select value={userPick} onChange={e=>pickUserForAdd(e.target.value)}><option value="">-- User chunein --</option>{users.map(u=><option key={u.id} value={u.id}>{userLabel(u)}</option>)}</select>
             <div className="muted" style={{fontSize:12,marginTop:4}}>User chunne par Code, Name, Mobile aur Department apne aap bhar jayenge; baad me badal sakte hain.</div></div>
           <div className="formgrid" style={{marginTop:12}}>
-            {[['employee_code','Employee Code',true],['name','Name',true],['photo_url','Photo URL',false],['department','Department',false],['designation','Designation',false],['location','Location',false],['mobile','Mobile',false],['joining_date','Joining Date',false,'date'],['machine_user_id','Punch Machine User ID',false],['basic_salary','Basic Salary',false,'number'],['hra','HRA',false,'number'],['other_allowance','Other Allowance',false,'number'],['overtime_rate','Overtime Rate / Hr',false,'number']].map(([k,l,req,type])=><div className="field" key={k}><label>{l}</label><input type={type||'text'} value={form[k]} required={req} onChange={e=>setForm({...form,[k]:e.target.value})}/></div>)}
+            {[['employee_code','Employee Code',true],['name','Name',true],['photo_url','Photo URL',false],['department','Department',false],['designation','Designation',false],['location','Location',false],['mobile','Mobile',false],['joining_date','Joining Date',false,'date'],['machine_user_id','Punch Machine User ID',false],['basic_salary','Basic Salary',false,'number'],['hra','HRA',false,'number'],['other_allowance','Other Allowance',false,'number'],['overtime_rate','Overtime Rate / Hr',false,'number']].map(([k,l,req,type])=><div className="field" key={k}><label>{l}</label>{(k==='department'||k==='location')?dropdown(k,form[k],e=>setForm({...form,[k]:e.target.value})):<input type={type||'text'} value={form[k]} required={req} onChange={e=>setForm({...form,[k]:e.target.value})}/>}{k==='department'&&<small className="muted">Nayi department Dept Timing tab me jodein.</small>}{k==='location'&&<small className="muted">Punch ke liye outlet chunein (Outlets tab se).</small>}</div>)}
           </div>
           <div className="actions" style={{marginTop:16,display:'flex',gap:8}}><button className="btn primary" disabled={busy}>{busy?'Saving…':'Add Employee'}</button><button type="button" className="btn" onClick={()=>setShowAdd(false)}>Cancel</button></div>
         </form>
