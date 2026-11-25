@@ -537,6 +537,8 @@ async function ensureHRSchemas(){
   await pool.query("CREATE TABLE IF NOT EXISTS hr_outlet (id bigserial PRIMARY KEY, name text NOT NULL UNIQUE, latitude numeric, longitude numeric, radius_m integer NOT NULL DEFAULT 150, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS hr_punch_log (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, work_date date NOT NULL, kind text NOT NULL, punched_at timestamptz NOT NULL DEFAULT now(), outlet_id bigint, latitude numeric, longitude numeric, accuracy_m numeric, distance_m numeric, selfie text)");
   await pool.query("ALTER TABLE hr_punch_log ADD COLUMN IF NOT EXISTS thumb text");
+  await pool.query("ALTER TABLE hr_punch_log ADD COLUMN IF NOT EXISTS selfie_path text");
+  await pool.query("ALTER TABLE hr_punch_log ADD COLUMN IF NOT EXISTS thumb_path text");
   await pool.query("CREATE INDEX IF NOT EXISTS hr_punch_log_date_idx ON hr_punch_log (work_date, employee_id)");
   if(!hrOutletSeeded){
     for(const n of ["Guruji Automobile","Singh E-Rickshaw","Keshavpur","Maa Bandla Mukhi","Bhajanpura"])await pool.query("INSERT INTO hr_outlet (name) VALUES ($1) ON CONFLICT (name) DO NOTHING",[n]);
@@ -554,6 +556,50 @@ function hrDistanceM(lat1:number,lng1:number,lat2:number,lng2:number){
   return 2*R*Math.asin(Math.sqrt(h));
 }
 const hrTodayIST=()=>new Date(Date.now()+19800000).toISOString().slice(0,10);
+
+// ---- Selfie Supabase Storage me (private bucket). DB me sirf file ka path jata hai. ----
+// Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (server-only, kabhi NEXT_PUBLIC_ nahi), optional HR_SELFIE_BUCKET.
+const HR_SELFIE_BUCKET=String(process.env.HR_SELFIE_BUCKET||"punch-selfies");
+const sbBase=()=>String(process.env.SUPABASE_URL||"").replace(/\/$/,"");
+const sbKey=()=>String(process.env.SUPABASE_SERVICE_ROLE_KEY||"");
+const selfieStorageOn=()=>!!(sbBase()&&sbKey());
+const sbHeaders=(extra?:any)=>({apikey:sbKey(),Authorization:"Bearer "+sbKey(),...(extra||{})});
+let selfieBucketReady=false;
+async function ensureSelfieBucket(){
+  if(selfieBucketReady)return;
+  const r=await fetch(sbBase()+"/storage/v1/bucket",{method:"POST",headers:sbHeaders({"Content-Type":"application/json"}),body:JSON.stringify({id:HR_SELFIE_BUCKET,name:HR_SELFIE_BUCKET,public:false,file_size_limit:1048576,allowed_mime_types:["image/jpeg","image/png","image/webp"]})});
+  if(r.ok||r.status===409){selfieBucketReady=true;return;}
+  const t=await r.text();
+  if(/already exists|Duplicate/i.test(t)){selfieBucketReady=true;return;}
+  throw new Error("Selfie bucket nahi bana: "+t.slice(0,200));
+}
+async function uploadSelfie(dataUrl:string,path:string){
+  await ensureSelfieBucket();
+  const m=/^data:(image\/(?:jpeg|png|webp));base64,(.*)$/.exec(dataUrl);
+  if(!m)throw new Error("Selfie format galat hai.");
+  const r=await fetch(sbBase()+"/storage/v1/object/"+HR_SELFIE_BUCKET+"/"+path,{method:"POST",headers:sbHeaders({"Content-Type":m[1],"x-upsert":"false"}),body:Buffer.from(m[2],"base64")});
+  if(!r.ok)throw new Error("Selfie upload fail: "+(await r.text()).slice(0,200));
+}
+async function signedSelfieUrls(paths:string[]){
+  const out:Record<string,string>={};
+  if(!paths.length)return out;
+  const r=await fetch(sbBase()+"/storage/v1/object/sign/"+HR_SELFIE_BUCKET,{method:"POST",headers:sbHeaders({"Content-Type":"application/json"}),body:JSON.stringify({expiresIn:300,paths})});
+  if(!r.ok)return out;
+  const d:any=await r.json();
+  for(const it of (Array.isArray(d)?d:[])){
+    const u=String(it?.signedURL||it?.signedUrl||"");
+    if(it?.path&&u)out[String(it.path)]=u.startsWith("http")?u:sbBase()+"/storage/v1"+(u.startsWith("/")?u:"/"+u);
+  }
+  return out;
+}
+async function signedSelfieUrl(path:string){
+  const r=await fetch(sbBase()+"/storage/v1/object/sign/"+HR_SELFIE_BUCKET+"/"+path,{method:"POST",headers:sbHeaders({"Content-Type":"application/json"}),body:JSON.stringify({expiresIn:120})});
+  if(!r.ok)return null;
+  const d:any=await r.json();
+  const u=String(d.signedURL||d.signedUrl||"");
+  if(!u)return null;
+  return u.startsWith("http")?u:sbBase()+"/storage/v1"+(u.startsWith("/")?u:"/"+u);
+}
 // Late minutes (IST) department timing se nikalta hai. month = 'YYYY-MM' ya '' (sab).
 async function hrRecalcLate(month:string){
   // Din ka status punch ke ghanton (last out - first in) se: half_day_min se kam = Absent, full_day_min se kam = Half Day, baaki Present.
@@ -1095,13 +1141,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="hr/punch-log"){
       let date=String(new URL(req.url).searchParams.get("date")||"").trim();
       if(!/^\d{4}-\d{2}-\d{2}$/.test(date))date=hrTodayIST();
-      const r=await pool.query("SELECT l.id,l.kind,l.punched_at,l.latitude,l.longitude,l.accuracy_m,l.distance_m,l.thumb,e.name AS employee_name,e.employee_code,e.location,(l.selfie IS NOT NULL) AS has_selfie FROM hr_punch_log l JOIN hr_employee e ON e.id=l.employee_id WHERE l.work_date=$1 ORDER BY l.punched_at",[date]);
+      const r=await pool.query("SELECT l.id,l.kind,l.punched_at,l.latitude,l.longitude,l.accuracy_m,l.distance_m,l.thumb,l.thumb_path,e.name AS employee_name,e.employee_code,e.location,(l.selfie IS NOT NULL OR l.selfie_path IS NOT NULL) AS has_selfie FROM hr_punch_log l JOIN hr_employee e ON e.id=l.employee_id WHERE l.work_date=$1 ORDER BY l.punched_at",[date]);
+      // Thumbnail Storage me hai: ek hi call me sabke signed URL le kar r.thumb me daal dete hain (frontend badlav nahi).
+      const tp=r.rows.map((x:any)=>x.thumb_path).filter(Boolean);
+      if(tp.length){const m=await signedSelfieUrls(tp);for(const x of r.rows){if(x.thumb_path){x.thumb=m[x.thumb_path]||null;}delete x.thumb_path;}}
+      else for(const x of r.rows)delete x.thumb_path;
       return Response.json({date,rows:r.rows});
     }
     if(p==="hr/punch-photo"){
       const id=idOf(new URL(req.url).searchParams.get("id"));
-      const r=id?await pool.query("SELECT selfie FROM hr_punch_log WHERE id=$1",[id]):{rows:[]} as any;
-      return Response.json({selfie:r.rows[0]?.selfie||null});
+      const r=id?await pool.query("SELECT selfie,selfie_path FROM hr_punch_log WHERE id=$1",[id]):{rows:[]} as any;
+      const row=r.rows[0];
+      if(row?.selfie_path){const u=await signedSelfieUrl(String(row.selfie_path));return Response.json({selfie:u});}
+      return Response.json({selfie:row?.selfie||null});
     }
     if(p==="hr/my-salary"){
       if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
@@ -1673,6 +1725,22 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(dist>Number(outlet.radius_m||150))return Response.json({error:"Aap outlet \""+outlet.name+"\" se "+dist+" meter door hain (limit "+outlet.radius_m+" m). Outlet par aakar punch karein."},{status:400});
       const date=hrTodayIST(),month=date.slice(0,7);
       const cur=(await pool.query("SELECT id,first_in,last_out,single_punch FROM hr_attendance WHERE employee_id=$1 AND work_date=$2",[emp.id,date])).rows[0];
+      if(kind==="in"&&cur?.first_in)return Response.json({error:"Aaj ka Punch In ho chuka hai."},{status:400});
+      if(kind==="out"&&!cur?.first_in)return Response.json({error:"Pehle Punch In karein."},{status:400});
+      if(kind==="out"&&cur.last_out&&!cur.single_punch)return Response.json({error:"Aaj ka Punch Out ho chuka hai."},{status:400});
+      // Selfie pehle Storage me; upload fail ho to attendance likhi hi nahi jati (data adha-adhura nahi rehta).
+      let selfiePath:string|null=null,selfieDb:string|null=selfie,thumbPath:string|null=null,thumbDb:string|null=thumb;
+      if(selfieStorageOn()){
+        selfiePath=String(emp.id)+"/"+date+"/"+kind+"-"+Date.now()+".jpg";
+        try{await uploadSelfie(selfie,selfiePath);selfieDb=null;}
+        catch(e:any){console.error("[hr/punch] selfie upload",e?.message);return Response.json({error:"Selfie save nahi ho payi. Dobara try karein."},{status:502});}
+        // Thumbnail bhi Storage me (chhoti hai, isliye fail ho to punch nahi rokte; HR "Dekhein" se badi photo kholega).
+        if(thumb){
+          const tPath=String(emp.id)+"/"+date+"/"+kind+"-"+Date.now()+"-thumb.jpg";
+          try{await uploadSelfie(thumb,tPath);thumbPath=tPath;thumbDb=null;}
+          catch(e:any){console.error("[hr/punch] thumb upload",e?.message);thumbDb=null;}
+        }
+      }
       if(kind==="in"){
         if(cur?.first_in)return Response.json({error:"Aaj ka Punch In ho chuka hai."},{status:400});
         await pool.query("INSERT INTO hr_attendance (employee_id,work_date,first_in,status,single_punch) VALUES ($1,$2,now(),'Present',true) ON CONFLICT (employee_id,work_date) DO UPDATE SET first_in=now(),last_out=NULL,status='Present',single_punch=true",[emp.id,date]);
@@ -1681,7 +1749,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
         if(cur.last_out&&!cur.single_punch)return Response.json({error:"Aaj ka Punch Out ho chuka hai."},{status:400});
         await pool.query("UPDATE hr_attendance SET last_out=now(),single_punch=false,work_hours=ROUND((EXTRACT(EPOCH FROM (now()-first_in))/3600.0)::numeric,2) WHERE id=$1",[cur.id]);
       }
-      await pool.query("INSERT INTO hr_punch_log (employee_id,work_date,kind,outlet_id,latitude,longitude,accuracy_m,distance_m,selfie,thumb) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",[emp.id,date,kind,outlet.id,lat,lng,acc,dist,selfie,thumb]);
+      await pool.query("INSERT INTO hr_punch_log (employee_id,work_date,kind,outlet_id,latitude,longitude,accuracy_m,distance_m,selfie,thumb,selfie_path,thumb_path) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[emp.id,date,kind,outlet.id,lat,lng,acc,dist,selfieDb,thumbDb,selfiePath,thumbPath]);
       await hrRecalcLate(month);
       return Response.json({success:true,action:kind,distance_m:dist,outlet:outlet.name});
     }
