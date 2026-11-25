@@ -52,6 +52,7 @@ import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
 import { MySalaryPage } from '../components/MySalaryPage';
 import { PunchPage } from '../components/PunchPage';
+import { EmployeeHome } from '../components/EmployeeHome';
 import { NotificationPage } from '../components/NotificationPage';
 import { ShowroomBatteryStockPage, ShowroomAllCustomersPage, ShowroomExpensesReportsPage } from '../components/ShowroomReportsPages';
 import { ProfilePage } from '../components/ProfilePage';
@@ -160,7 +161,12 @@ const CUSTOM_PAGES = {
   'punch': () => <PunchPage />,
 };
 
-function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user }) {
+function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user, employeeMode }) {
+  if (employeeMode) {
+    const k = EMPLOYEE_KEYS.includes(rawActive) ? rawActive : 'dashboard';
+    if (k === 'dashboard') return <EmployeeHome setActive={setActive} user={user} />;
+    return CUSTOM_PAGES[k]({ setActive, optionUserId, setOptionUserId, user });
+  }
   // Vouchers tab keys (v-*) open the existing page of the same voucher.
   if (CUSTOM_PAGES[rawActive] && rawActive.startsWith('v-')) return CUSTOM_PAGES[rawActive]({ setActive, optionUserId, setOptionUserId, user });
   // VOUCHER_PAGE_FOR sirf permission/redirect ke liye hai. Jis key ka apna page hai (jaise showroom-stock) wo apna hi page kholega.
@@ -173,7 +179,8 @@ function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserI
 }
 
 // lib/menu (keyForPath/routeForKey) abhi 'vehicle-no-register' nahi jaanta, isliye refresh/click par Dashboard khul jata tha.
-const EXTRA_KEYS = ['vehicle-no-register', 'my-salary', 'punch'];
+const EXTRA_KEYS = ['vehicle-no-register', 'my-salary', 'punch', 'profile'];
+const EMPLOYEE_KEYS = ['dashboard', 'punch', 'my-salary', 'profile'];
 const keyFromPath = (path) => { const k = String(path || '').replace(/^\//, ''); return EXTRA_KEYS.includes(k) ? k : keyForPath(path); };
 const pathFromKey = (key) => (EXTRA_KEYS.includes(key) ? '/' + key : routeForKey(key).path);
 
@@ -182,6 +189,12 @@ export default function App() {
   const [checkedAuth, setCheckedAuth] = useState(false);
   const [active, setActive] = useState('dashboard');
   const [optionUserId, setOptionUserId] = useState(null);
+  const [employeeMode, setEmployeeMode] = useState(null); // null = abhi pata nahi
+
+  useEffect(() => {
+    if (!user || user.is_dealer) { setEmployeeMode(null); return; }
+    get('/hr/employee-home', { noClientCache: true }).then((r) => setEmployeeMode(!!r?.employee_mode)).catch(() => setEmployeeMode(false));
+  }, [user]);
 
   useEffect(() => {
     const syncFromUrl = () => setActive(keyFromPath(window.location.hash.replace(/^#/, '') || '/dashboard'));
@@ -228,9 +241,11 @@ export default function App() {
   if (!user) return <GRDLogin onLogin={setUser} />;
   if (user.is_dealer) return <DealerPortal dealer={user} onLogout={() => { setPortalKind(null); setToken(null); try { window.localStorage.removeItem('grd_dealer_profile'); } catch {} setUser(null); }} />;
 
+  if (employeeMode === null) return <div className="appLoadingScreen"><div className="appLoadingCard"><div className="appLoadingMark">G</div><b>G.R.D. MOTORS</b><span>Loading…</span></div></div>;
+
   return (
-    <Shell active={active} setActive={navigate} user={user} onLogout={() => { setToken(null); setUser(null); }}>
-      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} />
+    <Shell active={active} setActive={navigate} user={user} employeeMode={employeeMode} onLogout={() => { setToken(null); setUser(null); }}>
+      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} employeeMode={employeeMode} />
     </Shell>
   );
 }

@@ -868,7 +868,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // Notifications: jinke paas permission nahi (jaise Salesman) unko 403 ki jagah khali list -> header me error/console spam nahi.
     if(p==="notifications"&&!canRead(a,p))return Response.json({notifications:[],branch_cash_limits:[],count:0});
     // Har logged-in staff ko menu (nav-config), dashboard aur apna profile chahiye; ye allowed_modules se block nahi hone chahiye.
-    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="dashboard/trend"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance"||p==="hr/punch-status");
+    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="dashboard/trend"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance"||p==="hr/punch-status"||p==="hr/employee-home");
     if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     // Dealer Master form ko salesman list aur sub-group list chahiye: jiske paas Dealer module ka view right hai use ye 2 lookup read allowed (warna dropdown khali rehta tha).
     const dealerLookup=a?.scope==="staff"&&(p==="masters/salesman"||p==="sub-groups")&&(await actionAllowed(a,"dealer","view"));
@@ -1046,6 +1046,36 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!/^\d{4}-\d{2}$/.test(month))month=new Date().toISOString().slice(0,7);
       const r=await pool.query("SELECT work_date,first_in,last_out,status,work_hours,overtime_hours,late_minutes,single_punch FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date ASC",[emp.id,month]);
       return Response.json({linked:true,month,employee:emp,attendance:r.rows});
+    }
+    // Employee Home: sirf wo login jo employee se juda hai aur jiske paas koi module right nahi (employee_mode). Baaki users ko normal rights wale tabs milte hain.
+    if(p==="hr/employee-home"){
+      if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
+      const ucols=await columns("user");
+      const sel=["id","username","department","is_super_user","allowed_modules","full_name","mobile","email","date_of_birth","address"].filter(c=>ucols.has(c)).map(c=>'"'+c+'"').join(",");
+      const u=(await pool.query('SELECT '+sel+' FROM "user" WHERE id=$1',[idOf(a.sub)])).rows[0];
+      const emp=await hrSelfEmployee(a);
+      if(!u||!emp)return Response.json({linked:false,employee_mode:false});
+      const mods=Array.isArray(u.allowed_modules)?u.allowed_modules:String(u.allowed_modules||"").split(",");
+      const hasMods=mods.map((x:any)=>String(x).trim()).filter(Boolean).length>0;
+      const isAdmin=u.is_super_user===true||String(u.department||"").trim().toLowerCase()==="admin";
+      const employee_mode=!hasMods&&!isAdmin;
+      const today=hrTodayIST(),month=today.slice(0,7);
+      const outlet=(await pool.query("SELECT name,latitude,longitude FROM hr_outlet WHERE active=true AND lower(btrim(name))=lower(btrim($1)) LIMIT 1",[String(emp.location||"")])).rows[0]||null;
+      const row=(await pool.query("SELECT first_in,last_out,single_punch,status,late_minutes FROM hr_attendance WHERE employee_id=$1 AND work_date=$2",[emp.id,today])).rows[0]||null;
+      const st=(await pool.query(`SELECT
+          COUNT(*) FILTER (WHERE status='Present') AS present,
+          COUNT(*) FILTER (WHERE late_minutes>0) AS late,
+          COUNT(*) FILTER (WHERE status='Half Day') AS half_day,
+          COUNT(*) FILTER (WHERE status='Absent') AS absent_marked
+        FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2`,[emp.id,month])).rows[0];
+      // Bina punch wale pichhle din (Sunday chhodkar) bhi Absent gine jate hain; aaj ka din abhi nahi (punch baaki ho sakta hai).
+      const miss=(await pool.query(`SELECT COUNT(*)::int AS n FROM generate_series(date_trunc('month',$2::date)::date,($2::date-1),'1 day') d
+          WHERE EXTRACT(DOW FROM d)<>0 AND d::date>=COALESCE((SELECT joining_date FROM hr_employee WHERE id=$1),'1900-01-01'::date)
+            AND NOT EXISTS (SELECT 1 FROM hr_attendance x WHERE x.employee_id=$1 AND x.work_date=d::date)`,[emp.id,today])).rows[0];
+      const recent=(await pool.query("SELECT work_date,first_in,last_out,status,late_minutes,single_punch FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date DESC LIMIT 31",[emp.id,month])).rows;
+      const labels:any={full_name:"Poora naam",mobile:"Mobile",email:"Email",date_of_birth:"Janm tithi",address:"Pata"};
+      const profile_missing=Object.keys(labels).filter(k=>ucols.has(k)&&!String(u[k]??"").trim()).map(k=>labels[k]);
+      return Response.json({linked:true,employee_mode,employee:{name:emp.name,location:emp.location,department:emp.department},outlet:outlet?{name:outlet.name,has_location:outlet.latitude!==null&&outlet.longitude!==null}:null,today:row,month,stats:{present:Number(st.present),late:Number(st.late),half_day:Number(st.half_day),absent:Number(st.absent_marked)+Number(miss.n)},recent,profile_missing});
     }
     // Outlet punch: apna aaj ka status + apne outlet ki info (sirf token ke user ka).
     if(p==="hr/punch-status"){

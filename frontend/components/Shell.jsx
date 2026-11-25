@@ -76,7 +76,7 @@ function NavItem({ icon: Icon, label, active, collapsed, onClick }) {
   );
 }
 
-export function Shell({ active, setActive, user, onLogout, children }) {
+export function Shell({ active, setActive, user, onLogout, children, employeeMode = false }) {
   const [collapsed, setCollapsed] = useState(false);
   const { themeId, changeTheme } = useTheme();
   const [showPalette, setShowPalette] = useState(false);
@@ -126,6 +126,13 @@ export function Shell({ active, setActive, user, onLogout, children }) {
     if (tg) navGroups[tg] = [...navGroups[tg], ['punch', 'Punch In/Out']];
   }
 
+  // Employee login (koi module right nahi): sirf apne kaam ke tab. Rights wale users ko unke rights ke hisaab se tab milte rehte hain.
+  if (employeeMode) {
+    for (const k of Object.keys(navGroups)) delete navGroups[k];
+    navGroups['Mera Kaam'] = [['punch', 'Punch In/Out'], ['my-salary', 'My Salary'], ['profile', 'My Profile']];
+    iconByGroup['Mera Kaam'] = Users;
+  }
+
   if (navGroups['Reports'] && !Object.values(navGroups).flat().some(([key]) => key === 'vehicle-no-register')) {
     const list = [...navGroups['Reports']];
     const at = list.findIndex(([key]) => key === 'hypothecation-register');
@@ -153,7 +160,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   };
 
   const initial = (user?.username || '?').charAt(0).toUpperCase();
-  const activeGroup = active === 'vehicle-no-register' ? 'Reports' : customTabs
+  const activeGroup = employeeMode ? (active === 'dashboard' ? 'Dashboard' : 'Mera Kaam') : active === 'vehicle-no-register' ? 'Reports' : customTabs
     ? (Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0] || 'Dashboard')
     : groupForKey(active);
   const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);
@@ -162,7 +169,7 @@ export function Shell({ active, setActive, user, onLogout, children }) {
   const isAdminUser = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
   // Voucher tab keys (v-*) follow the permission of the page they open.
   // 'my-salary' har staff user ko dikhti hai (server sirf usi ki apni salary deta hai).
-  const canOpen = (key) => key === 'my-salary' || key === 'punch' || (user?.allowed_modules || []).includes(VOUCHER_PAGE_FOR[key] || key);
+  const canOpen = (key) => key === 'my-salary' || key === 'punch' || (employeeMode && key === 'profile') || (user?.allowed_modules || []).includes(VOUCHER_PAGE_FOR[key] || key);
   const allowedFor = (items) => isAdminUser ? items : items.filter(([key]) => key === 'loan-application-view' ? String(user?.department || '').trim().toLowerCase() === 'admin' : canOpen(key));
   // Help me dikhane ke liye shortcuts: voucher F-keys sirf wahi jo is user ko dikhte hain.
   const helpSections = [
@@ -376,7 +383,21 @@ export function Shell({ active, setActive, user, onLogout, children }) {
         </div>
         {children}
       </main>
-      <nav className="adminBottomNav adminBottomNavForce" aria-label="Staff bottom navigation">
+      {employeeMode && <nav className="adminBottomNav adminBottomNavForce" aria-label="Employee bottom navigation">
+        <button type="button" className={active === 'dashboard' ? 'active' : ''} onClick={() => selectMenu('dashboard')}>
+          <LayoutDashboard size={18} /><small>Home</small>
+        </button>
+        <button type="button" className={active === 'punch' ? 'active' : ''} onClick={() => selectMenu('punch')}>
+          <span style={{fontSize:18,lineHeight:1}}>⏱</span><small>Punch</small>
+        </button>
+        <button type="button" className={active === 'my-salary' ? 'active' : ''} onClick={() => selectMenu('my-salary')}>
+          <span style={{fontSize:18,lineHeight:1}}>₹</span><small>Salary</small>
+        </button>
+        <button type="button" className={active === 'profile' ? 'active' : ''} onClick={() => selectMenu('profile')}>
+          <Users size={18} /><small>Profile</small>
+        </button>
+      </nav>}
+      {!employeeMode && <nav className="adminBottomNav adminBottomNavForce" aria-label="Staff bottom navigation">
         <button type="button" className={active === 'dashboard' ? 'active' : ''} onClick={() => selectMenu('dashboard')}>
           <LayoutDashboard size={18} /><small>Home</small>
         </button>
@@ -399,9 +420,9 @@ export function Shell({ active, setActive, user, onLogout, children }) {
         }}>
           <Users size={18} /><small>Profile</small>
         </button>
-      </nav>
+      </nav>}
       <MobileSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} onPick={selectMenu} recentKey="grd_admin_recent_menu" />
-      <ChatWidget open={chatOpen} onOpenChange={setChatOpen} />
+      {!employeeMode && <ChatWidget open={chatOpen} onOpenChange={setChatOpen} />}
     </div>
   );
 }
