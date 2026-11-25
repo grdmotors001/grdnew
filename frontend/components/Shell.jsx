@@ -283,7 +283,11 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
             collapsed={collapsed}
             onClick={() => selectMenu('dashboard')}
           />
-          {Object.entries(navGroups).map(([group, items]) => {
+          {employeeMode && (navGroups['Mera Kaam'] || []).map(([key, label]) => {
+            const ItemIcon = key === 'punch' ? Calendar : key === 'my-salary' ? Wallet : UserCog;
+            return <NavItem key={key} icon={ItemIcon} label={label} active={active === key} collapsed={collapsed} onClick={() => selectMenu(key)} />;
+          })}
+          {!employeeMode && Object.entries(navGroups).map(([group, items]) => {
             const allowed = allowedFor(items);
             // Group me user ke liye ek bhi option allow na ho to group sidebar se poora hide.
             if (!allowed.length) return null;
@@ -340,7 +344,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
             <div className="title">{active === 'dashboard' ? 'Dashboard' : activeGroup}</div>
             <div className="subtitle">{active === 'dashboard' ? 'Admin Overview' : labelFor(active)} · {user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
           </div>
-          {activeGroup === 'Showroom' ? (
+          {employeeMode ? null : activeGroup === 'Showroom' ? (
             <div className="moduleStrip showroomModuleStrip" aria-label="Showroom">
               {SHOWROOM_SECTIONS.map(section => {
                 const items = allowedFor(section.items);

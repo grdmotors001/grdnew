@@ -745,3 +745,15 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
 /* Employee mode: fixed bottom bar ke peeche content na chhupe */
 .employeeBottomPad{padding-bottom:0}
 @media(max-width:700px){.employeeBottomPad{padding-bottom:96px}}
+
+/* Mobile fit fix: page side-ways na failay, bottom bar poora screen me aaye */
+.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+@media(max-width:700px){
+  html,body{max-width:100vw;overflow-x:hidden}
+  .app,.main,.mainCollapsed,.page{min-width:0;max-width:100%}
+  .main,.mainCollapsed{overflow-x:hidden}
+  .card{min-width:0;max-width:100%}
+  .tableWrap,.tablewrap{overflow-x:auto;max-width:100%}
+  .adminBottomNavForce{left:10px !important;right:10px !important;width:auto !important;max-width:calc(100vw - 20px) !important;box-sizing:border-box !important}
+  .adminBottomNavForce button{overflow:hidden}
+}
