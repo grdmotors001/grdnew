@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { get } from '../lib/api';
+import { punchCells } from '../lib/punchView';
 
 // Apni salary (mobile-friendly cards, slip jaisa table nahi) - sirf dekhne ke liye (koi edit / save nahi). Server token ke user ki hi salary deta hai.
 const MONTH_DAYS = 30;
@@ -116,7 +117,7 @@ export function MySalaryPage() {
         </div>
         <div className="muted" style={{ margin: '10px 0' }}>Present: <strong>{days}</strong> din · Late: <strong>{lateDays}</strong> din · Work: <strong>{rows.reduce((a, r) => a + num(r.work_hours), 0).toFixed(2)}</strong> hr · OT: <strong>{rows.reduce((a, r) => a + num(r.overtime_hours), 0).toFixed(2)}</strong> hr</div>
         <div className="tableWrap" style={{ overflow: 'auto' }}><table className="table reportTable"><thead><tr><th>Date</th><th>Din</th><th>Punch In</th><th>Punch Out</th><th>Status</th><th>Late</th><th>Work Hrs</th><th>OT Hrs</th></tr></thead><tbody>
-          {rows.map((x) => <tr key={dateText(x.work_date)} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td style={inTone(x)}>{timeIST(x.first_in)}</td><td>{x.single_punch ? <span className="muted">1 punch</span> : timeIST(x.last_out)}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes) > 0 ? { color: '#c0392b', fontWeight: 600 } : undefined}>{lateText(x.late_minutes)}</td><td>{num(x.work_hours).toFixed(2)}</td><td>{num(x.overtime_hours).toFixed(2)}</td></tr>)}
+          {rows.map((x) => <tr key={dateText(x.work_date)} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td style={inTone(x)}>{punchCells(x, timeIST).inCell}</td><td>{punchCells(x, timeIST).outCell}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes) > 0 ? { color: '#c0392b', fontWeight: 600 } : undefined}>{lateText(x.late_minutes)}</td><td>{num(x.work_hours).toFixed(2)}</td><td>{num(x.overtime_hours).toFixed(2)}</td></tr>)}
           {!rows.length && <tr><td colSpan="8" className="muted">{att ? 'Is mahine ki attendance nahi mili.' : 'Loading…'}</td></tr>}
         </tbody></table></div>
       </div>;

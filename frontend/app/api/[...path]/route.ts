@@ -524,6 +524,7 @@ async function ensureHRSchemas(){
   await pool.query("ALTER TABLE hr_employee ADD COLUMN IF NOT EXISTS user_id bigint");
   await pool.query("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS late_minutes integer NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS single_punch boolean NOT NULL DEFAULT false");
+  await pool.query("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS punch_count integer NOT NULL DEFAULT 0");
   // Department-wise duty time: late = first_in - (start_time + grace)
   for(const c of ["extra_days","holiday_days","advance","pl_loan"])await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS "+c+" numeric NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS present_override numeric");
@@ -1095,7 +1096,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       if(!emp)return Response.json({linked:false,employee:null,attendance:[]});
       let month=String(new URL(req.url).searchParams.get("month")||"").trim();
       if(!/^\d{4}-\d{2}$/.test(month))month=new Date().toISOString().slice(0,7);
-      const r=await pool.query("SELECT work_date,first_in,last_out,status,work_hours,overtime_hours,late_minutes,single_punch FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date ASC",[emp.id,month]);
+      const r=await pool.query("SELECT work_date,first_in,last_out,status,work_hours,overtime_hours,late_minutes,single_punch,punch_count FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date ASC",[emp.id,month]);
       return Response.json({linked:true,month,employee:emp,attendance:r.rows});
     }
     // Employee Home: sirf wo login jo employee se juda hai aur jiske paas koi module right nahi (employee_mode). Baaki users ko normal rights wale tabs milte hain.
@@ -1123,7 +1124,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const miss=(await pool.query(`SELECT COUNT(*)::int AS n FROM generate_series(date_trunc('month',$2::date)::date,($2::date-1),'1 day') d
           WHERE EXTRACT(DOW FROM d)<>0 AND d::date>=COALESCE((SELECT joining_date FROM hr_employee WHERE id=$1),'1900-01-01'::date)
             AND NOT EXISTS (SELECT 1 FROM hr_attendance x WHERE x.employee_id=$1 AND x.work_date=d::date)`,[emp.id,today])).rows[0];
-      const recent=(await pool.query("SELECT work_date,first_in,last_out,status,late_minutes,single_punch FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date DESC LIMIT 31",[emp.id,month])).rows;
+      const recent=(await pool.query("SELECT work_date,first_in,last_out,status,late_minutes,single_punch,punch_count FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date DESC LIMIT 31",[emp.id,month])).rows;
       const labels:any={full_name:"Poora naam",mobile:"Mobile",email:"Email",date_of_birth:"Janm tithi",address:"Pata"};
       const profile_missing=Object.keys(labels).filter(k=>ucols.has(k)&&!String(u[k]??"").trim()).map(k=>labels[k]);
       return Response.json({linked:true,employee_mode,employee:{name:emp.name,location:emp.location,department:emp.department},outlet:outlet?{name:outlet.name,has_location:outlet.latitude!==null&&outlet.longitude!==null}:null,today:row,month,stats:{present:Number(st.present),late:Number(st.late),half_day:Number(st.half_day),absent:Number(st.absent_marked)+Number(miss.n)},recent,profile_missing});

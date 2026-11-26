@@ -3,6 +3,7 @@ import { useContext, useEffect, useState } from 'react';
 import { get, post } from '../lib/api';
 import { HRDashboard } from './HRDashboard';
 import { HRTabContext } from './hrTabContext';
+import { punchCells } from '../lib/punchView';
 
 const emptyEmployee = { employee_code:'', name:'', department:'', designation:'', location:'', mobile:'', photo_url:'', joining_date:'', machine_user_id:'', basic_salary:'', hra:'', other_allowance:'', overtime_rate:'' };
 const timeIST = (v) => { if(!v) return '-'; const d=new Date(v); return isNaN(d)?'-':d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Kolkata'}); };
@@ -382,7 +383,7 @@ export function HRAttendancePage() {
       </div>
       <div className="card tableWrap"><div className="toolbar"><div className="field"><label>Month</label><input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></div><button className="btn" onClick={load}>Refresh</button><button className="btn" disabled={busy} onClick={recalc}>Late dobara nikalein</button><div className="field"><label>Employee dhundhein</label><input value={attSearch} onChange={e=>setAttSearch(e.target.value)} placeholder="naam ya code"/></div></div>
         <table className="table reportTable"><thead><tr><th>Date</th><th>Employee</th><th>First In</th><th>Last Out</th><th>Status</th><th>Late</th><th>Hours</th><th>OT</th></tr></thead><tbody>
-          {attendance.filter(x=>{ const q=attSearch.trim().toLowerCase(); return !q||String(x.employee_name||'').toLowerCase().includes(q)||String(x.employee_code||'').toLowerCase().includes(q); }).map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{x.employee_name}</td><td style={inTone(x)}>{timeIST(x.first_in)}</td><td>{x.single_punch?<span className="muted">1 punch</span>:timeIST(x.last_out)}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>)}
+          {attendance.filter(x=>{ const q=attSearch.trim().toLowerCase(); return !q||String(x.employee_name||'').toLowerCase().includes(q)||String(x.employee_code||'').toLowerCase().includes(q); }).map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{x.employee_name}</td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>)}
           {!attendance.length&&<tr><td colSpan="8" className="muted">No attendance records for this month.</td></tr>}
         </tbody></table></div>
     </>}
@@ -421,7 +422,7 @@ export function HRAttendancePage() {
           {error && <div className="error" style={{marginTop:10}}>{error}</div>}
           <div className="muted" style={{margin:'10px 0'}}>Present: <strong>{days}</strong> din{halfDays>0&&<> (Half Day: <strong>{halfDays}</strong>)</>}{absDays>0&&<> · Absent (kam ghante): <strong>{absDays}</strong></>} · Late: <strong>{lateDays}</strong> din · Work: <strong>{hm(hrs)==='-'?'0 min':hm(hrs)}</strong> · OT: <strong>{hm(ot)==='-'?'0 min':hm(ot)}</strong></div>
           <div className="tableWrap" style={{maxHeight:'60vh',overflow:'auto'}}><table className="table reportTable"><thead><tr><th>Date</th><th>Din</th><th>Punch In</th><th>Punch Out</th><th>Status</th><th>Late</th><th>Work Hrs</th><th>OT Hrs</th></tr></thead><tbody>
-            {rows.map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td style={inTone(x)}>{timeIST(x.first_in)}</td><td>{x.single_punch?<span className="muted">1 punch</span>:timeIST(x.last_out)}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>)}
+            {rows.map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{dow(x.work_date)}</td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>)}
             {!rows.length && <tr><td colSpan="8" className="muted">{attView.loading?'Loading…':'Is mahine ki attendance nahi mili.'}</td></tr>}
           </tbody></table></div>
         </div></div>; })()}

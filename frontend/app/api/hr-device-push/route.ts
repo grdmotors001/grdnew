@@ -7,6 +7,14 @@ import { pool } from "@/lib/server/common";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// punch_count column pehli baar apne aap ban jaata hai (SQL alag se chalana zaroori nahi).
+let colReady = false;
+async function ensureCols() {
+  if (colReady) return;
+  await pool.query("ALTER TABLE hr_attendance ADD COLUMN IF NOT EXISTS punch_count integer NOT NULL DEFAULT 0");
+  colReady = true;
+}
+
 export async function POST(req: Request) {
   const key = process.env.BIOMAX_SYNC_KEY || "";
   if (!key || req.headers.get("x-sync-key") !== key) {
@@ -30,9 +38,10 @@ export async function POST(req: Request) {
     d.get(m[1])!.push(m[2]);
   }
 
+  await ensureCols();
   const emps = (await pool.query("SELECT id,employee_code,machine_user_id,location FROM hr_employee")).rows as any[];
   const used = new Set(emps.map((x) => String(x.employee_code)));
-  const ids: number[] = [], dates: string[] = [], ins: string[] = [], outs: string[] = [], hrs: number[] = [], sps: boolean[] = [];
+  const ids: number[] = [], dates: string[] = [], ins: string[] = [], outs: string[] = [], hrs: number[] = [], sps: boolean[] = [], cnts: number[] = [];
   let matched = 0, created = 0, unknown: string[] = [];
 
   for (const [code, days] of map) {
@@ -56,16 +65,16 @@ export async function POST(req: Request) {
       ins.push(date + "T" + first + "+05:30");
       outs.push(single ? "" : date + "T" + last + "+05:30");
       hrs.push(single ? 0 : Math.round(((toSec(last) - toSec(first)) / 3600) * 100) / 100);
-      sps.push(single);
+      sps.push(single); cnts.push(times.length);
     }
   }
 
   if (ids.length) {
     await pool.query(
-      `INSERT INTO hr_attendance (employee_id,work_date,first_in,last_out,status,work_hours,overtime_hours,single_punch)
-       SELECT a,b,c,NULLIF(d,'')::timestamptz,'Present',e,0,f FROM unnest($1::bigint[],$2::date[],$3::timestamptz[],$4::text[],$5::numeric[],$6::boolean[]) AS t(a,b,c,d,e,f)
-       ON CONFLICT (employee_id,work_date) DO UPDATE SET first_in=EXCLUDED.first_in,last_out=EXCLUDED.last_out,status='Present',work_hours=EXCLUDED.work_hours,single_punch=EXCLUDED.single_punch`,
-      [ids, dates, ins, outs, hrs, sps]
+      `INSERT INTO hr_attendance (employee_id,work_date,first_in,last_out,status,work_hours,overtime_hours,single_punch,punch_count)
+       SELECT a,b,c,NULLIF(d,'')::timestamptz,'Present',e,0,f,g FROM unnest($1::bigint[],$2::date[],$3::timestamptz[],$4::text[],$5::numeric[],$6::boolean[],$7::int[]) AS t(a,b,c,d,e,f,g)
+       ON CONFLICT (employee_id,work_date) DO UPDATE SET first_in=EXCLUDED.first_in,last_out=EXCLUDED.last_out,status='Present',work_hours=EXCLUDED.work_hours,single_punch=EXCLUDED.single_punch,punch_count=EXCLUDED.punch_count`,
+      [ids, dates, ins, outs, hrs, sps, cnts]
     );
   }
   return Response.json({ success: true, imported_days: ids.length, matched, created, unknown_machine_ids: unknown });
