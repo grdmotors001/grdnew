@@ -1489,6 +1489,22 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       const rows=r.rows.map((x:any)=>({...x,opening:Number(x.opening),purchased:Number(x.purchased),consumed:Number(x.consumed),closing:Number(x.closing)}));
       return Response.json({rows,data:rows,count:rows.length});
     }
+    // Stock Ledger - Premises: pehle iska handler nahi tha, request generic journal_stock list par jati thi aur page ko "events" nahi milta tha
+    // (isliye hamesha "No records found"). IN = gaadi premises me aayi (vehicle entry), OUT = Delivery Challan (gaadi premises se bahar gayi).
+    if(p==="stock/ledger-premises"&&a.scope!=="dealer"){
+      const u=new URL(req.url),from=u.searchParams.get("from")||"",to=u.searchParams.get("to")||"";
+      const ins=await pool.query("SELECT v.id,v.date,v.chassis_no,v.model_name FROM vehicle v ORDER BY v.date NULLS LAST,v.id");
+      const outs=await pool.query("SELECT dc.id,dc.date,dc.challan_no AS doc_no,COALESCE(NULLIF(dc.chassis_no,''),v.chassis_no) AS chassis_no,COALESCE(NULLIF(trim(COALESCE(v.model_name,'')),''),NULLIF(trim(COALESCE(dc.product_name,'')),''),'') AS model_name FROM delivery_challan dc LEFT JOIN vehicle v ON v.id=dc.vehicle_id WHERE COALESCE(dc.cancelled,false)=false");
+      const all:any[]=[
+        ...ins.rows.map((x:any)=>({id:x.id,kind:0,date:ymd(x.date)||"",type:"IN",doc_no:"",chassis_no:x.chassis_no||"",model_name:x.model_name||"",particulars:"Vehicle added to premises"})),
+        ...outs.rows.map((x:any)=>({id:x.id,kind:1,date:ymd(x.date)||"",type:"OUT",doc_no:x.doc_no||"",chassis_no:x.chassis_no||"",model_name:x.model_name||"",particulars:"Delivery Challan"})),
+      ];
+      all.sort((x,y)=>String(x.date).localeCompare(String(y.date))||x.kind-y.kind||Number(x.id)-Number(y.id));
+      let bal=0;
+      const events=all.map((e:any)=>{bal+=e.type==="IN"?1:-1;return {id:e.kind+"-"+e.id,date:e.date,type:e.type,doc_no:e.doc_no,chassis_no:e.chassis_no,model_name:e.model_name,particulars:e.particulars,qty:1,balance:bal};})
+        .filter((e:any)=>!(from&&e.date<from)&&!(to&&e.date>to));
+      return Response.json({events,rows:events,count:events.length});
+    }
     // Stock Ledger - with Dealers: pehle ye generic journal_stock list me chala jaata tha (array/rows aata, "events" nahi) aur page crash hota tha.
     // IN = Delivery Challan (gaadi dealer ko gayi), OUT = Tax Invoice (dealer ne bech di). Balance dealer-wise chalta hai.
     if(p==="stock/ledger-dealers"&&a.scope!=="dealer"){
