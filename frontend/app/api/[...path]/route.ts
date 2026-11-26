@@ -1139,14 +1139,19 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
     // Punch log (admin): din ke hisaab se; selfie alag se hr/punch-photo se.
     if(p==="hr/punch-log"){
-      let date=String(new URL(req.url).searchParams.get("date")||"").trim();
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(date))date=hrTodayIST();
-      const r=await pool.query("SELECT l.id,l.kind,l.punched_at,l.latitude,l.longitude,l.accuracy_m,l.distance_m,l.thumb,l.thumb_path,e.name AS employee_name,e.employee_code,e.location,(l.selfie IS NOT NULL OR l.selfie_path IS NOT NULL) AS has_selfie FROM hr_punch_log l JOIN hr_employee e ON e.id=l.employee_id WHERE l.work_date=$1 ORDER BY l.punched_at",[date]);
+      const sp=new URL(req.url).searchParams, isD=(v:string)=>/^\d{4}-\d{2}-\d{2}$/.test(v);
+      let date=String(sp.get("date")||"").trim();
+      let from=String(sp.get("from")||"").trim(),to=String(sp.get("to")||"").trim();
+      if(!isD(date))date=hrTodayIST();
+      if(!isD(from))from=date; if(!isD(to))to=from;
+      if(to<from)[from,to]=[to,from];
+      if((Date.parse(to)-Date.parse(from))/86400000>92)from=new Date(Date.parse(to)-92*86400000).toISOString().slice(0,10); // max ~3 mahine
+      const r=await pool.query("SELECT l.id,l.work_date,l.kind,l.punched_at,l.latitude,l.longitude,l.accuracy_m,l.distance_m,l.thumb,l.thumb_path,e.name AS employee_name,e.employee_code,e.location,(l.selfie IS NOT NULL OR l.selfie_path IS NOT NULL) AS has_selfie FROM hr_punch_log l JOIN hr_employee e ON e.id=l.employee_id WHERE l.work_date BETWEEN $1 AND $2 ORDER BY l.work_date DESC,l.punched_at DESC LIMIT 600",[from,to]);
       // Thumbnail Storage me hai: ek hi call me sabke signed URL le kar r.thumb me daal dete hain (frontend badlav nahi).
       const tp=r.rows.map((x:any)=>x.thumb_path).filter(Boolean);
       if(tp.length){const m=await signedSelfieUrls(tp);for(const x of r.rows){if(x.thumb_path){x.thumb=m[x.thumb_path]||null;}delete x.thumb_path;}}
       else for(const x of r.rows)delete x.thumb_path;
-      return Response.json({date,rows:r.rows});
+      return Response.json({date:from,from,to,rows:r.rows});
     }
     if(p==="hr/punch-photo"){
       const id=idOf(new URL(req.url).searchParams.get("id"));
