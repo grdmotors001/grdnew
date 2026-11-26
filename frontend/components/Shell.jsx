@@ -341,7 +341,6 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
                 >
                   <GroupIcon size={18} />
                   {!collapsed && <span>{group}</span>}
-                  {!collapsed && <span className="navGroupCount">{allowed.length}</span>}
                 </button>
               </div>
             );

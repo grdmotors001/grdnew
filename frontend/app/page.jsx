@@ -181,8 +181,19 @@ function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserI
 // lib/menu (keyForPath/routeForKey) abhi 'vehicle-no-register' nahi jaanta, isliye refresh/click par Dashboard khul jata tha.
 const EXTRA_KEYS = ['vehicle-no-register', 'my-salary', 'punch', 'profile'];
 const EMPLOYEE_KEYS = ['dashboard', 'punch', 'my-salary', 'profile'];
-const keyFromPath = (path) => { const k = String(path || '').replace(/^\//, ''); return EXTRA_KEYS.includes(k) ? k : keyForPath(path); };
-const pathFromKey = (key) => (EXTRA_KEYS.includes(key) ? '/' + key : routeForKey(key).path);
+// lib/menu jis key ka path/key pehchan nahi paata (route round-trip nahi hota), uske liye seedha '/<key>' use hota hai; warna click par Dashboard khul jata tha (jaise Inventory ka pehla option).
+const keyFromPath = (path) => {
+  const k = String(path || '').replace(/^\//, '').split(/[?#]/)[0];
+  if (EXTRA_KEYS.includes(k) || CUSTOM_PAGES[k]) return k;
+  const found = keyForPath(path);
+  return found === 'dashboard' && k && k !== 'dashboard' && /^[a-z0-9-]+$/i.test(k) ? k : found;
+};
+const pathFromKey = (key) => {
+  if (EXTRA_KEYS.includes(key)) return '/' + key;
+  const path = routeForKey(key).path;
+  return keyForPath(path) === key ? path : '/' + key;
+};
+
 
 export default function App() {
   const [user, setUser] = useState(null);
