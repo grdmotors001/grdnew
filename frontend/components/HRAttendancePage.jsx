@@ -41,6 +41,8 @@ export function HRAttendancePage() {
   const [punchSearch,setPunchSearch]=useState('');
   const [punchKind,setPunchKind]=useState('all'); // all | in | out
   const [attSearch,setAttSearch]=useState('');
+  const [attTab,setAttTab]=useState('present');
+  const [attDay,setAttDay]=useState(()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}));
   const [punchRows,setPunchRows]=useState([]);
   const [photo,setPhoto]=useState(null); // {name,src}
   const [employees,setEmployees]=useState([]);
@@ -120,6 +122,12 @@ export function HRAttendancePage() {
       setFromUser(null); setUserPick(''); setNotice(`${x.name} ki detail user "${u.username}" se update ho gayi.`); await load();
     } catch(err){ setError(err.message); } finally{ setBusy(false); }
   };
+  const attNameClick=(empId,name)=>{ const e=employees.find(z=>String(z.id)===String(empId)); if(!e){setError('Employee nahi mila.');return;} toggleActive(e); };
+  const dayKey=(d)=>String(d||'').slice(0,10);
+  const attActive=attendance.filter(x=>x.employee_active!==false);
+  const attPresentRows=attActive.filter(x=>x.status!=='Absent'&&(!attDay||dayKey(x.work_date)===attDay));
+  const attAbsentList=attDay?employees.filter(e=>e.active!==false&&!attActive.some(x=>String(x.employee_id)===String(e.id)&&dayKey(x.work_date)===attDay&&x.status!=='Absent')):[];
+  const qOk=(n,c)=>{ const q=attSearch.trim().toLowerCase(); return !q||String(n||'').toLowerCase().includes(q)||String(c||'').toLowerCase().includes(q); };
   const toggleActive=async(x)=>{
     const next=x.active===false?true:false;
     if(!next && !window.confirm(`${x.name} ko Disable karein? Dashboard me absent nahi dikhega aur salary process me nahi judega.`)) return;
@@ -390,11 +398,22 @@ export function HRAttendancePage() {
           <div className="actions" style={{marginTop:10}}><button className="btn primary" disabled={busy} onClick={runImport}>{busy?'Importing…':'Import Karein'}</button></div>
         </div>}
       </div>
-      <div className="card tableWrap"><div className="toolbar"><div className="field"><label>Month</label><input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></div><button className="btn" onClick={load}>Refresh</button><button className="btn" disabled={busy} onClick={recalc}>Late dobara nikalein</button><div className="field"><label>Employee dhundhein</label><input value={attSearch} onChange={e=>setAttSearch(e.target.value)} placeholder="naam ya code"/></div></div>
-        <table className="table reportTable"><thead><tr><th>Date</th><th>Employee</th><th>First In</th><th>Last Out</th><th>Status</th><th>Late</th><th>Hours</th><th>OT</th></tr></thead><tbody>
-          {attendance.filter(x=>{ const q=attSearch.trim().toLowerCase(); return !q||String(x.employee_name||'').toLowerCase().includes(q)||String(x.employee_code||'').toLowerCase().includes(q); }).map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td>{x.employee_name}</td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>)}
-          {!attendance.length&&<tr><td colSpan="8" className="muted">No attendance records for this month.</td></tr>}
-        </tbody></table></div>
+      <div className="card tableWrap"><div className="toolbar"><div className="field"><label>Month</label><input type="month" value={month} onChange={e=>{setMonth(e.target.value); if(attDay&&attDay.slice(0,7)!==e.target.value)setAttDay('');}}/></div><div className="field"><label>Din (khali = poora mahina)</label><input type="date" value={attDay} onChange={e=>{setAttDay(e.target.value); if(e.target.value)setMonth(e.target.value.slice(0,7));}}/></div><button className="btn" onClick={load}>Refresh</button><button className="btn" disabled={busy} onClick={recalc}>Late dobara nikalein</button><div className="field"><label>Employee dhundhein</label><input value={attSearch} onChange={e=>setAttSearch(e.target.value)} placeholder="naam ya code"/></div></div>
+        <div style={{display:'flex',gap:8,margin:'4px 0 10px'}}>
+          <button className={'btn'+(attTab==='present'?' primary':'')} onClick={()=>setAttTab('present')}>Present ({attPresentRows.filter(x=>qOk(x.employee_name,x.employee_code)).length})</button>
+          <button className={'btn'+(attTab==='absent'?' primary':'')} onClick={()=>setAttTab('absent')} disabled={!attDay} title={attDay?'':'Absent dekhne ke liye din chunein'}>Absent ({attAbsentList.filter(e=>qOk(e.name,e.employee_code)).length})</button>
+        </div>
+        <div className="muted" style={{marginBottom:8}}>Naam par click karne se wo employee Disable ho jata hai (phir dashboard me absent nahi dikhega). Dobara Enable Employees tab se.</div>
+        {attTab==='present'
+        ? <table className="table reportTable"><thead><tr><th>Date</th><th>Employee</th><th>First In</th><th>Last Out</th><th>Status</th><th>Late</th><th>Hours</th><th>OT</th></tr></thead><tbody>
+          {attPresentRows.filter(x=>qOk(x.employee_name,x.employee_code)).map(x=><tr key={x.id} style={rowTint(x)}><td>{dateText(x.work_date)}</td><td><a href="#" title="Click: Disable employee" style={{fontWeight:600,textDecoration:'underline'}} onClick={ev=>{ev.preventDefault();attNameClick(x.employee_id,x.employee_name);}}>{x.employee_name}</a></td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>)}
+          {!attPresentRows.length&&<tr><td colSpan="8" className="muted">No attendance records.</td></tr>}
+        </tbody></table>
+        : <table className="table reportTable"><thead><tr><th>Date</th><th>Code</th><th>Employee</th><th>Department</th><th>Location</th><th>Status</th></tr></thead><tbody>
+          {attAbsentList.filter(e=>qOk(e.name,e.employee_code)).map(e=><tr key={e.id} style={{background:'rgba(192,57,43,.10)'}}><td>{attDay}</td><td>{e.employee_code}</td><td><a href="#" title="Click: Disable employee" style={{fontWeight:600,textDecoration:'underline'}} onClick={ev=>{ev.preventDefault();attNameClick(e.id,e.name);}}>{e.name}</a></td><td>{e.department||'-'}</td><td>{e.location||'-'}</td><td style={{color:'#c0392b',fontWeight:700}}>Absent</td></tr>)}
+          {!attAbsentList.length&&<tr><td colSpan="6" className="muted">Koi absent nahi.</td></tr>}
+        </tbody></table>}
+      </div>
     </>}
 
     {tab==='timing' && <div className="card tableWrap">
