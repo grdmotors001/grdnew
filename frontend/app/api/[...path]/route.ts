@@ -563,7 +563,8 @@ const HR_SELFIE_BUCKET=String(process.env.HR_SELFIE_BUCKET||"punch-selfies");
 const sbBase=()=>String(process.env.SUPABASE_URL||"").replace(/\/$/,"");
 const sbKey=()=>String(process.env.SUPABASE_SERVICE_ROLE_KEY||"");
 const selfieStorageOn=()=>!!(sbBase()&&sbKey());
-const sbHeaders=(extra?:any)=>({apikey:sbKey(),Authorization:"Bearer "+sbKey(),...(extra||{})});
+// Naye Supabase keys (sb_secret_...) JWT nahi hote: sirf apikey header me jati hain. Purani service_role (JWT, "eyJ...") ke liye Authorization bhi bhejte hain.
+const sbHeaders=(extra?:any)=>({apikey:sbKey(),...(sbKey().startsWith("eyJ")?{Authorization:"Bearer "+sbKey()}:{}),...(extra||{})});
 let selfieBucketReady=false;
 async function ensureSelfieBucket(){
   if(selfieBucketReady)return;
