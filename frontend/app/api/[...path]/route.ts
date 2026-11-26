@@ -1281,8 +1281,9 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json(dash);
     }
     if(p==="nav-config"){
-      const r=await pool.query("SELECT * FROM nav_tab ORDER BY id");
-      return Response.json({tabs:r.rows,items:[]});
+      // Menu / Tabs Settings ka saved layout: hidden tab sidebar me nahi, order position se (settings page ke ↑ ↓ ka order). Koi visible tab na ho to default menu chalta hai.
+      const r=await pool.query("SELECT * FROM nav_tab WHERE COALESCE(hidden,false)=false ORDER BY position,id");
+      return Response.json({custom:r.rows.length>0,tabs:r.rows,items:[]});
     }
     if(p==="masters"){
       const r=await pool.query("SELECT DISTINCT kind FROM simple_master ORDER BY kind");
