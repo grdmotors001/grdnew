@@ -560,8 +560,11 @@ const hrTodayIST=()=>new Date(Date.now()+19800000).toISOString().slice(0,10);
 // ---- Selfie Supabase Storage me (private bucket). DB me sirf file ka path jata hai. ----
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (server-only, kabhi NEXT_PUBLIC_ nahi), optional HR_SELFIE_BUCKET.
 const HR_SELFIE_BUCKET=String(process.env.HR_SELFIE_BUCKET||"punch-selfies");
-const sbBase=()=>String(process.env.SUPABASE_URL||"").replace(/\/$/,"");
-const sbKey=()=>String(process.env.SUPABASE_SERVICE_ROLE_KEY||"");
+// Vercel me value galti se "NAAM=value" ya inverted commas ke saath paste ho jaye to bhi chal jaye.
+const envClean=(v:any,name:string)=>String(v||"").trim().replace(new RegExp("^"+name+"\\s*=\\s*"),"").replace(/^["']|["']$/g,"").trim();
+const sbBase=()=>envClean(process.env.SUPABASE_URL,"SUPABASE_URL").replace(/\/(rest|storage|auth)\/v1.*$/,"").replace(/\/+$/,"");
+const sbKey=()=>envClean(process.env.SUPABASE_SERVICE_ROLE_KEY,"SUPABASE_SERVICE_ROLE_KEY");
+
 const selfieStorageOn=()=>!!(sbBase()&&sbKey());
 // Naye Supabase keys (sb_secret_...) JWT nahi hote: sirf apikey header me jati hain. Purani service_role (JWT, "eyJ...") ke liye Authorization bhi bhejte hain.
 const sbHeaders=(extra?:any)=>({apikey:sbKey(),...(sbKey().startsWith("eyJ")?{Authorization:"Bearer "+sbKey()}:{}),...(extra||{})});
@@ -1740,7 +1743,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(selfieStorageOn()){
         selfiePath=String(emp.id)+"/"+date+"/"+kind+"-"+Date.now()+".jpg";
         try{await uploadSelfie(selfie,selfiePath);selfieDb=null;}
-        catch(e:any){console.error("[hr/punch] selfie upload",e?.message);return Response.json({error:"Selfie save nahi ho payi. Dobara try karein."},{status:502});}
+        catch(e:any){console.error("[hr/punch] selfie upload",e?.message);return Response.json({error:"Selfie save nahi ho payi. Dobara try karein."+(e?.message?" ["+String(e.message).slice(0,180)+"]":"")},{status:502});}
         // Thumbnail bhi Storage me (chhoti hai, isliye fail ho to punch nahi rokte; HR "Dekhein" se badi photo kholega).
         if(thumb){
           const tPath=String(emp.id)+"/"+date+"/"+kind+"-"+Date.now()+"-thumb.jpg";
