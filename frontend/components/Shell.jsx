@@ -117,6 +117,9 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
   }, []);
   const builtNav = buildNavGroups(customTabs);
   const navGroups = { ...builtNav.groups };
+  // Ye options ab menu me nahi dikhte (Stock Ledger - with Dealers ki zarurat nahi).
+  const HIDDEN_NAV_KEYS = ['stock-ledger-dealers'];
+  for (const g of Object.keys(navGroups)) navGroups[g] = (navGroups[g] || []).filter(([k]) => !HIDDEN_NAV_KEYS.includes(k));
   const iconByGroup = { ...builtNav.iconByGroup };
   const isAdmin = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
   if (isAdmin && !Object.values(navGroups).flat().some(([key]) => key === 'loan-application-view')) {

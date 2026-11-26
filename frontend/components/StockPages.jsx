@@ -60,18 +60,22 @@ export function ClosingStockDealersPage() {
       .filter((v) => !q || [v.dealer_name, v.model_name, v.chassis_no, v.challan_no, v.salesman, v.battery_maker].join(' ').toLowerCase().includes(q))
       .map((v) => String(v.dealer_name || '')),
   );
-  const summary = (data.summary || []).filter((s) => !q || matchDealers.has(String(s.dealer_name || '')) || [s.dealer_name, s.model_name].join(' ').toLowerCase().includes(q));
+  const summaryRows = (data.summary || []).filter((s) => !q || matchDealers.has(String(s.dealer_name || '')) || [s.dealer_name, s.model_name].join(' ').toLowerCase().includes(q));
+  // Bahar sirf dealer-wise total qty; model-wise detail popup me dikhti hai (row par click).
+  const dealerTotals = new Map();
+  for (const s of summaryRows) { const k = String(s.dealer_name || ''); dealerTotals.set(k, (dealerTotals.get(k) || 0) + Number(s.qty || 0)); }
+  const summary = [...dealerTotals.entries()].map(([dealer_name, qty]) => ({ dealer_name, qty }));
   return (
     <>
       <div className="card" style={{ marginBottom: 14 }}>
-        <div className="actions" style={{ justifyContent: 'space-between' }}><b>Summary by Dealer / Model</b><input className="input" placeholder="Search dealer, model, chassis…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} /></div>
+        <div className="actions" style={{ justifyContent: 'space-between' }}><b>Summary by Dealer</b><input className="input" placeholder="Search dealer, model, chassis…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} /></div>
         {summary.length === 0 ? <EmptyState text={search ? 'No stock matches your search.' : 'No stock with dealers.'} /> : (
           <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
             <table className="table">
-              <thead><tr><th>Dealer</th><th>Model</th><th>Qty</th></tr></thead>
+              <thead><tr><th>Dealer</th><th>Qty</th></tr></thead>
               <tbody>{summary.map((s, i) => (
                 <tr key={i} onClick={() => setDetailDealer(s.dealer_name)} style={{ cursor: 'pointer' }} title="Click for dealer stock detail">
-                  <td data-label="Dealer">{s.dealer_name}</td><td data-label="Model">{s.model_name || '—'}</td><td data-label="Qty">{s.qty}</td>
+                  <td data-label="Dealer">{s.dealer_name}</td><td data-label="Qty">{s.qty}</td>
                 </tr>
               ))}</tbody>
             </table>
