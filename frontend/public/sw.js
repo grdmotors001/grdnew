@@ -1,5 +1,11 @@
-self.addEventListener("install",()=>self.skipWaiting());
-self.addEventListener("activate",(e)=>e.waitUntil(self.clients.claim()));
+const OFFLINE_CACHE="grd-offline-v1";
+self.addEventListener("install",(e)=>{e.waitUntil(caches.open(OFFLINE_CACHE).then(c=>c.add("/offline.html")).catch(()=>{}).then(()=>self.skipWaiting()))});
+// Sirf page open (navigation) par: net chale to normal, na chale to offline page. API / data kabhi cache nahi hota.
+self.addEventListener("fetch",(e)=>{
+  if(e.request.mode!=="navigate")return;
+  e.respondWith(fetch(e.request).catch(()=>caches.match("/offline.html").then(r=>r||Response.error())));
+});
+self.addEventListener("activate",(e)=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(n=>n!==OFFLINE_CACHE).map(n=>caches.delete(n)))).then(()=>self.clients.claim())));
 self.addEventListener("push",(event)=>{
   let data={};try{data=event.data?event.data.json():{}}catch{data={title:"New message",body:event.data?event.data.text():""}}
   const title=data.title||"Office Chat";

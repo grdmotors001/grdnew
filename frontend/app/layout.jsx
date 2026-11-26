@@ -1,5 +1,6 @@
 import Script from 'next/script';
 import './globals.css';
+import PwaRegister from '../components/PwaRegister';
 export const metadata={title:'G.R.D. Motors eBill',description:'Modern eBill administration',appleWebApp:{capable:true,title:'GRD eBill',statusBarStyle:'default'}};
 export const viewport={width:'device-width',initialScale:1,viewportFit:'cover',themeColor:'#356311'};
 
@@ -12,7 +13,7 @@ export default function RootLayout({children}){
   return (
     <html lang="en" suppressHydrationWarning>
       <head><Script id="theme-init" strategy="beforeInteractive">{THEME_INIT}</Script></head>
-      <body>{children}</body>
+      <body><PwaRegister />{children}</body>
     </html>
   );
 }
