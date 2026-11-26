@@ -18,14 +18,8 @@ export function ClosingStockPremisesPage() {
   const vehicles = (data.vehicles || []).filter((v) => [v.date, v.chassis_no, v.model_name, v.motor_no, v.colour].join(' ').toLowerCase().includes(q));
   return (
     <>
-      <div className="card" style={{ marginBottom: 14 }}>
-        <div className="actions" style={{ justifyContent: 'space-between' }}><b>Summary by Model / Colour</b><input className="input" placeholder="Search model, colour, chassis…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} /></div>
-        <div className="tablewrap stockTable" style={{ marginTop: 10 }}>
-          <table className="table">
-            <thead><tr><th>Model</th><th>Colour</th><th>Qty</th></tr></thead>
-            <tbody>{(data.summary || []).map((s, i) => <tr key={i}><td data-label="Model">{s.model_name}</td><td data-label="Colour">{s.colour}</td><td data-label="Qty">{s.qty}</td></tr>)}</tbody>
-          </table>
-        </div>
+      <div className="toolbar" style={{ marginBottom: 14 }}>
+        <input className="input" placeholder="Search model, colour, chassis…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
       </div>
       {vehicles.length === 0 ? <EmptyState text={search ? 'No stock matches your search.' : 'No stock at Premises.'} /> : (
         <div className="tablewrap stockTable">
