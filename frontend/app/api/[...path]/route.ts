@@ -1174,13 +1174,16 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       return Response.json({linked:true,employee:{id:emp.id,employee_code:emp.employee_code,name:emp.name,department:emp.department,designation:emp.designation,location:emp.location},salaries:sal.rows});
     }
         if(p==="hr/employees"){
-        const r=await pool.query("SELECT * FROM hr_employee ORDER BY id DESC");
+        const activeOnly=new URL(req.url).searchParams.get("active_only")==="1";
+        const r=await pool.query("SELECT * FROM hr_employee "+(activeOnly?"WHERE active=true ":"")+"ORDER BY id DESC");
         return Response.json({employees:r.rows,rows:r.rows});
       }
       if(p==="hr/attendance"){
         const month=String(new URL(req.url).searchParams.get("month")||"").trim();
         const empId=idOf(new URL(req.url).searchParams.get("employee_id"));
-        const r=await pool.query("SELECT a.*,e.employee_code,e.name AS employee_name FROM hr_attendance a JOIN hr_employee e ON e.id=a.employee_id WHERE ($1='' OR to_char(a.work_date,'YYYY-MM')=$1) AND ($2::bigint IS NULL OR a.employee_id=$2::bigint) ORDER BY a.work_date "+(empId?"ASC":"DESC")+",a.id DESC",[month,empId]);
+        // active_only=1 -> disabled employees ki rows nahi aati (dashboard me absent na dikhe); warna sab rows + employee_active flag.
+        const activeOnly=new URL(req.url).searchParams.get("active_only")==="1";
+        const r=await pool.query("SELECT a.*,e.employee_code,e.name AS employee_name,e.active AS employee_active FROM hr_attendance a JOIN hr_employee e ON e.id=a.employee_id WHERE ($1='' OR to_char(a.work_date,'YYYY-MM')=$1) AND ($2::bigint IS NULL OR a.employee_id=$2::bigint) AND ($3::boolean=false OR e.active=true) ORDER BY a.work_date "+(empId?"ASC":"DESC")+",a.id DESC",[month,empId,activeOnly]);
         return Response.json({attendance:r.rows,rows:r.rows});
       }
       if(p==="hr/department-timings"){
