@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     if (mobile.length !== 10) return Response.json({ error: "10 anko ka mobile number likhein." }, { status: 400 });
     await ensureOtpSchema(pool);
     const u = await findEmployeeUser(pool, mobile);
-    if (!u) return Response.json(GENERIC); // number registered hai ya nahi, ye bahar nahi batate
+    if (!u) return Response.json({ error: "Ye number registered nahi hai. Admin se apna mobile number employee login me jodne ko kahein." }, { status: 404 });
     const cur = (await pool.query("SELECT last_sent_at,window_start,sent_count FROM employee_login_otp WHERE user_id=$1", [u.id])).rows[0];
     if (cur) {
       const sinceSent = (Date.now() - new Date(cur.last_sent_at).getTime()) / 1000;
