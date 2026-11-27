@@ -465,7 +465,7 @@ export function HRAttendancePage() {
         const byDate={}; rows.forEach(r=>{ byDate[dateText(r.work_date)]=r; });
         const mp=String(attView.month||'').split('-'); const yy=Number(mp[0]), mm=Number(mp[1]);
         const dim=(yy&&mm)?new Date(yy,mm,0).getDate():0;
-        const shown=[]; for(let i=1;i<=dim;i++){ const k=mp[0]+'-'+String(mm).padStart(2,'0')+'-'+String(i).padStart(2,'0'); if(byDate[k]) shown.push({row:byDate[k],key:k}); else if(dayInfo(k)) shown.push({row:null,key:k}); }
+        const shown=[]; for(let i=1;i<=dim;i++){ const k=mp[0]+'-'+String(mm).padStart(2,'0')+'-'+String(i).padStart(2,'0'); if(byDate[k]) shown.push({row:byDate[k],key:k}); else if(dayInfo(k)) shown.push({row:null,key:k}); else if(k<=istDate(0) && (!dateText(attEmp.joining_date)||k>=dateText(attEmp.joining_date))) shown.push({row:null,key:k,absent:true}); }
         rows.forEach(r=>{ const k=dateText(r.work_date); if(!shown.some(z=>z.key===k)) shown.push({row:r,key:k}); });
         shown.sort((a,b)=>a.key<b.key?-1:1);
         return <div className="modal"><div className="modalbox" style={{maxWidth:820}}>
@@ -473,10 +473,11 @@ export function HRAttendancePage() {
           {error && <div className="error" style={{marginTop:10}}>{error}</div>}
           <div className="muted" style={{margin:'10px 0'}}>Present: <strong>{days}</strong> din{halfDays>0&&<> (Half Day: <strong>{halfDays}</strong>)</>}{absDays>0&&<> · Absent (kam ghante): <strong>{absDays}</strong></>} · Late: <strong>{lateDays}</strong> din · Work: <strong>{hm(hrs)==='-'?'0 min':hm(hrs)}</strong> · OT: <strong>{hm(ot)==='-'?'0 min':hm(ot)}</strong></div>
           <div className="tableWrap" style={{maxHeight:'60vh',overflow:'auto'}}><table className="table reportTable"><thead><tr><th>Date</th><th>Din</th><th>Punch In</th><th>Punch Out</th><th>Status</th><th>Late</th><th>Work Hrs</th><th>OT Hrs</th></tr></thead><tbody>
-            {shown.map(({row:x,key:k})=>{ const di=dayInfo(k);
+            {shown.map(({row:x,key:k,absent})=>{ const di=dayInfo(k);
+              if(!x&&absent) return <tr key={k} style={{background:'rgba(192,57,43,.16)'}}><td>{dmy(k)}</td><td style={{color:'#e74c3c',fontWeight:700}}>{dow(k)}</td><td colSpan="6" style={{color:'#e74c3c',fontWeight:700}}>Absent</td></tr>;
               if(!x) return <tr key={k} style={{background:di.bg}}><td>{dmy(k)}</td><td style={{color:di.color,fontWeight:700}}>{dow(k)}</td><td colSpan="6" style={{color:di.color,fontWeight:700}}>{di.label}</td></tr>;
-              const tint=di?{background:di.bg}:rowTint(x);
-              return <tr key={x.id||k} style={tint}><td>{dmy(x.work_date)}</td><td style={di?{color:di.color,fontWeight:700}:undefined}>{dow(x.work_date)}</td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={inTone(x)}>{x.status}{di&&<span style={{color:di.color,fontWeight:600}}> ({di.label})</span>}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>; })}
+              const isAbs=x.status==='Absent'; const tint=di?{background:di.bg}:(isAbs?{background:'rgba(192,57,43,.16)'}:rowTint(x));
+              return <tr key={x.id||k} style={tint}><td>{dmy(x.work_date)}</td><td style={di?{color:di.color,fontWeight:700}:undefined}>{dow(x.work_date)}</td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={isAbs&&!di?{color:'#e74c3c',fontWeight:700}:inTone(x)}>{x.status}{di&&<span style={{color:di.color,fontWeight:600}}> ({di.label})</span>}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>; })}
             {!shown.length && <tr><td colSpan="8" className="muted">{attView.loading?'Loading…':'Is mahine ki attendance nahi mili.'}</td></tr>}
           </tbody></table></div>
         </div></div>; })()}
