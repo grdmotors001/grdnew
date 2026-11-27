@@ -1176,7 +1176,8 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     }
         if(p==="hr/employees"){
         const activeOnly=new URL(req.url).searchParams.get("active_only")==="1";
-        const r=await pool.query("SELECT * FROM hr_employee "+(activeOnly?"WHERE active=true ":"")+"ORDER BY id DESC");
+        // Employee ne My Profile me jo bhara hai (user table) wo bhi saath bhejte hain; HR/admin ko Employees tab me dikhane ke liye.
+        const r=await pool.query('SELECT e.*,to_jsonb(u)->>\'full_name\' AS profile_full_name,to_jsonb(u)->>\'mobile\' AS profile_mobile,to_jsonb(u)->>\'email\' AS profile_email,to_jsonb(u)->>\'date_of_birth\' AS profile_dob,to_jsonb(u)->>\'address\' AS profile_address FROM hr_employee e LEFT JOIN "user" u ON u.id=e.user_id OR (e.user_id IS NULL AND lower(btrim(u.username))=lower(btrim(e.employee_code))) '+(activeOnly?'WHERE e.active=true ':'')+'ORDER BY e.id DESC');
         return Response.json({employees:r.rows,rows:r.rows});
       }
       if(p==="hr/attendance"){
@@ -1655,8 +1656,9 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
     const a=auth(req);if(!a)return Response.json({error:"Authentication required."},{status:401});
     await ensureSecuritySchema();
     // Punch In/Out: har staff apna hi punch karta hai (employee login ke paas koi module right nahi hota); handler khud staff + outlet + radius check karta hai.
-    const selfPunch=a?.scope==="staff"&&p==="hr/punch";
-    if(!selfPunch&&!(await actionAllowed(a,p,"create")))return Response.json({error:"Forbidden."},{status:403});
+    // Staff apna punch, apna profile aur apna password khud badal sakta hai (handler khud staff + apna hi record check karta hai).
+    const selfService=a?.scope==="staff"&&(p==="hr/punch"||p==="auth/profile"||p==="auth/change-password");
+    if(!selfService&&!(await actionAllowed(a,p,"create")))return Response.json({error:"Forbidden."},{status:403});
 
     {const x=await deliveryChallanPost(req,path,b,a,SALES_DEPS);if(x)return x;}
 
