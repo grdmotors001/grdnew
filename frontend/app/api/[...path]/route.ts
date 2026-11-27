@@ -529,6 +529,7 @@ async function ensureHRSchemas(){
   // Department-wise duty time: late = first_in - (start_time + grace)
   for(const c of ["extra_days","holiday_days","advance","pl_loan"])await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS "+c+" numeric NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS present_override numeric");
+  await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS late_cut numeric");
   await pool.query("ALTER TABLE hr_salary ADD COLUMN IF NOT EXISTS paid_on date");
   await pool.query("CREATE TABLE IF NOT EXISTS hr_department_timing (department text PRIMARY KEY, start_time text NOT NULL DEFAULT '09:30', grace_minutes integer NOT NULL DEFAULT 0)");
   await pool.query("ALTER TABLE hr_department_timing ADD COLUMN IF NOT EXISTS office_hours numeric NOT NULL DEFAULT 0");
@@ -1961,6 +1962,7 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       const e=(await pool.query("SELECT * FROM hr_employee WHERE id=$1",[id])).rows[0];
       if(!e)return Response.json({error:"Employee not found."},{status:404});
       await hrSalaryOne(pool,e,month,b);
+      if(b.late_cut!==undefined&&b.late_cut!==null&&b.late_cut!=="")await pool.query("UPDATE hr_salary SET late_cut=$1 WHERE employee_id=$2 AND salary_month=$3",[Math.max(0,Number(b.late_cut)||0),id,month]);
       const r=await pool.query(HR_SALARY_SELECT,[month]);
       const row=r.rows.find((x:any)=>Number(x.employee_id)===id);
       return Response.json({success:true,salary:row,salaries:r.rows});
