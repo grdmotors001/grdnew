@@ -65,6 +65,9 @@ const ICONS = {
   'nav-settings': Settings2,
 };
 
+// Jin sidebar tabs par click karte hi pehle dashboard khulta hai (header me sabse pehla 'Dashboard' button).
+const GROUP_DASH = { Masters: 'masters-dashboard', Vouchers: 'vouchers-dashboard', Factory: 'factory-dashboard', Battery: 'battery-dashboard', 'Sales & Billing': 'sales-dashboard', Expenses: 'expenses-dashboard' , Sales: 'sales-dashboard', Cashier: 'cashier-dashboard', Accounts: 'accounts-dashboard', Inventory: 'inventory-dashboard', Reports: 'reports-dashboard' };
+
 function NavItem({ icon: Icon, label, active, collapsed, onClick }) {
   return (<button
       className={'navbtn' + (active ? ' active' : '')}
@@ -195,7 +198,9 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
 
   const initial = (user?.username || '?').charAt(0).toUpperCase();
   const foundGroup = Object.entries(navGroups).find(([, items]) => items.some(([key]) => key === active))?.[0];
-  const activeGroup = employeeMode ? (active === 'dashboard' ? 'Dashboard' : 'Mera Kaam') : active === 'vehicle-no-register' ? 'Reports' : customTabs
+  // Group ka naam menu settings me badla ho (jaise 'Sales & Billing' -> 'Sales') to bhi dashboard wahi group dikhaye jo sidebar me hai.
+  const dashGroup = Object.entries(GROUP_DASH).find(([g, k]) => k === active && navGroups[g])?.[0] || Object.entries(GROUP_DASH).find(([, k]) => k === active)?.[0];
+  const activeGroup = employeeMode ? (active === 'dashboard' ? 'Dashboard' : 'Mera Kaam') : dashGroup ? dashGroup : active === 'vehicle-no-register' ? 'Reports' : customTabs
     ? (foundGroup || 'Dashboard')
     : (foundGroup || groupForKey(active));
   const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);
@@ -334,7 +339,12 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
                   className={'navGroupButton' + (activeGroup === group ? ' active' : '')}
                   title={collapsed ? group : undefined}
                   onClick={() => {
-                    const target = activeGroup === group && allowed.some(([key]) => key === active)
+                    // HR: sidebar tab dabate hi HR dashboard khulta hai.
+                    if (group === 'HR') setHrTab('dashboard');
+                    // Masters / Vouchers: sidebar tab dabate hi hamesha unka dashboard khulta hai (header me alag Dashboard tab nahi).
+                    const target = GROUP_DASH[group]
+                      ? GROUP_DASH[group]
+                      : activeGroup === group && allowed.some(([key]) => key === active)
                       ? active
                       : group === 'HR' && allowed.some(([key]) => key === 'hr-attendance')
                         ? 'hr-attendance'
@@ -376,11 +386,11 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
         <div className="top grdTopHeader">
           <div className="topTitleBlock grdTopTitle">
             <div className="title">{active === 'dashboard' ? 'Dashboard' : activeGroup}</div>
-            <div className="subtitle">{active === 'dashboard' ? 'Admin Overview' : labelFor(active)} · {user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
+            <div className="subtitle">{active === 'dashboard' ? 'Admin Overview' : dashGroup ? 'Dashboard' : labelFor(active)} · {user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
           </div>
           {employeeMode ? null : active === 'hr-attendance' ? (
             <div className="moduleStrip" aria-label="HR Attendance & Salary">
-              {HR_TABS.map(([key, label]) => (
+              {HR_TABS.filter(([key]) => key !== 'dashboard').map(([key, label]) => (
                 <button key={key} type="button"
                   className={'moduleStripItem' + (hrTab === key ? ' active' : '')}
                   onClick={() => setHrTab(key)}>

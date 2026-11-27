@@ -50,6 +50,7 @@ import { OldRickshawInventoryPage } from '../components/OldRickshawInventoryPage
 import { SeizedStockPage } from '../components/SeizedStockPage';
 import { DealerPortal } from '../components/DealerPortal';
 import { HRAttendancePage } from '../components/HRAttendancePage';
+import { GroupDashboard } from '../components/GroupDashboard';
 import { MySalaryPage } from '../components/MySalaryPage';
 import { PunchPage } from '../components/PunchPage';
 import { EmployeeHome } from '../components/EmployeeHome';
@@ -64,6 +65,17 @@ import { SaleRecordPage } from '../components/SaleRecordPage';
 import { SIMPLE_MASTERS, keyForPath, routeForKey, VOUCHER_PAGE_FOR } from '../lib/menu';
 
 const CUSTOM_PAGES = {
+  // Sidebar group dashboards: tab dabate hi pehle ye khulta hai (Masters / Vouchers).
+  'masters-dashboard': (ctx) => <GroupDashboard key="masters-dashboard" group="Masters" setActive={ctx.setActive} />,
+  'vouchers-dashboard': (ctx) => <GroupDashboard key="vouchers-dashboard" group="Vouchers" setActive={ctx.setActive} />,
+  'factory-dashboard': (ctx) => <GroupDashboard key="factory-dashboard" group="Factory" setActive={ctx.setActive} />,
+  'expenses-dashboard': (ctx) => <GroupDashboard key="expenses-dashboard" group="Expenses" setActive={ctx.setActive} />,
+  'sales-dashboard': (ctx) => <GroupDashboard key="sales-dashboard" group="Sales & Billing" setActive={ctx.setActive} />,
+  'reports-dashboard': (ctx) => <GroupDashboard key="reports-dashboard" group="Reports" setActive={ctx.setActive} />,
+  'cashier-dashboard': (ctx) => <GroupDashboard key="cashier-dashboard" group="Cashier" setActive={ctx.setActive} />,
+  'accounts-dashboard': (ctx) => <GroupDashboard key="accounts-dashboard" group="Accounts" setActive={ctx.setActive} />,
+  'inventory-dashboard': (ctx) => <GroupDashboard key="inventory-dashboard" group="Inventory" setActive={ctx.setActive} />,
+  'battery-dashboard': (ctx) => <GroupDashboard key="battery-dashboard" group="Battery" setActive={ctx.setActive} />,
   // Vouchers tab (F4 / F5 / F6): Contra is its own module; Payment & Receipt reuse the Bank & Cash book in voucher mode.
   'v-contra': () => <ContraVoucherPage key="v-contra" />,
   'v-f10': () => <JournalVoucherPage key="v-f10" />,

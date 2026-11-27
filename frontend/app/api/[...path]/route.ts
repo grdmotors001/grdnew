@@ -17,6 +17,7 @@ import { ensureBillingSalesSchema, upsertBillingCustomer, billingGet, billingPos
 import { TI_TAXABLE, taxInvoiceGet, taxInvoicePost, taxInvoiceMutation } from "../../../lib/server/tax-invoice";
 import { dealerInvoicePost } from "../../../lib/server/dealer-invoice";
 import { deliveryChallanGet, deliveryChallanPost, deliveryChallanMutation, ensureChallanShiftSchema } from "../../../lib/server/delivery-challan";
+import { groupDashboardGet } from "../../../lib/server/group-dashboard";
 import { gstHypSubsidyReport, hypothecationGet, hypothecationPost, hypothecationMutation, ensureTaxInvoiceVehicleNoColumn } from "../../../lib/server/gst-hypothecation";
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
@@ -920,7 +921,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     // Notifications: jinke paas permission nahi (jaise Salesman) unko 403 ki jagah khali list -> header me error/console spam nahi.
     if(p==="notifications"&&!canRead(a,p))return Response.json({notifications:[],branch_cash_limits:[],count:0});
     // Har logged-in staff ko menu (nav-config), dashboard aur apna profile chahiye; ye allowed_modules se block nahi hone chahiye.
-    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="dashboard/trend"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance"||p==="hr/punch-status"||p==="hr/employee-home");
+    const baselineRead=a?.scope==="staff"&&(p==="nav-config"||p==="dashboard"||p==="dashboard/trend"||p==="group-dashboard"||p==="auth/me"||p==="hr/my-salary"||p==="hr/my-attendance"||p==="hr/punch-status"||p==="hr/employee-home");
     if(!baselineRead&&!canRead(a,p))return Response.json({error:"Forbidden."},{status:403});
     // Dealer Master form ko salesman list aur sub-group list chahiye: jiske paas Dealer module ka view right hai use ye 2 lookup read allowed (warna dropdown khali rehta tha).
     const dealerLookup=a?.scope==="staff"&&(p==="masters/salesman"||p==="sub-groups")&&(await actionAllowed(a,"dealer","view"));
@@ -1253,6 +1254,10 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
       ]);
       const rows=tr.rows.map((r:any)=>({...r,production:isSalesman(a)?0:r.production}));
       return Response.json({from,to,rows,min_month:mn.rows[0]?.m||null,server_time:new Date().toISOString()});
+    }
+    if(p==="group-dashboard"){
+      if(a?.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
+      return groupDashboardGet(a,new URL(req.url).searchParams.get("group")||"");
     }
     if(p==="dashboard"){
       const [vehicles,stages,monthly,billed,states,dealers,pending,sales,production,todayChallans,todayBills,todayProduction,mfgMonthly]=await Promise.all([
