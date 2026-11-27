@@ -459,13 +459,25 @@ export function HRAttendancePage() {
         </tbody></table></div>
       {attView && (()=>{ const rows=attView.rows; const days=rows.reduce((a,r)=>a+(r.status==='Present'?1:r.status==='Half Day'?0.5:0),0); const halfDays=rows.filter(r=>r.status==='Half Day').length; const absDays=rows.filter(r=>r.status==='Absent').length; const lateDays=rows.filter(r=>Number(r.late_minutes)>0).length; const hrs=rows.reduce((a,r)=>a+num(r.work_hours),0); const ot=rows.reduce((a,r)=>a+num(r.overtime_hours),0);
         const dow=(d)=>{ const t=new Date(dateText(d)+'T00:00:00'); return isNaN(t)?'':t.toLocaleDateString('en-IN',{weekday:'short'}); };
+        const attEmp=employees.find(z=>String(z.id)===String(attView.employee_id))||{};
+        const SUN_BG='rgba(142,68,173,.18)', HOL_BG='rgba(230,126,34,.22)';
+        const dayInfo=(d)=>{ const k=dateText(d); const info=offInfo(attEmp,k,offSet); if(info.startsWith('Holiday')) return {kind:'hol',label:info,bg:HOL_BG,color:'#e67e22'}; const isSun=new Date(k+'T00:00:00Z').getUTCDay()===0; if(isSun||info) return {kind:'off',label:isSun?'Sunday':info,bg:SUN_BG,color:'#b07cc6'}; return null; };
+        const byDate={}; rows.forEach(r=>{ byDate[dateText(r.work_date)]=r; });
+        const mp=String(attView.month||'').split('-'); const yy=Number(mp[0]), mm=Number(mp[1]);
+        const dim=(yy&&mm)?new Date(yy,mm,0).getDate():0;
+        const shown=[]; for(let i=1;i<=dim;i++){ const k=mp[0]+'-'+String(mm).padStart(2,'0')+'-'+String(i).padStart(2,'0'); if(byDate[k]) shown.push({row:byDate[k],key:k}); else if(dayInfo(k)) shown.push({row:null,key:k}); }
+        rows.forEach(r=>{ const k=dateText(r.work_date); if(!shown.some(z=>z.key===k)) shown.push({row:r,key:k}); });
+        shown.sort((a,b)=>a.key<b.key?-1:1);
         return <div className="modal"><div className="modalbox" style={{maxWidth:820}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><div><h2 style={{margin:0}}>{attView.name} · Attendance</h2><div className="muted">{attView.code} · {attView.month}</div></div><button className="btn" onClick={()=>setAttView(null)}>Close</button></div>
           {error && <div className="error" style={{marginTop:10}}>{error}</div>}
           <div className="muted" style={{margin:'10px 0'}}>Present: <strong>{days}</strong> din{halfDays>0&&<> (Half Day: <strong>{halfDays}</strong>)</>}{absDays>0&&<> · Absent (kam ghante): <strong>{absDays}</strong></>} · Late: <strong>{lateDays}</strong> din · Work: <strong>{hm(hrs)==='-'?'0 min':hm(hrs)}</strong> · OT: <strong>{hm(ot)==='-'?'0 min':hm(ot)}</strong></div>
           <div className="tableWrap" style={{maxHeight:'60vh',overflow:'auto'}}><table className="table reportTable"><thead><tr><th>Date</th><th>Din</th><th>Punch In</th><th>Punch Out</th><th>Status</th><th>Late</th><th>Work Hrs</th><th>OT Hrs</th></tr></thead><tbody>
-            {rows.map(x=><tr key={x.id} style={rowTint(x)}><td>{dmy(x.work_date)}</td><td>{dow(x.work_date)}</td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={inTone(x)}>{x.status}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>)}
-            {!rows.length && <tr><td colSpan="8" className="muted">{attView.loading?'Loading…':'Is mahine ki attendance nahi mili.'}</td></tr>}
+            {shown.map(({row:x,key:k})=>{ const di=dayInfo(k);
+              if(!x) return <tr key={k} style={{background:di.bg}}><td>{dmy(k)}</td><td style={{color:di.color,fontWeight:700}}>{dow(k)}</td><td colSpan="6" style={{color:di.color,fontWeight:700}}>{di.label}</td></tr>;
+              const tint=di?{background:di.bg}:rowTint(x);
+              return <tr key={x.id||k} style={tint}><td>{dmy(x.work_date)}</td><td style={di?{color:di.color,fontWeight:700}:undefined}>{dow(x.work_date)}</td><td style={inTone(x)}>{punchCells(x,timeIST).inCell}</td><td>{punchCells(x,timeIST).outCell}</td><td style={inTone(x)}>{x.status}{di&&<span style={{color:di.color,fontWeight:600}}> ({di.label})</span>}</td><td style={Number(x.late_minutes)>0?{color:'#c0392b',fontWeight:600}:undefined}>{lateText(x.late_minutes)}</td><td>{hm(x.work_hours)}</td><td>{hm(x.overtime_hours)}</td></tr>; })}
+            {!shown.length && <tr><td colSpan="8" className="muted">{attView.loading?'Loading…':'Is mahine ki attendance nahi mili.'}</td></tr>}
           </tbody></table></div>
         </div></div>; })()}
       {slip && (()=>{ const m=slipMath(slip,slipForm); const cell={border:'1px solid var(--border,#999)',padding:'10px 12px',textAlign:'center'}; const th={...cell,fontWeight:700,textTransform:'uppercase',fontSize:13}; const hd={...cell,background:'#0b3361',color:'#fff',fontWeight:800,fontSize:14,letterSpacing:.5}; const lab={...cell,background:'#e3edf9',fontWeight:800,fontSize:13}; const val={...cell,fontWeight:700,fontSize:16}; const band=['#e3edf9','#ffffff']; const sin=(k,w)=><input type="number" min="0" step="any" style={{width:w||90,textAlign:'center'}} value={slipForm[k]} onChange={e=>setSlipForm({...slipForm,[k]:e.target.value,...(k==='present'?{manual:true}:{})})}/>;
