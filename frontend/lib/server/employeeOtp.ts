@@ -23,7 +23,9 @@ export async function findEmployeeUser(pool: any, mobile10: string) {
   const r = await pool.query(
     `SELECT u.id,u.username,u.department,u.is_super_user,u.allowed_modules
        FROM "user" u JOIN hr_employee e ON e.user_id=u.id AND e.active=true
-      WHERE right(regexp_replace(COALESCE(u.mobile,''),'\\D','','g'),10)=$1 OR u.username=$1
+      WHERE right(regexp_replace(COALESCE(u.mobile,''),'\\D','','g'),10)=$1
+         OR right(regexp_replace(COALESCE(e.mobile,''),'\\D','','g'),10)=$1 OR u.username=$1
+      ORDER BY (right(regexp_replace(COALESCE(u.mobile,''),'\\D','','g'),10)=$1) DESC
       LIMIT 1`, [mobile10]);
   const u = r.rows[0];
   if (!u) return null;
