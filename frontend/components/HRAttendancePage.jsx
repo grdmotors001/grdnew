@@ -10,6 +10,7 @@ import { punchCells } from '../lib/punchView';
 const emptyEmployee = { employee_code:'', name:'', department:'', designation:'', location:'', mobile:'', photo_url:'', joining_date:'', machine_user_id:'', basic_salary:'', hra:'', other_allowance:'', overtime_rate:'' };
 const timeIST = (v) => { if(!v) return '-'; const d=new Date(v); return isNaN(d)?'-':d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Kolkata'}); };
 const dateText = (v) => String(v||'').slice(0,10);
+const PAID_LEAVES = 1; // mahine me 1 paid leave, absent me se adjust hoti hai
 const MONTH_DAYS = 30; // per-day = salary / 30 (Excel slip jaisa)
 const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
 const money = (v) => num(v).toLocaleString('en-IN',{minimumFractionDigits:0,maximumFractionDigits:2});
@@ -20,8 +21,17 @@ const slipMath = (r, f) => {
   const perDay = num(r.basic_salary)/MONTH_DAYS;
   const present = num(f.present), extraAmt = perDay*num(f.extra_days), holAmt = perDay*num(f.holiday_days);
   const allow = num(r.hra)+num(r.other_allowance), otAmt = num(r.overtime_hours)*num(r.overtime_rate);
-  const net = perDay*present + allow + otAmt + extraAmt - holAmt - num(f.advance) - num(f.pl_loan);
-  return { perDay, extraAmt, holAmt, allow, otAmt, net, absent: Math.max(0, MONTH_DAYS-present-num(f.off)) };
+  // Weekly off + holiday paid hain; off din par aaya to wo Extra me (present me se hata kar). Absent me se 1 paid leave adjust.
+  const off = num(f.off), offWorked = num(f.offWorked), preJoin = num(f.preJoin), days = num(f.days)||MONTH_DAYS;
+  const regular = Math.max(0, present-offWorked);
+  const working = Math.max(0, days-off-preJoin);
+  const absentRaw = Math.max(0, working-regular);
+  const plUsed = Math.min(PAID_LEAVES, absentRaw);
+  const absent = absentRaw-plUsed;
+  const paidDays = Math.max(0, MONTH_DAYS-preJoin-absent);
+  const basicAmt = perDay*paidDays;
+  const net = basicAmt + allow + otAmt + extraAmt - holAmt - num(f.advance) - num(f.pl_loan);
+  return { perDay, extraAmt, holAmt, allow, otAmt, net, absent, absentRaw, plUsed, off, offWorked, paidDays, basicAmt };
 };
 const hm = (h) => { const t=Math.round(Number(h||0)*60); if(!(t>0)) return '-'; const hh=Math.floor(t/60), mm=t%60; return hh>0 ? hh+' hrs '+mm+' min' : mm+' min'; };
 const istDate = (offsetDays=0) => new Date(Date.now()+19800000+offsetDays*86400000).toISOString().slice(0,10);
@@ -48,8 +58,13 @@ export function HRAttendancePage() {
   const [punchRows,setPunchRows]=useState([]);
   const [profileView,setProfileView]=useState(null);
   const [offSet,setOffSet]=useState({weekly_off:[],holidays:[]});
-  // Is mahine ke weekly off (Sunday) + holiday din (employee ke department/location ke hisaab se) — Absent me nahi ginte
-  const offCountFor=(empId,month)=>{ const e=employees.find(z=>String(z.id)===String(empId))||{}; const [y,m]=String(month||'').split('-').map(Number); if(!y||!m) return 0; const n=new Date(y,m,0).getDate(); let c=0; for(let i=1;i<=n;i++){ const k=y+'-'+String(m).padStart(2,'0')+'-'+String(i).padStart(2,'0'); if(new Date(k+'T00:00:00Z').getUTCDay()===0||offInfo(e,k,offSet)) c++; } return c; };
+  // Slip ke liye: is mahine ke off din (Sunday/weekly off/holiday), off din par aaye din, joining se pehle ke din
+  const salCtx=(empId,month)=>{ const e=employees.find(z=>String(z.id)===String(empId))||{}; const [y,m]=String(month||'').split('-').map(Number); if(!y||!m) return {off:0,offWorked:0,preJoin:0,days:MONTH_DAYS};
+    const n=new Date(y,m,0).getDate(); const jd=String(e.joining_date||'').slice(0,10); let off=0,offWorked=0,preJoin=0;
+    const worked={}; attendance.forEach(r=>{ if(String(r.employee_id)!==String(empId)) return; const v=r.status==='Half Day'?0.5:(r.status==='Present'?1:0); if(v) worked[String(r.work_date||'').slice(0,10)]=v; });
+    for(let i=1;i<=n;i++){ const k=y+'-'+String(m).padStart(2,'0')+'-'+String(i).padStart(2,'0'); if(/^\d{4}-\d{2}-\d{2}$/.test(jd)&&k<jd){ preJoin++; continue; } if(new Date(k+'T00:00:00Z').getUTCDay()===0||offInfo(e,k,offSet)){ off++; offWorked+=worked[k]||0; } }
+    return {off,offWorked,preJoin,days:n}; };
+  const extraOf=(r,c)=>num(r.extra_days)>0?num(r.extra_days):c.offWorked;
   useEffect(()=>{ (async()=>{ try{ const o=await get('/hr/off-settings'); setOffSet({weekly_off:o.weekly_off||[],holidays:o.holidays||[]}); }catch(_){} })(); },[tab]);
   const [photo,setPhoto]=useState(null); // {name,src}
   const [employees,setEmployees]=useState([]);
@@ -103,7 +118,7 @@ export function HRAttendancePage() {
       const e=await get('/hr/employees'); setEmployees(e.employees||[]);
       if(tab==='employees'){ try{ const u=await get('/users'); setUsers(u.rows||u.data||u.items||[]); }catch(_){ setUsers([]); } }
       if(tab==='employees'){ try{ const t=await get('/hr/department-timings'); setTimings(t.timings||[]); }catch(_){} try{ const o=await get('/hr/outlets'); setOutlets(o.outlets||[]); }catch(_){} }
-      if(tab==='attendance'){ const a=await get('/hr/attendance?month='+month); setAttendance(a.attendance||[]); }
+      if(tab==='attendance'||tab==='salary'){ const a=await get('/hr/attendance?month='+month); setAttendance(a.attendance||[]); }
       if(tab==='salary'){ const s=await get('/hr/salary?month='+month); setSalaries(s.salaries||[]); }
       if(tab==='outlets'){ const o=await get('/hr/outlets'); setOutlets(o.outlets||[]); setOutEdit({}); }
       if(tab==='punches'){ const r=await get('/hr/punch-log?from='+punchFrom+'&to='+punchTo); setPunchRows(r.rows||[]); }
@@ -202,7 +217,7 @@ export function HRAttendancePage() {
   };
   const openSlip=(r)=>{
     setSlip(r); setNotice(''); setError('');
-    setSlipForm({present:num(r.present_days),extra_days:num(r.extra_days),holiday_days:num(r.holiday_days),advance:num(r.advance),pl_loan:num(r.pl_loan),paid_on:String(r.paid_on||'').slice(0,10),manual:r.present_override!==null&&r.present_override!==undefined});
+    setSlipForm({present:num(r.present_days),extra_days:extraOf(r,salCtx(r.employee_id,r.salary_month)),holiday_days:num(r.holiday_days),advance:num(r.advance),pl_loan:num(r.pl_loan),paid_on:String(r.paid_on||'').slice(0,10),manual:r.present_override!==null&&r.present_override!==undefined});
   };
   const saveSlip=async(useAttendance)=>{
     setBusy(true); setError('');
@@ -214,7 +229,7 @@ export function HRAttendancePage() {
     } catch(err){ setError(err.message); } finally{ setBusy(false); }
   };
   const printSlip=()=>{
-    const m=slipMath(slip,{...slipForm,off:offCountFor(slip.employee_id,slip.salary_month)}); const w=window.open('','_blank','width=760,height=720'); if(!w) return;
+    const m=slipMath(slip,{...slipForm,...salCtx(slip.employee_id,slip.salary_month)}); const w=window.open('','_blank','width=760,height=720'); if(!w) return;
     const R=(i,a,x,y,z)=>`<tr class="${i%2?'w':'b'}"><th class="l">${a}</th><td>${x??'-'}</td><td>${y??'-'}</td><td>${z??'-'}</td></tr>`;
     let i=0;
     w.document.write(`<html><head><title>Salary Slip - ${slip.employee_name}</title><style>
@@ -236,7 +251,9 @@ export function HRAttendancePage() {
       ${R(i++,'Salary <span style="font-weight:400;text-transform:none">(Monthly)</span>',money(slip.basic_salary),Math.round(m.perDay),MONTH_DAYS)}
       ${R(i++,'Present Days',num(slipForm.present),'-',num(slipForm.present))}
       ${R(i++,'Present Extra Sundays or Nights',num(slipForm.extra_days),Math.round(m.extraAmt),num(slipForm.extra_days))}
-      ${R(i++,'Absent Days',m.absent,'-',m.absent)}
+      ${R(i++,'Weekly Off + Holiday (Paid)',money(m.perDay*m.off),'-',m.off)}
+      ${R(i++,'Absent Days'+(m.plUsed>0?' ('+m.absentRaw+' − '+m.plUsed+' paid leave)':''),m.absent>0?'-'+money(m.perDay*m.absent):'-','-',m.absent)}
+      ${R(i++,'Paid Days',money(m.basicAmt),Math.round(m.perDay),m.paidDays)}
       ${R(i++,'Holiday Deducted',num(slipForm.holiday_days),Math.round(m.holAmt),num(slipForm.holiday_days))}
       ${m.allow>0?R(i++,'Allowances (HRA + Other)',money(m.allow),'-','-'):''}
       ${m.otAmt>0?R(i++,'Overtime ('+num(slip.overtime_hours).toFixed(1)+' hr)',money(m.otAmt),'-','-'):''}
@@ -454,9 +471,9 @@ export function HRAttendancePage() {
 
     {tab==='salary' && <>
       <div className="card tableWrap"><div className="toolbar"><div className="field"><label>Salary Month</label><input type="month" value={month} onChange={e=>setMonth(e.target.value)}/></div><div className="field"><label>Employee dhundhein</label><input value={salSearch} onChange={e=>setSalSearch(e.target.value)} placeholder="naam ya code"/></div><button className="btn primary" onClick={processSalary} disabled={busy}>{busy?'Processing…':'Process Salary'}</button></div>
-        <p className="muted" style={{margin:'6px 0'}}>Process Salary ke baad kisi employee ki <strong>Slip</strong> kholein. Slip me Extra Sundays/Nights, Holiday, Advance aur PL Loan bhar sakte hain. Per-day = Salary ÷ {MONTH_DAYS}.</p>
+        <p className="muted" style={{margin:'6px 0'}}>Process Salary ke baad kisi employee ki <strong>Slip</strong> kholein. Slip me Extra Sundays/Nights, Holiday, Advance aur PL Loan bhar sakte hain. Per-day = Salary ÷ {MONTH_DAYS}. Weekly off + holiday paid hain, off din par aaye to Extra me jodte hain, aur {PAID_LEAVES} paid leave absent me se adjust hoti hai.</p>
         <table className="table reportTable"><thead><tr><th>Employee</th><th>Present</th><th>Late Days</th><th>OT Hrs</th><th>Basic Earned</th><th>Allowances</th><th>Extra</th><th>Deductions</th><th>Net Salary</th><th>Paid</th><th>Baaki</th><th>Status</th><th></th></tr></thead><tbody>
-          {salaries.filter(x=>{const q=salSearch.trim().toLowerCase();return !q||String(x.employee_name||'').toLowerCase().includes(q)||String(x.employee_code||'').toLowerCase().includes(q);}).map(x=>{ const m=slipMath(x,{present:x.present_days,extra_days:x.extra_days,holiday_days:x.holiday_days,advance:x.advance,pl_loan:x.pl_loan}); return <tr key={x.id}><td><a href="#" title="Attendance dekhein" style={{fontWeight:600,textDecoration:'underline'}} onClick={ev=>{ev.preventDefault();openAttendance(x);}}>{x.employee_name}</a></td><td>{x.present_days}</td><td>{x.late_days||'-'}</td><td>{x.overtime_hours}</td><td>{Number(x.basic_earned||0).toFixed(2)}</td><td>{Number(x.allowances||0).toFixed(2)}</td><td>{(m.extraAmt+m.otAmt).toFixed(2)}</td><td>{(m.holAmt+num(x.advance)+num(x.pl_loan)).toFixed(2)}</td><td><strong>{Number(x.net_salary||0).toFixed(2)}</strong></td>{(()=>{ const net=num(x.net_salary),paid=num(x.paid_amount),bal=Math.max(0,net-paid),inproc=num(x.in_process_amount); const st=paid>0&&bal<=0.5?['Paid','#1e8e3e']:paid>0?['Partial','#d17b08']:inproc>0?['Voucher bana','#3f7edb']:['Unpaid','#c0392b']; const modes=String(x.paid_modes||'').split(', ').filter(Boolean).map(mm=>mm==='cash'?'Cash':mm==='upi'?'UPI':mm==='cheque'?'Cheque':'Bank').join(' + '); return <><td>{paid>0?money(paid):'-'}{modes&&<div className="muted" style={{fontSize:11}}>{modes}{x.last_paid_at?' · '+dmy(x.last_paid_at):''}</div>}</td><td style={bal>0.5?{color:'#c0392b',fontWeight:600}:undefined}>{bal>0.5?money(bal):'-'}</td><td><span style={{color:st[1],fontWeight:700}}>{st[0]}</span></td></>; })()}<td><button className="btn" onClick={()=>openSlip(x)}>Slip</button></td></tr>; })}
+          {salaries.filter(x=>{const q=salSearch.trim().toLowerCase();return !q||String(x.employee_name||'').toLowerCase().includes(q)||String(x.employee_code||'').toLowerCase().includes(q);}).map(x=>{ const c=salCtx(x.employee_id,x.salary_month||month); const m=slipMath(x,{present:x.present_days,extra_days:extraOf(x,c),holiday_days:x.holiday_days,advance:x.advance,pl_loan:x.pl_loan,...c}); return <tr key={x.id}><td><a href="#" title="Attendance dekhein" style={{fontWeight:600,textDecoration:'underline'}} onClick={ev=>{ev.preventDefault();openAttendance(x);}}>{x.employee_name}</a></td><td>{x.present_days}</td><td>{x.late_days||'-'}</td><td>{x.overtime_hours}</td><td>{m.basicAmt.toFixed(2)}</td><td>{Number(x.allowances||0).toFixed(2)}</td><td>{(m.extraAmt+m.otAmt).toFixed(2)}</td><td>{(m.holAmt+num(x.advance)+num(x.pl_loan)).toFixed(2)}</td><td><strong>{m.net.toFixed(2)}</strong></td>{(()=>{ const net=m.net,paid=num(x.paid_amount),bal=Math.max(0,net-paid),inproc=num(x.in_process_amount); const st=paid>0&&bal<=0.5?['Paid','#1e8e3e']:paid>0?['Partial','#d17b08']:inproc>0?['Voucher bana','#3f7edb']:['Unpaid','#c0392b']; const modes=String(x.paid_modes||'').split(', ').filter(Boolean).map(mm=>mm==='cash'?'Cash':mm==='upi'?'UPI':mm==='cheque'?'Cheque':'Bank').join(' + '); return <><td>{paid>0?money(paid):'-'}{modes&&<div className="muted" style={{fontSize:11}}>{modes}{x.last_paid_at?' · '+dmy(x.last_paid_at):''}</div>}</td><td style={bal>0.5?{color:'#c0392b',fontWeight:600}:undefined}>{bal>0.5?money(bal):'-'}</td><td><span style={{color:st[1],fontWeight:700}}>{st[0]}</span></td></>; })()}<td><button className="btn" onClick={()=>openSlip(x)}>Slip</button></td></tr>; })}
           {!salaries.length&&<tr><td colSpan="13" className="muted">Is mahine ki salary abhi nahi nikli. "Process Salary" dabayein.</td></tr>}
         </tbody></table></div>
       {attView && (()=>{ const rows=attView.rows; const days=rows.reduce((a,r)=>a+(r.status==='Present'?1:r.status==='Half Day'?0.5:0),0); const halfDays=rows.filter(r=>r.status==='Half Day').length; const absDays=rows.filter(r=>r.status==='Absent').length; const lateDays=rows.filter(r=>Number(r.late_minutes)>0).length; const hrs=rows.reduce((a,r)=>a+num(r.work_hours),0); const ot=rows.reduce((a,r)=>a+num(r.overtime_hours),0);
@@ -483,7 +500,7 @@ export function HRAttendancePage() {
             {!shown.length && <tr><td colSpan="8" className="muted">{attView.loading?'Loading…':'Is mahine ki attendance nahi mili.'}</td></tr>}
           </tbody></table></div>
         </div></div>; })()}
-      {slip && (()=>{ const m=slipMath(slip,{...slipForm,off:offCountFor(slip.employee_id,slip.salary_month)}); const cell={border:'1px solid var(--border,#999)',padding:'10px 12px',textAlign:'center'}; const th={...cell,fontWeight:700,textTransform:'uppercase',fontSize:13}; const hd={...cell,background:'#0b3361',color:'#fff',fontWeight:800,fontSize:14,letterSpacing:.5}; const lab={...cell,background:'#e3edf9',fontWeight:800,fontSize:13}; const val={...cell,fontWeight:700,fontSize:16}; const band=['#e3edf9','#ffffff']; const sin=(k,w)=><input type="number" min="0" step="any" style={{width:w||90,textAlign:'center'}} value={slipForm[k]} onChange={e=>setSlipForm({...slipForm,[k]:e.target.value,...(k==='present'?{manual:true}:{})})}/>;
+      {slip && (()=>{ const m=slipMath(slip,{...slipForm,...salCtx(slip.employee_id,slip.salary_month)}); const cell={border:'1px solid var(--border,#999)',padding:'10px 12px',textAlign:'center'}; const th={...cell,fontWeight:700,textTransform:'uppercase',fontSize:13}; const hd={...cell,background:'#0b3361',color:'#fff',fontWeight:800,fontSize:14,letterSpacing:.5}; const lab={...cell,background:'#e3edf9',fontWeight:800,fontSize:13}; const val={...cell,fontWeight:700,fontSize:16}; const band=['#e3edf9','#ffffff']; const sin=(k,w)=><input type="number" min="0" step="any" style={{width:w||90,textAlign:'center'}} value={slipForm[k]} onChange={e=>setSlipForm({...slipForm,[k]:e.target.value,...(k==='present'?{manual:true}:{})})}/>;
         return <div className="modal"><div className="modalbox" style={{maxWidth:720}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><div><h2 style={{margin:0}}>Salary Slip</h2><div className="muted">{slip.employee_code} · {slip.department||'-'} · {slip.location||'-'}</div></div><button className="btn" onClick={()=>setSlip(null)}>Close</button></div>
           {error && <div className="error" style={{marginTop:10}}>{error}</div>}{notice && <div className="muted" style={{marginTop:10}}>{notice}</div>}
@@ -494,7 +511,9 @@ export function HRAttendancePage() {
             <tr><th style={{...lab,background:band[0],textAlign:'left'}}>SALARY <span style={{fontWeight:400,textTransform:'none'}}>(Monthly)</span></th><td style={{...val,background:band[0]}}>{money(slip.basic_salary)}</td><td style={{...val,background:band[0]}}>{Math.round(m.perDay)}</td><td style={{...val,background:band[0]}}>{MONTH_DAYS}</td></tr>
             <tr><th style={{...lab,background:band[1],textAlign:'left'}}>PRESENT DAYS</th><td style={{...val,background:band[1]}}>{sin('present',80)}</td><td style={{...val,background:band[1]}}>-</td><td style={{...val,background:band[1]}}>{num(slipForm.present)}</td></tr>
             <tr><th style={{...lab,background:band[0],textAlign:'left'}}>PRESENT EXTRA SUNDAYS OR NIGHTS</th><td style={{...val,background:band[0]}}>{sin('extra_days',80)}</td><td style={{...val,background:band[0]}}>{Math.round(m.extraAmt)}</td><td style={{...val,background:band[0]}}>{num(slipForm.extra_days)}</td></tr>
-            <tr><th style={{...lab,background:band[1],textAlign:'left'}}>ABSENT DAYS</th><td style={{...val,background:band[1]}}>{m.absent}</td><td style={{...val,background:band[1]}}>-</td><td style={{...val,background:band[1]}}>{m.absent}</td></tr>
+            <tr><th style={{...lab,background:band[1],textAlign:'left'}}>WEEKLY OFF + HOLIDAY <span style={{fontWeight:400,textTransform:'none'}}>(paid)</span></th><td style={{...val,background:band[1]}}>{money(m.perDay*m.off)}</td><td style={{...val,background:band[1]}}>-</td><td style={{...val,background:band[1]}}>{m.off}</td></tr>
+            <tr><th style={{...lab,background:band[0],textAlign:'left'}}>ABSENT DAYS <span style={{fontWeight:400,textTransform:'none'}}>({m.plUsed>0?m.absentRaw+' − '+m.plUsed+' paid leave':'unpaid'})</span></th><td style={{...val,background:band[0]}}>{m.absent>0?'-'+money(m.perDay*m.absent):'-'}</td><td style={{...val,background:band[0]}}>-</td><td style={{...val,background:band[0]}}>{m.absent}</td></tr>
+            <tr><th style={{...lab,background:band[1],textAlign:'left'}}>PAID DAYS <span style={{fontWeight:400,textTransform:'none'}}>(salary lagne wale)</span></th><td style={{...val,background:band[1]}}>{money(m.basicAmt)}</td><td style={{...val,background:band[1]}}>{Math.round(m.perDay)}</td><td style={{...val,background:band[1]}}>{m.paidDays}</td></tr>
             <tr><th style={{...lab,background:band[0],textAlign:'left'}}>HOLIDAY DEDUCTED</th><td style={{...val,background:band[0]}}>{sin('holiday_days',80)}</td><td style={{...val,background:band[0]}}>{Math.round(m.holAmt)}</td><td style={{...val,background:band[0]}}>{num(slipForm.holiday_days)}</td></tr>
             {m.allow>0 && <tr><th style={{...lab,background:band[1],textAlign:'left'}}>ALLOWANCES (HRA + OTHER)</th><td style={{...val,background:band[1]}}>{money(m.allow)}</td><td style={{...val,background:band[1]}}>-</td><td style={{...val,background:band[1]}}>-</td></tr>}
             {m.otAmt>0 && <tr><th style={{...lab,background:band[0],textAlign:'left'}}>OVERTIME ({num(slip.overtime_hours).toFixed(1)} HR)</th><td style={{...val,background:band[0]}}>{money(m.otAmt)}</td><td style={{...val,background:band[0]}}>-</td><td style={{...val,background:band[0]}}>-</td></tr>}
