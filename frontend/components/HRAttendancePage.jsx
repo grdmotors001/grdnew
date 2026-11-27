@@ -21,7 +21,7 @@ const slipMath = (r, f) => {
   const present = num(f.present), extraAmt = perDay*num(f.extra_days), holAmt = perDay*num(f.holiday_days);
   const allow = num(r.hra)+num(r.other_allowance), otAmt = num(r.overtime_hours)*num(r.overtime_rate);
   const net = perDay*present + allow + otAmt + extraAmt - holAmt - num(f.advance) - num(f.pl_loan);
-  return { perDay, extraAmt, holAmt, allow, otAmt, net, absent: Math.max(0, MONTH_DAYS-present) };
+  return { perDay, extraAmt, holAmt, allow, otAmt, net, absent: Math.max(0, MONTH_DAYS-present-num(f.off)) };
 };
 const hm = (h) => { const t=Math.round(Number(h||0)*60); if(!(t>0)) return '-'; const hh=Math.floor(t/60), mm=t%60; return hh>0 ? hh+' hrs '+mm+' min' : mm+' min'; };
 const istDate = (offsetDays=0) => new Date(Date.now()+19800000+offsetDays*86400000).toISOString().slice(0,10);
@@ -48,6 +48,8 @@ export function HRAttendancePage() {
   const [punchRows,setPunchRows]=useState([]);
   const [profileView,setProfileView]=useState(null);
   const [offSet,setOffSet]=useState({weekly_off:[],holidays:[]});
+  // Is mahine ke weekly off (Sunday) + holiday din (employee ke department/location ke hisaab se) — Absent me nahi ginte
+  const offCountFor=(empId,month)=>{ const e=employees.find(z=>String(z.id)===String(empId))||{}; const [y,m]=String(month||'').split('-').map(Number); if(!y||!m) return 0; const n=new Date(y,m,0).getDate(); let c=0; for(let i=1;i<=n;i++){ const k=y+'-'+String(m).padStart(2,'0')+'-'+String(i).padStart(2,'0'); if(new Date(k+'T00:00:00Z').getUTCDay()===0||offInfo(e,k,offSet)) c++; } return c; };
   useEffect(()=>{ (async()=>{ try{ const o=await get('/hr/off-settings'); setOffSet({weekly_off:o.weekly_off||[],holidays:o.holidays||[]}); }catch(_){} })(); },[tab]);
   const [photo,setPhoto]=useState(null); // {name,src}
   const [employees,setEmployees]=useState([]);
@@ -212,7 +214,7 @@ export function HRAttendancePage() {
     } catch(err){ setError(err.message); } finally{ setBusy(false); }
   };
   const printSlip=()=>{
-    const m=slipMath(slip,slipForm); const w=window.open('','_blank','width=760,height=720'); if(!w) return;
+    const m=slipMath(slip,{...slipForm,off:offCountFor(slip.employee_id,slip.salary_month)}); const w=window.open('','_blank','width=760,height=720'); if(!w) return;
     const R=(i,a,x,y,z)=>`<tr class="${i%2?'w':'b'}"><th class="l">${a}</th><td>${x??'-'}</td><td>${y??'-'}</td><td>${z??'-'}</td></tr>`;
     let i=0;
     w.document.write(`<html><head><title>Salary Slip - ${slip.employee_name}</title><style>
@@ -481,7 +483,7 @@ export function HRAttendancePage() {
             {!shown.length && <tr><td colSpan="8" className="muted">{attView.loading?'Loading…':'Is mahine ki attendance nahi mili.'}</td></tr>}
           </tbody></table></div>
         </div></div>; })()}
-      {slip && (()=>{ const m=slipMath(slip,slipForm); const cell={border:'1px solid var(--border,#999)',padding:'10px 12px',textAlign:'center'}; const th={...cell,fontWeight:700,textTransform:'uppercase',fontSize:13}; const hd={...cell,background:'#0b3361',color:'#fff',fontWeight:800,fontSize:14,letterSpacing:.5}; const lab={...cell,background:'#e3edf9',fontWeight:800,fontSize:13}; const val={...cell,fontWeight:700,fontSize:16}; const band=['#e3edf9','#ffffff']; const sin=(k,w)=><input type="number" min="0" step="any" style={{width:w||90,textAlign:'center'}} value={slipForm[k]} onChange={e=>setSlipForm({...slipForm,[k]:e.target.value,...(k==='present'?{manual:true}:{})})}/>;
+      {slip && (()=>{ const m=slipMath(slip,{...slipForm,off:offCountFor(slip.employee_id,slip.salary_month)}); const cell={border:'1px solid var(--border,#999)',padding:'10px 12px',textAlign:'center'}; const th={...cell,fontWeight:700,textTransform:'uppercase',fontSize:13}; const hd={...cell,background:'#0b3361',color:'#fff',fontWeight:800,fontSize:14,letterSpacing:.5}; const lab={...cell,background:'#e3edf9',fontWeight:800,fontSize:13}; const val={...cell,fontWeight:700,fontSize:16}; const band=['#e3edf9','#ffffff']; const sin=(k,w)=><input type="number" min="0" step="any" style={{width:w||90,textAlign:'center'}} value={slipForm[k]} onChange={e=>setSlipForm({...slipForm,[k]:e.target.value,...(k==='present'?{manual:true}:{})})}/>;
         return <div className="modal"><div className="modalbox" style={{maxWidth:720}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><div><h2 style={{margin:0}}>Salary Slip</h2><div className="muted">{slip.employee_code} · {slip.department||'-'} · {slip.location||'-'}</div></div><button className="btn" onClick={()=>setSlip(null)}>Close</button></div>
           {error && <div className="error" style={{marginTop:10}}>{error}</div>}{notice && <div className="muted" style={{marginTop:10}}>{notice}</div>}
