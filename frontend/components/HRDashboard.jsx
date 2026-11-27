@@ -159,7 +159,7 @@ export function HRDashboard() {
         {d.absentList.map(e => <tr key={e.id}><td>{e.employee_code}</td><td>{e.name}</td><td>{e.department || '-'}</td><td>{e.location || '-'}</td></tr>)}
         {!d.absentList.length && <tr><td colSpan="4" className="muted">Sab present hain.</td></tr>}
       </tbody></table></div>
-      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Absent = jinka us din koi punch nahi. Weekly off ya holiday (HR > Off / Holiday me set) wale employee Absent me nahi ginte.</p>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Absent = jinka us din koi punch nahi. Weekly off ya holiday (HR &gt; Off / Holiday me set) wale employee Absent me nahi ginte.</p>
     </div>
     {listKind && <div className="modal" onClick={() => setListKind('')}><div className="modalbox" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
