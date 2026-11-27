@@ -90,3 +90,21 @@ export async function sendOtpMessage(mobile10: string, otp: string) {
   if (process.env.FAST2SMS_API_KEY) return sendFast2Sms(mobile10, otp);
   return sendMetaWhatsApp(mobile10, otp);
 }
+
+// Sirf message ke liye: number kyun reject hua (login nahi bana / inactive / module access wala / mobile nahi mila).
+export async function whyNoOtp(pool: any, mobile10: string): Promise<string> {
+  const r = await pool.query(
+    `SELECT e.active,e.user_id,u.is_super_user,u.department,u.allowed_modules
+       FROM hr_employee e LEFT JOIN "user" u ON u.id=e.user_id
+      WHERE right(regexp_replace(COALESCE(e.mobile,''),'\\D','','g'),10)=$1
+         OR right(regexp_replace(COALESCE(u.mobile,''),'\\D','','g'),10)=$1 OR u.username=$1
+      LIMIT 1`, [mobile10]);
+  const x = r.rows[0];
+  if (!x) return "Ye number kisi employee ya user me nahi mila. Employees me Mobile bharein.";
+  if (x.active === false) return "Ye employee Disabled hai.";
+  if (!x.user_id) return "Is employee ka login nahi bana. Employees me 'Login banayein' dabayein.";
+  const mods = Array.isArray(x.allowed_modules) ? x.allowed_modules : String(x.allowed_modules || "").split(",");
+  if (mods.map((m: any) => String(m).trim()).filter(Boolean).length > 0 || x.is_super_user === true || String(x.department || "").trim().toLowerCase() === "admin")
+    return "Is user ke paas Module Access / Admin hai, isliye OTP login nahi chalega. Password se login karein.";
+  return "Ye number registered nahi hai.";
+}

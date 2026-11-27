@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Pool } from "pg";
-import { ensureOtpSchema, cleanMobile, findEmployeeUser, hashOtp, sendOtpMessage, OTP_TTL_MIN, OTP_RESEND_SEC, OTP_MAX_PER_HOUR } from "../../../../../lib/server/employeeOtp";
+import { ensureOtpSchema, whyNoOtp, cleanMobile, findEmployeeUser, hashOtp, sendOtpMessage, OTP_TTL_MIN, OTP_RESEND_SEC, OTP_MAX_PER_HOUR } from "../../../../../lib/server/employeeOtp";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, ssl: { rejectUnauthorized: false } });
 const GENERIC = { success: true, message: "Agar ye number registered hai to mobile par OTP bhej diya gaya hai." };
@@ -12,7 +12,7 @@ export async function POST(req: Request) {
     if (mobile.length !== 10) return Response.json({ error: "10 anko ka mobile number likhein." }, { status: 400 });
     await ensureOtpSchema(pool);
     const u = await findEmployeeUser(pool, mobile);
-    if (!u) return Response.json({ error: "Ye number registered nahi hai. Admin se apna mobile number employee login me jodne ko kahein." }, { status: 404 });
+    if (!u) return Response.json({ error: await whyNoOtp(pool, mobile) }, { status: 404 });
     const cur = (await pool.query("SELECT last_sent_at,window_start,sent_count FROM employee_login_otp WHERE user_id=$1", [u.id])).rows[0];
     if (cur) {
       const sinceSent = (Date.now() - new Date(cur.last_sent_at).getTime()) / 1000;
