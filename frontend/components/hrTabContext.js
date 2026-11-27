@@ -11,5 +11,6 @@ export const HR_TABS = [
   ['punches', 'Outlet Punches'],
   ['outlets', 'Outlets'],
   ['timing', 'Dept Timing'],
+  ['offs', 'Off / Holiday'],
   ['salary', 'Salary'],
 ];

@@ -539,6 +539,9 @@ async function ensureHRSchemas(){
   await pool.query("CREATE TABLE IF NOT EXISTS hr_outlet (id bigserial PRIMARY KEY, name text NOT NULL UNIQUE, latitude numeric, longitude numeric, radius_m integer NOT NULL DEFAULT 150, active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now())");
   await pool.query("CREATE TABLE IF NOT EXISTS hr_punch_log (id bigserial PRIMARY KEY, employee_id bigint NOT NULL REFERENCES hr_employee(id) ON DELETE CASCADE, work_date date NOT NULL, kind text NOT NULL, punched_at timestamptz NOT NULL DEFAULT now(), outlet_id bigint, latitude numeric, longitude numeric, accuracy_m numeric, distance_m numeric, selfie text)");
   await pool.query("ALTER TABLE hr_punch_log ADD COLUMN IF NOT EXISTS thumb text");
+  // Weekly off (department ke hisaab se; '*' = jin ka department set nahi / default) aur holiday list.
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_weekly_off (department text PRIMARY KEY, days text NOT NULL DEFAULT '0')");
+  await pool.query("CREATE TABLE IF NOT EXISTS hr_holiday (id bigserial PRIMARY KEY, holiday_date date NOT NULL, name text NOT NULL, location text)");
   await pool.query("ALTER TABLE hr_punch_log ADD COLUMN IF NOT EXISTS selfie_path text");
   await pool.query("ALTER TABLE hr_punch_log ADD COLUMN IF NOT EXISTS thumb_path text");
   await pool.query("CREATE INDEX IF NOT EXISTS hr_punch_log_date_idx ON hr_punch_log (work_date, employee_id)");
@@ -1093,7 +1096,7 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
     if(p==="hr/my-attendance"){
       if(a.scope!=="staff")return Response.json({error:"Staff access required."},{status:403});
       const uid=idOf(a.sub);
-      const emp=(await pool.query("SELECT id,employee_code,name,department FROM hr_employee WHERE active=true AND (user_id=$1 OR (user_id IS NULL AND lower(btrim(employee_code))=lower(btrim($2)))) ORDER BY (user_id=$1) DESC NULLS LAST,id LIMIT 1",[uid,String(a.username||"")])).rows[0];
+      const emp=(await pool.query("SELECT id,employee_code,name,department,location FROM hr_employee WHERE active=true AND (user_id=$1 OR (user_id IS NULL AND lower(btrim(employee_code))=lower(btrim($2)))) ORDER BY (user_id=$1) DESC NULLS LAST,id LIMIT 1",[uid,String(a.username||"")])).rows[0];
       if(!emp)return Response.json({linked:false,employee:null,attendance:[]});
       let month=String(new URL(req.url).searchParams.get("month")||"").trim();
       if(!/^\d{4}-\d{2}$/.test(month))month=new Date().toISOString().slice(0,7);
@@ -1122,9 +1125,13 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
           COUNT(*) FILTER (WHERE status='Absent') AS absent_marked
         FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2`,[emp.id,month])).rows[0];
       // Bina punch wale pichhle din (Sunday chhodkar) bhi Absent gine jate hain; aaj ka din abhi nahi (punch baaki ho sakta hai).
+      // Weekly off (department ke hisaab se, default Sunday) aur holiday (sab ya is location ke liye) ke din Absent nahi ginte.
+      const wo=(await pool.query("SELECT department,days FROM hr_weekly_off")).rows;
+      const offDays=String((wo.find((x:any)=>String(x.department).trim().toLowerCase()===String(emp.department||"").trim().toLowerCase())||wo.find((x:any)=>x.department==="*")||{days:"0"}).days);
       const miss=(await pool.query(`SELECT COUNT(*)::int AS n FROM generate_series(date_trunc('month',$2::date)::date,($2::date-1),'1 day') d
-          WHERE EXTRACT(DOW FROM d)<>0 AND d::date>=COALESCE((SELECT joining_date FROM hr_employee WHERE id=$1),'1900-01-01'::date)
-            AND NOT EXISTS (SELECT 1 FROM hr_attendance x WHERE x.employee_id=$1 AND x.work_date=d::date)`,[emp.id,today])).rows[0];
+          WHERE NOT (EXTRACT(DOW FROM d)::int::text = ANY(string_to_array($3,','))) AND d::date>=COALESCE((SELECT joining_date FROM hr_employee WHERE id=$1),'1900-01-01'::date)
+            AND NOT EXISTS (SELECT 1 FROM hr_holiday h WHERE h.holiday_date=d::date AND (COALESCE(btrim(h.location),'')='' OR lower(btrim(h.location))=lower(btrim($4))))
+            AND NOT EXISTS (SELECT 1 FROM hr_attendance x WHERE x.employee_id=$1 AND x.work_date=d::date)`,[emp.id,today,offDays,String(emp.location||"")])).rows[0];
       const recent=(await pool.query("SELECT work_date,first_in,last_out,status,late_minutes,single_punch,punch_count FROM hr_attendance WHERE employee_id=$1 AND to_char(work_date,'YYYY-MM')=$2 ORDER BY work_date DESC LIMIT 31",[emp.id,month])).rows;
       const labels:any={full_name:"Poora naam",mobile:"Mobile",email:"Email",date_of_birth:"Janm tithi",address:"Pata"};
       const profile_missing=Object.keys(labels).filter(k=>ucols.has(k)&&!String(u[k]??"").trim()).map(k=>labels[k]);
@@ -1187,6 +1194,11 @@ export async function GET(req:Request,{params}:{params:Promise<{path?:string[]}>
         const activeOnly=new URL(req.url).searchParams.get("active_only")==="1";
         const r=await pool.query("SELECT a.*,e.employee_code,e.name AS employee_name,e.active AS employee_active FROM hr_attendance a JOIN hr_employee e ON e.id=a.employee_id WHERE ($1='' OR to_char(a.work_date,'YYYY-MM')=$1) AND ($2::bigint IS NULL OR a.employee_id=$2::bigint) AND ($3::boolean=false OR e.active=true) ORDER BY a.work_date "+(empId?"ASC":"DESC")+",a.id DESC",[month,empId,activeOnly]);
         return Response.json({attendance:r.rows,rows:r.rows});
+      }
+      if(p==="hr/off-settings"){
+        const wo=await pool.query("SELECT department,days FROM hr_weekly_off ORDER BY department");
+        const hol=await pool.query("SELECT id,to_char(holiday_date,'YYYY-MM-DD') AS holiday_date,name,location FROM hr_holiday ORDER BY holiday_date DESC,id DESC");
+        return Response.json({weekly_off:wo.rows,holidays:hol.rows});
       }
       if(p==="hr/department-timings"){
         const t=await pool.query("SELECT department,start_time,grace_minutes,office_hours,ot_start_after,half_day_min,full_day_min FROM hr_department_timing ORDER BY department");
@@ -1843,6 +1855,22 @@ export async function POST(req:Request,{params}:{params:Promise<{path?:string[]}
       if(!r.rowCount)return Response.json({error:"Employee not found."},{status:404});
       await hrRecalcLate("");
       return Response.json({success:true,employee:r.rows[0]});
+    }
+    if(p==="hr/off-settings/weekly"){
+      const dept=String(b.department||"").trim()||"*";
+      const days=[...new Set(String(b.days||"").split(",").map((x:string)=>x.trim()).filter((x:string)=>/^[0-6]$/.test(x)))].sort().join(",");
+      await pool.query("INSERT INTO hr_weekly_off (department,days) VALUES ($1,$2) ON CONFLICT (department) DO UPDATE SET days=EXCLUDED.days",[dept,days]);
+      return Response.json({success:true});
+    }
+    if(p==="hr/holidays"){
+      const date=String(b.holiday_date||"").slice(0,10),name=String(b.name||"").trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!name)return Response.json({error:"Date aur holiday ka naam zaroori hai."},{status:400});
+      await pool.query("INSERT INTO hr_holiday (holiday_date,name,location) VALUES ($1,$2,$3)",[date,name,String(b.location||"").trim()||null]);
+      return Response.json({success:true});
+    }
+    if(p==="hr/holidays/delete"){
+      await pool.query("DELETE FROM hr_holiday WHERE id=$1",[idOf(b.id)]);
+      return Response.json({success:true});
     }
     if(p==="hr/department-timings"){
       await ensureHRSchemas();

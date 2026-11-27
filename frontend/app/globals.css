@@ -759,3 +759,6 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
 }
 
 @media(max-width:700px){.adminBottomNavForce.cols4{grid-template-columns:repeat(4,1fr) !important}}
+
+/* Dark mode me table ke andar ke links (employee naam wagairah) padhne layak rahein */
+.table a,.reportTable a{color:inherit;text-decoration:underline}

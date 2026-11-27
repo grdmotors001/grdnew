@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { offInfo } from '../lib/offDays';
 import { get } from '../lib/api';
 
 const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
@@ -52,6 +53,7 @@ export function HRDashboard() {
   const [loc, setLoc] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [offSet, setOffSet] = useState({ weekly_off: [], holidays: [] });
   const [listKind, setListKind] = useState(''); // 'present' | 'absent' => popup list
   const month = day.slice(0, 7);
 
@@ -63,6 +65,7 @@ export function HRDashboard() {
         const [e, a, s] = await Promise.all([get('/hr/employees'), get('/hr/attendance?month=' + month), get('/hr/salary?month=' + month)]);
         if (off) return;
         setEmployees(e.employees || []); setAttendance(a.attendance || []); setSalaries(s.salaries || []);
+        try { const o = await get('/hr/off-settings'); if (!off) setOffSet({ weekly_off: o.weekly_off || [], holidays: o.holidays || [] }); } catch (_) {}
       } catch (err) { if (!off) setError(err.message); }
       if (!off) setLoading(false);
     })();
@@ -77,7 +80,9 @@ export function HRDashboard() {
   const d = useMemo(() => {
     const todayRows = att.filter(a => dText(a.work_date) === day && (a.status === 'Present' || a.status === 'Half Day'));
     const presentIds = new Set(todayRows.map(a => String(a.employee_id)));
-    const absentList = emps.filter(e => !presentIds.has(String(e.id)));
+    const notPresent = emps.filter(e => !presentIds.has(String(e.id)));
+    const offList = notPresent.filter(e => offInfo(e, day, offSet));
+    const absentList = notPresent.filter(e => !offInfo(e, day, offSet));
     const late = todayRows.filter(a => num(a.late_minutes) > 0).length;
     const empById = new Map(emps.map(e => [String(e.id), e]));
     const presentList = todayRows.map(a => ({ ...a, emp: empById.get(String(a.employee_id)) || {} })).sort((x, y) => String(x.first_in || '').localeCompare(String(y.first_in || '')));
@@ -110,8 +115,8 @@ export function HRDashboard() {
     // location wise aaj
     const locMap = {};
     for (const e of emps) { const k = e.location || 'No location'; locMap[k] = locMap[k] || { total: 0, present: 0 }; locMap[k].total++; if (presentIds.has(String(e.id))) locMap[k].present++; }
-    return { present: presentIds.size, presentList, absentList, late, payable, paidAmt, estimated, perDay, deptData, locMap, processed: sal.length };
-  }, [att, emps, salaries, empIds, day, month]);
+    return { present: presentIds.size, presentList, absentList, offCount: offList.length, late, payable, paidAmt, estimated, perDay, deptData, locMap, processed: sal.length };
+  }, [att, emps, salaries, empIds, day, month, offSet]);
 
   return <div>
     <div className="card" style={{ marginBottom: 14, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -125,7 +130,7 @@ export function HRDashboard() {
     <div className="grid" style={{ marginBottom: 14 }}>
       <Kpi label="Total Employees" value={emps.length} sub={loc || 'All locations'} color="#3f7edb" />
       <Kpi label="Present" value={d.present} sub={day + ' · list dekhein'} color="#279d8c" onClick={() => setListKind('present')} />
-      <Kpi label="Absent" value={d.absentList.length} sub={(d.late ? d.late + ' late aaye · ' : '') + 'list dekhein'} color="#c0392b" onClick={() => setListKind('absent')} />
+      <Kpi label="Absent" value={d.absentList.length} sub={(d.late ? d.late + ' late aaye · ' : '') + (d.offCount ? d.offCount + ' off/holiday · ' : '') + 'list dekhein'} color="#c0392b" onClick={() => setListKind('absent')} />
       <Kpi label={'Payable (' + month + ')'} value={'₹ ' + money(d.payable)} sub={d.estimated ? 'Estimate - Salary tab me Process Salary baaki hai' : 'Paid ₹ ' + money(d.paidAmt) + ' · Baaki ₹ ' + money(Math.max(0, d.payable - d.paidAmt))} color="#8b67c9" />
     </div>
 
@@ -154,7 +159,7 @@ export function HRDashboard() {
         {d.absentList.map(e => <tr key={e.id}><td>{e.employee_code}</td><td>{e.name}</td><td>{e.department || '-'}</td><td>{e.location || '-'}</td></tr>)}
         {!d.absentList.length && <tr><td colSpan="4" className="muted">Sab present hain.</td></tr>}
       </tbody></table></div>
-      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Absent = jinka us din koi punch nahi. Sunday/holiday par bhi sab absent dikhenge.</p>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>Absent = jinka us din koi punch nahi. Weekly off ya holiday (HR > Off / Holiday me set) wale employee Absent me nahi ginte.</p>
     </div>
     {listKind && <div className="modal" onClick={() => setListKind('')}><div className="modalbox" style={{ maxWidth: 760 }} onClick={(e) => e.stopPropagation()}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>

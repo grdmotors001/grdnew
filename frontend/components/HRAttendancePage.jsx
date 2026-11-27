@@ -3,6 +3,8 @@ import { useContext, useEffect, useState } from 'react';
 import { get, post } from '../lib/api';
 import { HRDashboard } from './HRDashboard';
 import { HRTabContext } from './hrTabContext';
+import { HROffHoliday } from './HROffHoliday';
+import { offInfo } from '../lib/offDays';
 import { punchCells } from '../lib/punchView';
 
 const emptyEmployee = { employee_code:'', name:'', department:'', designation:'', location:'', mobile:'', photo_url:'', joining_date:'', machine_user_id:'', basic_salary:'', hra:'', other_allowance:'', overtime_rate:'' };
@@ -45,6 +47,8 @@ export function HRAttendancePage() {
   const [attDay,setAttDay]=useState(()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}));
   const [punchRows,setPunchRows]=useState([]);
   const [profileView,setProfileView]=useState(null);
+  const [offSet,setOffSet]=useState({weekly_off:[],holidays:[]});
+  useEffect(()=>{ (async()=>{ try{ const o=await get('/hr/off-settings'); setOffSet({weekly_off:o.weekly_off||[],holidays:o.holidays||[]}); }catch(_){} })(); },[tab]);
   const [photo,setPhoto]=useState(null); // {name,src}
   const [employees,setEmployees]=useState([]);
   const [attendance,setAttendance]=useState([]);
@@ -127,7 +131,7 @@ export function HRAttendancePage() {
   const dayKey=(d)=>String(d||'').slice(0,10);
   const attActive=attendance.filter(x=>x.employee_active!==false);
   const attPresentRows=attActive.filter(x=>x.status!=='Absent'&&(!attDay||dayKey(x.work_date)===attDay));
-  const attAbsentList=attDay?employees.filter(e=>e.active!==false&&!attActive.some(x=>String(x.employee_id)===String(e.id)&&dayKey(x.work_date)===attDay&&x.status!=='Absent')):[];
+  const attAbsentList=attDay?employees.filter(e=>e.active!==false&&!offInfo(e,attDay,offSet)&&!attActive.some(x=>String(x.employee_id)===String(e.id)&&dayKey(x.work_date)===attDay&&x.status!=='Absent')):[];
   const qOk=(n,c)=>{ const q=attSearch.trim().toLowerCase(); return !q||String(n||'').toLowerCase().includes(q)||String(c||'').toLowerCase().includes(q); };
   const toggleActive=async(x)=>{
     const next=x.active===false?true:false;
@@ -242,7 +246,7 @@ export function HRAttendancePage() {
     w.document.close();
   };
 
-  const tabName={dashboard:'Dashboard',employees:'Employees',attendance:'Attendance',punches:'Outlet Punches',outlets:'Outlets',timing:'Dept Timing',salary:'Salary'};
+  const tabName={dashboard:'Dashboard',employees:'Employees',attendance:'Attendance',punches:'Outlet Punches',outlets:'Outlets',timing:'Dept Timing',offs:'Off / Holiday',salary:'Salary'};
   const makeLogin=async(e)=>{
     setError(''); setNotice('');
     const pw=window.prompt((e.user_id?'Naya password':'Login password')+' likhein ('+e.name+', login = mobile '+(e.mobile||'-')+'):');
@@ -425,6 +429,7 @@ export function HRAttendancePage() {
       </div>
     </>}
 
+    {tab==='offs' && <HROffHoliday/>}
     {tab==='timing' && <div className="card tableWrap">
       <h3>Department Duty Timing</h3>
       <p className="muted">Har department ka duty start, grace, office hours aur OT rule set karein. <strong>Late = pehla punch − (duty start + grace)</strong>; late punch din-wise gine jate hain (Attendance aur Salary me "Late Days"). <strong>Office End = duty start + office hours</strong>; Office End ke baad ka extra time <strong>tabhi OT</strong> jab wo "OT Start After" minutes ya zyada ho (jaise 30 likha to 30 min se kam extra par OT nahi). Office Hours 0 chhodne par OT punch machine ki file se hi aayega. <strong>Half Day / Full Day Min (hr)</strong>: din ke ghante (pehla punch se aakhri punch) <strong>Half Day Min se kam = Absent</strong>, <strong>Full Day Min se kam = Half Day (0.5 din)</strong>, baaki Full Day. Dono 0 ho to ye rule band hai. Save karte hi purana attendance dobara calculate ho jata hai.</p>
