@@ -66,7 +66,7 @@ const ICONS = {
 };
 
 // Jin sidebar tabs par click karte hi pehle dashboard khulta hai (header me sabse pehla 'Dashboard' button).
-const GROUP_DASH = { Masters: 'masters-dashboard', Vouchers: 'vouchers-dashboard', Factory: 'factory-dashboard', Battery: 'battery-dashboard', 'Sales & Billing': 'sales-dashboard', Expenses: 'expenses-dashboard' , Sales: 'sales-dashboard', Cashier: 'cashier-dashboard', Accounts: 'accounts-dashboard', Inventory: 'inventory-dashboard', Reports: 'reports-dashboard' };
+const GROUP_DASH = { Masters: 'masters-dashboard', Vouchers: 'vouchers-dashboard', Factory: 'factory-dashboard', Battery: 'battery-dashboard', 'Sales & Billing': 'sales-dashboard', Expenses: 'expenses-dashboard' , Sales: 'sales-dashboard', Cashier: 'cashier-dashboard', Accounts: 'accounts-dashboard', Inventory: 'inventory-dashboard', Reports: 'reports-dashboard', System: 'system-dashboard' };
 
 function NavItem({ icon: Icon, label, active, collapsed, onClick }) {
   return (<button

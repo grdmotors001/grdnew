@@ -11,6 +11,7 @@ const GROUPS = {
   Factory: { api: 'factory', title: 'Factory Dashboard', hint: 'Factory ke har option ki total entries (jahan amount hai wahan total bhi). Card par dabayein to wo khulega.' },
   'Sales & Billing': { api: 'sales', title: 'Sales & Billing Dashboard', hint: 'Sales ke har option ki total entries aur (jahan amount hai) total. Card par dabayein to wo khulega.' },
   Expenses: { api: 'expenses', title: 'Expenses Dashboard', hint: 'Expenses ke har option ki total entries aur total amount. Card par dabayein to wo khulega.' },
+  System: { api: 'system', title: 'System Dashboard', hint: 'Users, audit log, menu, employees aur punch ka hisaab, aur system ke shortcuts. Card par dabayein to wo khulega.' },
   Reports: { api: 'reports', title: 'Reports Dashboard', hint: 'Reports ke registers ki entries aur amount. Card par dabayein to wo report khulegi.' },
   Cashier: { api: 'cashier', title: 'Cashier Dashboard', hint: 'Cashier ke har option ki entries aur amount. Card par dabayein to wo khulega.' },
   Accounts: { api: 'accounts', title: 'Accounts Dashboard', hint: 'Accounts ke har option ki entries. Reports wale card par dabayein to wo khulega.' },
@@ -112,16 +113,16 @@ export function GroupDashboard({ group = 'Masters', setActive }) {
     </div> : null}
 
     {items.some((x) => x.count != null) ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 12, marginBottom: 12 }}>
-      <BarList title="Option-wise total entries" rows={items.map((x, i) => ({ key: x.key, label: labelFor(x.key), value: num(x.count), color: COLORS[i % COLORS.length] }))} fmt={(v) => v.toLocaleString('en-IN')} />
-      <BarList title="Is mahine ki entries" rows={items.map((x, i) => ({ key: x.key, label: labelFor(x.key), value: num(x.month_count), color: COLORS[i % COLORS.length] }))} fmt={(v) => v.toLocaleString('en-IN')} />
-      {showAmount ? <BarList title="Option-wise total amount" rows={items.filter((x) => !x.unit).map((x, i) => ({ key: x.key, label: labelFor(x.key), value: num(x.total), color: COLORS[i % COLORS.length] }))} fmt={inr} /> : null}
+      <BarList title="Option-wise total entries" rows={items.map((x, i) => ({ key: x.key, label: x.label || labelFor(x.key), value: num(x.count), color: COLORS[i % COLORS.length] }))} fmt={(v) => v.toLocaleString('en-IN')} />
+      <BarList title="Is mahine ki entries" rows={items.map((x, i) => ({ key: x.key, label: x.label || labelFor(x.key), value: num(x.month_count), color: COLORS[i % COLORS.length] }))} fmt={(v) => v.toLocaleString('en-IN')} />
+      {showAmount ? <BarList title="Option-wise total amount" rows={items.filter((x) => !x.unit).map((x, i) => ({ key: x.key, label: x.label || labelFor(x.key), value: num(x.total), color: COLORS[i % COLORS.length] }))} fmt={inr} /> : null}
     </div> : null}
 
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12 }}>
       {items.map((it, i) => {
         const color = COLORS[i % COLORS.length];
-        const open = () => setActive && setActive(it.key);
-        const label = labelFor(it.key);
+        const open = () => setActive && setActive(it.open || it.key);
+        const label = it.label || labelFor(it.key);
         if (it.link) {
           return <Card key={it.key} label={label} color={color} onClick={open}>
             <div className="muted" style={{ fontSize: 13, marginTop: 10 }}>Details ke liye kholein →</div>
@@ -134,7 +135,7 @@ export function GroupDashboard({ group = 'Masters', setActive }) {
         }
         return <Card key={it.key} label={label} color={color} onClick={open}>
           <div style={{ fontSize: 30, fontWeight: 800, margin: '6px 0 2px' }}>{it.count.toLocaleString('en-IN')}</div>
-          <div className="muted" style={{ fontSize: 12 }}>{group === 'Masters' || ['battery-maker', 'rto', 'financer', 'vahan-inventory', 'expense-type', 'expense-head'].includes(it.key) ? 'records' : 'entries'}{it.note ? ' · ' + it.note : ''}</div>
+          <div className="muted" style={{ fontSize: 12 }}>{group === 'Masters' || ['battery-maker', 'rto', 'financer', 'vahan-inventory', 'expense-type', 'expense-head', 'sys-users', 'sys-users-pin', 'sys-tabs', 'sys-employees', 'sys-employees-login'].includes(it.key) ? 'records' : 'entries'}{it.note ? ' · ' + it.note : ''}</div>
           {showAmount && it.total != null ? <div style={{ marginTop: 6, fontWeight: 700 }}>{it.unit ? num(it.total).toLocaleString('en-IN') + ' ' + it.unit : inr(it.total)}</div> : null}
           {group !== 'Masters' ? <Spark trend={it.trend} color={color} useAmount={showAmount && it.total != null && !it.unit} /> : null}
           {group !== 'Masters' && it.month_count != null ? <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>

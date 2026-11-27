@@ -95,11 +95,64 @@ export function BalanceSheetPage() {
 }
 
 
+// Audit log ka JSON seedha dikhane ki jagah sirf badla hua hissa padhne layak line me dikhata hai ("naam: purana → naya").
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const sv = (v) => (v === null || v === undefined || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+const listSet = (v) => new Set(String(v || '').split(',').map((x) => x.trim()).filter(Boolean));
+const SKIP_FIELDS = new Set(['updated_at', 'created_at', 'password_hash', 'login_pin_hash']);
+function describeChange(o, n) {
+  const lines = [];
+  if (Array.isArray(o) || Array.isArray(n)) {
+    const rowsO = Array.isArray(o) ? o : [], rowsN = Array.isArray(n) ? n : [];
+    if ([...rowsO, ...rowsN].every((r) => isObj(r) && r.module_key)) {
+      const mo = new Map(rowsO.map((r) => [r.module_key, r])), mn = new Map(rowsN.map((r) => [r.module_key, r]));
+      for (const k of new Set([...mo.keys(), ...mn.keys()])) {
+        const a = mo.get(k), b = mn.get(k);
+        if (!a) { lines.push(k + ': naya add hua'); continue; }
+        if (!b) { lines.push(k + ': hata diya'); continue; }
+        const ch = Object.keys({ ...a, ...b }).filter((f) => f !== 'module_key' && !SKIP_FIELDS.has(f) && JSON.stringify(a[f]) !== JSON.stringify(b[f]));
+        if (ch.length) lines.push(k + ': ' + ch.map((f) => f.replace(/^can_/, '') + ' ' + sv(a[f]) + ' → ' + sv(b[f])).join(', '));
+      }
+      return lines.length ? lines : ['Koi badlav nahi'];
+    }
+    return [sv(n ?? o)];
+  }
+  if (isObj(o) || isObj(n)) {
+    const a = o || {}, b = n || {};
+    for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (SKIP_FIELDS.has(k) || JSON.stringify(a[k]) === JSON.stringify(b[k])) continue;
+      if (typeof (a[k] ?? b[k]) === 'string' && String(a[k] ?? b[k]).includes(',') && (k === 'allowed_modules' || k.endsWith('_modules'))) {
+        const so = listSet(a[k]), sn = listSet(b[k]);
+        const added = [...sn].filter((x) => !so.has(x)), removed = [...so].filter((x) => !sn.has(x));
+        if (added.length) lines.push(k + ' me jude: ' + added.join(', '));
+        if (removed.length) lines.push(k + ' se hate: ' + removed.join(', '));
+      } else if (o === null || o === undefined) lines.push(k + ': ' + sv(b[k]));
+      else if (n === null || n === undefined) lines.push(k + ': ' + sv(a[k]));
+      else lines.push(k + ': ' + sv(a[k]) + ' → ' + sv(b[k]));
+    }
+    return lines.length ? lines : ['Koi badlav nahi'];
+  }
+  return [sv(n ?? o)];
+}
+function AuditChange({ oldV, newV }) {
+  if (!oldV && !newV) return <span className="muted">-</span>;
+  const lines = describeChange(oldV, newV);
+  const shown = lines.slice(0, 10);
+  return <div style={{ maxWidth: 520, fontSize: 12 }}>
+    <ul style={{ margin: 0, paddingLeft: 16 }}>{shown.map((l, i) => <li key={i} style={{ wordBreak: 'break-word' }}>{l}</li>)}</ul>
+    {lines.length > shown.length ? <div className="muted">+ {lines.length - shown.length} aur badlav</div> : null}
+    <details style={{ marginTop: 4 }}><summary className="muted" style={{ cursor: 'pointer' }}>Poora JSON dekhein</summary>
+      <div style={{ fontWeight: 600, marginTop: 4 }}>Old</div><pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>{oldV ? JSON.stringify(oldV, null, 1) : '-'}</pre>
+      <div style={{ fontWeight: 600, marginTop: 4 }}>New</div><pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>{newV ? JSON.stringify(newV, null, 1) : '-'}</pre>
+    </details>
+  </div>;
+}
+
 export function AuditReportPage(){
   const [rows,setRows]=useState([]),[filters,setFilters]=useState({user:'',module:'',action:'',record:'',from:'',to:''}),[error,setError]=useState('');
   const load=async()=>{try{const q=new URLSearchParams(Object.entries(filters).filter(([,v])=>v));const d=await get('/audit-report?'+q.toString());setRows(d.rows||[]);setError('')}catch(e){setError(e.message)}};
   useEffect(()=>{load()},[]);
   return <div className="page"><div className="pageHeader"><div><h1>Audit / User Activity</h1><p className="muted">Kis user ne kya create, edit, delete ya approve kiya — old value aur new value ke saath.</p></div><button className="btn" onClick={load}>↻ Refresh</button></div>
     <div className="card"><div className="formgrid">{[['user','User'],['module','Module'],['action','Action'],['record','Record/Reference']].map(([k,l])=><div className="field" key={k}><label>{l}</label><input value={filters[k]} onChange={e=>setFilters({...filters,[k]:e.target.value})}/></div>)}<div className="field"><label>From</label><input type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/></div><div className="field"><label>To</label><input type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/></div></div><button className="btn primary" onClick={load}>Apply Filters</button></div>
-    {error&&<div className="error">{error}</div>}<div className="tablewrap"><table className="table"><thead><tr><th>Date/Time</th><th>User</th><th>Module</th><th>Action</th><th>Record</th><th>Old Value</th><th>New Value</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{new Date(r.created_at).toLocaleString('en-IN')}</td><td>{r.username||'-'}</td><td>{r.module_key}</td><td>{r.action}</td><td>{r.record_ref||r.record_id||'-'}</td><td><pre style={{maxWidth:260,whiteSpace:'pre-wrap'}}>{r.old_value?JSON.stringify(r.old_value):'-'}</pre></td><td><pre style={{maxWidth:260,whiteSpace:'pre-wrap'}}>{r.new_value?JSON.stringify(r.new_value):'-'}</pre></td></tr>)}</tbody></table></div></div>
+    {error&&<div className="error">{error}</div>}<div className="tablewrap"><table className="table"><thead><tr><th>Date/Time</th><th>User</th><th>Module</th><th>Action</th><th>Record</th><th>Kya badla (Old → New)</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{new Date(r.created_at).toLocaleString('en-IN')}</td><td>{r.username||'-'}</td><td>{r.module_key}</td><td>{r.action}</td><td>{r.record_ref||r.record_id||'-'}</td><td><AuditChange oldV={r.old_value} newV={r.new_value}/></td></tr>)}</tbody></table></div></div>
 }

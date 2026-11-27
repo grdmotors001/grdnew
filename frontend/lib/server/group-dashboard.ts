@@ -16,6 +16,10 @@ type Item = {
   note?: string;          // card ke neeche chhota text
   unit?: string;          // total ki unit (jaise 'rickshaw'); na ho to rupaye
   link?: boolean;         // seedhi table nahi: sirf card se page kholna (count nahi)
+  label?: string;         // card ka apna naam (jab key menu ka asli key na ho)
+  open?: string;          // card click par kaun sa page khule (default = key)
+  adminOnly?: boolean;    // sirf admin ko data card dikhe
+  always?: boolean;       // har staff ko dikhe (permission ki zarurat nahi)
   salesmanLink?: boolean; // salesman ko sirf apne dealers dikhte hain, isliye uske liye count nahi, sirf link
 };
 
@@ -137,10 +141,24 @@ const REPORTS: Item[] = [
   { key: "vehicle-no-register", link: true },
 ];
 
+const SYSTEM: Item[] = [
+  { key: "sys-users", open: "user", label: "Users", table: "user", adminOnly: true, note: "Kul users" },
+  { key: "sys-users-pin", open: "user", label: "PIN set wale users", table: "user", where: "login_pin_hash IS NOT NULL", adminOnly: true },
+  { key: "sys-audit", open: "audit-report", label: "Audit log (entries)", table: "audit_log", dateCol: "created_at", adminOnly: true },
+  { key: "sys-tabs", open: "nav-settings", label: "Menu tabs (visible)", table: "nav_tab", where: "COALESCE(hidden,false)=false", adminOnly: true },
+  { key: "sys-employees", open: "hr-attendance", label: "Employees (active)", table: "hr_employee", where: "active=true", adminOnly: true },
+  { key: "sys-employees-login", open: "hr-attendance", label: "Login wale employees", table: "hr_employee", where: "active=true AND user_id IS NOT NULL", adminOnly: true },
+  { key: "sys-punch", open: "hr-attendance", label: "Outlet punch (In/Out)", table: "hr_punch_log", dateCol: "punched_at", adminOnly: true },
+  { key: "profile", link: true, always: true },
+  { key: "password", link: true, always: true },
+  { key: "nav-settings", link: true, adminOnly: true },
+  { key: "backup-restore", link: true, adminOnly: true },
+];
+
 const q = (s: string) => '"' + s.replace(/"/g, '""') + '"';
 
 async function one(it: Item, withAmount: boolean) {
-  const out: any = { key: it.key, link: !!it.link, unit: it.unit || "", count: null, month_count: null, total: null, month_total: null, note: it.note || "" };
+  const out: any = { key: it.key, label: it.label || "", open: it.open || "", link: !!it.link, unit: it.unit || "", count: null, month_count: null, total: null, month_total: null, note: it.note || "" };
   if (it.link || !it.table) return out;
   try {
     const cols = await columns(it.table as string);
@@ -183,14 +201,16 @@ async function one(it: Item, withAmount: boolean) {
 
 export async function groupDashboardGet(a: any, group: string) {
   const g = String(group || "").toLowerCase();
-  const list = g === "reports" ? REPORTS : g === "cashier" ? CASHIER : g === "accounts" ? ACCOUNTS : g === "inventory" ? INVENTORY : g === "masters" ? MASTERS : g === "vouchers" ? VOUCHERS : g === "factory" ? FACTORY : g === "battery" ? BATTERY : g === "sales" ? SALES : g === "expenses" ? EXPENSES : null;
+  const list = g === "system" ? SYSTEM : g === "reports" ? REPORTS : g === "cashier" ? CASHIER : g === "accounts" ? ACCOUNTS : g === "inventory" ? INVENTORY : g === "masters" ? MASTERS : g === "vouchers" ? VOUCHERS : g === "factory" ? FACTORY : g === "battery" ? BATTERY : g === "sales" ? SALES : g === "expenses" ? EXPENSES : null;
   if (!list) return Response.json({ error: "Unknown group." }, { status: 400 });
   // Salesman ko voucher ki rakam nahi dikhti (main dashboard me bhi sales amount hide hai).
   const withAmount = (g === "vouchers" || g === "factory" || g === "sales" || g === "expenses" || g === "cashier" || g === "inventory" || g === "reports") && !isSalesman(a);
   const admin = isAdmin(a);
   const allowed: Item[] = [];
   for (const it of list) {
-    if (admin || (await actionAllowed(a, it.perm || it.key, "view"))) allowed.push(it);
+    if (it.always) allowed.push(it);
+    else if (it.adminOnly) { if (admin) allowed.push(it); }
+    else if (admin || (await actionAllowed(a, it.perm || it.key, "view"))) allowed.push(it);
   }
   const sman = isSalesman(a);
   const items = await Promise.all(allowed.map((it) => (it.salesmanLink && sman ? Promise.resolve({ key: it.key, link: true, unit: "", count: null, month_count: null, total: null, month_total: null, note: "" }) : one(it, withAmount))));

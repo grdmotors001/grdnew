@@ -71,6 +71,7 @@ const CUSTOM_PAGES = {
   'factory-dashboard': (ctx) => <GroupDashboard key="factory-dashboard" group="Factory" setActive={ctx.setActive} />,
   'expenses-dashboard': (ctx) => <GroupDashboard key="expenses-dashboard" group="Expenses" setActive={ctx.setActive} />,
   'sales-dashboard': (ctx) => <GroupDashboard key="sales-dashboard" group="Sales & Billing" setActive={ctx.setActive} />,
+  'system-dashboard': (ctx) => <GroupDashboard key="system-dashboard" group="System" setActive={ctx.setActive} />,
   'reports-dashboard': (ctx) => <GroupDashboard key="reports-dashboard" group="Reports" setActive={ctx.setActive} />,
   'cashier-dashboard': (ctx) => <GroupDashboard key="cashier-dashboard" group="Cashier" setActive={ctx.setActive} />,
   'accounts-dashboard': (ctx) => <GroupDashboard key="accounts-dashboard" group="Accounts" setActive={ctx.setActive} />,
