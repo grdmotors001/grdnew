@@ -17,7 +17,7 @@ export const cleanMobile = (v: any) => String(v || "").replace(/\D/g, "").slice(
 export const hashOtp = (userId: any, otp: string) =>
   crypto.createHash("sha256").update(secret + ":" + String(userId) + ":" + otp).digest("hex");
 
-// Sirf "employee login": employee se juda, super user/Admin nahi, aur koi module right nahi. Baaki users ko OTP nahi milta.
+// OTP login: hr_employee se juda active user. privileged=true matlab Admin/module access wala (uske liye OTP ke baad PIN bhi chahiye).
 export async function findEmployeeUser(pool: any, mobile10: string) {
   if (mobile10.length !== 10) return null;
   const r = await pool.query(
@@ -32,7 +32,8 @@ export async function findEmployeeUser(pool: any, mobile10: string) {
   const mods = Array.isArray(u.allowed_modules) ? u.allowed_modules : String(u.allowed_modules || "").split(",");
   const hasMods = mods.map((x: any) => String(x).trim()).filter(Boolean).length > 0;
   const isAdmin = u.is_super_user === true || String(u.department || "").trim().toLowerCase() === "admin";
-  return hasMods || isAdmin ? null : u;
+  // Admin / module access wale bhi OTP se aa sakte hain; unko OTP ke baad PIN bhi dena padta hai (verify route dekhein).
+  return { ...u, privileged: hasMods || isAdmin };
 }
 
 // Fast2SMS (wallet wala, ₹100 se shuru): OTP route par "Your OTP: {#var#}" SMS jata hai.

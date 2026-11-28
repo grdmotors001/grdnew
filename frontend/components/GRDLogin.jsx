@@ -166,7 +166,12 @@ export function GRDLogin({ onLogin }) {
   const verifyOtp = async (e) => {
     e.preventDefault();
     setError(''); setBusy(true);
-    try { finishLogin(await post('/auth/employee-otp/verify', { mobile: otpMobile, otp: otpCode })); }
+    try {
+      const data = await post('/auth/employee-otp/verify', { mobile: otpMobile, otp: otpCode });
+      if (data.token) finishLogin(data);
+      else if (data.pin_required || data.pin_setup) { setPinToken(data.pin_token); setPin(''); setConfirmPin(''); setStep(data.pin_required ? 'pin' : 'setpin'); }
+      else throw new Error('Login failed');
+    }
     catch (err) { setError(err.message || 'OTP verify nahi ho saka.'); setOtpCode(''); }
     finally { setBusy(false); }
   };

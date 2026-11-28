@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Pool } from "pg";
-import { buildStaffSession } from "../../../../../lib/server/pin";
+import { buildStaffSession, ensurePinSchema, signPinToken } from "../../../../../lib/server/pin";
 import { ensureOtpSchema, cleanMobile, findEmployeeUser, hashOtp, OTP_MAX_TRIES } from "../../../../../lib/server/employeeOtp";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1, ssl: { rejectUnauthorized: false } });
@@ -23,6 +23,16 @@ export async function POST(req: Request) {
       return Response.json({ error: "OTP galat hai. " + Math.max(0, OTP_MAX_TRIES - Number(row.attempts) - 1) + " koshish baaki." }, { status: 401 });
     }
     await pool.query("DELETE FROM employee_login_otp WHERE user_id=$1", [u.id]); // OTP ek hi baar chalta hai
+    if (u.privileged) {
+      // Admin / module access wale: OTP password ki jagah hai, uske baad PIN pehle jaisa poochha jata hai (ya PIN set karna).
+      await ensurePinSchema(pool);
+      const full = (await pool.query('SELECT * FROM "user" WHERE id=$1 LIMIT 1', [u.id])).rows[0];
+      if (!full) return bad;
+      const { password_hash, login_pin_hash, pin_failed_attempts, pin_locked_until, ...safe } = full;
+      return Response.json(login_pin_hash
+        ? { pin_required: true, pin_token: signPinToken(full, "pin_verify"), user: safe, role: full.department || "staff" }
+        : { pin_setup: true, pin_token: signPinToken(full, "pin_setup"), user: safe, role: full.department || "staff" });
+    }
     const s = await buildStaffSession(pool, u.id);
     return Response.json(s.body, { status: s.status });
   } catch (e: any) {
