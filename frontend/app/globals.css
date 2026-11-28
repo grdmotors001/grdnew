@@ -762,3 +762,10 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
 
 /* Dark mode me table ke andar ke links (employee naam wagairah) padhne layak rahein */
 .table a,.reportTable a{color:inherit;text-decoration:underline}
+
+/* Mobile: Log Out button top bar me hamesha dikhe (side menu ke andar chhupa nahi rahe) */
+@media(max-width:700px){
+  .mobileAdminTop .mobileLogout{margin-left:auto;flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+  .sidebar .sidebarFooter{flex-shrink:0;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+}
+@media(min-width:701px){.mobileLogout{display:none}}
