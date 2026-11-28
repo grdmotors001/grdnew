@@ -6,6 +6,7 @@ import "./chat.css";
 import {PhoneIcon,VideoIcon,UserIcon} from "./Icons";
 import {ProfileScreen,CallPanel} from "./ProfileScreens";
 import {useCalls} from "./useCalls";
+import {LayoutDashboard,Menu as MenuIcon,MessageCircle,Search as SearchIcon,Users} from "lucide-react";
 
 const SB_URL=process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -63,5 +64,9 @@ export default function ChatPage({onClose}={}){
    {tab==="online"&&online&&(online.length?online.map(x=><div key={x.user_key} className="oc-user oc-presence"><span className="oc-avatar">{(x.name||"?").slice(0,1).toUpperCase()}<i className={"oc-dot "+(x.online?"on":"")}/></span><span><b>{x.name} <em className="oc-kind">{x.kind==="dealer"?"Dealer":x.role}</em></b><small>{x.online?"Online · login "+new Date(x.logged_in_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"Last seen "+ago(x.last_seen)}</small></span></div>):<div className="oc-empty" style={{padding:20}}>Abhi koi login nahi hai</div>)}
   </aside>
   <main className="oc-main">{active?<><header className="oc-head"><h2>{chats.find(c=>c.id===active)?.name||"Chat"}</h2><div className="oc-actions"><button title="Voice call" disabled={callBusy} onClick={()=>startCall(active,false)}><PhoneIcon/></button><button title="Video call" disabled={callBusy} onClick={()=>startCall(active,true)}><VideoIcon/></button><button title="Profile" onClick={()=>setProfile(true)}><UserIcon/></button><button onClick={()=>setActive(null)}>Close</button></div></header><section className="oc-thread">{thread.map(m=><div key={m.id} className={"oc-msg "+(m.sender_id===me?"mine":"")}><div>{m.body}</div>{m.file_name&&<small>📎 {m.file_name}</small>}<time>{new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</time></div>)}<div ref={end}/></section>{(call||callError)&&<CallPanel call={call||{room:active,video:false}} onEnd={endCall} remoteTracks={remoteTracks} localTracks={localTracks}/>} {profile&&<ProfileScreen user={users.find(u=>u.id!==me&&parts.some(p=>p.conversation_id===active&&p.user_id===u.id))} onClose={()=>setProfile(false)}/>}<form className="oc-send" onSubmit={send}><label>📎<input hidden type="file" onChange={sendFile}/></label><input value={text} onChange={e=>setText(e.target.value)} placeholder={busy?"Sending…":"Type a message"}/><button disabled={busy}>Send</button></form></>:<div className="oc-empty"><h2>Office Chat</h2><p>Select a person to start chatting.</p></div>}</main>
+  {!onClose&&<nav className="adminBottomNav adminBottomNavForce" aria-label="Staff bottom navigation">
+   {[["home",LayoutDashboard,"Home"],["search",SearchIcon,"Search"],["menu",MenuIcon,"Menu"],["chat",MessageCircle,"Chat"],["profile",Users,"Profile"]].map(([k,Icon,label])=>
+    <button key={k} type="button" className={k==="chat"?"active":""} onClick={()=>{if(k==="chat")return;try{window.sessionStorage.setItem("grd_after_nav",k)}catch{}location.href="/"}}><Icon size={18}/><small>{label}</small></button>)}
+  </nav>}
  </div>
 }

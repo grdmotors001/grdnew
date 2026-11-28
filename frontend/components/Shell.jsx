@@ -179,6 +179,24 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
 
   useEffect(() => { setPendingTheme(themeId); }, [themeId]);
 
+  const openProfile = () => {
+    let saved = null;
+    try { saved = JSON.parse(window.localStorage.getItem('grd_profile') || 'null'); } catch {}
+    setProfile(saved || {});
+    setProfileOpen(true);
+    setAttendanceLoading(true);
+    get('/hr/me?month='+attendanceMonth).then(setMyAttendance).catch(()=>setMyAttendance(null)).finally(()=>setAttendanceLoading(false));
+    setMobileMenu(false);
+  };
+  // Chat page ki bottom bar se aaya hua action (Search / Menu / Profile) Home par khol do.
+  useEffect(() => {
+    let a = null;
+    try { a = window.sessionStorage.getItem('grd_after_nav'); window.sessionStorage.removeItem('grd_after_nav'); } catch {}
+    if (a === 'search') setSearchOpen(true);
+    else if (a === 'menu') setMobileMenu(true);
+    else if (a === 'profile') openProfile();
+  }, []);
+
   const selectMenu = (key) => { setActive(key); setMobileMenu(false); setCollapsed(false); };
 
   const selectTheme = (id) => setPendingTheme(id);
@@ -473,14 +491,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
         <button type="button" onClick={() => { window.location.href = '/chat'; }}>
           <MessageCircle size={18} /><small>Chat</small>
         </button>
-        <button type="button" className={profileOpen ? 'active' : ''} onClick={() => {
-          const saved = window.localStorage.getItem('grd_profile');
-          setProfile(saved ? JSON.parse(saved) : {});
-          setProfileOpen(true);
-          setAttendanceLoading(true);
-          get('/hr/me?month='+attendanceMonth).then(setMyAttendance).catch(()=>setMyAttendance(null)).finally(()=>setAttendanceLoading(false));
-          setMobileMenu(false);
-        }}>
+        <button type="button" className={profileOpen ? 'active' : ''} onClick={openProfile}>
           <Users size={18} /><small>Profile</small>
         </button>
       </nav>}
