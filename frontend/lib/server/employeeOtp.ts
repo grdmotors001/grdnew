@@ -81,8 +81,14 @@ async function sendMetaWhatsApp(mobile10: string, otp: string) {
   if (!res.ok) {
     const t = await res.text().catch(() => "");
     console.error("[whatsapp-otp]", res.status, t.slice(0, 300));
-    throw new Error("WhatsApp par OTP nahi bhej paye.");
+    // Meta ka asli kaaran (token/ID galat, template, payment...) dikhate hain taaki pata chale; isme secret nahi hota.
+    let why = "";
+    try { const j = JSON.parse(t); why = String(j?.error?.message || "") + (j?.error?.code ? " (code " + j.error.code + ")" : ""); } catch (_e) {}
+    throw new Error("WhatsApp par OTP nahi bhej paye." + (why ? " Meta: " + why.slice(0, 200) : ""));
   }
+  // Meta ne request accept ki; message ID log me rakhte hain (delivery ka status WhatsApp Manager me dikhta hai).
+  const ok: any = await res.json().catch(() => ({}));
+  console.log("[whatsapp-otp] accepted, message id:", ok?.messages?.[0]?.id || "-");
 }
 
 // Jo provider configure hai wahi use hoga: pehle Fast2SMS, nahi to Meta WhatsApp.
