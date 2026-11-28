@@ -770,6 +770,9 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
 }
 @media(min-width:701px){.mobileLogout{display:none}}
 
+/* Mobile: popup/modal (Profile, forms) sticky green header (z-index 15) ke upar dikhe — pehle header popup ke upar aa jata tha. */
+@media(max-width:700px){.modal{z-index:110}}
+
 /* ===== MOBILE VIEW ONLY (max-width:700px) — requested UI changes =====
    1. Log Out ab sirf Profile me (top bar se hata diya).
    2. Dashboard cards 2 column me.

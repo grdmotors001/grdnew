@@ -4,7 +4,8 @@ import { get } from '../lib/api';
 import { NAV_GROUPS, SHOWROOM_SECTIONS, groupForKey, labelFor, buildNavGroups, VOUCHER_SHORTCUTS, VOUCHER_PAGE_FOR } from '../lib/menu';
 import { THEMES, useTheme } from '../lib/theme';
 import { ChatWidget } from './ChatWidget';
-import { MenuSearch, MobileSearchSheet } from './MenuSearch';
+import { MenuSearch } from './MenuSearch';
+import { QuickAccess } from './QuickAccess';
 import { HelpButton } from './HelpButton';
 import { enableTableSort } from '../lib/tableSort';
 import { Field } from './ui';
@@ -14,7 +15,7 @@ import {
   FlaskConical, Wrench, UserCog, Sliders, Banknote, ShoppingCart, Factory,
   Truck, Receipt, Car, BookOpen, Warehouse, Store, Boxes, ClipboardList, FileText,
   BarChart3, Wallet, Gift, Calendar, Key, Database, LogOut, ChevronLeft, ChevronRight,
-  Palette, CreditCard, Settings2, MessageCircle,
+  Palette, CreditCard, Settings2, MessageCircle, Star,
 } from 'lucide-react';
 
 // Lookup used to resolve an admin-picked icon name (stored as a plain
@@ -87,7 +88,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
   const [pendingTheme, setPendingTheme] = useState(themeId);
   const [mobileMenu, setMobileMenu] = useState(false);
   useEffect(() => enableTableSort(), []);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profile, setProfile] = useState({});
   const [myAttendance, setMyAttendance] = useState(null);
@@ -192,12 +193,12 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
   useEffect(() => {
     let a = null;
     try { a = window.sessionStorage.getItem('grd_after_nav'); window.sessionStorage.removeItem('grd_after_nav'); } catch {}
-    if (a === 'search') setSearchOpen(true);
+    if (a === 'quick' || a === 'search') setQuickOpen(true);
     else if (a === 'menu') setMobileMenu(true);
     else if (a === 'profile') openProfile();
   }, []);
 
-  const selectMenu = (key) => { setActive(key); setMobileMenu(false); setCollapsed(false); };
+  const selectMenu = (key) => { setActive(key); setMobileMenu(false); setCollapsed(false); setQuickOpen(false); };
 
   const selectTheme = (id) => setPendingTheme(id);
   const applySelectedTheme = () => { changeTheme(pendingTheme); setShowPalette(false); };
@@ -482,8 +483,8 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
         <button type="button" className={active === 'dashboard' ? 'active' : ''} onClick={() => selectMenu('dashboard')}>
           <LayoutDashboard size={18} /><small>Home</small>
         </button>
-        <button type="button" onClick={() => { setMobileMenu(false); setSearchOpen(true); }}>
-          <span style={{fontSize:17,lineHeight:1}}>🔍</span><small>Search</small>
+        <button type="button" className={quickOpen ? 'active' : ''} onClick={() => { setMobileMenu(false); setQuickOpen((v) => !v); }}>
+          <Star size={18} /><small>Quick</small>
         </button>
         <button type="button" onClick={() => setMobileMenu(v => !v)}>
           <span style={{fontSize:18,lineHeight:1}}>☰</span><small>Menu</small>
@@ -495,7 +496,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
           <Users size={18} /><small>Profile</small>
         </button>
       </nav>}
-      <MobileSearchSheet open={searchOpen} onClose={() => setSearchOpen(false)} items={searchItems} onPick={selectMenu} recentKey="grd_admin_recent_menu" />
+      {!employeeMode && <QuickAccess open={quickOpen} onClose={() => setQuickOpen(false)} items={searchItems} onPick={selectMenu} storageKey={'grd_quick_access_v1_' + (user?.username || '')} iconFor={(k) => ICONS[k] || (k === 'dashboard' ? LayoutDashboard : FileText)} />}
       {!employeeMode && <ChatWidget open={chatOpen} onOpenChange={setChatOpen} />}
     </div>
   );
