@@ -118,7 +118,7 @@ export function GroupDashboard({ group = 'Masters', setActive }) {
       {showAmount ? <BarList title="Option-wise total amount" rows={items.filter((x) => !x.unit).map((x, i) => ({ key: x.key, label: x.label || labelFor(x.key), value: num(x.total), color: COLORS[i % COLORS.length] }))} fmt={inr} /> : null}
     </div> : null}
 
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12 }}>
+    <div className="gdCardGrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12 }}>
       {items.map((it, i) => {
         const color = COLORS[i % COLORS.length];
         const open = () => setActive && setActive(it.open || it.key);

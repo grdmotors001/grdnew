@@ -12,7 +12,7 @@ const emptyProfile = {
   address: '',
 };
 
-export function ProfilePage({ user }) {
+export function ProfilePage({ user, onLogout }) {
   const [form, setForm] = useState({ ...emptyProfile, ...(user || {}) });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -164,6 +164,10 @@ export function ProfilePage({ user }) {
           </div>
         </form>
       </div>
+
+      {onLogout && <div className="card mobileOnlyLogout">
+        <button type="button" className="btn danger" style={{ width: '100%' }} onClick={onLogout}>Log Out</button>
+      </div>}
     </div>
   );
 }

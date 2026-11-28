@@ -101,7 +101,7 @@ const CUSTOM_PAGES = {
   'option-setting': (ctx) => <OptionSettingPage userId={ctx.optionUserId} />,
   password: () => <PasswordPage />,
   'nav-settings': () => <NavTabsSettings />,
-  profile: (ctx) => <ProfilePage user={ctx.user} />,
+  profile: (ctx) => <ProfilePage user={ctx.user} onLogout={ctx.onLogout} />,
   'purchase-bills': () => <PurchaseBillPage />,
   'billing-pending-sales': () => <BillingPendingSalesPage />,
   'vahan-inventory': () => <VahanInventoryPage />,
@@ -174,11 +174,11 @@ const CUSTOM_PAGES = {
   'punch': () => <PunchPage />,
 };
 
-function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user, employeeMode }) {
+function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user, employeeMode, onLogout }) {
   if (employeeMode) {
     const k = EMPLOYEE_KEYS.includes(rawActive) ? rawActive : 'dashboard';
     if (k === 'dashboard') return <EmployeeHome setActive={setActive} user={user} />;
-    return CUSTOM_PAGES[k]({ setActive, optionUserId, setOptionUserId, user });
+    return CUSTOM_PAGES[k]({ setActive, optionUserId, setOptionUserId, user, onLogout });
   }
   // Vouchers tab keys (v-*) open the existing page of the same voucher.
   if (CUSTOM_PAGES[rawActive] && rawActive.startsWith('v-')) return CUSTOM_PAGES[rawActive]({ setActive, optionUserId, setOptionUserId, user });
@@ -187,7 +187,7 @@ function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserI
   if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
   if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} setOptionUserId={setOptionUserId} />;
   const render = CUSTOM_PAGES[active];
-  if (render) return render({ setActive, optionUserId, setOptionUserId, user });
+  if (render) return render({ setActive, optionUserId, setOptionUserId, user, onLogout });
   return <PlaceholderPage label={active} />;
 }
 
@@ -269,7 +269,7 @@ export default function App() {
 
   return (
     <Shell active={active} setActive={navigate} user={user} employeeMode={employeeMode} onLogout={() => { setToken(null); setUser(null); }}>
-      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} employeeMode={employeeMode} />
+      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} employeeMode={employeeMode} onLogout={() => { setToken(null); setUser(null); }} />
     </Shell>
   );
 }

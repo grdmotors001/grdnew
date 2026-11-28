@@ -52,27 +52,27 @@ export function Dashboard({ setActive }) {
       <button className="btn" onClick={load}>↻ Refresh</button>
     </div>
 
-    <div className="grid" style={{marginTop:12}}>
+    <div className="grid dashGrid" style={{marginTop:12}}>
       <Card label="Today Challan" value={Number(d.today_challans?.length||0).toLocaleString('en-IN')} sub="Today's delivery challans" icon={Truck} onClick={()=>setActive('delivery-challan')} />
       <Card label="Today Bill" value={Number(d.today_bills?.length||0).toLocaleString('en-IN')} sub="Today's tax invoices" icon={Receipt} onClick={()=>setActive('tax-invoice')} />
       <Card label="Today Production" value={Number((d.today_production||[]).reduce((s,r)=>s+Number(r.quantity||0),0)).toLocaleString('en-IN')} sub="Vehicles produced today" icon={Factory} onClick={()=>setActive('production-voucher')} />
       <Card label="Dealers" value={Number(d.dealers||0).toLocaleString('en-IN')} sub="Active dealer accounts" icon={Users} onClick={()=>setActive('dealer')} />
     </div>
 
-    <div className="grid" style={{marginTop:14}}>
+    <div className="grid dashGrid" style={{marginTop:14}}>
       <Card label="Total Employees" value={hr?.total==null?'—':Number(hr.total).toLocaleString('en-IN')} sub="Active employees" icon={Users} onClick={()=>setActive('hr-attendance')} />
       <Card label="Present Today" value={hr?.present==null?'—':Number(hr.present).toLocaleString('en-IN')} sub="Aaj punch kiya" icon={UserCheck} onClick={()=>setActive('hr-attendance')} />
       <Card label="Absent Today" value={hr?.absent==null?'—':Number(hr.absent).toLocaleString('en-IN')} sub="Aaj koi punch nahi" icon={UserX} onClick={()=>setActive('hr-attendance')} />
     </div>
 
-    <div className="grid" style={{marginTop:14}}>
+    <div className="grid dashGrid" style={{marginTop:14}}>
       <Card label="Total Vehicles" value={Number(d.total_vehicles||0).toLocaleString('en-IN')} sub="All vehicle stages" icon={Factory} />
       <Card label="Manufacturing" value={Number(d.counts?.manufacturing||0).toLocaleString('en-IN')} sub="Currently in factory" icon={Factory} onClick={()=>setActive('production-voucher')} />
       <Card label="Delivery Challan" value={Number(d.counts?.delivery_challan||0).toLocaleString('en-IN')} sub={Number(d.pending_challans||0)+' pending for billing'} icon={Truck} onClick={()=>setActive('delivery-challan')} />
       <Card label="Tax Invoice" value={Number(d.counts?.tax_invoice||0).toLocaleString('en-IN')} sub="Billed vehicles" icon={Receipt} onClick={()=>setActive('tax-invoice')} />
     </div>
 
-    <div className="grid" style={{marginTop:14, gridTemplateColumns:'minmax(0,2fr) minmax(320px,1fr)'}}>
+    <div className="grid dashChartGrid" style={{marginTop:14, gridTemplateColumns:'minmax(0,2fr) minmax(320px,1fr)'}}>
       <div className="card">
         <div className="pageHeader"><div><h3 style={{margin:0}}>1 Year Sales &amp; Manufacturing Graph</h3><p className="muted">Monthly billed sales value and vehicles manufactured — last 12 months</p></div></div>
         {(() => {

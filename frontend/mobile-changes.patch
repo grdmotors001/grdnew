@@ -1,0 +1,198 @@
+diff --git a/frontend/app/globals.css b/frontend/app/globals.css
+index 3367479..36545f3 100644
+--- a/frontend/app/globals.css
++++ b/frontend/app/globals.css
+@@ -769,3 +769,32 @@ th[data-sortable][data-sort="desc"]::after{content:" \25BC";opacity:1}
+   .sidebar .sidebarFooter{flex-shrink:0;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+ }
+ @media(min-width:701px){.mobileLogout{display:none}}
++
++/* ===== MOBILE VIEW ONLY (max-width:700px) — requested UI changes =====
++   1. Log Out ab sirf Profile me (top bar se hata diya).
++   2. Dashboard cards 2 column me.
++   3. Header ka sub-menu strip 2-3 line me (wrap) — ek line ki scroll nahi.
++   4. Header ke shortcut / chat / notification / profile icons sirf Home tab par. */
++.mobileOnlyLogout{display:none}
++@media(max-width:700px){
++  .mobileOnlyLogout{display:block}
++
++  /* 2: dashboard cards double box */
++  .dashGrid,.gdCardGrid{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:10px !important}
++  .dashGrid .card,.gdCardGrid .card,.gdCardGrid button{padding:12px !important;min-width:0}
++  .dashGrid .metric{font-size:24px}
++  .dashGrid .card .muted{font-size:12px;overflow-wrap:anywhere}
++  .dashChartGrid{grid-template-columns:1fr !important}
++
++  /* 3: header strip -> 2-3 lines (max ~3 lines, uske baad andar scroll) */
++  .grdTopHeader .moduleStrip{
++    flex-wrap:wrap !important;overflow-x:visible !important;overflow-y:auto;
++    height:auto !important;max-height:118px;align-content:flex-start;gap:6px !important;
++  }
++  .grdTopHeader .moduleStripItem{padding:6px 10px !important;font-size:11px !important}
++
++  /* 4: icons sirf Home tab me; baaki tabs me hide */
++  .grdTopHeader .grdHeaderActions.hideMobileNotHome{display:none !important}
++  /* jis tab me strip bhi nahi aur icons bhi nahi, wahan khali green bar hata do */
++  .grdTopHeader.noStrip{display:none !important}
++}
+diff --git a/frontend/app/page.jsx b/frontend/app/page.jsx
+index 4072198..6eed576 100644
+--- a/frontend/app/page.jsx
++++ b/frontend/app/page.jsx
+@@ -101,7 +101,7 @@ const CUSTOM_PAGES = {
+   'option-setting': (ctx) => <OptionSettingPage userId={ctx.optionUserId} />,
+   password: () => <PasswordPage />,
+   'nav-settings': () => <NavTabsSettings />,
+-  profile: (ctx) => <ProfilePage user={ctx.user} />,
++  profile: (ctx) => <ProfilePage user={ctx.user} onLogout={ctx.onLogout} />,
+   'purchase-bills': () => <PurchaseBillPage />,
+   'billing-pending-sales': () => <BillingPendingSalesPage />,
+   'vahan-inventory': () => <VahanInventoryPage />,
+@@ -174,11 +174,11 @@ const CUSTOM_PAGES = {
+   'punch': () => <PunchPage />,
+ };
+ 
+-function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user, employeeMode }) {
++function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserId, user, employeeMode, onLogout }) {
+   if (employeeMode) {
+     const k = EMPLOYEE_KEYS.includes(rawActive) ? rawActive : 'dashboard';
+     if (k === 'dashboard') return <EmployeeHome setActive={setActive} user={user} />;
+-    return CUSTOM_PAGES[k]({ setActive, optionUserId, setOptionUserId, user });
++    return CUSTOM_PAGES[k]({ setActive, optionUserId, setOptionUserId, user, onLogout });
+   }
+   // Vouchers tab keys (v-*) open the existing page of the same voucher.
+   if (CUSTOM_PAGES[rawActive] && rawActive.startsWith('v-')) return CUSTOM_PAGES[rawActive]({ setActive, optionUserId, setOptionUserId, user });
+@@ -187,7 +187,7 @@ function PageRouter({ active: rawActive, setActive, optionUserId, setOptionUserI
+   if (active === 'dashboard') return <Dashboard setActive={setActive} user={user} />;
+   if (SIMPLE_MASTERS[active]) return <SimpleMasterPage kind={active} setActive={setActive} setOptionUserId={setOptionUserId} />;
+   const render = CUSTOM_PAGES[active];
+-  if (render) return render({ setActive, optionUserId, setOptionUserId, user });
++  if (render) return render({ setActive, optionUserId, setOptionUserId, user, onLogout });
+   return <PlaceholderPage label={active} />;
+ }
+ 
+@@ -269,7 +269,7 @@ export default function App() {
+ 
+   return (
+     <Shell active={active} setActive={navigate} user={user} employeeMode={employeeMode} onLogout={() => { setToken(null); setUser(null); }}>
+-      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} employeeMode={employeeMode} />
++      <PageRouter active={active} setActive={setActive} optionUserId={optionUserId} setOptionUserId={setOptionUserId} user={user} employeeMode={employeeMode} onLogout={() => { setToken(null); setUser(null); }} />
+     </Shell>
+   );
+ }
+diff --git a/frontend/components/Dashboard.jsx b/frontend/components/Dashboard.jsx
+index c5eb5e2..ce44f47 100644
+--- a/frontend/components/Dashboard.jsx
++++ b/frontend/components/Dashboard.jsx
+@@ -52,27 +52,27 @@ export function Dashboard({ setActive }) {
+       <button className="btn" onClick={load}>↻ Refresh</button>
+     </div>
+ 
+-    <div className="grid" style={{marginTop:12}}>
++    <div className="grid dashGrid" style={{marginTop:12}}>
+       <Card label="Today Challan" value={Number(d.today_challans?.length||0).toLocaleString('en-IN')} sub="Today's delivery challans" icon={Truck} onClick={()=>setActive('delivery-challan')} />
+       <Card label="Today Bill" value={Number(d.today_bills?.length||0).toLocaleString('en-IN')} sub="Today's tax invoices" icon={Receipt} onClick={()=>setActive('tax-invoice')} />
+       <Card label="Today Production" value={Number((d.today_production||[]).reduce((s,r)=>s+Number(r.quantity||0),0)).toLocaleString('en-IN')} sub="Vehicles produced today" icon={Factory} onClick={()=>setActive('production-voucher')} />
+       <Card label="Dealers" value={Number(d.dealers||0).toLocaleString('en-IN')} sub="Active dealer accounts" icon={Users} onClick={()=>setActive('dealer')} />
+     </div>
+ 
+-    <div className="grid" style={{marginTop:14}}>
++    <div className="grid dashGrid" style={{marginTop:14}}>
+       <Card label="Total Employees" value={hr?.total==null?'—':Number(hr.total).toLocaleString('en-IN')} sub="Active employees" icon={Users} onClick={()=>setActive('hr-attendance')} />
+       <Card label="Present Today" value={hr?.present==null?'—':Number(hr.present).toLocaleString('en-IN')} sub="Aaj punch kiya" icon={UserCheck} onClick={()=>setActive('hr-attendance')} />
+       <Card label="Absent Today" value={hr?.absent==null?'—':Number(hr.absent).toLocaleString('en-IN')} sub="Aaj koi punch nahi" icon={UserX} onClick={()=>setActive('hr-attendance')} />
+     </div>
+ 
+-    <div className="grid" style={{marginTop:14}}>
++    <div className="grid dashGrid" style={{marginTop:14}}>
+       <Card label="Total Vehicles" value={Number(d.total_vehicles||0).toLocaleString('en-IN')} sub="All vehicle stages" icon={Factory} />
+       <Card label="Manufacturing" value={Number(d.counts?.manufacturing||0).toLocaleString('en-IN')} sub="Currently in factory" icon={Factory} onClick={()=>setActive('production-voucher')} />
+       <Card label="Delivery Challan" value={Number(d.counts?.delivery_challan||0).toLocaleString('en-IN')} sub={Number(d.pending_challans||0)+' pending for billing'} icon={Truck} onClick={()=>setActive('delivery-challan')} />
+       <Card label="Tax Invoice" value={Number(d.counts?.tax_invoice||0).toLocaleString('en-IN')} sub="Billed vehicles" icon={Receipt} onClick={()=>setActive('tax-invoice')} />
+     </div>
+ 
+-    <div className="grid" style={{marginTop:14, gridTemplateColumns:'minmax(0,2fr) minmax(320px,1fr)'}}>
++    <div className="grid dashChartGrid" style={{marginTop:14, gridTemplateColumns:'minmax(0,2fr) minmax(320px,1fr)'}}>
+       <div className="card">
+         <div className="pageHeader"><div><h3 style={{margin:0}}>1 Year Sales &amp; Manufacturing Graph</h3><p className="muted">Monthly billed sales value and vehicles manufactured — last 12 months</p></div></div>
+         {(() => {
+diff --git a/frontend/components/GroupDashboard.jsx b/frontend/components/GroupDashboard.jsx
+index 7d9b626..aae4222 100644
+--- a/frontend/components/GroupDashboard.jsx
++++ b/frontend/components/GroupDashboard.jsx
+@@ -118,7 +118,7 @@ export function GroupDashboard({ group = 'Masters', setActive }) {
+       {showAmount ? <BarList title="Option-wise total amount" rows={items.filter((x) => !x.unit).map((x, i) => ({ key: x.key, label: x.label || labelFor(x.key), value: num(x.total), color: COLORS[i % COLORS.length] }))} fmt={inr} /> : null}
+     </div> : null}
+ 
+-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12 }}>
++    <div className="gdCardGrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(210px,1fr))', gap: 12 }}>
+       {items.map((it, i) => {
+         const color = COLORS[i % COLORS.length];
+         const open = () => setActive && setActive(it.open || it.key);
+diff --git a/frontend/components/ProfilePage.jsx b/frontend/components/ProfilePage.jsx
+index c8eeadf..a43a687 100644
+--- a/frontend/components/ProfilePage.jsx
++++ b/frontend/components/ProfilePage.jsx
+@@ -12,7 +12,7 @@ const emptyProfile = {
+   address: '',
+ };
+ 
+-export function ProfilePage({ user }) {
++export function ProfilePage({ user, onLogout }) {
+   const [form, setForm] = useState({ ...emptyProfile, ...(user || {}) });
+   const [loading, setLoading] = useState(true);
+   const [saving, setSaving] = useState(false);
+@@ -164,6 +164,10 @@ export function ProfilePage({ user }) {
+           </div>
+         </form>
+       </div>
++
++      {onLogout && <div className="card mobileOnlyLogout">
++        <button type="button" className="btn danger" style={{ width: '100%' }} onClick={onLogout}>Log Out</button>
++      </div>}
+     </div>
+   );
+ }
+diff --git a/frontend/components/Shell.jsx b/frontend/components/Shell.jsx
+index 54d2222..b99cf56 100644
+--- a/frontend/components/Shell.jsx
++++ b/frontend/components/Shell.jsx
+@@ -206,6 +206,8 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
+   const groupItems = activeGroup === 'Dashboard' ? [] : (navGroups[activeGroup] || []);
+   // Admin users must retain the full staff sidebar after a fresh login/session restore.
+   // Some legacy user rows have department=Admin but is_super_user=false and/or an empty allowed_modules list.
++  // Mobile: header me sub-menu strip tabhi hoti hai jab ye teen me se koi ek ho (neeche JSX ki chain jaisi hi shart).
++  const hasHeaderStrip = !employeeMode && (active === 'hr-attendance' || activeGroup === 'Showroom' || (activeGroup !== 'Dashboard' && groupItems.length > 0));
+   const isAdminUser = !!user?.is_super_user || String(user?.department || '').trim().toLowerCase() === 'admin';
+   // Voucher tab keys (v-*) follow the permission of the page they open.
+   // 'my-salary' har staff user ko dikhti hai (server sirf usi ki apni salary deta hai).
+@@ -260,9 +262,9 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
+         .showroomModuleItems .moduleStripItem{white-space:nowrap}
+         @media(max-width:900px){.showroomModuleStrip{max-width:100%;padding-bottom:5px}.showroomModuleGroup{min-width:max-content}}
+       `}</style>
+-      <div className="mobileAdminTop">{!employeeMode && <button onClick={() => setMobileMenu(true)} aria-label="Open menu">☰</button>}<div><strong>G.R.D. MOTORS</strong><small>eBill Management System</small></div><button type="button" className="mobileLogout" onClick={onLogout} aria-label="Log Out" title="Log Out"><LogOut size={18} /></button></div>
++      <div className="mobileAdminTop">{!employeeMode && <button onClick={() => setMobileMenu(true)} aria-label="Open menu">☰</button>}<div><strong>G.R.D. MOTORS</strong><small>eBill Management System</small></div></div>
+       {mobileMenu && <button className="mobileMenuBackdrop" aria-label="Close menu" onClick={() => setMobileMenu(false)} />}
+-      {profileOpen && <div className="modal"><div className="modalbox profileBox" style={{maxWidth:760}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><div><h2>My Staff Profile</h2><p className="muted">Profile aur monthly attendance ek hi jagah.</p></div><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Close</button></div><div className="card" style={{marginTop:14}}><div style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}>{myAttendance?.employee?.photo_url ? <img src={myAttendance.employee.photo_url} alt="Staff" style={{width:76,height:76,borderRadius:18,objectFit:'cover',border:'1px solid var(--border)'}}/> : <div className="sidebarAvatar" style={{width:76,height:76,fontSize:28}}>{initial}</div>}<div><h3 style={{margin:0}}>{myAttendance?.employee?.name || user?.username}</h3><div className="muted">{myAttendance?.employee?.designation || user?.department || 'Staff'} · {myAttendance?.employee?.employee_code || 'Employee'}</div><div style={{marginTop:6}}>Date of Joining: <strong>{myAttendance?.employee?.joining_date || 'Not added'}</strong></div></div></div></div>{myAttendance?.employee ? <><div className="formgrid" style={{marginTop:14}}><Field label="Mobile No." value={myAttendance.employee.mobile||user?.mobile||'-'} onChange={()=>{}} disabled /><Field label="Department" value={myAttendance.employee.department||'-'} onChange={()=>{}} disabled /><Field label="Designation" value={myAttendance.employee.designation||'-'} onChange={()=>{}} disabled /><Field label="Date of Joining" value={myAttendance.employee.joining_date||'-'} onChange={()=>{}} disabled /></div><div className="toolbar" style={{marginTop:16}}><div className="field"><label>Attendance Month</label><input type="month" value={attendanceMonth} onChange={async e=>{const m=e.target.value;setAttendanceMonth(m);setAttendanceLoading(true);try{setMyAttendance(await get('/hr/me?month='+m))}catch(err){}finally{setAttendanceLoading(false)}}}/></div></div><div className="formgrid" style={{marginTop:8}}>{[['Present','Present'],['Late','Late'],['Overtime','OT'],['Absent','Absent']].map(([label,key])=>{const a=myAttendance.attendance||[];const val=key==='Present'?a.filter(x=>x.status==='Present').length:key==='Late'?a.filter(x=>Number(x.late_minutes||0)>0).length:key==='OT'?a.reduce((s,x)=>s+Number(x.overtime_hours||0),0).toFixed(2):a.filter(x=>x.status==='Absent').length;return <div className="card" key={key}><div className="muted">{label}</div><strong style={{fontSize:22}}>{val}</strong></div>})}</div><div className="card tableWrap" style={{marginTop:14}}><table className="table reportTable"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Status</th><th>Late</th><th>OT</th></tr></thead><tbody>{(myAttendance.attendance||[]).map(x=><tr key={x.work_date}><td>{x.work_date}</td><td>{x.first_in||'-'}</td><td>{x.last_out||'-'}</td><td>{x.status}</td><td>{Number(x.late_minutes||0)} min</td><td>{Number(x.overtime_hours||0).toFixed(2)} hr</td></tr>)}</tbody></table></div></> : <div className="error" style={{marginTop:14}}>{myAttendance?.message || 'HR profile not linked yet.'}</div>}<div className="actions" style={{marginTop:18}}><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Close</button></div></div></div>}
++      {profileOpen && <div className="modal"><div className="modalbox profileBox" style={{maxWidth:760}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}><div><h2>My Staff Profile</h2><p className="muted">Profile aur monthly attendance ek hi jagah.</p></div><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Close</button></div><div className="card" style={{marginTop:14}}><div style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}>{myAttendance?.employee?.photo_url ? <img src={myAttendance.employee.photo_url} alt="Staff" style={{width:76,height:76,borderRadius:18,objectFit:'cover',border:'1px solid var(--border)'}}/> : <div className="sidebarAvatar" style={{width:76,height:76,fontSize:28}}>{initial}</div>}<div><h3 style={{margin:0}}>{myAttendance?.employee?.name || user?.username}</h3><div className="muted">{myAttendance?.employee?.designation || user?.department || 'Staff'} · {myAttendance?.employee?.employee_code || 'Employee'}</div><div style={{marginTop:6}}>Date of Joining: <strong>{myAttendance?.employee?.joining_date || 'Not added'}</strong></div></div></div></div>{myAttendance?.employee ? <><div className="formgrid" style={{marginTop:14}}><Field label="Mobile No." value={myAttendance.employee.mobile||user?.mobile||'-'} onChange={()=>{}} disabled /><Field label="Department" value={myAttendance.employee.department||'-'} onChange={()=>{}} disabled /><Field label="Designation" value={myAttendance.employee.designation||'-'} onChange={()=>{}} disabled /><Field label="Date of Joining" value={myAttendance.employee.joining_date||'-'} onChange={()=>{}} disabled /></div><div className="toolbar" style={{marginTop:16}}><div className="field"><label>Attendance Month</label><input type="month" value={attendanceMonth} onChange={async e=>{const m=e.target.value;setAttendanceMonth(m);setAttendanceLoading(true);try{setMyAttendance(await get('/hr/me?month='+m))}catch(err){}finally{setAttendanceLoading(false)}}}/></div></div><div className="formgrid" style={{marginTop:8}}>{[['Present','Present'],['Late','Late'],['Overtime','OT'],['Absent','Absent']].map(([label,key])=>{const a=myAttendance.attendance||[];const val=key==='Present'?a.filter(x=>x.status==='Present').length:key==='Late'?a.filter(x=>Number(x.late_minutes||0)>0).length:key==='OT'?a.reduce((s,x)=>s+Number(x.overtime_hours||0),0).toFixed(2):a.filter(x=>x.status==='Absent').length;return <div className="card" key={key}><div className="muted">{label}</div><strong style={{fontSize:22}}>{val}</strong></div>})}</div><div className="card tableWrap" style={{marginTop:14}}><table className="table reportTable"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Status</th><th>Late</th><th>OT</th></tr></thead><tbody>{(myAttendance.attendance||[]).map(x=><tr key={x.work_date}><td>{x.work_date}</td><td>{x.first_in||'-'}</td><td>{x.last_out||'-'}</td><td>{x.status}</td><td>{Number(x.late_minutes||0)} min</td><td>{Number(x.overtime_hours||0).toFixed(2)} hr</td></tr>)}</tbody></table></div></> : <div className="error" style={{marginTop:14}}>{myAttendance?.message || 'HR profile not linked yet.'}</div>}<div className="actions" style={{marginTop:18}}><button type="button" className="btn danger" onClick={()=>{setProfileOpen(false);onLogout();}}>Log Out</button><button type="button" className="btn" onClick={()=>setProfileOpen(false)}>Close</button></div></div></div>}
+       <aside className={'sidebar' + (collapsed ? ' collapsed' : '') + (mobileMenu ? ' mobile-open' : '')}>
+         <div className="brand">
+           <div className="brandMark"><Car size={24} strokeWidth={2.4} /></div>
+@@ -383,7 +385,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
+         </div>
+       </aside>
+       <main className={'main' + (collapsed ? ' mainCollapsed' : '')}>
+-        <div className="top grdTopHeader">
++        <div className={'top grdTopHeader' + (active === 'dashboard' ? ' isHome' : '') + (!hasHeaderStrip && active !== 'dashboard' ? ' noStrip' : '')}>
+           <div className="topTitleBlock grdTopTitle">
+             <div className="title">{active === 'dashboard' ? 'Dashboard' : activeGroup}</div>
+             <div className="subtitle">{active === 'dashboard' ? 'Admin Overview' : dashGroup ? 'Dashboard' : labelFor(active)} · {user?.username} · {user?.is_super_user ? 'Super User' : (user?.department || 'Staff')}</div>
+@@ -430,7 +432,7 @@ export function Shell({ active, setActive, user, onLogout, children, employeeMod
+               ))}
+             </div>
+           ) : null}
+-          <div className="grdHeaderActions">
++          <div className={'grdHeaderActions' + (active === 'dashboard' ? '' : ' hideMobileNotHome')}>
+             <HelpButton sections={helpSections} />
+             <button type="button" className="grdHeaderIcon" title="Office Chat" onClick={() => { if (window.innerWidth <= 700) window.location.href = '/chat'; else setChatOpen((v) => !v); }}><MessageCircle size={18} /></button>
+             <button type="button" className="grdHeaderIcon" title={notificationCount > 0 ? String(notificationCount) + ' unread notifications' : 'Notifications'} onClick={() => selectMenu('notifications')}>
